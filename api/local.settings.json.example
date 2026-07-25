@@ -1,0 +1,18 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+
+    "DYNAMICS_TENANT_ID": "<tenant-id uit de Dynamics App Registration>",
+    "DYNAMICS_CLIENT_ID": "<client/application-id uit de Dynamics App Registration>",
+    "DYNAMICS_CLIENT_SECRET": "<client secret uit de Dynamics App Registration>",
+    "DYNAMICS_RESOURCE_URL": "https://jouworganisatie.crm4.dynamics.com",
+
+    "AAD_TENANT_ID": "<tenant-id uit de PORTAAL App Registration>",
+    "AAD_CLIENT_ID": "<client/application-id uit de PORTAAL App Registration>",
+    "AAD_CLIENT_SECRET": "<client secret uit de PORTAAL App Registration>",
+
+    "STORAGE_CONNECTION_STRING": "<connection string van het opslagaccount, voor de documentlabels>"
+  }
+}
+
