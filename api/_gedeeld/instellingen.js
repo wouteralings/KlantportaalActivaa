@@ -30,7 +30,7 @@ async function haalInstellingen() {
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
 
   const bestaat = await blobClient.exists();
-  if (!bestaat) return { googleReviewUrl: "", teamsChatUrl: "", logoUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "" };
+  if (!bestaat) return { googleReviewUrl: "", teamsChatUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "" };
 
   const downloadResponse = await blobClient.download();
   const tekst = await streamNaarTekst(downloadResponse.readableStreamBody);
@@ -38,6 +38,7 @@ async function haalInstellingen() {
     googleReviewUrl: "",
     teamsChatUrl: "",
     logoUrl: "",
+    faviconUrl: "",
     wijzigingFormNawUrl: "",
     wijzigingFormContactUrl: "",
     ...JSON.parse(tekst),

@@ -36,6 +36,18 @@ const KLEUR = {
   rood: "#B23B3B",
 };
 
+// Vervangt (of maakt) de favicon in de browsertab door de opgegeven URL.
+function zetBrowserFavicon(url) {
+  if (!url) return;
+  let link = document.querySelector("link[rel~='icon']");
+  if (!link) {
+    link = document.createElement("link");
+    link.rel = "icon";
+    document.head.appendChild(link);
+  }
+  link.href = url;
+}
+
 const TABS = [
   { key: "home", label: "Home", icon: ClipboardList },
   { key: "gegevens", label: "Mijn gegevens", icon: Building2 },
@@ -81,6 +93,7 @@ export default function KlantPortaal() {
         setLogoUrl(d.logoUrl || "");
         setWijzigingFormNawUrl(d.wijzigingFormNawUrl || "");
         setWijzigingFormContactUrl(d.wijzigingFormContactUrl || "");
+        zetBrowserFavicon(d.faviconUrl);
       })
       .catch(() => {}); // niet-kritisch
   }, []);
@@ -561,26 +574,31 @@ function TabGegevens({ data, wijzigingFormNawUrl, wijzigingFormContactUrl }) {
             </div>
           </div>
 
-          {acc.adviseur && (acc.adviseur.naam || acc.adviseur.email || acc.adviseur.telefoon) && (
-            <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${KLEUR.rand}` }}>
-              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: KLEUR.mutedTekst, marginBottom: 8 }}>
-                Jouw persoonlijke adviseur
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
-                <User size={14} color={KLEUR.mutedTekst} /> {acc.adviseur.naam || "—"}
-              </div>
-              {acc.adviseur.email && (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 4 }}>
-                  <Mail size={14} color={KLEUR.mutedTekst} /> {acc.adviseur.email}
+          {[
+            { label: "Relatiebeheerder", persoon: acc.relatiebeheerder },
+            { label: "Accountant", persoon: acc.accountant },
+          ]
+            .filter((p) => p.persoon && (p.persoon.naam || p.persoon.email || p.persoon.telefoon))
+            .map(({ label, persoon }) => (
+              <div key={label} style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${KLEUR.rand}` }}>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: KLEUR.mutedTekst, marginBottom: 8 }}>
+                  {label}
                 </div>
-              )}
-              {acc.adviseur.telefoon && (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                  <Phone size={14} color={KLEUR.mutedTekst} /> {acc.adviseur.telefoon}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+                  <User size={14} color={KLEUR.mutedTekst} /> {persoon.naam || "—"}
                 </div>
-              )}
-            </div>
-          )}
+                {persoon.email && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 4 }}>
+                    <Mail size={14} color={KLEUR.mutedTekst} /> {persoon.email}
+                  </div>
+                )}
+                {persoon.telefoon && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                    <Phone size={14} color={KLEUR.mutedTekst} /> {persoon.telefoon}
+                  </div>
+                )}
+              </div>
+            ))}
         </div>
       ))}
     </div>

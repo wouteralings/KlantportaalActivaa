@@ -17,6 +17,10 @@
       "allowedRoles": ["beheerder"]
     },
     {
+      "route": "/api/beheer-favicon",
+      "allowedRoles": ["beheerder"]
+    },
+    {
       "route": "/api/instellingen",
       "allowedRoles": ["anonymous"]
     },

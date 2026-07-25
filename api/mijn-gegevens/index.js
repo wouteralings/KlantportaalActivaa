@@ -16,11 +16,13 @@ module.exports = async function (context, req) {
       headers: { "Content-Type": "application/json" },
       body: {
         email,
-        accounts: accounts.map(({ accountId, klantnummer, contactNaam, adviseur, account }) => ({
+        accounts: accounts.map(({ accountId, klantnummer, contactNaam, relatiebeheerder, accountant, adviseur, account }) => ({
           accountId,
           klantnummer,
           klantnaam: account.name || "",
           contactpersoon: contactNaam,
+          relatiebeheerder,
+          accountant,
           adviseur,
           naw: {
             bedrijfsnaam: account.name || "",

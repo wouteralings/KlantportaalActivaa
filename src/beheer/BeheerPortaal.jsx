@@ -11,11 +11,25 @@ const KLEUR = {
   rood: "#B23B3B",
 };
 
+// Vervangt (of maakt) de favicon in de browsertab door de opgegeven URL.
+function zetBrowserFavicon(url) {
+  if (!url) return;
+  let link = document.querySelector("link[rel~='icon']");
+  if (!link) {
+    link = document.createElement("link");
+    link.rel = "icon";
+    document.head.appendChild(link);
+  }
+  link.href = url;
+}
+
 export default function BeheerPortaal() {
   const [status, setStatus] = useState("laden"); // laden | nietIngelogd | geenRol | klaar
   const [gebruiker, setGebruiker] = useState(null);
   const [logoUrl, setLogoUrl] = useState("");
   const [uploadStatus, setUploadStatus] = useState("idle"); // idle | bezig | gelukt | fout
+  const [faviconUrl, setFaviconUrl] = useState("");
+  const [faviconUploadStatus, setFaviconUploadStatus] = useState("idle"); // idle | bezig | gelukt | fout
 
   const [categorieen, setCategorieen] = useState(null); // null = laden, [] = geen/fout
   const [mededelingen, setMededelingen] = useState(null);
@@ -56,6 +70,8 @@ export default function BeheerPortaal() {
       .then((r) => r.json())
       .then((d) => {
         setLogoUrl(d.logoUrl || "");
+        setFaviconUrl(d.faviconUrl || "");
+        zetBrowserFavicon(d.faviconUrl);
         setWijzigingFormNawUrl(d.wijzigingFormNawUrl || "");
         setWijzigingFormContactUrl(d.wijzigingFormContactUrl || "");
       })
@@ -99,6 +115,29 @@ export default function BeheerPortaal() {
         setUploadStatus("gelukt");
       } catch {
         setUploadStatus("fout");
+      }
+    };
+    reader.readAsDataURL(bestand);
+  }, []);
+
+  const uploadFavicon = useCallback((bestand) => {
+    if (!bestand) return;
+    setFaviconUploadStatus("bezig");
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const res = await fetch("/api/beheer-favicon", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dataUrl: reader.result }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        setFaviconUrl(data.faviconUrl);
+        zetBrowserFavicon(data.faviconUrl);
+        setFaviconUploadStatus("gelukt");
+      } catch {
+        setFaviconUploadStatus("fout");
       }
     };
     reader.readAsDataURL(bestand);
@@ -296,6 +335,45 @@ export default function BeheerPortaal() {
           </div>
         )}
         {uploadStatus === "fout" && (
+          <div style={{ marginTop: 12, fontSize: 12.5, color: KLEUR.rood }}>Uploaden is niet gelukt, probeer het nog eens.</div>
+        )}
+      </div>
+
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Favicon</div>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 18 }}>
+          Het kleine icoon in de browsertab. Gebruik bij voorkeur een vierkante afbeelding (PNG of SVG).
+        </div>
+
+        {faviconUrl && (
+          <div style={{ marginBottom: 18, padding: 16, background: KLEUR.lichtblauw, borderRadius: 8, display: "flex", justifyContent: "center" }}>
+            <img src={faviconUrl} alt="Huidige favicon" style={{ height: 48, width: 48, objectFit: "contain" }} />
+          </div>
+        )}
+
+        <label
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px 16px",
+            border: `1.5px dashed ${KLEUR.rand}`, borderRadius: 8, cursor: "pointer", fontSize: 13.5,
+            fontWeight: 600, color: KLEUR.blauw,
+          }}
+        >
+          <Upload size={16} />
+          {faviconUploadStatus === "bezig" ? "Bezig met uploaden..." : "Nieuwe favicon kiezen"}
+          <input
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={(e) => uploadFavicon(e.target.files?.[0])}
+          />
+        </label>
+
+        {faviconUploadStatus === "gelukt" && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, fontSize: 12.5, color: KLEUR.blauw }}>
+            <CheckCircle2 size={14} /> Favicon bijgewerkt.
+          </div>
+        )}
+        {faviconUploadStatus === "fout" && (
           <div style={{ marginTop: 12, fontSize: 12.5, color: KLEUR.rood }}>Uploaden is niet gelukt, probeer het nog eens.</div>
         )}
       </div>

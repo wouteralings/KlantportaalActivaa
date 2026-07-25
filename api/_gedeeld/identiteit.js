@@ -96,6 +96,12 @@ function haalEmailUitPrincipal(req) {
  */
 const KLANTCATEGORIE_VELD = process.env.DYNAMICS_KLANTCATEGORIE_VELD || "new_klantcategorie";
 
+// Navigatie-eigenschappen (schemanamen) van de eigen lookup-velden op Account naar de
+// systemuser: de relatiebeheerder (veld "Manager") en de accountant. Overschrijf via
+// Application Settings als de schemanaam bij jullie anders is.
+const RELATIEBEHEERDER_NAV = process.env.DYNAMICS_RELATIEBEHEERDER_NAV || "cr283_Manager";
+const ACCOUNTANT_NAV = process.env.DYNAMICS_ACCOUNTANT_NAV || "sk_Accountant";
+
 async function herleidAccounts(req, token) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   const email = haalEmailUitPrincipal(req);
@@ -107,16 +113,18 @@ async function herleidAccounts(req, token) {
   }
 
   const veilig = email.replace(/'/g, "''");
-  // 'ownerid' wordt gebruikt als de persoonlijke adviseur/contactpersoon van de klant bij
-  // jullie organisatie (de standaard Dataverse-eigenaar van het Account). Werkt dat bij
-  // jullie anders (bijv. een apart lookup-veld), pas dan alleen deze $expand aan.
+  // De relatiebeheerder (veld "Manager") en de accountant zijn eigen lookup-velden op Account
+  // naar de systemuser. We halen ze op via een geneste $expand. Kloppen de schemanamen bij
+  // jullie niet, pas ze dan aan via de Application Settings DYNAMICS_RELATIEBEHEERDER_NAV /
+  // DYNAMICS_ACCOUNTANT_NAV (i.p.v. deze code).
   const query =
     `${resource}/api/data/v9.2/contacts` +
     `?$select=contactid,fullname,emailaddress1` +
     `&$filter=emailaddress1 eq '${veilig}'` +
     `&$expand=parentcustomerid_account($select=accountid,accountnumber,name,address1_line1,` +
     `address1_postalcode,address1_city,emailaddress1,telephone1,${KLANTCATEGORIE_VELD};` +
-    `$expand=ownerid($select=fullname,internalemailaddress,mobilephone,telephone1))`;
+    `$expand=${RELATIEBEHEERDER_NAV}($select=fullname,internalemailaddress,mobilephone,telephone1),` +
+    `${ACCOUNTANT_NAV}($select=fullname,internalemailaddress,mobilephone,telephone1))`;
 
   const res = await fetch(query, {
     headers: {
@@ -160,13 +168,17 @@ async function herleidAccounts(req, token) {
         ? categorieLabel.split(",").map((s) => s.trim()).filter(Boolean)
         : [];
 
-      const adviseur = account.ownerid
-        ? {
-            naam: account.ownerid.fullname || "",
-            email: account.ownerid.internalemailaddress || "",
-            telefoon: account.ownerid.mobilephone || account.ownerid.telephone1 || "",
-          }
-        : null;
+      const maakPersoon = (u) =>
+        u
+          ? {
+              naam: u.fullname || "",
+              email: u.internalemailaddress || "",
+              telefoon: u.mobilephone || u.telephone1 || "",
+            }
+          : null;
+
+      const relatiebeheerder = maakPersoon(account[RELATIEBEHEERDER_NAV]);
+      const accountant = maakPersoon(account[ACCOUNTANT_NAV]);
 
       return {
         contactId: contact.contactid,
@@ -175,7 +187,10 @@ async function herleidAccounts(req, token) {
         klantnummer: account.accountnumber || "",
         klantnaam: account.name,
         klantcategorieen,
-        adviseur,
+        relatiebeheerder,
+        accountant,
+        // 'adviseur' blijft bestaan voor terugwaartse compatibiliteit (= relatiebeheerder).
+        adviseur: relatiebeheerder,
         account,
       };
     }),

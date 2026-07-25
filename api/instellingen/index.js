@@ -5,14 +5,14 @@ const { haalInstellingen } = require("../_gedeeld/instellingen");
  * endpoint voor elke ingelogde klant leesbaar — puur om instellingen te tonen die in de
  * portal-UI gebruikt worden, zoals de Teams-chatlink en de wijzigingsformulier-links.
  */
-const LEGE_INSTELLINGEN = { teamsChatUrl: "", logoUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "" };
+const LEGE_INSTELLINGEN = { teamsChatUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "" };
 
 module.exports = async function (context, req) {
   try {
-    const { teamsChatUrl, logoUrl, wijzigingFormNawUrl, wijzigingFormContactUrl } = await haalInstellingen();
+    const { teamsChatUrl, logoUrl, faviconUrl, wijzigingFormNawUrl, wijzigingFormContactUrl } = await haalInstellingen();
     context.res = {
       headers: { "Content-Type": "application/json" },
-      body: { teamsChatUrl, logoUrl, wijzigingFormNawUrl, wijzigingFormContactUrl },
+      body: { teamsChatUrl, logoUrl, faviconUrl, wijzigingFormNawUrl, wijzigingFormContactUrl },
     };
   } catch (err) {
     context.log.error(err);

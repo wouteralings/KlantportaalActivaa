@@ -21,7 +21,7 @@ async function haalContainerClient() {
  * Slaat een afbeelding op vanuit een data-URL (bijv. "data:image/png;base64,....")
  * en geeft de publiek toegankelijke URL terug.
  */
-async function slaLogoOp(dataUrl) {
+async function slaAfbeeldingOp(dataUrl, basisnaam) {
   const match = /^data:(image\/[a-zA-Z+.-]+);base64,(.+)$/.exec(dataUrl || "");
   if (!match) {
     const fout = new Error("Verwacht een data-URL, bijv. 'data:image/png;base64,...'.");
@@ -32,7 +32,7 @@ async function slaLogoOp(dataUrl) {
   const extensie = contentType.split("/")[1].split("+")[0];
 
   const containerClient = await haalContainerClient();
-  const blobClient = containerClient.getBlockBlobClient(`logo.${extensie}`);
+  const blobClient = containerClient.getBlockBlobClient(`${basisnaam}.${extensie}`);
   const buffer = Buffer.from(base64Data, "base64");
   await blobClient.upload(buffer, buffer.length, {
     overwrite: true,
@@ -42,4 +42,7 @@ async function slaLogoOp(dataUrl) {
   return blobClient.url;
 }
 
-module.exports = { slaLogoOp };
+const slaLogoOp = (dataUrl) => slaAfbeeldingOp(dataUrl, "logo");
+const slaFaviconOp = (dataUrl) => slaAfbeeldingOp(dataUrl, "favicon");
+
+module.exports = { slaLogoOp, slaFaviconOp };
