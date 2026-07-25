@@ -81,11 +81,17 @@ function haalEmailUitPrincipal(req) {
 }
 
 /**
- * Herleidt de ingelogde gebruiker naar AL zijn Contact + Account-koppelingen in Dataverse.
- * Eén e-mailadres kan bij meerdere Contact-records horen (bijv. eenzelfde persoon als
- * contactpersoon bij meerdere klantorganisaties) — die worden dan allemaal teruggegeven.
- * Er is geen aparte toegangsadministratie nodig: de koppeling die in Dynamics al bestaat
- * (Contact -> parentcustomerid Account) bepaalt precies wat deze gebruiker mag zien.
+ * Herleidt de ingelogde gebruiker naar AL zijn gekoppelde Accounts in Dataverse.
+ *
+ * De koppeling bij Activaa loopt via het veld "Primair contactpersoon" (primarycontactid)
+ * OP HET ACCOUNT: elk klant-Account wijst naar de Contactpersoon van de klant. De ingelogde
+ * portalgebruiker is dus de primaire contactpersoon van één of meer Accounts, en precies die
+ * Accounts mag hij zien. (Let op: dit is NIET het veld "Bedrijfsnaam"/parentcustomerid op het
+ * Contact — dat is bij Activaa leeg.)
+ *
+ * Eén e-mailadres kan bij meerdere Accounts horen (dezelfde persoon als primaire contactpersoon
+ * bij meerdere klantorganisaties) — die worden dan allemaal teruggegeven. Er is geen aparte
+ * toegangsadministratie nodig: de koppeling die in Dynamics al bestaat bepaalt wat hij ziet.
  *
  * Gooit een fout met een 'code' veld zodat de aanroepende Function een passende status kan zetten.
  */
@@ -116,18 +122,18 @@ async function herleidAccounts(req, token) {
   }
 
   const veilig = email.replace(/'/g, "''");
+  // We zoeken alle actieve Accounts waarvan de PRIMAIRE CONTACTPERSOON dit e-mailadres heeft.
   // De relatiebeheerder (veld "Manager") en de accountant zijn eigen lookup-velden op Account
-  // naar de systemuser. We halen ze op via een geneste $expand. Kloppen de schemanamen bij
-  // jullie niet, pas ze dan aan via de Application Settings DYNAMICS_RELATIEBEHEERDER_NAV /
-  // DYNAMICS_ACCOUNTANT_NAV (i.p.v. deze code).
+  // naar de systemuser; die halen we mee via $expand. Kloppen de schemanamen bij jullie niet,
+  // pas ze dan aan via de Application Settings DYNAMICS_RELATIEBEHEERDER_NAV / DYNAMICS_ACCOUNTANT_NAV.
   const query =
-    `${resource}/api/data/v9.2/contacts` +
-    `?$select=contactid,fullname,emailaddress1` +
-    `&$filter=emailaddress1 eq '${veilig}'` +
-    `&$expand=parentcustomerid_account($select=accountid,accountnumber,name,address1_line1,` +
-    `address1_postalcode,address1_city,emailaddress1,telephone1${KLANTCATEGORIE_VELD ? "," + KLANTCATEGORIE_VELD : ""};` +
-    `$expand=${RELATIEBEHEERDER_NAV}($select=fullname,internalemailaddress,mobilephone,address1_telephone1),` +
-    `${ACCOUNTANT_NAV}($select=fullname,internalemailaddress,mobilephone,address1_telephone1))`;
+    `${resource}/api/data/v9.2/accounts` +
+    `?$select=accountid,accountnumber,name,address1_line1,address1_postalcode,address1_city,` +
+    `emailaddress1,telephone1${KLANTCATEGORIE_VELD ? "," + KLANTCATEGORIE_VELD : ""}` +
+    `&$filter=primarycontactid/emailaddress1 eq '${veilig}' and statecode eq 0` +
+    `&$expand=primarycontactid($select=contactid,fullname,emailaddress1),` +
+    `${RELATIEBEHEERDER_NAV}($select=fullname,internalemailaddress,mobilephone,address1_telephone1),` +
+    `${ACCOUNTANT_NAV}($select=fullname,internalemailaddress,mobilephone,address1_telephone1)`;
 
   const res = await fetch(query, {
     headers: {
@@ -149,12 +155,12 @@ async function herleidAccounts(req, token) {
   }
 
   const data = await res.json();
-  const contacten = (data.value || []).filter((c) => c.parentcustomerid_account);
+  const accountsRuw = data.value || [];
 
-  if (contacten.length === 0) {
+  if (accountsRuw.length === 0) {
     const fout = new Error(
-      `Geen gekoppeld account gevonden voor ${email}. Controleer of er een Contact bestaat ` +
-      `met dit e-mailadres, gekoppeld aan een Account (parentcustomerid).`
+      `Geen gekoppeld account gevonden voor ${email}. Controleer of er een Account bestaat ` +
+      `waarbij dit e-mailadres als Primair contactpersoon is ingesteld.`
     );
     fout.code = "GEEN_KOPPELING";
     throw fout;
@@ -162,8 +168,7 @@ async function herleidAccounts(req, token) {
 
   return {
     email,
-    accounts: contacten.map((contact) => {
-      const account = contact.parentcustomerid_account;
+    accounts: accountsRuw.map((account) => {
       const categorieLabel = KLANTCATEGORIE_VELD
         ? account[KLANTCATEGORIE_VELD + "@OData.Community.Display.V1.FormattedValue"] || ""
         : "";
@@ -183,10 +188,11 @@ async function herleidAccounts(req, token) {
 
       const relatiebeheerder = maakPersoon(account[RELATIEBEHEERDER_NAV]);
       const accountant = maakPersoon(account[ACCOUNTANT_NAV]);
+      const contact = account.primarycontactid || {};
 
       return {
-        contactId: contact.contactid,
-        contactNaam: contact.fullname,
+        contactId: contact.contactid || null,
+        contactNaam: contact.fullname || "",
         accountId: account.accountid,
         klantnummer: account.accountnumber || "",
         klantnaam: account.name,
