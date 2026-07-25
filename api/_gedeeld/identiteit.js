@@ -94,7 +94,10 @@ function haalEmailUitPrincipal(req) {
  * Application Setting DYNAMICS_KLANTCATEGORIE_VELD als het bij jullie anders heet
  * (bijv. "cr3a2_klantcategorie" i.p.v. dit voorbeeld).
  */
-const KLANTCATEGORIE_VELD = process.env.DYNAMICS_KLANTCATEGORIE_VELD || "new_klantcategorie";
+// Leeg laten als jullie geen klantcategorie-veld op Account gebruiken; zet anders de
+// logische veldnaam als Application Setting DYNAMICS_KLANTCATEGORIE_VELD. Is dit leeg,
+// dan wordt het veld niet opgevraagd (en zijn er simpelweg geen klantcategorieën).
+const KLANTCATEGORIE_VELD = process.env.DYNAMICS_KLANTCATEGORIE_VELD || "";
 
 // Navigatie-eigenschappen (schemanamen) van de eigen lookup-velden op Account naar de
 // systemuser: de relatiebeheerder (veld "Manager") en de accountant. Overschrijf via
@@ -122,7 +125,7 @@ async function herleidAccounts(req, token) {
     `?$select=contactid,fullname,emailaddress1` +
     `&$filter=emailaddress1 eq '${veilig}'` +
     `&$expand=parentcustomerid_account($select=accountid,accountnumber,name,address1_line1,` +
-    `address1_postalcode,address1_city,emailaddress1,telephone1,${KLANTCATEGORIE_VELD};` +
+    `address1_postalcode,address1_city,emailaddress1,telephone1${KLANTCATEGORIE_VELD ? "," + KLANTCATEGORIE_VELD : ""};` +
     `$expand=${RELATIEBEHEERDER_NAV}($select=fullname,internalemailaddress,mobilephone,address1_telephone1),` +
     `${ACCOUNTANT_NAV}($select=fullname,internalemailaddress,mobilephone,address1_telephone1))`;
 
@@ -161,8 +164,9 @@ async function herleidAccounts(req, token) {
     email,
     accounts: contacten.map((contact) => {
       const account = contact.parentcustomerid_account;
-      const labelSleutel = `${KLANTCATEGORIE_VELD}@OData.Community.Display.V1.FormattedValue`;
-      const categorieLabel = account[labelSleutel] || "";
+      const categorieLabel = KLANTCATEGORIE_VELD
+        ? account[KLANTCATEGORIE_VELD + "@OData.Community.Display.V1.FormattedValue"] || ""
+        : "";
       // Bij een multiselect-optieset staan meerdere labels gescheiden door een komma.
       const klantcategorieen = categorieLabel
         ? categorieLabel.split(",").map((s) => s.trim()).filter(Boolean)

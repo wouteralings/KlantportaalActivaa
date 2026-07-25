@@ -4,8 +4,11 @@ const { haalDynamicsToken, herleidAccounts } = require("../_gedeeld/identiteit")
  * Naam van de velden op Task waar jullie de bestand-uitvraag-link en de verloopdatum
  * in zetten. Overschrijf via Application Settings als ze bij jullie anders heten.
  */
-const UPLOADLINK_VELD = process.env.DYNAMICS_TAAK_UPLOADLINK_VELD || "new_uploadlink";
-const VERLOOPDATUM_VELD = process.env.DYNAMICS_TAAK_VERLOOPDATUM_VELD || "new_verloopdatum";
+// Optionele eigen velden op Task; leeg laten als ze bij jullie niet bestaan (dan worden ze
+// niet opgevraagd). Zet anders de logische veldnaam via de Application Settings.
+const UPLOADLINK_VELD = process.env.DYNAMICS_TAAK_UPLOADLINK_VELD || "";
+const VERLOOPDATUM_VELD = process.env.DYNAMICS_TAAK_VERLOOPDATUM_VELD || "";
+const EXTRA_TAAK_VELDEN = [UPLOADLINK_VELD, VERLOOPDATUM_VELD].filter(Boolean).join(",");
 
 const DYNAMICS_HEADERS = (token) => ({
   Authorization: `Bearer ${token}`,
@@ -22,8 +25,8 @@ async function haalOpenTaken(resource, token, accounts) {
 
   const query =
     `${resource}/api/data/v9.2/tasks` +
-    `?$select=activityid,subject,description,scheduledend,prioritycode,_regardingobjectid_value,` +
-    `${UPLOADLINK_VELD},${VERLOOPDATUM_VELD}` +
+    `?$select=activityid,subject,description,scheduledend,prioritycode,_regardingobjectid_value` +
+    (EXTRA_TAAK_VELDEN ? "," + EXTRA_TAAK_VELDEN : "") +
     `&$filter=(${filterPerAccount}) and statecode eq 0` +
     `&$orderby=scheduledend asc`;
 

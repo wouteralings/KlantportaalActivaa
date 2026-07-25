@@ -57,7 +57,7 @@ async function haalNieuwsEnBlogs() {
     .filter((r) => r.status === "fulfilled")
     .flatMap((r) => r.value)
     .sort((a, b) => new Date(b.datum) - new Date(a.datum))
-    .slice(0, 10);
+    .slice(0, 5);
 
   cache = { op: nu, items };
   return items;
