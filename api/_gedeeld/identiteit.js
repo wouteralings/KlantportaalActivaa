@@ -123,8 +123,8 @@ async function herleidAccounts(req, token) {
     `&$filter=emailaddress1 eq '${veilig}'` +
     `&$expand=parentcustomerid_account($select=accountid,accountnumber,name,address1_line1,` +
     `address1_postalcode,address1_city,emailaddress1,telephone1,${KLANTCATEGORIE_VELD};` +
-    `$expand=${RELATIEBEHEERDER_NAV}($select=fullname,internalemailaddress,mobilephone,telephone1),` +
-    `${ACCOUNTANT_NAV}($select=fullname,internalemailaddress,mobilephone,telephone1))`;
+    `$expand=${RELATIEBEHEERDER_NAV}($select=fullname,internalemailaddress,mobilephone,address1_telephone1),` +
+    `${ACCOUNTANT_NAV}($select=fullname,internalemailaddress,mobilephone,address1_telephone1))`;
 
   const res = await fetch(query, {
     headers: {
@@ -173,7 +173,7 @@ async function herleidAccounts(req, token) {
           ? {
               naam: u.fullname || "",
               email: u.internalemailaddress || "",
-              telefoon: u.mobilephone || u.telephone1 || "",
+              telefoon: u.mobilephone || u.address1_telephone1 || "",
             }
           : null;
 
