@@ -48,6 +48,16 @@ function zetBrowserFavicon(url) {
   link.href = url;
 }
 
+// Parseert een API-antwoord alleen als het gelukt is. Bij 403 (geen koppeling / geen
+// identiteit) of een andere foutstatus gooit dit een fout met .status, zodat de aanroeper
+// een nette lege staat kan tonen i.p.v. te crashen op een foutobject.
+async function haalData(res) {
+  if (res.ok) return res.json();
+  const fout = new Error(`HTTP ${res.status}`);
+  fout.status = res.status;
+  throw fout;
+}
+
 const TABS = [
   { key: "home", label: "Home", icon: ClipboardList },
   { key: "gegevens", label: "Mijn gegevens", icon: Building2 },
@@ -66,6 +76,7 @@ export default function KlantPortaal() {
   const [taken, setTaken] = useState(null);
   const [content, setContent] = useState(null);
   const [nieuws, setNieuws] = useState(null);
+  const [geenKoppeling, setGeenKoppeling] = useState(false);
   const [documenten, setDocumenten] = useState(null);
   const [documentenStatus, setDocumentenStatus] = useState("nietOpgehaald");
   const [documentenFoutmelding, setDocumentenFoutmelding] = useState("");
@@ -100,20 +111,29 @@ export default function KlantPortaal() {
 
   useEffect(() => {
     if (!ingelogd) return;
+
+    // 403 = de ingelogde gebruiker is (nog) niet gekoppeld aan een klant-Contact in Dynamics.
+    // Dan tonen we een nette melding i.p.v. een foutbanner, en zetten we lege standaardwaarden
+    // zodat de tabs niet crashen op een foutobject.
+    const verwerkFout = (e) => {
+      if (e.status === 403) setGeenKoppeling(true);
+      else setFout("Er ging iets mis bij het ophalen van je gegevens.");
+    };
+
     fetch("/api/mijn-gegevens")
-      .then((r) => r.json())
+      .then(haalData)
       .then(setMijnGegevens)
-      .catch((e) => setFout(String(e)));
+      .catch((e) => { setMijnGegevens({ accounts: [] }); verwerkFout(e); });
     fetch("/api/taken")
-      .then((r) => r.json())
+      .then(haalData)
       .then(setTaken)
-      .catch((e) => setFout(String(e)));
+      .catch((e) => { setTaken([]); verwerkFout(e); });
     fetch("/api/mijn-content")
-      .then((r) => r.json())
+      .then(haalData)
       .then(setContent)
-      .catch((e) => setFout(String(e)));
+      .catch((e) => { setContent({}); verwerkFout(e); });
     fetch("/api/nieuws")
-      .then((r) => r.json())
+      .then(haalData)
       .then(setNieuws)
       .catch(() => setNieuws([])); // niet-kritisch, portaal blijft verder werken
   }, [ingelogd]);
@@ -217,6 +237,13 @@ export default function KlantPortaal() {
 
       {fout && <Foutmelding tekst={fout} onSluiten={() => setFout("")} />}
 
+      {geenKoppeling && (
+        <div style={{ margin: "12px 0", padding: "14px 16px", background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 10, fontSize: 14, color: KLEUR.tekst }}>
+          Je account is nog niet gekoppeld aan een klantdossier. Neem contact op met Activaa,
+          dan zorgen we dat je hier je gegevens, documenten en taken ziet.
+        </div>
+      )}
+
       {tab === "home" && (
         <>
           <Kopje tekst="Open taken" />
@@ -311,6 +338,11 @@ function Header({ gebruiker, logoUrl }) {
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <span className="kp-header-email" style={{ fontSize: 13, color: KLEUR.subtekst }}>{gebruiker?.userDetails}</span>
+        {gebruiker?.userRoles?.includes("beheerder") && (
+          <a href="/beheer" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: KLEUR.blauw, textDecoration: "none", flexShrink: 0, fontWeight: 600 }}>
+            <LayoutGrid size={14} /> Beheer
+          </a>
+        )}
         <a href="/.auth/logout" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: KLEUR.subtekst, textDecoration: "none", flexShrink: 0 }}>
           <LogOut size={14} /> Uitloggen
         </a>
