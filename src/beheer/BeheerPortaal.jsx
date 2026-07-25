@@ -48,6 +48,10 @@ export default function BeheerPortaal() {
   const [wijzigingFormContactUrl, setWijzigingFormContactUrl] = useState("");
   const [formOpslaanStatus, setFormOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
 
+  const [googleReviewUrl, setGoogleReviewUrl] = useState("");
+  const [teamsChatUrl, setTeamsChatUrl] = useState("");
+  const [linksOpslaanStatus, setLinksOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
+
   useEffect(() => {
     fetch("/.auth/me")
       .then((r) => r.json())
@@ -66,7 +70,9 @@ export default function BeheerPortaal() {
 
   useEffect(() => {
     if (status !== "klaar") return;
-    fetch("/api/instellingen")
+    // Als beheerder laden we de volledige instellingen (incl. googleReviewUrl) via het
+    // beveiligde endpoint; de publieke /api/instellingen geeft de reviewlink bewust niet terug.
+    fetch("/api/beheer-instellingen")
       .then((r) => r.json())
       .then((d) => {
         setLogoUrl(d.logoUrl || "");
@@ -74,6 +80,8 @@ export default function BeheerPortaal() {
         zetBrowserFavicon(d.faviconUrl);
         setWijzigingFormNawUrl(d.wijzigingFormNawUrl || "");
         setWijzigingFormContactUrl(d.wijzigingFormContactUrl || "");
+        setGoogleReviewUrl(d.googleReviewUrl || "");
+        setTeamsChatUrl(d.teamsChatUrl || "");
       })
       .catch(() => {});
     fetch("/api/beheer-klantcategorieen")
@@ -203,6 +211,24 @@ export default function BeheerPortaal() {
       setFormOpslaanStatus("fout");
     }
   }, [wijzigingFormNawUrl, wijzigingFormContactUrl]);
+
+  const slaReviewLinksOp = useCallback(async () => {
+    setLinksOpslaanStatus("bezig");
+    try {
+      const res = await fetch("/api/beheer-instellingen", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          googleReviewUrl: googleReviewUrl.trim(),
+          teamsChatUrl: teamsChatUrl.trim(),
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setLinksOpslaanStatus("gelukt");
+    } catch {
+      setLinksOpslaanStatus("fout");
+    }
+  }, [googleReviewUrl, teamsChatUrl]);
 
   const toggleLinkCategorie = useCallback((waarde) => {
     setGekozenLinkCategorieen((huidig) =>
@@ -635,9 +661,52 @@ export default function BeheerPortaal() {
         )}
       </div>
 
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Reviews & Teams</div>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 18 }}>
+          De Google-reviewlink wordt gebruikt bij een 5-sterrenreview: de klant wordt dan
+          uitgenodigd om die review ook op Google te plaatsen. De Teams-chatlink verschijnt als
+          chatknop in het portaal.
+        </div>
+
+        <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Google-reviewlink</div>
+        <input
+          type="text"
+          value={googleReviewUrl}
+          onChange={(e) => setGoogleReviewUrl(e.target.value)}
+          placeholder="https://g.page/r/.../review"
+          style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 14, boxSizing: "border-box" }}
+        />
+
+        <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Teams-chatlink</div>
+        <input
+          type="text"
+          value={teamsChatUrl}
+          onChange={(e) => setTeamsChatUrl(e.target.value)}
+          placeholder="https://teams.microsoft.com/l/chat/..."
+          style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 16, boxSizing: "border-box" }}
+        />
+
+        <button
+          onClick={slaReviewLinksOp}
+          disabled={linksOpslaanStatus === "bezig"}
+          style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+        >
+          {linksOpslaanStatus === "bezig" ? "Opslaan..." : "Opslaan"}
+        </button>
+        {linksOpslaanStatus === "gelukt" && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 12, fontSize: 12.5, color: KLEUR.blauw }}>
+            <CheckCircle2 size={14} /> Opgeslagen.
+          </span>
+        )}
+        {linksOpslaanStatus === "fout" && (
+          <span style={{ marginLeft: 12, fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
+        )}
+      </div>
+
       <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginTop: 20, lineHeight: 1.6 }}>
-        FAQ, de Google-reviewlink en de Teams-chatlink beheer je voorlopig nog via de API
-        (<code>/api/beheer-content</code> en <code>/api/beheer-instellingen</code>).
+        De FAQ (veelgestelde vragen) beheer je voorlopig nog via de API
+        (<code>/api/beheer-content</code>).
       </div>
     </div>
   );

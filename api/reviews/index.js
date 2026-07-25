@@ -1,41 +1,42 @@
 const { haalDynamicsToken, herleidAccounts } = require("../_gedeeld/identiteit");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
+const { verstuurMail } = require("../_gedeeld/mail");
 
 /**
  * LET OP — Google's richtlijnen voor bedrijfsprofielen verbieden "review gating": het
- * selectief alleen ontvangen klanten doorsturen naar een openbare review, en ontevreden
+ * selectief alleen tevreden klanten doorsturen naar een openbare review, en ontevreden
  * klanten daarvan weghouden. Dit endpoint implementeert exact dat patroon, dus wees je
  * bewust dat dit tegen Google's beleid in kan gaan. Technisch werkt het zoals gevraagd.
  *
  * Benodigd: de Google-reviewlink moet gezet zijn via PUT /api/beheer-instellingen
  * (alleen rol 'beheerder'), bijv. { "googleReviewUrl": "https://g.page/r/.../review" }.
  */
-async function maakEscalatieTaak(resource, token, account, sterren, opmerking) {
-  const body = {
-    subject: `Lage review-score (${sterren}★) — ${account.klantnaam}`,
-    description:
-      `Klantnummer: ${account.klantnummer}\n` +
-      `Sterren: ${sterren}/5\n` +
-      `Opmerking van de klant:\n${opmerking || "(geen opmerking meegegeven)"}`,
-    prioritycode: 2, // Hoog
-    // De 'regarding'-lookup op Task is polymorf; de navigatie-eigenschap voor een Account
-    // heet 'regardingobjectid_account_task' (NIET 'regardingobjectid_account').
-    "regardingobjectid_account_task@odata.bind": `/accounts(${account.accountId})`,
-  };
 
-  const res = await fetch(`${resource}/api/data/v9.2/tasks`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      "OData-MaxVersion": "4.0",
-      "OData-Version": "4.0",
-    },
-    body: JSON.stringify(body),
-  });
+// Adres van de info-inbox; overschrijf via de Application Setting REVIEW_INFO_EMAIL.
+const INFO_EMAIL = process.env.REVIEW_INFO_EMAIL || "info@activaa.nl";
 
-  if (!res.ok) throw new Error(`Aanmaken escalatietaak mislukt: ${await res.text()}`);
+/**
+ * Stuurt bij een lage review een e-mailmelding naar de info-inbox, de relatiebeheerder
+ * (manager) en de accountant van de betreffende klant, via Microsoft Graph.
+ */
+async function stuurReviewMelding(account, sterren, opmerking) {
+  const ontvangers = [
+    INFO_EMAIL,
+    account.relatiebeheerder?.email,
+    account.accountant?.email,
+  ];
+
+  const onderwerp = `Lage review-score (${sterren}★) — ${account.klantnaam}`;
+  const tekst =
+    `Er is via het klantportaal een review met een lage score binnengekomen.\n\n` +
+    `Klant: ${account.klantnaam}\n` +
+    `Klantnummer: ${account.klantnummer}\n` +
+    `Relatiebeheerder: ${account.relatiebeheerder?.naam || "onbekend"}\n` +
+    `Accountant: ${account.accountant?.naam || "onbekend"}\n` +
+    `Score: ${sterren}/5 sterren\n\n` +
+    `Opmerking van de klant:\n${opmerking || "(geen opmerking meegegeven)"}\n`;
+
+  await verstuurMail({ ontvangers, onderwerp, tekst });
 }
 
 module.exports = async function (context, req) {
@@ -81,7 +82,7 @@ module.exports = async function (context, req) {
       return;
     }
 
-    await maakEscalatieTaak(resource, token, account, sterren, opmerking);
+    await stuurReviewMelding(account, sterren, opmerking);
     context.res = {
       headers: { "Content-Type": "application/json" },
       body: { doorsturenNaarGoogle: false },
