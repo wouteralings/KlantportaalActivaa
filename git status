@@ -1,0 +1,180 @@
+warning: in the working copy of 'api/beheer-content/function.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'api/beheer-instellingen/function.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'api/beheer-klantcategorieen/function.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'api/beheer-logo/function.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'api/documenten/function.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'api/instellingen/function.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'api/mijn-content/function.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'api/mijn-gegevens/function.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'api/mijn-labels/function.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'api/nieuws/function.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'api/reviews/function.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'api/taken/function.json', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/api/beheer-content/function.json b/api/beheer-content/function.json[m
+[1mindex 968603d..3af2a93 100644[m
+[1m--- a/api/beheer-content/function.json[m
+[1m+++ b/api/beheer-content/function.json[m
+[36m@@ -11,7 +11,8 @@[m
+     {[m
+       "type": "http",[m
+       "direction": "out",[m
+[31m-      "name": "$return"[m
+[32m+[m[32m      "name": "res"[m
+     }[m
+   ][m
+ }[m
+[41m+[m
+[1mdiff --git a/api/beheer-instellingen/function.json b/api/beheer-instellingen/function.json[m
+[1mindex afb616e..2e298c3 100644[m
+[1m--- a/api/beheer-instellingen/function.json[m
+[1m+++ b/api/beheer-instellingen/function.json[m
+[36m@@ -11,7 +11,8 @@[m
+     {[m
+       "type": "http",[m
+       "direction": "out",[m
+[31m-      "name": "$return"[m
+[32m+[m[32m      "name": "res"[m
+     }[m
+   ][m
+ }[m
+[41m+[m
+[1mdiff --git a/api/beheer-klantcategorieen/function.json b/api/beheer-klantcategorieen/function.json[m
+[1mindex 578eceb..4a57530 100644[m
+[1m--- a/api/beheer-klantcategorieen/function.json[m
+[1m+++ b/api/beheer-klantcategorieen/function.json[m
+[36m@@ -11,7 +11,8 @@[m
+     {[m
+       "type": "http",[m
+       "direction": "out",[m
+[31m-      "name": "$return"[m
+[32m+[m[32m      "name": "res"[m
+     }[m
+   ][m
+ }[m
+[41m+[m
+[1mdiff --git a/api/beheer-logo/function.json b/api/beheer-logo/function.json[m
+[1mindex d35240f..99565e7 100644[m
+[1m--- a/api/beheer-logo/function.json[m
+[1m+++ b/api/beheer-logo/function.json[m
+[36m@@ -11,7 +11,8 @@[m
+     {[m
+       "type": "http",[m
+       "direction": "out",[m
+[31m-      "name": "$return"[m
+[32m+[m[32m      "name": "res"[m
+     }[m
+   ][m
+ }[m
+[41m+[m
+[1mdiff --git a/api/documenten/function.json b/api/documenten/function.json[m
+[1mindex 7fef236..5fb9b2e 100644[m
+[1m--- a/api/documenten/function.json[m
+[1m+++ b/api/documenten/function.json[m
+[36m@@ -11,7 +11,8 @@[m
+     {[m
+       "type": "http",[m
+       "direction": "out",[m
+[31m-      "name": "$return"[m
+[32m+[m[32m      "name": "res"[m
+     }[m
+   ][m
+ }[m
+[41m+[m
+[1mdiff --git a/api/instellingen/function.json b/api/instellingen/function.json[m
+[1mindex 1b87823..c58c18b 100644[m
+[1m--- a/api/instellingen/function.json[m
+[1m+++ b/api/instellingen/function.json[m
+[36m@@ -11,7 +11,8 @@[m
+     {[m
+       "type": "http",[m
+       "direction": "out",[m
+[31m-      "name": "$return"[m
+[32m+[m[32m      "name": "res"[m
+     }[m
+   ][m
+ }[m
+[41m+[m
+[1mdiff --git a/api/mijn-content/function.json b/api/mijn-content/function.json[m
+[1mindex a92cfb6..50f9bc4 100644[m
+[1m--- a/api/mijn-content/function.json[m
+[1m+++ b/api/mijn-content/function.json[m
+[36m@@ -11,7 +11,8 @@[m
+     {[m
+       "type": "http",[m
+       "direction": "out",[m
+[31m-      "name": "$return"[m
+[32m+[m[32m      "name": "res"[m
+     }[m
+   ][m
+ }[m
+[41m+[m
+[1mdiff --git a/api/mijn-gegevens/function.json b/api/mijn-gegevens/function.json[m
+[1mindex 3863483..9f18be6 100644[m
+[1m--- a/api/mijn-gegevens/function.json[m
+[1m+++ b/api/mijn-gegevens/function.json[m
+[36m@@ -11,7 +11,8 @@[m
+     {[m
+       "type": "http",[m
+       "direction": "out",[m
+[31m-      "name": "$return"[m
+[32m+[m[32m      "name": "res"[m
+     }[m
+   ][m
+ }[m
+[41m+[m
+[1mdiff --git a/api/mijn-labels/function.json b/api/mijn-labels/function.json[m
+[1mindex 7844a39..a1f6e18 100644[m
+[1m--- a/api/mijn-labels/function.json[m
+[1m+++ b/api/mijn-labels/function.json[m
+[36m@@ -11,7 +11,8 @@[m
+     {[m
+       "type": "http",[m
+       "direction": "out",[m
+[31m-      "name": "$return"[m
+[32m+[m[32m      "name": "res"[m
+     }[m
+   ][m
+ }[m
+[41m+[m
+[1mdiff --git a/api/nieuws/function.json b/api/nieuws/function.json[m
+[1mindex 7aa2ce7..8c044f5 100644[m
+[1m--- a/api/nieuws/function.json[m
+[1m+++ b/api/nieuws/function.json[m
+[36m@@ -11,7 +11,8 @@[m
+     {[m
+       "type": "http",[m
+       "direction": "out",[m
+[31m-      "name": "$return"[m
+[32m+[m[32m      "name": "res"[m
+     }[m
+   ][m
+ }[m
+[41m+[m
+[1mdiff --git a/api/reviews/function.json b/api/reviews/function.json[m
+[1mindex fae2232..5747269 100644[m
+[1m--- a/api/reviews/function.json[m
+[1m+++ b/api/reviews/function.json[m
+[36m@@ -11,7 +11,8 @@[m
+     {[m
+       "type": "http",[m
+       "direction": "out",[m
+[31m-      "name": "$return"[m
+[32m+[m[32m      "name": "res"[m
+     }[m
+   ][m
+ }[m
+[41m+[m
+[1mdiff --git a/api/taken/function.json b/api/taken/function.json[m
+[1mindex d625f33..5875582 100644[m
+[1m--- a/api/taken/function.json[m
+[1m+++ b/api/taken/function.json[m
+[36m@@ -11,7 +11,8 @@[m
+     {[m
+       "type": "http",[m
+       "direction": "out",[m
+[31m-      "name": "$return"[m
+[32m+[m[32m      "name": "res"[m
+     }[m
+   ][m
+ }[m
+[41m+[m
