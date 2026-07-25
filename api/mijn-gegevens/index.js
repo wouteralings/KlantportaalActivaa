@@ -16,11 +16,13 @@ module.exports = async function (context, req) {
       headers: { "Content-Type": "application/json" },
       body: {
         email,
-        accounts: accounts.map(({ accountId, klantnummer, contactNaam, relatiebeheerder, accountant, adviseur, account }) => ({
+        accounts: accounts.map(({ accountId, klantnummer, klantnaam, groepsnaam, contactpersoon, relatiebeheerder, accountant, adviseur, account }) => ({
           accountId,
           klantnummer,
-          klantnaam: account.name || "",
-          contactpersoon: contactNaam,
+          klantnaam: klantnaam || account.name || "",
+          groepsnaam: groepsnaam || "",
+          // Naam van de contactpersoon (voor de kop) + zijn/haar contactgegevens.
+          contactpersoon: contactpersoon?.naam || "",
           relatiebeheerder,
           accountant,
           adviseur,
@@ -30,9 +32,10 @@ module.exports = async function (context, req) {
             postcode: account.address1_postalcode || "",
             plaats: account.address1_city || "",
           },
+          // Relatiegegevens tonen we van de contactpersoon (bedrijf heeft vaak geen nummer).
           relatiegegevens: {
-            email: account.emailaddress1 || "",
-            telefoon: account.telephone1 || "",
+            email: contactpersoon?.email || "",
+            telefoon: contactpersoon?.telefoon || "",
           },
         })),
       },

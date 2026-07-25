@@ -111,6 +111,13 @@ const KLANTCATEGORIE_VELD = process.env.DYNAMICS_KLANTCATEGORIE_VELD || "";
 const RELATIEBEHEERDER_NAV = process.env.DYNAMICS_RELATIEBEHEERDER_NAV || "cr283_Manager";
 const ACCOUNTANT_NAV = process.env.DYNAMICS_ACCOUNTANT_NAV || "sk_Accountant";
 
+// Het echte cliëntnummer staat op Account in het veld sk_clientnummer (NIET accountnumber).
+const CLIENTNUMMER_VELD = process.env.DYNAMICS_CLIENTNUMMER_VELD || "sk_clientnummer";
+// De groepsnaam ("cliëntgroep", bv. ACTIVAA/JOWO) is een lookup op Account naar de entiteit
+// sk_groepen; de leesbare naam staat daar in het veld sk_name.
+const GROEPSNAAM_NAV = process.env.DYNAMICS_GROEPSNAAM_NAV || "sk_Groepsnaam";
+const GROEPSNAAM_NAAMVELD = process.env.DYNAMICS_GROEPSNAAM_NAAMVELD || "sk_name";
+
 async function herleidAccounts(req, token) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   const email = haalEmailUitPrincipal(req);
@@ -128,10 +135,11 @@ async function herleidAccounts(req, token) {
   // pas ze dan aan via de Application Settings DYNAMICS_RELATIEBEHEERDER_NAV / DYNAMICS_ACCOUNTANT_NAV.
   const query =
     `${resource}/api/data/v9.2/accounts` +
-    `?$select=accountid,accountnumber,name,address1_line1,address1_postalcode,address1_city,` +
+    `?$select=accountid,${CLIENTNUMMER_VELD},name,address1_line1,address1_postalcode,address1_city,` +
     `emailaddress1,telephone1${KLANTCATEGORIE_VELD ? "," + KLANTCATEGORIE_VELD : ""}` +
     `&$filter=primarycontactid/emailaddress1 eq '${veilig}' and statecode eq 0` +
-    `&$expand=primarycontactid($select=contactid,fullname,emailaddress1),` +
+    `&$expand=primarycontactid($select=contactid,fullname,emailaddress1,mobilephone,telephone1),` +
+    `${GROEPSNAAM_NAV}($select=${GROEPSNAAM_NAAMVELD}),` +
     `${RELATIEBEHEERDER_NAV}($select=fullname,internalemailaddress,mobilephone,address1_telephone1),` +
     `${ACCOUNTANT_NAV}($select=fullname,internalemailaddress,mobilephone,address1_telephone1)`;
 
@@ -189,13 +197,24 @@ async function herleidAccounts(req, token) {
       const relatiebeheerder = maakPersoon(account[RELATIEBEHEERDER_NAV]);
       const accountant = maakPersoon(account[ACCOUNTANT_NAV]);
       const contact = account.primarycontactid || {};
+      // De relatiegegevens (e-mail + telefoon) tonen we van de contactpersoon: het bedrijf
+      // zelf heeft vaak geen telefoonnummer, de contactpersoon wel (mobiel).
+      const contactpersoon = {
+        naam: contact.fullname || "",
+        email: contact.emailaddress1 || "",
+        telefoon: contact.mobilephone || contact.telephone1 || "",
+      };
+      const groep = account[GROEPSNAAM_NAV];
+      const clientnr = account[CLIENTNUMMER_VELD];
 
       return {
         contactId: contact.contactid || null,
         contactNaam: contact.fullname || "",
+        contactpersoon,
         accountId: account.accountid,
-        klantnummer: account.accountnumber || "",
+        klantnummer: clientnr != null && clientnr !== "" ? clientnr : "",
         klantnaam: account.name,
+        groepsnaam: groep ? groep[GROEPSNAAM_NAAMVELD] || "" : "",
         klantcategorieen,
         relatiebeheerder,
         accountant,

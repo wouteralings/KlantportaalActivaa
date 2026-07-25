@@ -22,6 +22,8 @@ import {
   Upload,
   Pencil,
   MessagesSquare,
+  Search,
+  Users,
 } from "lucide-react";
 import { haalApiToken } from "./msal";
 
@@ -556,83 +558,154 @@ function WijzigLink({ url }) {
   );
 }
 
+// Compacte persoonsregel (contactpersoon / relatiebeheerder / accountant).
+function PersoonRegel({ label, persoon }) {
+  if (!persoon || !(persoon.naam || persoon.email || persoon.telefoon)) return null;
+  return (
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: KLEUR.mutedTekst, marginBottom: 4 }}>
+        {label}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 600 }}>
+        <User size={13} color={KLEUR.mutedTekst} style={{ flexShrink: 0 }} /> {persoon.naam || "—"}
+      </div>
+      {persoon.email && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: KLEUR.subtekst, marginTop: 2 }}>
+          <Mail size={13} color={KLEUR.mutedTekst} style={{ flexShrink: 0 }} /> <span style={{ overflowWrap: "anywhere" }}>{persoon.email}</span>
+        </div>
+      )}
+      {persoon.telefoon && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: KLEUR.subtekst, marginTop: 2 }}>
+          <Phone size={13} color={KLEUR.mutedTekst} style={{ flexShrink: 0 }} /> {persoon.telefoon}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Uitklapbare detail met de algemene informatie van één klant.
+function KlantDetail({ acc, wijzigingFormNawUrl, wijzigingFormContactUrl }) {
+  return (
+    <div style={{ padding: "14px 16px 16px", borderTop: `1px solid ${KLEUR.rand}`, background: "#FCFCFB" }}>
+      <div className="kp-grid-2" style={{ gap: 16 }}>
+        <div>
+          <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: KLEUR.mutedTekst, marginBottom: 6 }}>NAW-gegevens</div>
+          <div style={{ display: "flex", gap: 8, fontSize: 13 }}>
+            <MapPin size={14} color={KLEUR.mutedTekst} style={{ flexShrink: 0, marginTop: 2 }} />
+            <span>{acc.naw.straat || "—"}<br />{acc.naw.postcode} {acc.naw.plaats}</span>
+          </div>
+          <WijzigLink
+            url={vulLinkIn(wijzigingFormNawUrl, {
+              klantnummer: acc.klantnummer,
+              bedrijfsnaam: acc.naw.bedrijfsnaam || acc.klantnaam,
+              straat: acc.naw.straat,
+              postcode: acc.naw.postcode,
+              plaats: acc.naw.plaats,
+            })}
+          />
+        </div>
+        <div>
+          <PersoonRegel
+            label="Contactpersoon"
+            persoon={{ naam: acc.contactpersoon, email: acc.relatiegegevens.email, telefoon: acc.relatiegegevens.telefoon }}
+          />
+          <WijzigLink
+            url={vulLinkIn(wijzigingFormContactUrl, {
+              klantnummer: acc.klantnummer,
+              contactpersoon: acc.contactpersoon,
+              email: acc.relatiegegevens.email,
+              telefoon: acc.relatiegegevens.telefoon,
+            })}
+          />
+        </div>
+      </div>
+
+      {(acc.relatiebeheerder || acc.accountant) && (
+        <div className="kp-grid-2" style={{ gap: 16, marginTop: 16, paddingTop: 14, borderTop: `1px solid ${KLEUR.rand}` }}>
+          <PersoonRegel label="Relatiebeheerder" persoon={acc.relatiebeheerder} />
+          <PersoonRegel label="Accountant" persoon={acc.accountant} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TabGegevens({ data, wijzigingFormNawUrl, wijzigingFormContactUrl }) {
+  const [zoek, setZoek] = useState("");
+  const [openId, setOpenId] = useState(null);
+
   if (!data) return <Laadscherm />;
   if (data.accounts?.length === 0) return <LegeStaat tekst="Er zijn nog geen klantgegevens aan jouw account gekoppeld." />;
 
+  const term = zoek.trim().toLowerCase();
+  const lijst = data.accounts.filter((acc) =>
+    !term ||
+    [acc.klantnaam, String(acc.klantnummer ?? ""), acc.groepsnaam]
+      .filter(Boolean)
+      .some((v) => v.toLowerCase().includes(term))
+  );
+
   return (
     <div>
-      {data.accounts.map((acc) => (
-        <div key={acc.accountId} style={kaartStijl}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
-            <div style={{ fontSize: 16, fontWeight: 700 }}>{acc.klantnaam}</div>
-            <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Klantnummer {acc.klantnummer}</div>
-          </div>
-          <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 14 }}>Contactpersoon: {acc.contactpersoon}</div>
+      <div style={{ position: "relative", marginBottom: 14 }}>
+        <Search size={16} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
+        <input
+          value={zoek}
+          onChange={(e) => setZoek(e.target.value)}
+          placeholder="Zoek op klantnummer, naam of groep…"
+          style={{
+            width: "100%", boxSizing: "border-box", padding: "10px 12px 10px 36px",
+            fontSize: 14, borderRadius: 10, border: `1px solid ${KLEUR.rand}`,
+            outline: "none", color: KLEUR.tekst, background: "#fff",
+          }}
+        />
+      </div>
 
-          <div className="kp-grid-2">
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: KLEUR.mutedTekst, marginBottom: 8 }}>NAW-gegevens</div>
-              <div style={{ display: "flex", gap: 8, fontSize: 13, marginBottom: 4 }}>
-                <MapPin size={14} color={KLEUR.mutedTekst} style={{ flexShrink: 0, marginTop: 2 }} />
-                <span>{acc.naw.straat}<br />{acc.naw.postcode} {acc.naw.plaats}</span>
-              </div>
-              <WijzigLink
-                url={vulLinkIn(wijzigingFormNawUrl, {
-                  klantnummer: acc.klantnummer,
-                  bedrijfsnaam: acc.naw.bedrijfsnaam || acc.klantnaam,
-                  straat: acc.naw.straat,
-                  postcode: acc.naw.postcode,
-                  plaats: acc.naw.plaats,
-                })}
-              />
-            </div>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: KLEUR.mutedTekst, marginBottom: 8 }}>Relatiegegevens</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 6 }}>
-                <Mail size={14} color={KLEUR.mutedTekst} /> {acc.relatiegegevens.email || "—"}
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                <Phone size={14} color={KLEUR.mutedTekst} /> {acc.relatiegegevens.telefoon || "—"}
-              </div>
-              <WijzigLink
-                url={vulLinkIn(wijzigingFormContactUrl, {
-                  klantnummer: acc.klantnummer,
-                  contactpersoon: acc.contactpersoon,
-                  email: acc.relatiegegevens.email,
-                  telefoon: acc.relatiegegevens.telefoon,
-                })}
-              />
-            </div>
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, overflow: "hidden", background: "#fff" }}>
+        {lijst.length === 0 && (
+          <div style={{ padding: "18px 16px", fontSize: 13, color: KLEUR.mutedTekst }}>
+            Geen klanten gevonden voor “{zoek}”.
           </div>
-
-          {[
-            { label: "Relatiebeheerder", persoon: acc.relatiebeheerder },
-            { label: "Accountant", persoon: acc.accountant },
-          ]
-            .filter((p) => p.persoon && (p.persoon.naam || p.persoon.email || p.persoon.telefoon))
-            .map(({ label, persoon }) => (
-              <div key={label} style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${KLEUR.rand}` }}>
-                <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: KLEUR.mutedTekst, marginBottom: 8 }}>
-                  {label}
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
-                  <User size={14} color={KLEUR.mutedTekst} /> {persoon.naam || "—"}
-                </div>
-                {persoon.email && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 4 }}>
-                    <Mail size={14} color={KLEUR.mutedTekst} /> {persoon.email}
-                  </div>
+        )}
+        {lijst.map((acc, i) => {
+          const open = openId === acc.accountId;
+          return (
+            <div key={acc.accountId} style={{ borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}` }}>
+              <button
+                onClick={() => setOpenId(open ? null : acc.accountId)}
+                style={{
+                  width: "100%", display: "flex", alignItems: "center", gap: 12,
+                  padding: "12px 16px", background: open ? KLEUR.lichtblauw : "#fff",
+                  border: "none", cursor: "pointer", textAlign: "left", color: KLEUR.tekst,
+                }}
+              >
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: KLEUR.blauw, minWidth: 52, flexShrink: 0 }}>
+                  {acc.klantnummer || "—"}
+                </span>
+                <span style={{ fontSize: 14, fontWeight: 600, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {acc.klantnaam}
+                </span>
+                {acc.groepsnaam && (
+                  <span style={{
+                    display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontWeight: 600,
+                    color: KLEUR.subtekst, background: "#F1F3EF", border: `1px solid ${KLEUR.rand}`,
+                    borderRadius: 999, padding: "3px 9px", flexShrink: 0,
+                  }}>
+                    <Users size={12} color={KLEUR.mutedTekst} /> {acc.groepsnaam}
+                  </span>
                 )}
-                {persoon.telefoon && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                    <Phone size={14} color={KLEUR.mutedTekst} /> {persoon.telefoon}
-                  </div>
-                )}
-              </div>
-            ))}
-        </div>
-      ))}
+                <ChevronDown
+                  size={16} color={KLEUR.mutedTekst}
+                  style={{ flexShrink: 0, transition: "transform .15s", transform: open ? "rotate(180deg)" : "none" }}
+                />
+              </button>
+              {open && (
+                <KlantDetail acc={acc} wijzigingFormNawUrl={wijzigingFormNawUrl} wijzigingFormContactUrl={wijzigingFormContactUrl} />
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
