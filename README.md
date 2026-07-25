@@ -3,17 +3,28 @@
 Azure Static Web App (React-frontend + Azure Functions-API) waarmee klanten, ingelogd
 als gastgebruiker (Azure AD B2B) in jullie eigen tenant, hun eigen gegevens zien:
 
-- **Home** — openstaande taken staan meteen bij het inloggen op het scherm.
+- **Home** — openstaande taken staan meteen bij het inloggen op het scherm. Een taak die om
+  bestanden vraagt toont een "Bestanden uploaden"-knop met de verloopdatum van de link, als
+  die velden op de Taak in Dataverse zijn ingevuld.
 - **Mededelingen** — programma-links + mededelingen door jullie beheerd.
 - **Nieuws & blog** — automatisch via RSS van activaa.nl, eigen tab.
 - **Mijn gegevens** — NAW, relatiegegevens én de persoonlijke adviseur (accounteigenaar in
   Dataverse) per klantnummer.
 - **Documenten** — alles wat in SharePoint met de klant is gedeeld; de klant kan zelf een
   label én een klant-entiteit aan elk document koppelen (bij meerdere klantnummers per login).
+- **Wijziging doorgeven** — een link (bijv. naar een vooraf-ingevulde Microsoft Forms) onder
+  zowel de bedrijfs- als de contactgegevens bij "Mijn gegevens", met de bekende klantgegevens
+  automatisch verwerkt in de link.
 - **Review geven** — 5 sterren stuurt door naar jullie Google Bedrijfsprofiel, lager wordt
   een interne escalatietaak in Dynamics.
 - **Veelgestelde vragen** — door jullie beheerd, met een knop naar een Copilot-assistent in
   Microsoft Teams voor wat niet in de FAQ staat.
+- **Logo** — door jullie geüpload, toont op het inlogscherm en bovenaan het portaal.
+
+Naast het klantportaal (`/`) is er nu ook een **beheerdersportaal** op `/beheer` — zelfde
+Microsoft-login, maar vereist de rol `beheerder`. Daar kunnen het logo, de snellinks (Links op
+home) en mededelingen beheerd worden, elk met een keuzelijst van de echte klantcategorieën uit
+Dataverse. FAQ en de Google-/Teams-links staan daar nog niet in (zie onder).
 
 Losstaand van de interne offertetool — dit project bevat alleen het klantportaal.
 
@@ -68,7 +79,13 @@ Voor Dataverse (waar we zelf met een app-only token werken) is dat niet nodig.
    van het Account als persoonlijke adviseur/contactpersoon van de klant. Is de accounteigenaar
    bij jullie niet de juiste persoon hiervoor (bijv. een apart lookup-veld voor "adviseur"),
    pas dan de `$expand=ownerid(...)` aan in `api/_gedeeld/identiteit.js`.
-5. Zet `DYNAMICS_TENANT_ID`, `DYNAMICS_CLIENT_ID`, `DYNAMICS_CLIENT_SECRET` en
+5. **Bestand-uitvraag bij een taak**: wil je dat een taak een "Bestanden uploaden"-knop
+   toont (bijv. een OneDrive/SharePoint-bestandsaanvraag-link die je zelf aanmaakt), zet die
+   link en de verloopdatum dan in de velden `new_uploadlink` en `new_verloopdatum` op de Task
+   in Dataverse — de portal pikt ze automatisch op. Heten die velden bij jullie anders, zet
+   dan `DYNAMICS_TAAK_UPLOADLINK_VELD` / `DYNAMICS_TAAK_VERLOOPDATUM_VELD` als Application
+   Setting. Het aanmaken van de taak en de link zelf gebeurt in Dynamics, niet in de portal.
+6. Zet `DYNAMICS_TENANT_ID`, `DYNAMICS_CLIENT_ID`, `DYNAMICS_CLIENT_SECRET` en
    `DYNAMICS_RESOURCE_URL` als Application Settings op de Static Web App.
 
 ### 2. Portaal-login (Azure AD B2B guest access)
@@ -126,6 +143,22 @@ opgeslagen (niet in SharePoint zelf) in Azure Blob Storage.
 Geen configuratie nodig — `/api/nieuws` haalt automatisch de RSS-feeds van de categorieën
 "blog" en "nieuws" op activaa.nl op (15 minuten gecached). Wijzigt de site van RSS-locatie,
 pas dan de `FEEDS`-lijst aan in `api/_gedeeld/nieuws.js`.
+
+### 6b. Wijzigingsformulieren
+
+Onder "Mijn gegevens" kan een link staan waarmee de klant een wijziging van zijn bedrijfs- of
+contactgegevens kan doorgeven (bijv. naar een Microsoft Forms-formulier).
+
+1. Beheer je via het beheerdersportaal (`/beheer`), sectie "Wijzigingsformulieren" — of direct
+   via `PUT /api/beheer-instellingen` met `{ "wijzigingFormNawUrl": "...", "wijzigingFormContactUrl": "..." }`.
+2. Gebruik `{veldnaam}` in de link om automatisch klantgegevens in te vullen. Beschikbaar bij
+   de NAW-link: `{klantnummer}`, `{bedrijfsnaam}`, `{straat}`, `{postcode}`, `{plaats}`. Bij de
+   contact-link: `{klantnummer}`, `{contactpersoon}`, `{email}`, `{telefoon}`.
+3. Werkt goed samen met een **vooraf-ingevulde Microsoft Forms-link**: maak in Forms een
+   prefill-link aan (Delen → "Link vooraf invullen"), vul bij elke vraag een herkenbare
+   placeholdertekst in (bijv. "STRAAT"), en vervang die placeholders in de gekopieerde link
+   door de bijbehorende `{straat}` etc. — het portaal vult de rest automatisch in.
+4. Geen link ingesteld? Dan verschijnt er simpelweg niets — dit is optioneel.
 
 ### 7. Reviews
 
@@ -185,6 +218,21 @@ niet iets wat vanuit de portal-code aangestuurd wordt. Wat de portal wél doet: 
 Gastgebruikers moeten voor deze stap toegang hebben tot Teams binnen jullie tenant — dat is
 niet automatisch hetzelfde als toegang tot dit portaal; check dat apart bij de B2B-instellingen.
 
+### 10. Logo
+
+Geen beheerscherm — upload je via `/api/beheer-logo` (alleen rol `beheerder`):
+
+```json
+POST /api/beheer-logo
+{ "dataUrl": "data:image/png;base64,iVBORw0KGgo..." }
+```
+
+De `dataUrl` krijg je bijvoorbeeld door een bestand in de browser met
+`FileReader.readAsDataURL()` om te zetten, of via een online base64-encoder voor een snelle
+eenmalige upload. Het logo wordt publiek leesbaar opgeslagen (nodig om het te tonen in een
+`<img>`-tag) in de container `portaalmedia`, en verschijnt meteen op het inlogscherm en
+bovenaan het portaal. Opnieuw uploaden vervangt het vorige logo.
+
 ---
 
 ## Lokaal ontwikkelen
@@ -211,10 +259,12 @@ func start                          # vereist Azure Functions Core Tools
 | `/api/mijn-labels?id=...` | PATCH | Eigen label en/of klant-entiteit zetten op een document: `{ label?, entiteit? }` |
 | `/api/mijn-content` | GET | Mededelingen + programma-links, gefilterd op eigen klantcategorie(ën) |
 | `/api/beheer-content` | GET/POST/PUT/DELETE | Mededelingen/programma's beheren (alleen rol `beheerder`) |
+| `/api/beheer-klantcategorieen` | GET | Echte klantcategorie-opties uit Dataverse-metadata (alleen rol `beheerder`) |
 | `/api/nieuws` | GET | Laatste blog- en nieuwsposts van activaa.nl (RSS, gecached) |
 | `/api/reviews` | POST | Review indienen: `{ sterren: 1-5, opmerking? }` |
 | `/api/beheer-instellingen` | GET/PUT | Portaalbrede instellingen zoals de Google-reviewlink en Teams-chatlink (alleen rol `beheerder`) |
 | `/api/instellingen` | GET | Dezelfde instellingen, read-only, voor elke ingelogde klant (o.a. de Teams-chatlink) |
+| `/api/beheer-logo` | POST | Logo uploaden: `{ dataUrl }` (alleen rol `beheerder`) |
 
 ## Bekende openstaande punten
 

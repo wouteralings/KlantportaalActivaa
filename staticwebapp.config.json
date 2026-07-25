@@ -9,6 +9,18 @@
       "allowedRoles": ["beheerder"]
     },
     {
+      "route": "/api/beheer-klantcategorieen",
+      "allowedRoles": ["beheerder"]
+    },
+    {
+      "route": "/api/beheer-logo",
+      "allowedRoles": ["beheerder"]
+    },
+    {
+      "route": "/api/instellingen",
+      "allowedRoles": ["anonymous"]
+    },
+    {
       "route": "/*",
       "allowedRoles": ["authenticated"]
     }

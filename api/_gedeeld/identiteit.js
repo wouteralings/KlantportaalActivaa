@@ -182,4 +182,4 @@ async function herleidAccounts(req, token) {
   };
 }
 
-module.exports = { haalDynamicsToken, herleidAccounts, haalEmailUitPrincipal };
+module.exports = { haalDynamicsToken, herleidAccounts, haalEmailUitPrincipal, KLANTCATEGORIE_VELD };

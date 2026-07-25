@@ -16,10 +16,11 @@ import {
   LayoutGrid,
   Star,
   Send,
-  Newspaper,
   User,
   HelpCircle,
   ChevronDown,
+  Upload,
+  Pencil,
   MessagesSquare,
 } from "lucide-react";
 import { haalApiToken } from "./msal";
@@ -37,7 +38,6 @@ const KLEUR = {
 
 const TABS = [
   { key: "home", label: "Home", icon: ClipboardList },
-  { key: "nieuws", label: "Nieuws & blog", icon: Newspaper },
   { key: "gegevens", label: "Mijn gegevens", icon: Building2 },
   { key: "documenten", label: "Documenten", icon: FileText },
   { key: "faq", label: "Veelgestelde vragen", icon: HelpCircle },
@@ -57,6 +57,9 @@ export default function KlantPortaal() {
   const [documenten, setDocumenten] = useState(null);
   const [documentenStatus, setDocumentenStatus] = useState("nietOpgehaald");
   const [teamsChatUrl, setTeamsChatUrl] = useState("");
+  const [logoUrl, setLogoUrl] = useState("");
+  const [wijzigingFormNawUrl, setWijzigingFormNawUrl] = useState("");
+  const [wijzigingFormContactUrl, setWijzigingFormContactUrl] = useState("");
 
   useEffect(() => {
     fetch("/.auth/me")
@@ -67,6 +70,18 @@ export default function KlantPortaal() {
         setGebruiker(principal);
       })
       .catch(() => setIngelogd(false));
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/instellingen")
+      .then((r) => r.json())
+      .then((d) => {
+        setTeamsChatUrl(d.teamsChatUrl || "");
+        setLogoUrl(d.logoUrl || "");
+        setWijzigingFormNawUrl(d.wijzigingFormNawUrl || "");
+        setWijzigingFormContactUrl(d.wijzigingFormContactUrl || "");
+      })
+      .catch(() => {}); // niet-kritisch
   }, []);
 
   useEffect(() => {
@@ -87,10 +102,6 @@ export default function KlantPortaal() {
       .then((r) => r.json())
       .then(setNieuws)
       .catch(() => setNieuws([])); // niet-kritisch, portaal blijft verder werken
-    fetch("/api/instellingen")
-      .then((r) => r.json())
-      .then((d) => setTeamsChatUrl(d.teamsChatUrl || ""))
-      .catch(() => {}); // niet-kritisch
   }, [ingelogd]);
 
   const handelTaakAf = useCallback(async (taakId) => {
@@ -174,23 +185,43 @@ export default function KlantPortaal() {
   }, []);
 
   if (ingelogd === null) return <Laadscherm />;
-  if (!ingelogd) return <Inlogscherm />;
+  if (!ingelogd) return <Inlogscherm logoUrl={logoUrl} />;
 
   return (
     <div className="kp-container" style={{ maxWidth: 880, margin: "0 auto", fontFamily: "system-ui, -apple-system, sans-serif", color: KLEUR.tekst }}>
-      <Header gebruiker={gebruiker} />
+      <Header gebruiker={gebruiker} logoUrl={logoUrl} />
       <Tabs tab={tab} setTab={setTab} />
 
       {fout && <Foutmelding tekst={fout} onSluiten={() => setFout("")} />}
 
       {tab === "home" && (
         <>
+          <Kopje tekst="Open taken" />
           <TabTaken data={taken} onAfhandelen={handelTaakAf} />
-          <TabMededelingen content={content} />
+
+          {content?.programmas?.length > 0 && (
+            <div style={{ marginTop: 28 }}>
+              <Kopje tekst="Links" />
+              <TabLinks programmas={content.programmas} />
+            </div>
+          )}
+
+          <div style={{ marginTop: 28 }}>
+            <Kopje tekst="Mededelingen" />
+            <TabMededelingen content={content} />
+          </div>
+
+          {nieuws && nieuws.length > 0 && (
+            <div style={{ marginTop: 28 }}>
+              <Kopje tekst="Nieuws & blog" />
+              <TabNieuws nieuws={nieuws} />
+            </div>
+          )}
         </>
       )}
-      {tab === "nieuws" && <TabNieuws nieuws={nieuws} />}
-      {tab === "gegevens" && <TabGegevens data={mijnGegevens} />}
+      {tab === "gegevens" && (
+        <TabGegevens data={mijnGegevens} wijzigingFormNawUrl={wijzigingFormNawUrl} wijzigingFormContactUrl={wijzigingFormContactUrl} />
+      )}
       {tab === "documenten" && (
         <TabDocumenten
           status={documentenStatus}
@@ -217,10 +248,14 @@ function Laadscherm() {
   );
 }
 
-function Inlogscherm() {
+function Inlogscherm({ logoUrl }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "70vh", gap: 16 }}>
-      <Building2 size={32} color={KLEUR.blauw} />
+      {logoUrl ? (
+        <img src={logoUrl} alt="Logo" style={{ maxWidth: 200, maxHeight: 90, objectFit: "contain" }} />
+      ) : (
+        <Building2 size={32} color={KLEUR.blauw} />
+      )}
       <div style={{ fontSize: 20, fontWeight: 600, color: KLEUR.tekst }}>Klantportaal</div>
       <div style={{ fontSize: 13.5, color: KLEUR.subtekst, marginBottom: 8 }}>Log in met je Microsoft-account om verder te gaan.</div>
       <a
@@ -237,12 +272,18 @@ function Inlogscherm() {
   );
 }
 
-function Header({ gebruiker }) {
+function Header({ gebruiker, logoUrl }) {
   return (
     <div className="kp-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, paddingBottom: 16, borderBottom: `1px solid ${KLEUR.rand}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <Building2 size={22} color={KLEUR.blauw} />
-        <div style={{ fontSize: 19, fontWeight: 600 }}>Klantportaal</div>
+        {logoUrl ? (
+          <img src={logoUrl} alt="Logo" style={{ maxHeight: 36, maxWidth: 160, objectFit: "contain" }} />
+        ) : (
+          <>
+            <Building2 size={22} color={KLEUR.blauw} />
+            <div style={{ fontSize: 19, fontWeight: 600 }}>Klantportaal</div>
+          </>
+        )}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <span className="kp-header-email" style={{ fontSize: 13, color: KLEUR.subtekst }}>{gebruiker?.userDetails}</span>
@@ -290,33 +331,44 @@ function Foutmelding({ tekst, onSluiten }) {
 
 const kaartStijl = { border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginBottom: 16, background: "#fff" };
 
+function Kopje({ tekst }) {
+  return (
+    <div style={{ fontSize: 13, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 12 }}>
+      {tekst}
+    </div>
+  );
+}
+
+function TabLinks({ programmas }) {
+  if (!programmas || programmas.length === 0) return null;
+  return (
+    <div style={{ ...kaartStijl, display: "flex", flexWrap: "wrap", gap: 10 }}>
+      {programmas.map((p) => (
+        <a
+          key={p.id}
+          href={p.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: "flex", alignItems: "center", gap: 8, padding: "9px 14px",
+            border: `1px solid ${KLEUR.rand}`, borderRadius: 8, textDecoration: "none",
+            color: KLEUR.tekst, fontSize: 13, fontWeight: 600,
+          }}
+        >
+          <LayoutGrid size={15} color={KLEUR.blauw} /> {p.titel}
+          <ExternalLink size={12} color={KLEUR.mutedTekst} />
+        </a>
+      ))}
+    </div>
+  );
+}
+
 function TabMededelingen({ content }) {
   if (!content) return <Laadscherm />;
-  const { programmas = [], mededelingen = [] } = content;
+  const { mededelingen = [] } = content;
 
   return (
     <div>
-      {programmas.length > 0 && (
-        <div style={{ ...kaartStijl, display: "flex", flexWrap: "wrap", gap: 10 }}>
-          {programmas.map((p) => (
-            <a
-              key={p.id}
-              href={p.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: "flex", alignItems: "center", gap: 8, padding: "9px 14px",
-                border: `1px solid ${KLEUR.rand}`, borderRadius: 8, textDecoration: "none",
-                color: KLEUR.tekst, fontSize: 13, fontWeight: 600,
-              }}
-            >
-              <LayoutGrid size={15} color={KLEUR.blauw} /> {p.titel}
-              <ExternalLink size={12} color={KLEUR.mutedTekst} />
-            </a>
-          ))}
-        </div>
-      )}
-
       {mededelingen.length === 0 ? (
         <LegeStaat tekst="Geen mededelingen op dit moment." />
       ) : (
@@ -424,7 +476,31 @@ function TabFaq({ content, teamsChatUrl }) {
   );
 }
 
-function TabGegevens({ data }) {
+function vulLinkIn(template, waarden) {
+  if (!template) return "";
+  return template.replace(/\{(\w+)\}/g, (_, sleutel) =>
+    waarden[sleutel] != null ? encodeURIComponent(waarden[sleutel]) : ""
+  );
+}
+
+function WijzigLink({ url }) {
+  if (!url) return null;
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10, fontSize: 12,
+        fontWeight: 600, color: KLEUR.blauw, textDecoration: "none",
+      }}
+    >
+      <Pencil size={12} /> Wijziging doorgeven
+    </a>
+  );
+}
+
+function TabGegevens({ data, wijzigingFormNawUrl, wijzigingFormContactUrl }) {
   if (!data) return <Laadscherm />;
   if (data.accounts?.length === 0) return <LegeStaat tekst="Er zijn nog geen klantgegevens aan jouw account gekoppeld." />;
 
@@ -445,6 +521,15 @@ function TabGegevens({ data }) {
                 <MapPin size={14} color={KLEUR.mutedTekst} style={{ flexShrink: 0, marginTop: 2 }} />
                 <span>{acc.naw.straat}<br />{acc.naw.postcode} {acc.naw.plaats}</span>
               </div>
+              <WijzigLink
+                url={vulLinkIn(wijzigingFormNawUrl, {
+                  klantnummer: acc.klantnummer,
+                  bedrijfsnaam: acc.naw.bedrijfsnaam || acc.klantnaam,
+                  straat: acc.naw.straat,
+                  postcode: acc.naw.postcode,
+                  plaats: acc.naw.plaats,
+                })}
+              />
             </div>
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: KLEUR.mutedTekst, marginBottom: 8 }}>Relatiegegevens</div>
@@ -454,6 +539,14 @@ function TabGegevens({ data }) {
               <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
                 <Phone size={14} color={KLEUR.mutedTekst} /> {acc.relatiegegevens.telefoon || "—"}
               </div>
+              <WijzigLink
+                url={vulLinkIn(wijzigingFormContactUrl, {
+                  klantnummer: acc.klantnummer,
+                  contactpersoon: acc.contactpersoon,
+                  email: acc.relatiegegevens.email,
+                  telefoon: acc.relatiegegevens.telefoon,
+                })}
+              />
             </div>
           </div>
 
@@ -515,6 +608,27 @@ function TabTaken({ data, onAfhandelen }) {
                     {taak.deadline && (
                       <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4 }}>
                         Deadline: {new Date(taak.deadline).toLocaleDateString("nl-NL")}
+                      </div>
+                    )}
+                    {taak.uploadLink && (
+                      <div style={{ marginTop: 10 }}>
+                        <a
+                          href={taak.uploadLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 14px",
+                            background: KLEUR.blauw, color: "#fff", borderRadius: 6, fontSize: 12.5,
+                            fontWeight: 600, textDecoration: "none",
+                          }}
+                        >
+                          <Upload size={13} /> Bestanden uploaden
+                        </a>
+                        {taak.uploadVerloopt && (
+                          <span style={{ display: "inline-block", marginLeft: 10, fontSize: 11.5, color: KLEUR.mutedTekst }}>
+                            Link verloopt op {new Date(taak.uploadVerloopt).toLocaleDateString("nl-NL")}
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>

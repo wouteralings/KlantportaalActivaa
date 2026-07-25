@@ -1,5 +1,12 @@
 const { haalDynamicsToken, herleidAccounts } = require("../_gedeeld/identiteit");
 
+/**
+ * Naam van de velden op Task waar jullie de bestand-uitvraag-link en de verloopdatum
+ * in zetten. Overschrijf via Application Settings als ze bij jullie anders heten.
+ */
+const UPLOADLINK_VELD = process.env.DYNAMICS_TAAK_UPLOADLINK_VELD || "new_uploadlink";
+const VERLOOPDATUM_VELD = process.env.DYNAMICS_TAAK_VERLOOPDATUM_VELD || "new_verloopdatum";
+
 const DYNAMICS_HEADERS = (token) => ({
   Authorization: `Bearer ${token}`,
   Accept: "application/json",
@@ -15,7 +22,8 @@ async function haalOpenTaken(resource, token, accounts) {
 
   const query =
     `${resource}/api/data/v9.2/tasks` +
-    `?$select=activityid,subject,description,scheduledend,prioritycode,_regardingobjectid_value` +
+    `?$select=activityid,subject,description,scheduledend,prioritycode,_regardingobjectid_value,` +
+    `${UPLOADLINK_VELD},${VERLOOPDATUM_VELD}` +
     `&$filter=(${filterPerAccount}) and statecode eq 0` +
     `&$orderby=scheduledend asc`;
 
@@ -41,6 +49,8 @@ async function haalOpenTaken(resource, token, accounts) {
       omschrijving: rij.description || "",
       deadline: rij.scheduledend || null,
       prioriteit: rij.prioritycode ?? 1,
+      uploadLink: rij[UPLOADLINK_VELD] || null,
+      uploadVerloopt: rij[VERLOOPDATUM_VELD] || null,
     });
   }
 
