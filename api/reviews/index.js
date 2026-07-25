@@ -18,7 +18,9 @@ async function maakEscalatieTaak(resource, token, account, sterren, opmerking) {
       `Sterren: ${sterren}/5\n` +
       `Opmerking van de klant:\n${opmerking || "(geen opmerking meegegeven)"}`,
     prioritycode: 2, // Hoog
-    "regardingobjectid_account@odata.bind": `/accounts(${account.accountId})`,
+    // De 'regarding'-lookup op Task is polymorf; de navigatie-eigenschap voor een Account
+    // heet 'regardingobjectid_account_task' (NIET 'regardingobjectid_account').
+    "regardingobjectid_account_task@odata.bind": `/accounts(${account.accountId})`,
   };
 
   const res = await fetch(`${resource}/api/data/v9.2/tasks`, {
