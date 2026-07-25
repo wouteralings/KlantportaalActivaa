@@ -56,6 +56,7 @@ export default function KlantPortaal() {
   const [nieuws, setNieuws] = useState(null);
   const [documenten, setDocumenten] = useState(null);
   const [documentenStatus, setDocumentenStatus] = useState("nietOpgehaald");
+  const [documentenFoutmelding, setDocumentenFoutmelding] = useState("");
   const [teamsChatUrl, setTeamsChatUrl] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
   const [wijzigingFormNawUrl, setWijzigingFormNawUrl] = useState("");
@@ -120,6 +121,7 @@ export default function KlantPortaal() {
   }, [taken]);
 
   const haalDocumentenOp = useCallback(async () => {
+    if (documentenStatus === "laden") return; // voorkomt dubbele, gelijktijdige aanvragen
     setDocumentenStatus("laden");
     setFout("");
     try {
@@ -131,10 +133,18 @@ export default function KlantPortaal() {
       setDocumenten(await res.json());
       setDocumentenStatus("klaar");
     } catch (e) {
-      setFout(String(e));
-      setDocumentenStatus("fout");
+      // Bij een MSAL-inlogprobleem (geannuleerd, popup blocked, interaction_in_progress)
+      // niet ook nog de algemene foutbanner tonen — de documenten-tab toont dan al een
+      // nette, specifieke melding met "opnieuw proberen".
+      if (e.code === "INLOG_PROBLEEM") {
+        setDocumentenFoutmelding(e.message);
+        setDocumentenStatus("inlogprobleem");
+      } else {
+        setFout(e.message || String(e));
+        setDocumentenStatus("fout");
+      }
     }
-  }, []);
+  }, [documentenStatus]);
 
   const wijzigDocumentVeld = useCallback(async (id, updates) => {
     try {
@@ -226,6 +236,7 @@ export default function KlantPortaal() {
         <TabDocumenten
           status={documentenStatus}
           data={documenten}
+          foutmelding={documentenFoutmelding}
           onOphalen={haalDocumentenOp}
           onLabelWijzigen={wijzigLabel}
           onEntiteitWijzigen={wijzigEntiteit}
@@ -642,7 +653,7 @@ function TabTaken({ data, onAfhandelen }) {
   );
 }
 
-function TabDocumenten({ status, data, onOphalen, onLabelWijzigen, onEntiteitWijzigen }) {
+function TabDocumenten({ status, data, foutmelding, onOphalen, onLabelWijzigen, onEntiteitWijzigen }) {
   if (status === "nietOpgehaald") {
     return (
       <div style={{ ...kaartStijl, textAlign: "center", padding: 36 }}>
@@ -658,6 +669,17 @@ function TabDocumenten({ status, data, onOphalen, onLabelWijzigen, onEntiteitWij
   }
 
   if (status === "laden") return <Laadscherm />;
+
+  if (status === "inlogprobleem") {
+    return (
+      <div style={{ ...kaartStijl, textAlign: "center", padding: 36 }}>
+        <div style={{ fontSize: 13.5, color: KLEUR.subtekst, marginBottom: 16, maxWidth: 420, marginLeft: "auto", marginRight: "auto" }}>
+          {foutmelding}
+        </div>
+        <button onClick={onOphalen} style={knopStijlPrimair}><RefreshCw size={14} /> Opnieuw proberen</button>
+      </div>
+    );
+  }
 
   if (status === "fout") {
     return (

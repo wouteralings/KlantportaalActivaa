@@ -28,21 +28,61 @@ export async function haalMsalInstance() {
   return instance;
 }
 
+function vertaalMsalFout(err) {
+  if (err?.errorCode === "user_cancelled" || err?.errorCode === "popup_window_error") {
+    return new Error(
+      "Het inlogvenster is gesloten voordat het inloggen was afgerond. Controleer of pop-ups " +
+      "voor dit portaal zijn toegestaan in de browser, en probeer het opnieuw."
+    );
+  }
+  if (err?.errorCode === "interaction_in_progress") {
+    return new Error(
+      "Er loopt al een inlogpoging. Wacht dit even af (of ververs de pagina als dit blijft " +
+      "hangen) en probeer het daarna opnieuw."
+    );
+  }
+  return null;
+}
+
+// Zorgt dat er nooit twee interactieve MSAL-aanvragen tegelijk starten (bijv. door dubbel
+// klikken) — dat is precies wat 'interaction_in_progress' veroorzaakt. Een tweede aanroep
+// terwijl de eerste nog loopt wacht gewoon op diezelfde lopende aanvraag.
+let lopendeAanvraag = null;
+
 /** Haalt (indien nodig via popup-login) een Graph-scope-token op voor de OBO-uitwisseling. */
 export async function haalApiToken() {
-  const client = await haalMsalInstance();
-  let account = client.getAllAccounts()[0];
+  if (lopendeAanvraag) return lopendeAanvraag;
 
-  if (!account) {
-    const result = await client.loginPopup({ scopes: [API_SCOPE] });
-    account = result.account;
-  }
+  lopendeAanvraag = (async () => {
+    const client = await haalMsalInstance();
+    let account = client.getAllAccounts()[0];
+
+    try {
+      if (!account) {
+        const result = await client.loginPopup({ scopes: [API_SCOPE] });
+        account = result.account;
+      }
+
+      try {
+        const result = await client.acquireTokenSilent({ scopes: [API_SCOPE], account });
+        return result.accessToken;
+      } catch {
+        const result = await client.acquireTokenPopup({ scopes: [API_SCOPE], account });
+        return result.accessToken;
+      }
+    } catch (err) {
+      const nette = vertaalMsalFout(err);
+      if (nette) {
+        nette.code = "INLOG_PROBLEEM";
+        throw nette;
+      }
+      throw err;
+    }
+  })();
 
   try {
-    const result = await client.acquireTokenSilent({ scopes: [API_SCOPE], account });
-    return result.accessToken;
-  } catch {
-    const result = await client.acquireTokenPopup({ scopes: [API_SCOPE], account });
-    return result.accessToken;
+    return await lopendeAanvraag;
+  } finally {
+    lopendeAanvraag = null;
   }
 }

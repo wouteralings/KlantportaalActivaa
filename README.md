@@ -272,3 +272,9 @@ func start                          # vereist Azure Functions Core Tools
 - De documenten-login (MSAL popup) is een aparte stap t.o.v. de hoofd-login — dat kan in de
   toekomst gladgestreken worden door de hoofd-login zelf via MSAL.js te laten lopen met een
   custom AAD-provider in `staticwebapp.config.json`, in plaats van de ingebouwde AAD-provider.
+- Sluit een klant het Microsoft-inlogpopupje voor de documenten-tab, blokkeert de browser het
+  pop-upvenster, of start er per ongeluk een tweede aanmeldpoging terwijl de eerste nog loopt
+  (bijv. dubbelklikken) — dan toont de tab een nette "opnieuw proberen"-melding in plaats van
+  de technische `BrowserAuthError` (`user_cancelled`, `popup_window_error` of
+  `interaction_in_progress`). Er is ook een concurrency-guard in `src/portaal/msal.js` die
+  voorkomt dat er ooit twee interactieve aanmeldpogingen tegelijk starten.
