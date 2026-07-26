@@ -27,6 +27,7 @@ export default function BeheerPortaal() {
   const [status, setStatus] = useState("laden"); // laden | nietIngelogd | geenRol | klaar
   const [gebruiker, setGebruiker] = useState(null);
   const [tab, setTab] = useState("uitstraling"); // uitstraling | content | reviews | verzoeken | instellingen
+  const [tellingen, setTellingen] = useState({ openWijzigingen: 0, nieuweReviews: 0 });
   const [logoUrl, setLogoUrl] = useState("");
   const [uploadStatus, setUploadStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [faviconUrl, setFaviconUrl] = useState("");
@@ -61,6 +62,13 @@ export default function BeheerPortaal() {
   const [whatsappUrl, setWhatsappUrl] = useState("");
   const [copilotEmbedUrl, setCopilotEmbedUrl] = useState("");
   const [linksOpslaanStatus, setLinksOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
+
+  const laadTellingen = useCallback(() => {
+    fetch("/api/beheer-tellingen")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setTellingen({ openWijzigingen: d.openWijzigingen || 0, nieuweReviews: d.nieuweReviews || 0 }))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetch("/.auth/me")
@@ -104,6 +112,23 @@ export default function BeheerPortaal() {
     haalSnellinks();
     haalFaqs();
   }, [status]);
+
+  // Tellingen voor de badges bijwerken bij elke tabwissel. Op het reviews-tabblad worden de
+  // reviews eerst als "gezien" gemarkeerd (badge naar 0) en daarna worden de tellingen ververst.
+  useEffect(() => {
+    if (status !== "klaar") return;
+    if (tab === "reviews") {
+      fetch("/api/beheer-tellingen", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "reviews-gezien" }),
+      })
+        .then(() => laadTellingen())
+        .catch(() => laadTellingen());
+    } else {
+      laadTellingen();
+    }
+  }, [status, tab, laadTellingen]);
 
   const haalMededelingen = useCallback(() => {
     fetch("/api/beheer-content?type=mededeling")
@@ -444,20 +469,36 @@ export default function BeheerPortaal() {
           ["reviews", "Reviews"],
           ["verzoeken", "Wijzigingsverzoeken"],
           ["instellingen", "Instellingen"],
-        ].map(([k, label]) => (
-          <button
-            key={k}
-            onClick={() => setTab(k)}
-            style={{
-              padding: "8px 14px", background: "none", border: "none", cursor: "pointer",
-              fontSize: 13, fontWeight: 600, marginBottom: -1,
-              color: tab === k ? KLEUR.blauw : KLEUR.subtekst,
-              borderBottom: `2px solid ${tab === k ? KLEUR.blauw : "transparent"}`,
-            }}
-          >
-            {label}
-          </button>
-        ))}
+        ].map(([k, label]) => {
+          const badge = k === "reviews" ? tellingen.nieuweReviews : k === "verzoeken" ? tellingen.openWijzigingen : 0;
+          return (
+            <button
+              key={k}
+              onClick={() => setTab(k)}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "8px 14px", background: "none", border: "none", cursor: "pointer",
+                fontSize: 13, fontWeight: 600, marginBottom: -1,
+                color: tab === k ? KLEUR.blauw : KLEUR.subtekst,
+                borderBottom: `2px solid ${tab === k ? KLEUR.blauw : "transparent"}`,
+              }}
+            >
+              {label}
+              {badge > 0 && (
+                <span
+                  title={`${badge} nieuw${badge === 1 ? "" : "e"}`}
+                  style={{
+                    display: "inline-flex", alignItems: "center", justifyContent: "center",
+                    minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
+                    background: KLEUR.rood, color: "#fff", fontSize: 11, fontWeight: 700, lineHeight: 1,
+                  }}
+                >
+                  {badge > 99 ? "99+" : badge}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {tab === "uitstraling" && (<>
@@ -1021,7 +1062,7 @@ export default function BeheerPortaal() {
 
       {tab === "reviews" && <ReviewBeheer />}
 
-      {tab === "verzoeken" && <WijzigingsverzoekBeheer />}
+      {tab === "verzoeken" && <WijzigingsverzoekBeheer onAfgehandeld={laadTellingen} />}
     </div>
   );
 }
@@ -1328,7 +1369,7 @@ function StatusBadge({ status }) {
   );
 }
 
-function WijzigingsverzoekBeheer() {
+function WijzigingsverzoekBeheer({ onAfgehandeld }) {
   const [verzoeken, setVerzoeken] = useState(null);
   const [fout, setFout] = useState(false);
   const [filter, setFilter] = useState("open"); // open | alle
@@ -1368,13 +1409,14 @@ function WijzigingsverzoekBeheer() {
           );
         }
         laad();
+        onAfgehandeld?.();
       } catch {
         setFout(true);
       } finally {
         setBezigId(null);
       }
     },
-    [laad]
+    [laad, onAfgehandeld]
   );
 
   if (verzoeken === null) {

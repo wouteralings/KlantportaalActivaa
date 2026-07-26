@@ -33,6 +33,10 @@
       "allowedRoles": ["beheerder"]
     },
     {
+      "route": "/api/beheer-tellingen",
+      "allowedRoles": ["beheerder"]
+    },
+    {
       "route": "/api/instellingen",
       "allowedRoles": ["anonymous"]
     },

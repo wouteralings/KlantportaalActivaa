@@ -11,6 +11,7 @@ const crypto = require("crypto");
 const CONTAINER_NAAM = "portaalcontent";
 const REVIEWS_BLOB = "reviews.json";
 const UITNODIGINGEN_BLOB = "review-uitnodigingen.json";
+const GEZIEN_BLOB = "review-gezien.json";
 let cachedContainerClient = null;
 
 async function haalContainerClient() {
@@ -89,4 +90,24 @@ async function registreerUitnodigingen(accountIds) {
   return map;
 }
 
-module.exports = { voegReviewToe, haalReviews, haalUitnodigingen, registreerUitnodigingen };
+/** Geeft het moment terug waarop een beheerder de reviews voor het laatst heeft bekeken (of null). */
+async function haalReviewGezien() {
+  const data = await leesJson(GEZIEN_BLOB, {});
+  return data.laatstGezien || null;
+}
+
+/** Markeert de reviews als "gezien" tot en met het opgegeven moment (standaard nu). */
+async function zetReviewGezien(iso) {
+  const moment = iso || new Date().toISOString();
+  await schrijfJson(GEZIEN_BLOB, { laatstGezien: moment });
+  return moment;
+}
+
+module.exports = {
+  voegReviewToe,
+  haalReviews,
+  haalUitnodigingen,
+  registreerUitnodigingen,
+  haalReviewGezien,
+  zetReviewGezien,
+};
