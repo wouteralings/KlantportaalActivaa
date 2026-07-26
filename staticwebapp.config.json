@@ -21,6 +21,14 @@
       "allowedRoles": ["beheerder"]
     },
     {
+      "route": "/api/beheer-klanten",
+      "allowedRoles": ["beheerder"]
+    },
+    {
+      "route": "/api/beheer-review-uitnodiging",
+      "allowedRoles": ["beheerder"]
+    },
+    {
       "route": "/api/instellingen",
       "allowedRoles": ["anonymous"]
     },

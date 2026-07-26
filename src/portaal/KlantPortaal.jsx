@@ -24,6 +24,8 @@ import {
   MessagesSquare,
   Search,
   Users,
+  Bot,
+  MessageCircle,
 } from "lucide-react";
 import { haalApiToken } from "./msal";
 
@@ -83,6 +85,8 @@ export default function KlantPortaal() {
   const [documentenStatus, setDocumentenStatus] = useState("nietOpgehaald");
   const [documentenFoutmelding, setDocumentenFoutmelding] = useState("");
   const [teamsChatUrl, setTeamsChatUrl] = useState("");
+  const [whatsappUrl, setWhatsappUrl] = useState("");
+  const [copilotEmbedUrl, setCopilotEmbedUrl] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
   const [wijzigingFormNawUrl, setWijzigingFormNawUrl] = useState("");
   const [wijzigingFormContactUrl, setWijzigingFormContactUrl] = useState("");
@@ -103,6 +107,8 @@ export default function KlantPortaal() {
       .then((r) => r.json())
       .then((d) => {
         setTeamsChatUrl(d.teamsChatUrl || "");
+        setWhatsappUrl(d.whatsappUrl || "");
+        setCopilotEmbedUrl(d.copilotEmbedUrl || "");
         setLogoUrl(d.logoUrl || "");
         setWijzigingFormNawUrl(d.wijzigingFormNawUrl || "");
         setWijzigingFormContactUrl(d.wijzigingFormContactUrl || "");
@@ -284,7 +290,7 @@ export default function KlantPortaal() {
           onEntiteitWijzigen={wijzigEntiteit}
         />
       )}
-      {tab === "faq" && <TabFaq content={content} teamsChatUrl={teamsChatUrl} />}
+      {tab === "faq" && <TabFaq content={content} teamsChatUrl={teamsChatUrl} whatsappUrl={whatsappUrl} copilotEmbedUrl={copilotEmbedUrl} />}
       {tab === "review" && <TabReview onVerzenden={verstuurReview} />}
     </div>
   );
@@ -478,25 +484,67 @@ function TabNieuws({ nieuws }) {
   );
 }
 
-function TabFaq({ content, teamsChatUrl }) {
+// Maakt van een ingevuld WhatsApp-nummer of -link een geldige wa.me-link.
+function whatsappHref(waarde) {
+  if (!waarde) return "";
+  if (/^https?:\/\//i.test(waarde)) return waarde;
+  let cijfers = waarde.replace(/\D/g, "");
+  if (cijfers.startsWith("00")) cijfers = cijfers.slice(2);
+  else if (cijfers.startsWith("0")) cijfers = "31" + cijfers.slice(1); // NL-nummer met voorloop-0
+  return cijfers ? `https://wa.me/${cijfers}` : "";
+}
+
+function TabFaq({ content, teamsChatUrl, whatsappUrl, copilotEmbedUrl }) {
   const [open, setOpen] = useState(null);
   if (!content) return <Laadscherm />;
   const faqs = content.faqs || [];
+  const waLink = whatsappHref(whatsappUrl);
+  const heeftKanaal = teamsChatUrl || waLink;
 
   return (
     <div>
-      {teamsChatUrl && (
+      {copilotEmbedUrl && (
+        <div style={{ ...kaartStijl, padding: 0, overflow: "hidden" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 16px", borderBottom: `1px solid ${KLEUR.rand}` }}>
+            <Bot size={18} color={KLEUR.blauw} />
+            <div style={{ fontSize: 13.5, fontWeight: 700 }}>Onze assistent</div>
+            <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>— stel gerust je vraag</div>
+          </div>
+          <iframe
+            src={copilotEmbedUrl}
+            title="Activaa assistent"
+            style={{ width: "100%", height: 480, border: "none", display: "block" }}
+            allow="microphone"
+          />
+        </div>
+      )}
+
+      {heeftKanaal && (
         <div style={{ ...kaartStijl, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <MessagesSquare size={20} color={KLEUR.blauw} />
             <div>
-              <div style={{ fontSize: 13.5, fontWeight: 700 }}>Vraag niet gevonden?</div>
-              <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>Chat direct met onze assistent in Microsoft Teams.</div>
+              <div style={{ fontSize: 13.5, fontWeight: 700 }}>Liever persoonlijk contact?</div>
+              <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>Bereik ons rechtstreeks via een van deze kanalen.</div>
             </div>
           </div>
-          <a href={teamsChatUrl} target="_blank" rel="noopener noreferrer" style={knopStijlPrimair}>
-            <MessagesSquare size={14} /> Chat in Teams
-          </a>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {teamsChatUrl && (
+              <a href={teamsChatUrl} target="_blank" rel="noopener noreferrer" style={knopStijlPrimair}>
+                <MessagesSquare size={14} /> Chat in Teams
+              </a>
+            )}
+            {waLink && (
+              <a
+                href={waLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ ...knopStijlPrimair, background: "#25D366", color: "#0B3D24" }}
+              >
+                <MessageCircle size={14} /> WhatsApp
+              </a>
+            )}
+          </div>
         </div>
       )}
 

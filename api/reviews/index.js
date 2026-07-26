@@ -1,6 +1,7 @@
-const { haalDynamicsToken, herleidAccounts } = require("../_gedeeld/identiteit");
+const { haalDynamicsToken, herleidAccounts, haalEmailUitPrincipal } = require("../_gedeeld/identiteit");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
 const { verstuurMail } = require("../_gedeeld/mail");
+const { voegReviewToe } = require("../_gedeeld/reviewopslag");
 
 /**
  * LET OP — Google's richtlijnen voor bedrijfsprofielen verbieden "review gating": het
@@ -19,20 +20,24 @@ const INFO_EMAIL = process.env.REVIEW_INFO_EMAIL || "info@activaa.nl";
  * Stuurt bij een lage review een e-mailmelding naar de info-inbox, de relatiebeheerder
  * (manager) en de accountant van de betreffende klant, via Microsoft Graph.
  */
-async function stuurReviewMelding(account, sterren, opmerking) {
+async function stuurReviewMelding(account, sterren, opmerking, reviewerEmail) {
+  // Is de reviewer aan een klant gekoppeld, dan gaat de melding óók naar de relatiebeheerder
+  // en de accountant. Zo niet, dan alleen naar de info-inbox.
   const ontvangers = [
     INFO_EMAIL,
-    account.relatiebeheerder?.email,
-    account.accountant?.email,
+    account?.relatiebeheerder?.email,
+    account?.accountant?.email,
   ];
 
-  const onderwerp = `Lage review-score (${sterren}★) — ${account.klantnaam}`;
+  const klantnaam = account?.klantnaam || "(niet aan een klant gekoppeld)";
+  const onderwerp = `Lage review-score (${sterren}★) — ${klantnaam}`;
   const tekst =
     `Er is via het klantportaal een review met een lage score binnengekomen.\n\n` +
-    `Klant: ${account.klantnaam}\n` +
-    `Klantnummer: ${account.klantnummer}\n` +
-    `Relatiebeheerder: ${account.relatiebeheerder?.naam || "onbekend"}\n` +
-    `Accountant: ${account.accountant?.naam || "onbekend"}\n` +
+    `Ingelogd als: ${reviewerEmail || "onbekend"}\n` +
+    `Klant: ${klantnaam}\n` +
+    `Klantnummer: ${account?.klantnummer ?? "-"}\n` +
+    `Relatiebeheerder: ${account?.relatiebeheerder?.naam || "onbekend"}\n` +
+    `Accountant: ${account?.accountant?.naam || "onbekend"}\n` +
     `Score: ${sterren}/5 sterren\n\n` +
     `Opmerking van de klant:\n${opmerking || "(geen opmerking meegegeven)"}\n`;
 
@@ -62,12 +67,38 @@ module.exports = async function (context, req) {
 
   try {
     const token = await haalDynamicsToken();
-    const { accounts } = await herleidAccounts(req, token);
-    // Bij meerdere gekoppelde klanten: de review hoort bij de eerste (of geef er één mee via accountId in de body).
-    const gekozenAccountId = req.body?.accountId;
-    const account = gekozenAccountId
-      ? accounts.find((a) => a.accountId === gekozenAccountId) || accounts[0]
-      : accounts[0];
+    const reviewerEmail = haalEmailUitPrincipal(req) || "";
+
+    // Een review vereist géén klantkoppeling: ook een niet-gekoppelde (bijv. interne) gebruiker
+    // mag feedback geven. Is er wél een gekoppelde klant, dan sturen we de melding ook naar de
+    // relatiebeheerder en accountant van die klant.
+    let account = null;
+    try {
+      const { accounts } = await herleidAccounts(req, token);
+      const gekozenAccountId = req.body?.accountId;
+      account = gekozenAccountId
+        ? accounts.find((a) => a.accountId === gekozenAccountId) || accounts[0]
+        : accounts[0];
+    } catch (koppelFout) {
+      if (koppelFout.code !== "GEEN_KOPPELING" && koppelFout.code !== "GEEN_IDENTITEIT") throw koppelFout;
+      // Geen gekoppelde klant → account blijft null; de melding gaat alleen naar de info-inbox.
+    }
+
+    // Elke review vastleggen (ook 5 sterren), zodat het beheerportaal kan tonen wie wanneer
+    // een review gaf. Faalt dit (bijv. opslag even niet bereikbaar), dan loggen we het maar
+    // laten we de review zelf niet mislukken.
+    try {
+      await voegReviewToe({
+        accountId: account?.accountId,
+        klantnummer: account?.klantnummer,
+        klantnaam: account?.klantnaam,
+        sterren,
+        opmerking,
+        reviewerEmail,
+      });
+    } catch (opslagFout) {
+      context.log.error("Review vastleggen mislukt:", opslagFout);
+    }
 
     if (sterren === 5) {
       const { googleReviewUrl } = await haalInstellingen();
@@ -82,16 +113,12 @@ module.exports = async function (context, req) {
       return;
     }
 
-    await stuurReviewMelding(account, sterren, opmerking);
+    await stuurReviewMelding(account, sterren, opmerking, reviewerEmail);
     context.res = {
       headers: { "Content-Type": "application/json" },
       body: { doorsturenNaarGoogle: false },
     };
   } catch (err) {
-    if (err.code === "GEEN_IDENTITEIT" || err.code === "GEEN_KOPPELING") {
-      context.res = { status: 403, body: { error: err.message } };
-      return;
-    }
     context.log.error(err);
     context.res = {
       status: 500,
