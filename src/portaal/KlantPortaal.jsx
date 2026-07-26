@@ -521,6 +521,7 @@ function whatsappHref(waarde) {
 
 function TabFaq({ content, teamsChatUrl, whatsappUrl, copilotEmbedUrl }) {
   const [open, setOpen] = useState(null);
+  const [assistentOpen, setAssistentOpen] = useState(false);
   if (!content) return <Laadscherm />;
   const faqs = content.faqs || [];
   const waLink = whatsappHref(whatsappUrl);
@@ -530,17 +531,32 @@ function TabFaq({ content, teamsChatUrl, whatsappUrl, copilotEmbedUrl }) {
     <div>
       {copilotEmbedUrl && (
         <div style={{ ...kaartStijl, padding: 0, overflow: "hidden" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 16px", borderBottom: `1px solid ${KLEUR.rand}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 16px", borderBottom: assistentOpen ? `1px solid ${KLEUR.rand}` : "none" }}>
             <Bot size={18} color={KLEUR.blauw} />
             <div style={{ fontSize: 13.5, fontWeight: 700 }}>Onze assistent</div>
             <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>— stel gerust je vraag</div>
           </div>
-          <iframe
-            src={copilotEmbedUrl}
-            title="Activaa assistent"
-            style={{ width: "100%", height: 480, border: "none", display: "block" }}
-            allow="microphone"
-          />
+          {assistentOpen ? (
+            <iframe
+              src={copilotEmbedUrl}
+              title="Activaa assistent"
+              loading="lazy"
+              style={{ width: "100%", height: 480, border: "none", display: "block" }}
+              allow="microphone"
+            />
+          ) : (
+            <div style={{ padding: "16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>
+                Stel je vraag aan onze digitale assistent.
+              </div>
+              <button
+                onClick={() => setAssistentOpen(true)}
+                style={{ ...knopStijlPrimair, cursor: "pointer" }}
+              >
+                <Bot size={14} /> Start de assistent
+              </button>
+            </div>
+          )}
         </div>
       )}
 
