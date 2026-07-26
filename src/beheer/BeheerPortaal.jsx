@@ -1107,6 +1107,9 @@ const WIJZIG_VELD_LABELS = {
   functietitel: "Functietitel", mobiel: "Mobiel", email: "E-mail", geboortedatum: "Geboortedatum",
   straat: "Straat", huisnummer: "Huisnummer", toevoeging: "Toevoeging", postcode: "Postcode",
   plaats: "Plaats", provincie: "Provincie", land: "Land",
+  bedrijf_straat: "Bedrijf · Straat", bedrijf_huisnummer: "Bedrijf · Huisnummer",
+  bedrijf_toevoeging: "Bedrijf · Toevoeging", bedrijf_postcode: "Bedrijf · Postcode",
+  bedrijf_plaats: "Bedrijf · Plaats", bedrijf_land: "Bedrijf · Land",
 };
 
 function StatusBadge({ status }) {

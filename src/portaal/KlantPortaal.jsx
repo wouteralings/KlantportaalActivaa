@@ -692,9 +692,19 @@ const CONTACT_VELDEN = [
   { key: "land", label: "Land" },
 ];
 
+const BEDRIJF_VELDEN = [
+  { key: "bedrijf_straat", label: "Straat" },
+  { key: "bedrijf_huisnummer", label: "Huisnummer" },
+  { key: "bedrijf_toevoeging", label: "Toevoeging" },
+  { key: "bedrijf_postcode", label: "Postcode" },
+  { key: "bedrijf_plaats", label: "Plaats" },
+  { key: "bedrijf_land", label: "Land" },
+];
+
 function contactBeginwaarden(acc) {
   const cp = acc.contactpersoon || {};
   const a = cp.adres || {};
+  const ka = acc.klantadres || {};
   return {
     aanhef: cp.aanhef || "",
     voornaam: cp.voornaam || "",
@@ -711,6 +721,12 @@ function contactBeginwaarden(acc) {
     plaats: a.plaats || "",
     provincie: a.provincie || "",
     land: a.land || "",
+    bedrijf_straat: ka.straat || "",
+    bedrijf_huisnummer: ka.huisnummer || "",
+    bedrijf_toevoeging: ka.toevoeging || "",
+    bedrijf_postcode: ka.postcode || "",
+    bedrijf_plaats: ka.plaats || "",
+    bedrijf_land: ka.land || "",
   };
 }
 
@@ -733,7 +749,9 @@ function WijzigForm({ acc, onWijzigen, onKlaar }) {
   const [status, setStatus] = useState("idle"); // idle | bezig | fout
   const [foutTekst, setFoutTekst] = useState("");
 
-  const gewijzigd = CONTACT_VELDEN.some((v) => (waarden[v.key] || "") !== (beginwaarden[v.key] || ""));
+  const magBedrijf = !!acc.bedrijfsadresBewerkbaar;
+  const alleVelden = magBedrijf ? [...CONTACT_VELDEN, ...BEDRIJF_VELDEN] : CONTACT_VELDEN;
+  const gewijzigd = alleVelden.some((v) => (waarden[v.key] || "") !== (beginwaarden[v.key] || ""));
 
   const invoerStijl = { width: "100%", boxSizing: "border-box", padding: "8px 10px", fontSize: 13, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, outline: "none", color: KLEUR.tekst, background: "#fff" };
 
@@ -776,6 +794,28 @@ function WijzigForm({ acc, onWijzigen, onKlaar }) {
           </div>
         ))}
       </div>
+
+      {magBedrijf && (
+        <>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: KLEUR.mutedTekst, margin: "16px 0 10px" }}>
+            Bedrijfsadres wijzigen
+          </div>
+          <div className="kp-grid-2" style={{ gap: 12 }}>
+            {BEDRIJF_VELDEN.map((v) => (
+              <div key={v.key}>
+                <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>{v.label}</div>
+                <input
+                  type="text"
+                  value={waarden[v.key]}
+                  onChange={(e) => setWaarden((h) => ({ ...h, [v.key]: e.target.value }))}
+                  style={invoerStijl}
+                />
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
         <button
           onClick={verstuur}
@@ -821,9 +861,11 @@ function KlantDetail({ acc, verzoekStatus, onWijzigen }) {
             {ka.postcode} {ka.plaats}{ka.land ? `, ${ka.land}` : ""}
           </span>
         </div>
-        <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 6, fontStyle: "italic" }}>
-          Deze gegevens worden automatisch gesynchroniseerd met de Kamer van Koophandel.
-        </div>
+        {!acc.bedrijfsadresBewerkbaar && (
+          <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 6, fontStyle: "italic" }}>
+            Deze gegevens worden automatisch gesynchroniseerd met de Kamer van Koophandel.
+          </div>
+        )}
       </div>
 
       {/* Contactpersoon. */}
@@ -875,7 +917,7 @@ function KlantDetail({ acc, verzoekStatus, onWijzigen }) {
           onClick={() => setWijzigen(true)}
           style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 14, padding: 0, background: "none", border: "none", fontSize: 12.5, fontWeight: 600, color: KLEUR.blauw, cursor: "pointer" }}
         >
-          <Pencil size={12} /> Contactgegevens wijzigen
+          <Pencil size={12} /> {acc.bedrijfsadresBewerkbaar ? "Gegevens wijzigen" : "Contactgegevens wijzigen"}
         </button>
       )}
     </div>

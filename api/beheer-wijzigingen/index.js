@@ -31,6 +31,16 @@ const CONTACT_VELD_MAP = {
   land: "address1_country",
 };
 
+// Mapping van bedrijfsadres-velden naar de Account-velden (alleen bij accounts zonder KvK).
+const BEDRIJF_VELD_MAP = {
+  bedrijf_straat: "address1_line1",
+  bedrijf_huisnummer: "cr283_huisnummer",
+  bedrijf_toevoeging: "cr283_huisnummertoevoeging",
+  bedrijf_postcode: "address1_postalcode",
+  bedrijf_plaats: "address1_city",
+  bedrijf_land: "address1_country",
+};
+
 /**
  * Schrijft de goedgekeurde wijziging weg naar de Contactpersoon in Dynamics. Alleen daadwerkelijk
  * gewijzigde velden worden meegestuurd. Het bedrijfsadres (KvK) wordt bewust niet aangeraakt.
@@ -51,14 +61,30 @@ async function verwerkInDynamics(resource, token, verzoek) {
     contactVelden.sk_aanhef = AANHEF_WAARDE[voorstel.aanhef] ?? null;
   }
 
-  if (Object.keys(contactVelden).length === 0) return;
+  if (Object.keys(contactVelden).length > 0) {
+    const res = await fetch(`${resource}/api/data/v9.2/contacts(${verzoek.contactId})`, {
+      method: "PATCH",
+      headers: DYN_HEADERS(token),
+      body: JSON.stringify(contactVelden),
+    });
+    if (!res.ok) throw new Error(`Contact bijwerken mislukt (${res.status}): ${await res.text()}`);
+  }
 
-  const res = await fetch(`${resource}/api/data/v9.2/contacts(${verzoek.contactId})`, {
-    method: "PATCH",
-    headers: DYN_HEADERS(token),
-    body: JSON.stringify(contactVelden),
-  });
-  if (!res.ok) throw new Error(`Contact bijwerken mislukt (${res.status}): ${await res.text()}`);
+  // Bedrijfsadres naar het Account (alleen aanwezig bij accounts zonder KvK-nummer).
+  const accountVelden = {};
+  for (const [eigenVeld, dynVeld] of Object.entries(BEDRIJF_VELD_MAP)) {
+    if ((voorstel[eigenVeld] ?? "") !== (huidig[eigenVeld] ?? "")) {
+      accountVelden[dynVeld] = voorstel[eigenVeld] || null;
+    }
+  }
+  if (Object.keys(accountVelden).length > 0 && verzoek.accountId) {
+    const res = await fetch(`${resource}/api/data/v9.2/accounts(${verzoek.accountId})`, {
+      method: "PATCH",
+      headers: DYN_HEADERS(token),
+      body: JSON.stringify(accountVelden),
+    });
+    if (!res.ok) throw new Error(`Bedrijfsadres bijwerken mislukt (${res.status}): ${await res.text()}`);
+  }
 }
 
 module.exports = async function (context, req) {

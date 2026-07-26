@@ -21,7 +21,8 @@ module.exports = async function (context, req) {
           klantnummer,
           klantnaam: klantnaam || account.name || "",
           groepsnaam: groepsnaam || "",
-          // Bezoekadres van het bedrijf: read-only, wordt automatisch met de KvK gesynchroniseerd.
+          // Bezoekadres van het bedrijf. Staat er een KvK-nummer (accountnumber), dan is het
+          // KvK-gesynchroniseerd en read-only; zo niet, dan mag de klant het wél wijzigen.
           klantadres: {
             straat: account.address1_line1 || "",
             huisnummer: account.cr283_huisnummer || "",
@@ -30,6 +31,7 @@ module.exports = async function (context, req) {
             plaats: account.address1_city || "",
             land: account.address1_country || "",
           },
+          bedrijfsadresBewerkbaar: !(account[process.env.DYNAMICS_KVK_VELD || "accountnumber"] || "").toString().trim(),
           // Volledige contactpersoon-gegevens (wijzigbaar via een verzoek, behalve functie rol).
           contactpersoon: contactpersoon || {},
           relatiebeheerder,
