@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Star, Search, Mail, ArrowUp, ArrowDown } from "lucide-react";
+import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Star, Search, Mail, ArrowUp, ArrowDown, HelpCircle } from "lucide-react";
 
 const KLEUR = {
   blauw: "#1C5D8C",
@@ -44,6 +44,13 @@ export default function BeheerPortaal() {
   const [nieuweLinkUrl, setNieuweLinkUrl] = useState("");
   const [gekozenLinkCategorieen, setGekozenLinkCategorieen] = useState([]);
   const [linkVerzendStatus, setLinkVerzendStatus] = useState("idle"); // idle | bezig | fout
+
+  const [faqs, setFaqs] = useState(null);
+  const [nieuweVraag, setNieuweVraag] = useState("");
+  const [nieuwAntwoord, setNieuwAntwoord] = useState("");
+  const [gekozenFaqCategorieen, setGekozenFaqCategorieen] = useState([]);
+  const [faqVerzendStatus, setFaqVerzendStatus] = useState("idle"); // idle | bezig | fout
+  const [faqZoek, setFaqZoek] = useState("");
 
   const [wijzigingFormNawUrl, setWijzigingFormNawUrl] = useState("");
   const [wijzigingFormContactUrl, setWijzigingFormContactUrl] = useState("");
@@ -95,6 +102,7 @@ export default function BeheerPortaal() {
       .catch(() => setCategorieen([]));
     haalMededelingen();
     haalSnellinks();
+    haalFaqs();
   }, [status]);
 
   const haalMededelingen = useCallback(() => {
@@ -103,6 +111,77 @@ export default function BeheerPortaal() {
       .then(setMededelingen)
       .catch(() => setMededelingen([]));
   }, []);
+
+  const haalFaqs = useCallback(() => {
+    fetch("/api/beheer-content?type=faq")
+      .then((r) => r.json())
+      .then(setFaqs)
+      .catch(() => setFaqs([]));
+  }, []);
+
+  const toggleFaqCategorie = useCallback((waarde) => {
+    setGekozenFaqCategorieen((huidig) =>
+      huidig.includes(waarde) ? huidig.filter((c) => c !== waarde) : [...huidig, waarde]
+    );
+  }, []);
+
+  const verstuurFaq = useCallback(async () => {
+    if (!nieuweVraag.trim() || !nieuwAntwoord.trim()) return;
+    setFaqVerzendStatus("bezig");
+    try {
+      const res = await fetch("/api/beheer-content", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "faq",
+          vraag: nieuweVraag.trim(),
+          antwoord: nieuwAntwoord.trim(),
+          klantcategorieen: gekozenFaqCategorieen,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      setNieuweVraag("");
+      setNieuwAntwoord("");
+      setGekozenFaqCategorieen([]);
+      setFaqVerzendStatus("idle");
+      haalFaqs();
+    } catch {
+      setFaqVerzendStatus("fout");
+    }
+  }, [nieuweVraag, nieuwAntwoord, gekozenFaqCategorieen, haalFaqs]);
+
+  const verwijderFaq = useCallback(
+    async (id) => {
+      if (!window.confirm("Deze vraag verwijderen?")) return;
+      try {
+        await fetch(`/api/beheer-content?type=faq&id=${id}`, { method: "DELETE" });
+        haalFaqs();
+      } catch {
+        // stil falen is acceptabel
+      }
+    },
+    [haalFaqs]
+  );
+
+  const herschikFaq = useCallback(
+    async (index, richting) => {
+      const doel = index + richting;
+      if (!faqs || doel < 0 || doel >= faqs.length) return;
+      const nieuw = [...faqs];
+      [nieuw[index], nieuw[doel]] = [nieuw[doel], nieuw[index]];
+      setFaqs(nieuw);
+      try {
+        await fetch("/api/beheer-content", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "faq", volgorde: nieuw.map((f) => f.id) }),
+        });
+      } catch {
+        haalFaqs();
+      }
+    },
+    [faqs, haalFaqs]
+  );
 
   const haalSnellinks = useCallback(() => {
     fetch("/api/beheer-content?type=programma")
@@ -686,6 +765,132 @@ export default function BeheerPortaal() {
         )}
       </div>
 
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Veelgestelde vragen (FAQ)</div>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 18 }}>
+          Vraag en antwoord die klanten op de pagina "Veelgestelde vragen" zien. Kies eventueel voor
+          welke klantgroepen een vraag zichtbaar is — niets aanvinken = voor iedereen.
+        </div>
+
+        <input
+          type="text"
+          value={nieuweVraag}
+          onChange={(e) => setNieuweVraag(e.target.value)}
+          placeholder="Vraag"
+          style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13.5, marginBottom: 10, boxSizing: "border-box" }}
+        />
+        <textarea
+          value={nieuwAntwoord}
+          onChange={(e) => setNieuwAntwoord(e.target.value)}
+          placeholder="Antwoord"
+          rows={4}
+          style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13.5, fontFamily: "inherit", resize: "vertical", marginBottom: 14, boxSizing: "border-box" }}
+        />
+
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 10 }}>
+          <Users size={13} /> Klantgroepen (uit Dataverse)
+        </div>
+        {categorieen === null ? (
+          <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, marginBottom: 14 }}>Categorieën ophalen...</div>
+        ) : categorieen.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, marginBottom: 14 }}>
+            Geen categorieën gevonden. Controleer <code>DYNAMICS_KLANTCATEGORIE_VELD</code>.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+            {categorieen.map((c) => {
+              const actief = gekozenFaqCategorieen.includes(c.waarde);
+              return (
+                <button
+                  key={c.waarde}
+                  onClick={() => toggleFaqCategorie(c.waarde)}
+                  style={{
+                    padding: "6px 12px", borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+                    border: `1px solid ${actief ? KLEUR.blauw : KLEUR.rand}`,
+                    background: actief ? KLEUR.blauw : "#fff",
+                    color: actief ? "#fff" : KLEUR.tekst,
+                  }}
+                >
+                  {c.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <button
+          onClick={verstuurFaq}
+          disabled={!nieuweVraag.trim() || !nieuwAntwoord.trim() || faqVerzendStatus === "bezig"}
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: KLEUR.blauw,
+            color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer",
+            opacity: !nieuweVraag.trim() || !nieuwAntwoord.trim() ? 0.5 : 1,
+          }}
+        >
+          <HelpCircle size={14} /> {faqVerzendStatus === "bezig" ? "Toevoegen..." : "Vraag toevoegen"}
+        </button>
+        {faqVerzendStatus === "fout" && (
+          <div style={{ marginTop: 10, fontSize: 12.5, color: KLEUR.rood }}>Toevoegen is niet gelukt, probeer het nog eens.</div>
+        )}
+
+        {faqs && faqs.length > 0 && (
+          <div style={{ marginTop: 24, paddingTop: 18, borderTop: `1px solid ${KLEUR.rand}` }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 12 }}>
+              Bestaande vragen
+            </div>
+            <div style={{ position: "relative", marginBottom: 12 }}>
+              <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+              <input
+                value={faqZoek}
+                onChange={(e) => setFaqZoek(e.target.value)}
+                placeholder="Zoek in vragen en antwoorden…"
+                style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 30px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, outline: "none" }}
+              />
+            </div>
+            {(() => {
+              const term = faqZoek.trim().toLowerCase();
+              const zichtbaar = faqs.filter((f) => !term || [f.vraag, f.antwoord].filter(Boolean).some((v) => v.toLowerCase().includes(term)));
+              if (zichtbaar.length === 0) {
+                return <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Geen vragen gevonden voor “{faqZoek}”.</div>;
+              }
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {faqs.map((f, i) => {
+                    if (term && ![f.vraag, f.antwoord].filter(Boolean).some((v) => v.toLowerCase().includes(term))) return null;
+                    return (
+                      <div key={f.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "10px 0", borderTop: `1px solid ${KLEUR.rand}` }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700 }}>{f.vraag}</div>
+                          <div style={{ fontSize: 12, color: KLEUR.subtekst, marginTop: 2, whiteSpace: "pre-wrap" }}>{f.antwoord}</div>
+                          <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 6 }}>
+                            {f.klantcategorieen?.length > 0 ? f.klantcategorieen.map(labelVoorWaarde).join(", ") : "Alle klanten"}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                          {!term && (
+                            <>
+                              <button onClick={() => herschikFaq(i, -1)} disabled={i === 0} title="Omhoog" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: i === 0 ? KLEUR.rand : KLEUR.subtekst, cursor: i === 0 ? "default" : "pointer" }}>
+                                <ArrowUp size={14} />
+                              </button>
+                              <button onClick={() => herschikFaq(i, 1)} disabled={i === faqs.length - 1} title="Omlaag" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: i === faqs.length - 1 ? KLEUR.rand : KLEUR.subtekst, cursor: i === faqs.length - 1 ? "default" : "pointer" }}>
+                                <ArrowDown size={14} />
+                              </button>
+                            </>
+                          )}
+                          <button onClick={() => verwijderFaq(f.id)} title="Verwijderen" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: KLEUR.rood, cursor: "pointer" }}>
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+      </div>
+
       </>)}
 
       {tab === "instellingen" && (<>
@@ -814,13 +1019,6 @@ export default function BeheerPortaal() {
       {tab === "reviews" && <ReviewBeheer />}
 
       {tab === "verzoeken" && <WijzigingsverzoekBeheer />}
-
-      {tab === "instellingen" && (
-      <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginTop: 20, lineHeight: 1.6 }}>
-        De FAQ (veelgestelde vragen) beheer je voorlopig nog via de API
-        (<code>/api/beheer-content</code>).
-      </div>
-      )}
     </div>
   );
 }

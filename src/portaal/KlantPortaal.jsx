@@ -522,10 +522,15 @@ function whatsappHref(waarde) {
 function TabFaq({ content, teamsChatUrl, whatsappUrl, copilotEmbedUrl }) {
   const [open, setOpen] = useState(null);
   const [assistentOpen, setAssistentOpen] = useState(false);
+  const [faqZoek, setFaqZoek] = useState("");
   if (!content) return <Laadscherm />;
   const faqs = content.faqs || [];
   const waLink = whatsappHref(whatsappUrl);
   const heeftKanaal = teamsChatUrl || waLink;
+  const faqTerm = faqZoek.trim().toLowerCase();
+  const zichtbareFaqs = faqTerm
+    ? faqs.filter((f) => [f.vraag, f.antwoord].filter(Boolean).some((v) => v.toLowerCase().includes(faqTerm)))
+    : faqs;
 
   return (
     <div>
@@ -592,8 +597,23 @@ function TabFaq({ content, teamsChatUrl, whatsappUrl, copilotEmbedUrl }) {
       {faqs.length === 0 ? (
         <LegeStaat tekst="Nog geen veelgestelde vragen beschikbaar." />
       ) : (
+        <div>
+          <div style={{ position: "relative", marginBottom: 12 }}>
+            <Search size={16} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
+            <input
+              value={faqZoek}
+              onChange={(e) => setFaqZoek(e.target.value)}
+              placeholder="Zoek in de vragen…"
+              style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px 10px 36px", fontSize: 14, borderRadius: 10, border: `1px solid ${KLEUR.rand}`, outline: "none", color: KLEUR.tekst, background: "#fff" }}
+            />
+          </div>
+          {zichtbareFaqs.length === 0 ? (
+            <div style={{ ...kaartStijl, fontSize: 13, color: KLEUR.mutedTekst }}>
+              Geen vragen gevonden voor “{faqZoek}”.
+            </div>
+          ) : (
         <div style={kaartStijl}>
-          {faqs.map((f, i) => (
+          {zichtbareFaqs.map((f, i) => (
             <div key={f.id} style={{ borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}` }}>
               <button
                 onClick={() => setOpen(open === f.id ? null : f.id)}
@@ -617,6 +637,8 @@ function TabFaq({ content, teamsChatUrl, whatsappUrl, copilotEmbedUrl }) {
               )}
             </div>
           ))}
+        </div>
+          )}
         </div>
       )}
     </div>
@@ -743,15 +765,13 @@ function volledigeNaam(cp) {
   return [cp.aanhef, cp.voornaam, cp.tussenvoegsel, cp.achternaam].filter(Boolean).join(" ") || cp.naam || "—";
 }
 
-function WijzigForm({ acc, onWijzigen, onKlaar }) {
+function WijzigForm({ acc, velden, titel, onWijzigen, onKlaar }) {
   const beginwaarden = contactBeginwaarden(acc);
   const [waarden, setWaarden] = useState(beginwaarden);
   const [status, setStatus] = useState("idle"); // idle | bezig | fout
   const [foutTekst, setFoutTekst] = useState("");
 
-  const magBedrijf = !!acc.bedrijfsadresBewerkbaar;
-  const alleVelden = magBedrijf ? [...CONTACT_VELDEN, ...BEDRIJF_VELDEN] : CONTACT_VELDEN;
-  const gewijzigd = alleVelden.some((v) => (waarden[v.key] || "") !== (beginwaarden[v.key] || ""));
+  const gewijzigd = velden.some((v) => (waarden[v.key] || "") !== (beginwaarden[v.key] || ""));
 
   const invoerStijl = { width: "100%", boxSizing: "border-box", padding: "8px 10px", fontSize: 13, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, outline: "none", color: KLEUR.tekst, background: "#fff" };
 
@@ -759,7 +779,10 @@ function WijzigForm({ acc, onWijzigen, onKlaar }) {
     setStatus("bezig");
     setFoutTekst("");
     try {
-      await onWijzigen(acc.accountId, waarden);
+      // Alleen de getoonde velden meesturen; de rest blijft ongewijzigd.
+      const voorstel = {};
+      velden.forEach((v) => { voorstel[v.key] = waarden[v.key]; });
+      await onWijzigen(acc.accountId, voorstel);
       onKlaar(true);
     } catch (e) {
       setStatus("fout");
@@ -768,12 +791,12 @@ function WijzigForm({ acc, onWijzigen, onKlaar }) {
   };
 
   return (
-    <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${KLEUR.rand}` }}>
+    <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${KLEUR.rand}` }}>
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: KLEUR.mutedTekst, marginBottom: 10 }}>
-        Contactgegevens wijzigen
+        {titel}
       </div>
       <div className="kp-grid-2" style={{ gap: 12 }}>
-        {CONTACT_VELDEN.map((v) => (
+        {velden.map((v) => (
           <div key={v.key}>
             <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>{v.label}</div>
             {v.type === "aanhef" ? (
@@ -795,27 +818,6 @@ function WijzigForm({ acc, onWijzigen, onKlaar }) {
         ))}
       </div>
 
-      {magBedrijf && (
-        <>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: KLEUR.mutedTekst, margin: "16px 0 10px" }}>
-            Bedrijfsadres wijzigen
-          </div>
-          <div className="kp-grid-2" style={{ gap: 12 }}>
-            {BEDRIJF_VELDEN.map((v) => (
-              <div key={v.key}>
-                <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>{v.label}</div>
-                <input
-                  type="text"
-                  value={waarden[v.key]}
-                  onChange={(e) => setWaarden((h) => ({ ...h, [v.key]: e.target.value }))}
-                  style={invoerStijl}
-                />
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
         <button
           onClick={verstuur}
@@ -836,11 +838,27 @@ function WijzigForm({ acc, onWijzigen, onKlaar }) {
   );
 }
 
-// Uitklapbare detail: bedrijfsgegevens (KvK, read-only) + contactpersoon (wijzigbaar).
+// Kleine wijzig-link per sectie.
+function WijzigLinkKnop({ label, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10, padding: 0, background: "none", border: "none", fontSize: 12.5, fontWeight: 600, color: KLEUR.blauw, cursor: "pointer" }}
+    >
+      <Pencil size={12} /> {label}
+    </button>
+  );
+}
+
+// Uitklapbare detail: bedrijfsgegevens + contactpersoon, elk met een eigen wijzig-knop.
 function KlantDetail({ acc, verzoekStatus, onWijzigen }) {
-  const [wijzigen, setWijzigen] = useState(false);
+  const [wijzigWat, setWijzigWat] = useState(null); // null | "contact" | "bedrijf"
   const [ingediend, setIngediend] = useState(false);
   const inBehandeling = verzoekStatus === "open" || ingediend;
+  const sluit = (gelukt) => {
+    setWijzigWat(null);
+    if (gelukt) setIngediend(true);
+  };
 
   const cp = acc.contactpersoon || {};
   const a = cp.adres || {};
@@ -850,7 +868,7 @@ function KlantDetail({ acc, verzoekStatus, onWijzigen }) {
 
   return (
     <div style={{ padding: "14px 16px 16px", borderTop: `1px solid ${KLEUR.rand}`, background: "#FCFCFB" }}>
-      {/* Bedrijfsgegevens: bezoekadres uit de KvK, niet wijzigbaar. */}
+      {/* Bedrijfsgegevens: bezoekadres (KvK read-only, of wijzigbaar zonder KvK). */}
       <div>
         <div style={labelStijl}>Bedrijfsgegevens (bezoekadres)</div>
         <div style={{ display: "flex", gap: 8, fontSize: 13 }}>
@@ -865,6 +883,12 @@ function KlantDetail({ acc, verzoekStatus, onWijzigen }) {
           <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 6, fontStyle: "italic" }}>
             Deze gegevens worden automatisch gesynchroniseerd met de Kamer van Koophandel.
           </div>
+        )}
+        {acc.bedrijfsadresBewerkbaar && !inBehandeling && wijzigWat !== "bedrijf" && (
+          <WijzigLinkKnop label="Bedrijfsadres wijzigen" onClick={() => setWijzigWat("bedrijf")} />
+        )}
+        {wijzigWat === "bedrijf" && (
+          <WijzigForm acc={acc} velden={BEDRIJF_VELDEN} titel="Bedrijfsadres wijzigen" onWijzigen={onWijzigen} onKlaar={sluit} />
         )}
       </div>
 
@@ -890,6 +914,12 @@ function KlantDetail({ acc, verzoekStatus, onWijzigen }) {
             </span>
           </div>
         )}
+        {!inBehandeling && wijzigWat !== "contact" && (
+          <WijzigLinkKnop label="Contactgegevens wijzigen" onClick={() => setWijzigWat("contact")} />
+        )}
+        {wijzigWat === "contact" && (
+          <WijzigForm acc={acc} velden={CONTACT_VELDEN} titel="Contactgegevens wijzigen" onWijzigen={onWijzigen} onKlaar={sluit} />
+        )}
       </div>
 
       {(acc.relatiebeheerder || acc.accountant) && (
@@ -899,26 +929,10 @@ function KlantDetail({ acc, verzoekStatus, onWijzigen }) {
         </div>
       )}
 
-      {inBehandeling ? (
+      {inBehandeling && (
         <div style={{ marginTop: 16, padding: "10px 12px", background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12.5, color: KLEUR.tekst, display: "flex", alignItems: "center", gap: 8 }}>
           <Clock size={14} color={KLEUR.blauw} /> Je wijziging is ingediend en wacht op goedkeuring door Activaa.
         </div>
-      ) : wijzigen ? (
-        <WijzigForm
-          acc={acc}
-          onWijzigen={onWijzigen}
-          onKlaar={(gelukt) => {
-            setWijzigen(false);
-            if (gelukt) setIngediend(true);
-          }}
-        />
-      ) : (
-        <button
-          onClick={() => setWijzigen(true)}
-          style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 14, padding: 0, background: "none", border: "none", fontSize: 12.5, fontWeight: 600, color: KLEUR.blauw, cursor: "pointer" }}
-        >
-          <Pencil size={12} /> {acc.bedrijfsadresBewerkbaar ? "Gegevens wijzigen" : "Contactgegevens wijzigen"}
-        </button>
       )}
     </div>
   );
