@@ -16,27 +16,24 @@ module.exports = async function (context, req) {
       headers: { "Content-Type": "application/json" },
       body: {
         email,
-        accounts: accounts.map(({ accountId, klantnummer, klantnaam, groepsnaam, contactpersoon, relatiebeheerder, accountant, adviseur, account }) => ({
+        accounts: accounts.map(({ accountId, klantnummer, klantnaam, groepsnaam, contactpersoon, relatiebeheerder, accountant, account }) => ({
           accountId,
           klantnummer,
           klantnaam: klantnaam || account.name || "",
           groepsnaam: groepsnaam || "",
-          // Naam van de contactpersoon (voor de kop) + zijn/haar contactgegevens.
-          contactpersoon: contactpersoon?.naam || "",
-          relatiebeheerder,
-          accountant,
-          adviseur,
-          naw: {
-            bedrijfsnaam: account.name || "",
+          // Bezoekadres van het bedrijf: read-only, wordt automatisch met de KvK gesynchroniseerd.
+          klantadres: {
             straat: account.address1_line1 || "",
+            huisnummer: account.cr283_huisnummer || "",
+            toevoeging: account.cr283_huisnummertoevoeging || "",
             postcode: account.address1_postalcode || "",
             plaats: account.address1_city || "",
+            land: account.address1_country || "",
           },
-          // Relatiegegevens tonen we van de contactpersoon (bedrijf heeft vaak geen nummer).
-          relatiegegevens: {
-            email: contactpersoon?.email || "",
-            telefoon: contactpersoon?.telefoon || "",
-          },
+          // Volledige contactpersoon-gegevens (wijzigbaar via een verzoek, behalve functie rol).
+          contactpersoon: contactpersoon || {},
+          relatiebeheerder,
+          accountant,
         })),
       },
     };

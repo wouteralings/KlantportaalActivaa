@@ -26,6 +26,7 @@ import {
   Users,
   Bot,
   MessageCircle,
+  Clock,
 } from "lucide-react";
 import { haalApiToken } from "./msal";
 
@@ -81,6 +82,7 @@ export default function KlantPortaal() {
   const [content, setContent] = useState(null);
   const [nieuws, setNieuws] = useState(null);
   const [geenKoppeling, setGeenKoppeling] = useState(false);
+  const [mijnVerzoeken, setMijnVerzoeken] = useState([]);
   const [documenten, setDocumenten] = useState(null);
   const [documentenStatus, setDocumentenStatus] = useState("nietOpgehaald");
   const [documentenFoutmelding, setDocumentenFoutmelding] = useState("");
@@ -144,7 +146,30 @@ export default function KlantPortaal() {
       .then(haalData)
       .then(setNieuws)
       .catch(() => setNieuws([])); // niet-kritisch, portaal blijft verder werken
+    fetch("/api/wijzigingsverzoek")
+      .then(haalData)
+      .then((d) => setMijnVerzoeken(d.verzoeken || []))
+      .catch(() => setMijnVerzoeken([])); // niet-kritisch
   }, [ingelogd]);
+
+  const haalVerzoekenOp = useCallback(() => {
+    fetch("/api/wijzigingsverzoek")
+      .then(haalData)
+      .then((d) => setMijnVerzoeken(d.verzoeken || []))
+      .catch(() => {});
+  }, []);
+
+  const dienWijzigingIn = useCallback(async (accountId, voorstel) => {
+    const res = await fetch("/api/wijzigingsverzoek", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accountId, voorstel }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    haalVerzoekenOp();
+    return data;
+  }, [haalVerzoekenOp]);
 
   const handelTaakAf = useCallback(async (taakId) => {
     const vorigeTaken = taken;
@@ -278,7 +303,7 @@ export default function KlantPortaal() {
         </>
       )}
       {tab === "gegevens" && (
-        <TabGegevens data={mijnGegevens} wijzigingFormNawUrl={wijzigingFormNawUrl} wijzigingFormContactUrl={wijzigingFormContactUrl} />
+        <TabGegevens data={mijnGegevens} verzoeken={mijnVerzoeken} onWijzigen={dienWijzigingIn} />
       )}
       {tab === "documenten" && (
         <TabDocumenten
@@ -631,41 +656,182 @@ function PersoonRegel({ label, persoon }) {
   );
 }
 
-// Uitklapbare detail met de algemene informatie van één klant.
-function KlantDetail({ acc, wijzigingFormNawUrl, wijzigingFormContactUrl }) {
+// Bewerkbare contactpersoon-velden (Functie rol bewust NIET wijzigbaar).
+const AANHEF_OPTIES = ["De heer", "Mevrouw", "De heer / mevrouw"];
+const CONTACT_VELDEN = [
+  { key: "aanhef", label: "Aanhef", type: "aanhef" },
+  { key: "voornaam", label: "Voornaam" },
+  { key: "tussenvoegsel", label: "Tussenvoegsel" },
+  { key: "achternaam", label: "Achternaam" },
+  { key: "functietitel", label: "Functietitel" },
+  { key: "mobiel", label: "Mobiel" },
+  { key: "email", label: "E-mail" },
+  { key: "geboortedatum", label: "Geboortedatum", type: "date" },
+  { key: "straat", label: "Straat" },
+  { key: "huisnummer", label: "Huisnummer" },
+  { key: "toevoeging", label: "Toevoeging" },
+  { key: "postcode", label: "Postcode" },
+  { key: "plaats", label: "Plaats" },
+  { key: "provincie", label: "Provincie" },
+  { key: "land", label: "Land" },
+];
+
+function contactBeginwaarden(acc) {
+  const cp = acc.contactpersoon || {};
+  const a = cp.adres || {};
+  return {
+    aanhef: cp.aanhef || "",
+    voornaam: cp.voornaam || "",
+    tussenvoegsel: cp.tussenvoegsel || "",
+    achternaam: cp.achternaam || "",
+    functietitel: cp.functietitel || "",
+    mobiel: cp.mobiel || "",
+    email: cp.email || "",
+    geboortedatum: cp.geboortedatum || "",
+    straat: a.straat || "",
+    huisnummer: a.huisnummer || "",
+    toevoeging: a.toevoeging || "",
+    postcode: a.postcode || "",
+    plaats: a.plaats || "",
+    provincie: a.provincie || "",
+    land: a.land || "",
+  };
+}
+
+function nlDatum(iso) {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" });
+  } catch {
+    return iso;
+  }
+}
+
+function volledigeNaam(cp) {
+  return [cp.aanhef, cp.voornaam, cp.tussenvoegsel, cp.achternaam].filter(Boolean).join(" ") || cp.naam || "—";
+}
+
+function WijzigForm({ acc, onWijzigen, onKlaar }) {
+  const beginwaarden = contactBeginwaarden(acc);
+  const [waarden, setWaarden] = useState(beginwaarden);
+  const [status, setStatus] = useState("idle"); // idle | bezig | fout
+  const [foutTekst, setFoutTekst] = useState("");
+
+  const gewijzigd = CONTACT_VELDEN.some((v) => (waarden[v.key] || "") !== (beginwaarden[v.key] || ""));
+
+  const invoerStijl = { width: "100%", boxSizing: "border-box", padding: "8px 10px", fontSize: 13, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, outline: "none", color: KLEUR.tekst, background: "#fff" };
+
+  const verstuur = async () => {
+    setStatus("bezig");
+    setFoutTekst("");
+    try {
+      await onWijzigen(acc.accountId, waarden);
+      onKlaar(true);
+    } catch (e) {
+      setStatus("fout");
+      setFoutTekst(String(e.message || e));
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${KLEUR.rand}` }}>
+      <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: KLEUR.mutedTekst, marginBottom: 10 }}>
+        Contactgegevens wijzigen
+      </div>
+      <div className="kp-grid-2" style={{ gap: 12 }}>
+        {CONTACT_VELDEN.map((v) => (
+          <div key={v.key}>
+            <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>{v.label}</div>
+            {v.type === "aanhef" ? (
+              <select value={waarden.aanhef} onChange={(e) => setWaarden((h) => ({ ...h, aanhef: e.target.value }))} style={invoerStijl}>
+                <option value="">—</option>
+                {AANHEF_OPTIES.map((o) => (
+                  <option key={o} value={o}>{o}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type={v.type === "date" ? "date" : "text"}
+                value={waarden[v.key]}
+                onChange={(e) => setWaarden((h) => ({ ...h, [v.key]: e.target.value }))}
+                style={invoerStijl}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
+        <button
+          onClick={verstuur}
+          disabled={!gewijzigd || status === "bezig"}
+          style={{ ...knopStijlPrimair, opacity: gewijzigd ? 1 : 0.5, cursor: gewijzigd && status !== "bezig" ? "pointer" : "default" }}
+        >
+          <Send size={14} /> {status === "bezig" ? "Versturen…" : "Wijziging indienen"}
+        </button>
+        <button onClick={() => onKlaar(false)} style={{ background: "none", border: "none", color: KLEUR.subtekst, fontSize: 13, cursor: "pointer" }}>
+          Annuleren
+        </button>
+      </div>
+      <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8 }}>
+        Je wijziging wordt eerst door Activaa beoordeeld voordat 'ie wordt doorgevoerd.
+      </div>
+      {status === "fout" && <div style={{ fontSize: 12, color: KLEUR.rood, marginTop: 6 }}>Indienen is niet gelukt. {foutTekst}</div>}
+    </div>
+  );
+}
+
+// Uitklapbare detail: bedrijfsgegevens (KvK, read-only) + contactpersoon (wijzigbaar).
+function KlantDetail({ acc, verzoekStatus, onWijzigen }) {
+  const [wijzigen, setWijzigen] = useState(false);
+  const [ingediend, setIngediend] = useState(false);
+  const inBehandeling = verzoekStatus === "open" || ingediend;
+
+  const cp = acc.contactpersoon || {};
+  const a = cp.adres || {};
+  const ka = acc.klantadres || {};
+  const labelStijl = { fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: KLEUR.mutedTekst, marginBottom: 6 };
+  const regelStijl = { display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 3 };
+
   return (
     <div style={{ padding: "14px 16px 16px", borderTop: `1px solid ${KLEUR.rand}`, background: "#FCFCFB" }}>
-      <div className="kp-grid-2" style={{ gap: 16 }}>
-        <div>
-          <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", color: KLEUR.mutedTekst, marginBottom: 6 }}>NAW-gegevens</div>
-          <div style={{ display: "flex", gap: 8, fontSize: 13 }}>
+      {/* Bedrijfsgegevens: bezoekadres uit de KvK, niet wijzigbaar. */}
+      <div>
+        <div style={labelStijl}>Bedrijfsgegevens (bezoekadres)</div>
+        <div style={{ display: "flex", gap: 8, fontSize: 13 }}>
+          <MapPin size={14} color={KLEUR.mutedTekst} style={{ flexShrink: 0, marginTop: 2 }} />
+          <span>
+            {[ka.straat, ka.huisnummer, ka.toevoeging].filter(Boolean).join(" ") || "—"}
+            <br />
+            {ka.postcode} {ka.plaats}{ka.land ? `, ${ka.land}` : ""}
+          </span>
+        </div>
+        <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 6, fontStyle: "italic" }}>
+          Deze gegevens worden automatisch gesynchroniseerd met de Kamer van Koophandel.
+        </div>
+      </div>
+
+      {/* Contactpersoon. */}
+      <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${KLEUR.rand}` }}>
+        <div style={labelStijl}>Contactpersoon</div>
+        <div style={{ fontSize: 13.5, fontWeight: 600 }}>{volledigeNaam(cp)}</div>
+        {cp.functietitel && <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginTop: 2 }}>{cp.functietitel}</div>}
+        {cp.email && (
+          <div style={regelStijl}><Mail size={14} color={KLEUR.mutedTekst} /> <span style={{ overflowWrap: "anywhere" }}>{cp.email}</span></div>
+        )}
+        {cp.mobiel && <div style={regelStijl}><Phone size={14} color={KLEUR.mutedTekst} /> {cp.mobiel}</div>}
+        {cp.geboortedatum && (
+          <div style={{ ...regelStijl, color: KLEUR.subtekst }}><Clock size={14} color={KLEUR.mutedTekst} /> Geboortedatum: {nlDatum(cp.geboortedatum)}</div>
+        )}
+        {(a.straat || a.plaats) && (
+          <div style={{ display: "flex", gap: 8, fontSize: 13, marginTop: 6 }}>
             <MapPin size={14} color={KLEUR.mutedTekst} style={{ flexShrink: 0, marginTop: 2 }} />
-            <span>{acc.naw.straat || "—"}<br />{acc.naw.postcode} {acc.naw.plaats}</span>
+            <span>
+              {[a.straat, a.huisnummer, a.toevoeging].filter(Boolean).join(" ")}
+              <br />
+              {a.postcode} {a.plaats}{a.provincie ? `, ${a.provincie}` : ""}{a.land ? `, ${a.land}` : ""}
+            </span>
           </div>
-          <WijzigLink
-            url={vulLinkIn(wijzigingFormNawUrl, {
-              klantnummer: acc.klantnummer,
-              bedrijfsnaam: acc.naw.bedrijfsnaam || acc.klantnaam,
-              straat: acc.naw.straat,
-              postcode: acc.naw.postcode,
-              plaats: acc.naw.plaats,
-            })}
-          />
-        </div>
-        <div>
-          <PersoonRegel
-            label="Contactpersoon"
-            persoon={{ naam: acc.contactpersoon, email: acc.relatiegegevens.email, telefoon: acc.relatiegegevens.telefoon }}
-          />
-          <WijzigLink
-            url={vulLinkIn(wijzigingFormContactUrl, {
-              klantnummer: acc.klantnummer,
-              contactpersoon: acc.contactpersoon,
-              email: acc.relatiegegevens.email,
-              telefoon: acc.relatiegegevens.telefoon,
-            })}
-          />
-        </div>
+        )}
       </div>
 
       {(acc.relatiebeheerder || acc.accountant) && (
@@ -674,16 +840,40 @@ function KlantDetail({ acc, wijzigingFormNawUrl, wijzigingFormContactUrl }) {
           <PersoonRegel label="Accountant" persoon={acc.accountant} />
         </div>
       )}
+
+      {inBehandeling ? (
+        <div style={{ marginTop: 16, padding: "10px 12px", background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12.5, color: KLEUR.tekst, display: "flex", alignItems: "center", gap: 8 }}>
+          <Clock size={14} color={KLEUR.blauw} /> Je wijziging is ingediend en wacht op goedkeuring door Activaa.
+        </div>
+      ) : wijzigen ? (
+        <WijzigForm
+          acc={acc}
+          onWijzigen={onWijzigen}
+          onKlaar={(gelukt) => {
+            setWijzigen(false);
+            if (gelukt) setIngediend(true);
+          }}
+        />
+      ) : (
+        <button
+          onClick={() => setWijzigen(true)}
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 14, padding: 0, background: "none", border: "none", fontSize: 12.5, fontWeight: 600, color: KLEUR.blauw, cursor: "pointer" }}
+        >
+          <Pencil size={12} /> Contactgegevens wijzigen
+        </button>
+      )}
     </div>
   );
 }
 
-function TabGegevens({ data, wijzigingFormNawUrl, wijzigingFormContactUrl }) {
+function TabGegevens({ data, verzoeken, onWijzigen }) {
   const [zoek, setZoek] = useState("");
   const [openId, setOpenId] = useState(null);
 
   if (!data) return <Laadscherm />;
   if (data.accounts?.length === 0) return <LegeStaat tekst="Er zijn nog geen klantgegevens aan jouw account gekoppeld." />;
+
+  const openVerzoeken = new Set((verzoeken || []).filter((v) => v.status === "open").map((v) => v.accountId));
 
   const term = zoek.trim().toLowerCase();
   const lijst = data.accounts.filter((acc) =>
@@ -733,6 +923,14 @@ function TabGegevens({ data, wijzigingFormNawUrl, wijzigingFormContactUrl }) {
                 <span style={{ fontSize: 14, fontWeight: 600, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {acc.klantnaam}
                 </span>
+                {openVerzoeken.has(acc.accountId) && (
+                  <span title="Wijziging wacht op goedkeuring" style={{
+                    display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 600,
+                    color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 999, padding: "3px 8px", flexShrink: 0,
+                  }}>
+                    <Clock size={11} /> In behandeling
+                  </span>
+                )}
                 {acc.groepsnaam && (
                   <span style={{
                     display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontWeight: 600,
@@ -748,7 +946,11 @@ function TabGegevens({ data, wijzigingFormNawUrl, wijzigingFormContactUrl }) {
                 />
               </button>
               {open && (
-                <KlantDetail acc={acc} wijzigingFormNawUrl={wijzigingFormNawUrl} wijzigingFormContactUrl={wijzigingFormContactUrl} />
+                <KlantDetail
+                  acc={acc}
+                  verzoekStatus={openVerzoeken.has(acc.accountId) ? "open" : null}
+                  onWijzigen={onWijzigen}
+                />
               )}
             </div>
           );

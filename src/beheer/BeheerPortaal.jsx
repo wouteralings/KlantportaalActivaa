@@ -26,6 +26,7 @@ function zetBrowserFavicon(url) {
 export default function BeheerPortaal() {
   const [status, setStatus] = useState("laden"); // laden | nietIngelogd | geenRol | klaar
   const [gebruiker, setGebruiker] = useState(null);
+  const [tab, setTab] = useState("uitstraling"); // uitstraling | content | reviews | verzoeken | instellingen
   const [logoUrl, setLogoUrl] = useState("");
   const [uploadStatus, setUploadStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [faviconUrl, setFaviconUrl] = useState("");
@@ -335,6 +336,30 @@ export default function BeheerPortaal() {
         </div>
       </div>
 
+      <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap", borderBottom: `1px solid ${KLEUR.rand}` }}>
+        {[
+          ["uitstraling", "Uitstraling"],
+          ["content", "Content"],
+          ["reviews", "Reviews"],
+          ["verzoeken", "Wijzigingsverzoeken"],
+          ["instellingen", "Instellingen"],
+        ].map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setTab(k)}
+            style={{
+              padding: "8px 14px", background: "none", border: "none", cursor: "pointer",
+              fontSize: 13, fontWeight: 600, marginBottom: -1,
+              color: tab === k ? KLEUR.blauw : KLEUR.subtekst,
+              borderBottom: `2px solid ${tab === k ? KLEUR.blauw : "transparent"}`,
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "uitstraling" && (<>
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Logo</div>
         <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 18 }}>
@@ -413,6 +438,9 @@ export default function BeheerPortaal() {
         )}
       </div>
 
+      </>)}
+
+      {tab === "content" && (<>
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Snellinks</div>
         <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 18 }}>
@@ -616,6 +644,9 @@ export default function BeheerPortaal() {
         )}
       </div>
 
+      </>)}
+
+      {tab === "instellingen" && (<>
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Wijzigingsformulieren</div>
         <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 4 }}>
@@ -736,12 +767,18 @@ export default function BeheerPortaal() {
         )}
       </div>
 
-      <ReviewBeheer />
+      </>)}
 
+      {tab === "reviews" && <ReviewBeheer />}
+
+      {tab === "verzoeken" && <WijzigingsverzoekBeheer />}
+
+      {tab === "instellingen" && (
       <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginTop: 20, lineHeight: 1.6 }}>
         De FAQ (veelgestelde vragen) beheer je voorlopig nog via de API
         (<code>/api/beheer-content</code>).
       </div>
+      )}
     </div>
   );
 }
@@ -1018,6 +1055,192 @@ function ReviewBeheer() {
             </div>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+const WIJZIG_VELD_LABELS = {
+  aanhef: "Aanhef", voornaam: "Voornaam", tussenvoegsel: "Tussenvoegsel", achternaam: "Achternaam",
+  functietitel: "Functietitel", mobiel: "Mobiel", email: "E-mail", geboortedatum: "Geboortedatum",
+  straat: "Straat", huisnummer: "Huisnummer", toevoeging: "Toevoeging", postcode: "Postcode",
+  plaats: "Plaats", provincie: "Provincie", land: "Land",
+};
+
+function StatusBadge({ status }) {
+  const kleuren = {
+    open: { bg: "#FFF4E5", tekst: "#8A5A00" },
+    goedgekeurd: { bg: "#E7F3EA", tekst: "#1E6B33" },
+    afgewezen: { bg: "#FBE9E9", tekst: KLEUR.rood },
+  };
+  const k = kleuren[status] || kleuren.open;
+  const label = status === "open" ? "Wacht op goedkeuring" : status === "goedgekeurd" ? "Goedgekeurd" : "Afgewezen";
+  return (
+    <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 999, background: k.bg, color: k.tekst }}>
+      {label}
+    </span>
+  );
+}
+
+function WijzigingsverzoekBeheer() {
+  const [verzoeken, setVerzoeken] = useState(null);
+  const [fout, setFout] = useState(false);
+  const [filter, setFilter] = useState("open"); // open | alle
+  const [bezigId, setBezigId] = useState(null);
+
+  const laad = useCallback(() => {
+    fetch("/api/beheer-wijzigingen")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setVerzoeken(d.verzoeken || []))
+      .catch(() => {
+        setVerzoeken([]);
+        setFout(true);
+      });
+  }, []);
+
+  useEffect(() => {
+    laad();
+  }, [laad]);
+
+  const beslis = useCallback(
+    async (id, actie) => {
+      if (actie === "afwijzen" && !window.confirm("Dit wijzigingsverzoek afwijzen?")) return;
+      setBezigId(id);
+      try {
+        const res = await fetch("/api/beheer-wijzigingen", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, actie }),
+        });
+        if (!res.ok) throw new Error();
+        const d = await res.json();
+        if (actie === "goedkeuren" && d.verwerkt === false) {
+          window.alert(
+            "Goedgekeurd, maar automatisch verwerken in Dynamics lukte niet " +
+              "(waarschijnlijk onvoldoende schrijfrechten). De gegevens staan wel klaar om handmatig door te voeren."
+          );
+        }
+        laad();
+      } catch {
+        setFout(true);
+      } finally {
+        setBezigId(null);
+      }
+    },
+    [laad]
+  );
+
+  if (verzoeken === null) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst }}>
+        <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Wijzigingsverzoeken ophalen…
+      </div>
+    );
+  }
+
+  const lijst = verzoeken.filter((v) => (filter === "alle" ? true : v.status === "open"));
+  const aantalOpen = verzoeken.filter((v) => v.status === "open").length;
+
+  return (
+    <div>
+      {fout && (
+        <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 10 }}>
+          Er ging iets mis met de wijzigingsverzoeken. Controleer of de opslag is geconfigureerd.
+        </div>
+      )}
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst }}>
+          {aantalOpen} openstaand{aantalOpen === 1 ? "" : "e"} verzoek{aantalOpen === 1 ? "" : "en"}
+        </div>
+        <select
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, background: "#fff" }}
+        >
+          <option value="open">Alleen openstaand</option>
+          <option value="alle">Alle (ook afgehandeld)</option>
+        </select>
+      </div>
+
+      {lijst.length === 0 ? (
+        <div style={{ fontSize: 13, color: KLEUR.mutedTekst, padding: "16px 0" }}>
+          {filter === "open" ? "Geen openstaande wijzigingsverzoeken." : "Nog geen wijzigingsverzoeken."}
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {lijst.map((v) => {
+            const gewijzigd = Object.keys(WIJZIG_VELD_LABELS).filter(
+              (veld) => (v.voorstel?.[veld] ?? "") !== (v.huidig?.[veld] ?? "")
+            );
+            return (
+              <div key={v.id} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700 }}>
+                      {v.klantnaam} <span style={{ fontSize: 12, fontWeight: 500, color: KLEUR.mutedTekst }}>· nr {v.klantnummer ?? "-"}</span>
+                    </div>
+                    <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 2 }}>
+                      Ingediend door {v.aanvragerEmail} · {new Date(v.aangevraagdOp).toLocaleString("nl-NL")}
+                    </div>
+                  </div>
+                  <StatusBadge status={v.status} />
+                </div>
+
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                    <thead>
+                      <tr>
+                        <th style={{ textAlign: "left", padding: "4px 8px", color: KLEUR.mutedTekst, fontWeight: 600, borderBottom: `1px solid ${KLEUR.rand}` }}>Veld</th>
+                        <th style={{ textAlign: "left", padding: "4px 8px", color: KLEUR.mutedTekst, fontWeight: 600, borderBottom: `1px solid ${KLEUR.rand}` }}>Huidig</th>
+                        <th style={{ textAlign: "left", padding: "4px 8px", color: KLEUR.mutedTekst, fontWeight: 600, borderBottom: `1px solid ${KLEUR.rand}` }}>Nieuw</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {gewijzigd.map((veld) => (
+                        <tr key={veld}>
+                          <td style={{ padding: "5px 8px", fontWeight: 600 }}>{WIJZIG_VELD_LABELS[veld]}</td>
+                          <td style={{ padding: "5px 8px", color: KLEUR.subtekst }}>{v.huidig?.[veld] || "—"}</td>
+                          <td style={{ padding: "5px 8px", color: KLEUR.blauw, fontWeight: 600 }}>{v.voorstel?.[veld] || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {v.status === "goedgekeurd" && v.verwerkingsfout && (
+                  <div style={{ fontSize: 11.5, color: KLEUR.rood, marginTop: 10 }}>
+                    Automatisch verwerken lukte niet: {v.verwerkingsfout} — voer deze wijziging handmatig door in Dynamics.
+                  </div>
+                )}
+                {v.status === "goedgekeurd" && !v.verwerkingsfout && (
+                  <div style={{ fontSize: 11.5, color: "#1E6B33", marginTop: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                    <CheckCircle2 size={13} /> Verwerkt in Dynamics{v.verwerktDoor ? ` door ${v.verwerktDoor}` : ""}.
+                  </div>
+                )}
+
+                {v.status === "open" && (
+                  <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                    <button
+                      onClick={() => beslis(v.id, "goedkeuren")}
+                      disabled={bezigId === v.id}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+                    >
+                      <CheckCircle2 size={14} /> {bezigId === v.id ? "Bezig…" : "Goedkeuren & verwerken"}
+                    </button>
+                    <button
+                      onClick={() => beslis(v.id, "afwijzen")}
+                      disabled={bezigId === v.id}
+                      style={{ padding: "8px 14px", background: "#fff", color: KLEUR.rood, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+                    >
+                      Afwijzen
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );

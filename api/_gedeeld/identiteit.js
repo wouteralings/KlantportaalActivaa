@@ -135,10 +135,14 @@ async function herleidAccounts(req, token) {
   // pas ze dan aan via de Application Settings DYNAMICS_RELATIEBEHEERDER_NAV / DYNAMICS_ACCOUNTANT_NAV.
   const query =
     `${resource}/api/data/v9.2/accounts` +
-    `?$select=accountid,${CLIENTNUMMER_VELD},name,address1_line1,address1_postalcode,address1_city,` +
+    `?$select=accountid,${CLIENTNUMMER_VELD},name,address1_line1,cr283_huisnummer,` +
+    `cr283_huisnummertoevoeging,address1_postalcode,address1_city,address1_country,` +
     `emailaddress1,telephone1${KLANTCATEGORIE_VELD ? "," + KLANTCATEGORIE_VELD : ""}` +
     `&$filter=primarycontactid/emailaddress1 eq '${veilig}' and statecode eq 0` +
-    `&$expand=primarycontactid($select=contactid,fullname,emailaddress1,mobilephone,telephone1),` +
+    `&$expand=primarycontactid($select=contactid,fullname,firstname,middlename,lastname,jobtitle,` +
+    `mobilephone,telephone1,emailaddress1,birthdate,salutation,sk_aanhef,address1_line1,` +
+    `cr283_huisnummer,cr283_huisnummertoevoeging,address1_postalcode,address1_city,` +
+    `address1_stateorprovince,address1_country),` +
     `${GROEPSNAAM_NAV}($select=${GROEPSNAAM_NAAMVELD}),` +
     `${RELATIEBEHEERDER_NAV}($select=fullname,internalemailaddress,mobilephone,address1_telephone1),` +
     `${ACCOUNTANT_NAV}($select=fullname,internalemailaddress,mobilephone,address1_telephone1)`;
@@ -197,11 +201,30 @@ async function herleidAccounts(req, token) {
       const relatiebeheerder = maakPersoon(account[RELATIEBEHEERDER_NAV]);
       const accountant = maakPersoon(account[ACCOUNTANT_NAV]);
       const contact = account.primarycontactid || {};
-      // De relatiegegevens (e-mail + telefoon) tonen we van de contactpersoon: het bedrijf
-      // zelf heeft vaak geen telefoonnummer, de contactpersoon wel (mobiel).
+      // De contactpersoon-gegevens (persoon + privé-adres). Aanhef is een optieset (sk_aanhef);
+      // we tonen het leesbare label. 'Functie rol' (sk_functietype) laten we bewust weg.
+      const aanhefLabel =
+        contact["sk_aanhef@OData.Community.Display.V1.FormattedValue"] || contact.salutation || "";
       const contactpersoon = {
         naam: contact.fullname || "",
+        aanhef: aanhefLabel,
+        voornaam: contact.firstname || "",
+        tussenvoegsel: contact.middlename || "",
+        achternaam: contact.lastname || "",
+        functietitel: contact.jobtitle || "",
+        mobiel: contact.mobilephone || contact.telephone1 || "",
         email: contact.emailaddress1 || "",
+        geboortedatum: contact.birthdate || "",
+        adres: {
+          straat: contact.address1_line1 || "",
+          huisnummer: contact.cr283_huisnummer || "",
+          toevoeging: contact.cr283_huisnummertoevoeging || "",
+          postcode: contact.address1_postalcode || "",
+          plaats: contact.address1_city || "",
+          provincie: contact.address1_stateorprovince || "",
+          land: contact.address1_country || "",
+        },
+        // compat met bestaande code die 'telefoon' verwacht:
         telefoon: contact.mobilephone || contact.telephone1 || "",
       };
       const groep = account[GROEPSNAAM_NAV];

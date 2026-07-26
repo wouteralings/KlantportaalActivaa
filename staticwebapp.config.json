@@ -29,6 +29,10 @@
       "allowedRoles": ["beheerder"]
     },
     {
+      "route": "/api/beheer-wijzigingen",
+      "allowedRoles": ["beheerder"]
+    },
+    {
       "route": "/api/instellingen",
       "allowedRoles": ["anonymous"]
     },
