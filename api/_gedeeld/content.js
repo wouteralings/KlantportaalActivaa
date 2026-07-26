@@ -91,6 +91,25 @@ async function verwijderItem(type, id) {
   return overgebleven.length !== items.length;
 }
 
+/**
+ * Herschikt de items van een type volgens de gegeven id-volgorde. Id's die niet in de lijst
+ * voorkomen worden genegeerd; items die niet in de volgorde staan blijven achteraan.
+ */
+async function herschikItems(type, volgordeIds) {
+  const items = await haalItems(type);
+  const opId = new Map(items.map((i) => [i.id, i]));
+  const geordend = [];
+  for (const id of volgordeIds || []) {
+    if (opId.has(id)) {
+      geordend.push(opId.get(id));
+      opId.delete(id);
+    }
+  }
+  for (const rest of opId.values()) geordend.push(rest);
+  await slaItemsOp(type, geordend);
+  return geordend;
+}
+
 /** Filtert items die passen bij minstens één van de gegeven klantcategorieën, of voor iedereen zijn. */
 function filterVoorCategorieen(items, klantcategorieen) {
   return items.filter(
@@ -101,4 +120,4 @@ function filterVoorCategorieen(items, klantcategorieen) {
   );
 }
 
-module.exports = { haalItems, voegItemToe, werkItemBij, verwijderItem, filterVoorCategorieen };
+module.exports = { haalItems, voegItemToe, werkItemBij, verwijderItem, herschikItems, filterVoorCategorieen };

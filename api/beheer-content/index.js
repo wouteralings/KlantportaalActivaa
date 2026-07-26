@@ -1,4 +1,4 @@
-const { haalItems, voegItemToe, werkItemBij, verwijderItem } = require("../_gedeeld/content");
+const { haalItems, voegItemToe, werkItemBij, verwijderItem, herschikItems } = require("../_gedeeld/content");
 
 /**
  * Route is beveiligd via staticwebapp.config.json (alleen rol 'beheerder').
@@ -60,6 +60,17 @@ module.exports = async function (context, req) {
         return;
       }
       context.res = { headers: { "Content-Type": "application/json" }, body: bijgewerkt };
+      return;
+    }
+
+    if (req.method === "PATCH") {
+      const { type, volgorde } = req.body || {};
+      if (!type || !Array.isArray(volgorde)) {
+        context.res = { status: 400, body: { error: "Geef 'type' en 'volgorde' (array van id's) mee." } };
+        return;
+      }
+      const geordend = await herschikItems(type, volgorde);
+      context.res = { headers: { "Content-Type": "application/json" }, body: geordend };
       return;
     }
 

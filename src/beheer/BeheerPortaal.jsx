@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Star, Search, Mail } from "lucide-react";
+import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Star, Search, Mail, ArrowUp, ArrowDown } from "lucide-react";
 
 const KLEUR = {
   blauw: "#1C5D8C",
@@ -281,6 +281,27 @@ export default function BeheerPortaal() {
     [haalSnellinks]
   );
 
+  const herschikSnellink = useCallback(
+    async (index, richting) => {
+      const doel = index + richting;
+      if (!snellinks || doel < 0 || doel >= snellinks.length) return;
+      // Direct in de UI omwisselen voor een snelle reactie.
+      const nieuw = [...snellinks];
+      [nieuw[index], nieuw[doel]] = [nieuw[doel], nieuw[index]];
+      setSnellinks(nieuw);
+      try {
+        await fetch("/api/beheer-content", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "programma", volgorde: nieuw.map((s) => s.id) }),
+        });
+      } catch {
+        haalSnellinks(); // bij een fout de opgeslagen volgorde terughalen
+      }
+    },
+    [snellinks, haalSnellinks]
+  );
+
   if (status === "laden") {
     return (
       <Scherm>
@@ -512,11 +533,14 @@ export default function BeheerPortaal() {
 
         {snellinks && snellinks.length > 0 && (
           <div style={{ marginTop: 24, paddingTop: 18, borderTop: `1px solid ${KLEUR.rand}` }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 4 }}>
               Actieve snellinks
             </div>
+            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 12 }}>
+              De volgorde hieronder is ook de volgorde waarin klanten de knoppen zien. Gebruik de pijltjes om te rangschikken.
+            </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {snellinks.map((s) => (
+              {snellinks.map((s, i) => (
                 <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "10px 0", borderTop: `1px solid ${KLEUR.rand}` }}>
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700 }}>
@@ -531,13 +555,31 @@ export default function BeheerPortaal() {
                         : "Alle klanten"}
                     </div>
                   </div>
-                  <button
-                    onClick={() => verwijderSnellink(s.id)}
-                    title="Verwijderen"
-                    style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: KLEUR.rood, cursor: "pointer", flexShrink: 0 }}
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                    <button
+                      onClick={() => herschikSnellink(i, -1)}
+                      disabled={i === 0}
+                      title="Omhoog"
+                      style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: i === 0 ? KLEUR.rand : KLEUR.subtekst, cursor: i === 0 ? "default" : "pointer" }}
+                    >
+                      <ArrowUp size={14} />
+                    </button>
+                    <button
+                      onClick={() => herschikSnellink(i, 1)}
+                      disabled={i === snellinks.length - 1}
+                      title="Omlaag"
+                      style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: i === snellinks.length - 1 ? KLEUR.rand : KLEUR.subtekst, cursor: i === snellinks.length - 1 ? "default" : "pointer" }}
+                    >
+                      <ArrowDown size={14} />
+                    </button>
+                    <button
+                      onClick={() => verwijderSnellink(s.id)}
+                      title="Verwijderen"
+                      style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: KLEUR.rood, cursor: "pointer" }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -1086,6 +1128,7 @@ function WijzigingsverzoekBeheer() {
   const [verzoeken, setVerzoeken] = useState(null);
   const [fout, setFout] = useState(false);
   const [filter, setFilter] = useState("open"); // open | alle
+  const [zoek, setZoek] = useState("");
   const [bezigId, setBezigId] = useState(null);
 
   const laad = useCallback(() => {
@@ -1138,7 +1181,18 @@ function WijzigingsverzoekBeheer() {
     );
   }
 
-  const lijst = verzoeken.filter((v) => (filter === "alle" ? true : v.status === "open"));
+  const term = zoek.trim().toLowerCase();
+  const lijst = verzoeken.filter((v) => {
+    if (filter !== "alle" && v.status !== "open") return false;
+    if (
+      term &&
+      ![v.klantnaam, String(v.klantnummer ?? ""), v.aanvragerEmail, v.verwerktDoor]
+        .filter(Boolean)
+        .some((val) => val.toLowerCase().includes(term))
+    )
+      return false;
+    return true;
+  });
   const aantalOpen = verzoeken.filter((v) => v.status === "open").length;
 
   return (
@@ -1153,14 +1207,25 @@ function WijzigingsverzoekBeheer() {
         <div style={{ fontSize: 13, color: KLEUR.subtekst }}>
           {aantalOpen} openstaand{aantalOpen === 1 ? "" : "e"} verzoek{aantalOpen === 1 ? "" : "en"}
         </div>
-        <select
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, background: "#fff" }}
-        >
-          <option value="open">Alleen openstaand</option>
-          <option value="alle">Alle (ook afgehandeld)</option>
-        </select>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ position: "relative" }}>
+            <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+            <input
+              value={zoek}
+              onChange={(e) => setZoek(e.target.value)}
+              placeholder="Zoek op klant, nummer, e-mail of beoordelaar…"
+              style={{ padding: "8px 10px 8px 30px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, outline: "none", minWidth: 240 }}
+            />
+          </div>
+          <select
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, background: "#fff" }}
+          >
+            <option value="open">Alleen openstaand</option>
+            <option value="alle">Alle (ook afgehandeld)</option>
+          </select>
+        </div>
       </div>
 
       {lijst.length === 0 ? (
@@ -1183,6 +1248,12 @@ function WijzigingsverzoekBeheer() {
                     <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 2 }}>
                       Ingediend door {v.aanvragerEmail} · {new Date(v.aangevraagdOp).toLocaleString("nl-NL")}
                     </div>
+                    {v.status !== "open" && v.verwerktDoor && (
+                      <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 2 }}>
+                        {v.status === "afgewezen" ? "Afgewezen" : "Goedgekeurd"} door {v.verwerktDoor}
+                        {v.verwerktOp ? ` · ${new Date(v.verwerktOp).toLocaleString("nl-NL")}` : ""}
+                      </div>
+                    )}
                   </div>
                   <StatusBadge status={v.status} />
                 </div>
@@ -1209,8 +1280,17 @@ function WijzigingsverzoekBeheer() {
                 </div>
 
                 {v.status === "goedgekeurd" && v.verwerkingsfout && (
-                  <div style={{ fontSize: 11.5, color: KLEUR.rood, marginTop: 10 }}>
-                    Automatisch verwerken lukte niet: {v.verwerkingsfout} — voer deze wijziging handmatig door in Dynamics.
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ fontSize: 11.5, color: KLEUR.rood }}>
+                      Automatisch verwerken lukte niet: {v.verwerkingsfout}
+                    </div>
+                    <button
+                      onClick={() => beslis(v.id, "goedkeuren")}
+                      disabled={bezigId === v.id}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 8, padding: "7px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+                    >
+                      <CheckCircle2 size={13} /> {bezigId === v.id ? "Bezig…" : "Opnieuw verwerken"}
+                    </button>
                   </div>
                 )}
                 {v.status === "goedgekeurd" && !v.verwerkingsfout && (
