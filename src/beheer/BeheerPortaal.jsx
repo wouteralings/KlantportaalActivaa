@@ -440,6 +440,7 @@ export default function BeheerPortaal() {
         {[
           ["uitstraling", "Uitstraling"],
           ["content", "Content"],
+          ["faq", "FAQ"],
           ["reviews", "Reviews"],
           ["verzoeken", "Wijzigingsverzoeken"],
           ["instellingen", "Instellingen"],
@@ -765,7 +766,10 @@ export default function BeheerPortaal() {
         )}
       </div>
 
-      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+      </>)}
+
+      {tab === "faq" && (
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Veelgestelde vragen (FAQ)</div>
         <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 18 }}>
           Vraag en antwoord die klanten op de pagina "Veelgestelde vragen" zien. Kies eventueel voor
@@ -890,8 +894,7 @@ export default function BeheerPortaal() {
           </div>
         )}
       </div>
-
-      </>)}
+      )}
 
       {tab === "instellingen" && (<>
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
