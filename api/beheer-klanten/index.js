@@ -1,5 +1,6 @@
 const { haalDynamicsToken } = require("../_gedeeld/identiteit");
 const { haalReviews, haalUitnodigingen } = require("../_gedeeld/reviewopslag");
+const { haalInstellingen } = require("../_gedeeld/instellingen");
 
 // Veld-/navigatienamen (overschrijfbaar via Application Settings). Defaults = de velden zoals ze
 // in de Dynamics-view "1. Klantoverzicht" bij Activaa staan.
@@ -26,9 +27,13 @@ const BELASTINGKANTOOR_VELD = process.env.DYNAMICS_KLANT_BELASTINGKANTOOR_VELD |
 const MAX_KLANTEN = Number(process.env.BEHEER_MAX_KLANTEN || 3000);
 const FV = "@OData.Community.Display.V1.FormattedValue";
 
-async function haalAlleKlanten(resource, token) {
+async function haalAlleKlanten(resource, token, extraKolommen) {
   const keuzeVelden = [CLIENTTYPE_VELD, STATUS_VELD, TEAM_VELD, KANTOOR_VELD].filter(Boolean);
   const lookupVelden = [ASSISTENT_VELD, FISCAALMEDEWERKER_VELD, LOONADMIN_VELD, BELASTINGKANTOOR_VELD].filter(Boolean);
+
+  // Door de beheerder toegevoegde extra kolommen (tekst/keuze op het veld zelf, lookup via _value).
+  const extra = Array.isArray(extraKolommen) ? extraKolommen.filter((c) => c && c.veld) : [];
+  const extraSelect = extra.map((c) => (c.type === "lookup" ? `_${c.veld}_value` : c.veld));
 
   const selectVelden = [
     "accountid", CLIENTNUMMER_VELD, "name", KVK_VELD, SHAREPOINT_VELD,
@@ -37,6 +42,7 @@ async function haalAlleKlanten(resource, token) {
     "emailaddress1", "telephone1",
     ...keuzeVelden,
     ...lookupVelden.map((v) => `_${v}_value`),
+    ...extraSelect,
   ].filter(Boolean);
 
   const expand = [
@@ -123,8 +129,10 @@ module.exports = async function (context, req) {
 
   try {
     const token = await haalDynamicsToken();
+    const instellingen = await haalInstellingen().catch(() => ({}));
+    const extraKolommen = (instellingen.klantoverzicht && instellingen.klantoverzicht.extraKolommen) || [];
     const [{ rijen, afgekapt }, reviews, uitnodigingen] = await Promise.all([
-      haalAlleKlanten(resource, token),
+      haalAlleKlanten(resource, token, extraKolommen),
       haalReviews().catch(() => []),
       haalUitnodigingen().catch(() => ({})),
     ]);
@@ -168,13 +176,19 @@ module.exports = async function (context, req) {
       };
     };
 
+    const extraDefs = Array.isArray(extraKolommen) ? extraKolommen.filter((c) => c && c.veld) : [];
+    const leesExtra = (a, def) => (def.type === "lookup" ? leesLookup(a, def.veld) : leesVeld(a, def.veld));
+
     const klanten = rijen.map((a) => {
       const contact = a.primarycontactid || {};
       const groep = a[GROEPSNAAM_NAV];
       const rb = a[RELATIEBEHEERDER_NAV];
       const acc = a[ACCOUNTANT_NAV];
       const rev = perAccount.get(a.accountid);
+      const extra = {};
+      for (const def of extraDefs) extra[def.veld] = leesExtra(a, def);
       return {
+        extra,
         accountId: a.accountid,
         klantnummer: a[CLIENTNUMMER_VELD] ?? "",
         klantnaam: a.name || "",

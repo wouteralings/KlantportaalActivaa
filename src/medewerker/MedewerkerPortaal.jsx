@@ -983,7 +983,7 @@ function MedewerkerDetail({ persoon, rol, klantnaam, onTerug }) {
 
 // Kolomdefinities voor het klantoverzicht-raster. cel(k) geeft de tekstwaarde (voor sorteren,
 // filteren en zoeken); soort bepaalt hoe de cel wordt weergegeven (link/medewerker/sharepoint).
-const KOLOMMEN = [
+const BASIS_KOLOMMEN = [
   { key: "klantnummer", label: "Cliëntnr", cel: (k) => (k.klantnummer === "" || k.klantnummer == null ? "" : String(k.klantnummer)), num: true },
   { key: "klantnaam", label: "Cliëntnaam", cel: (k) => k.klantnaam || "", soort: "klant" },
   { key: "groepsnaam", label: "Groep", cel: (k) => k.groepsnaam || "", soort: "groep" },
@@ -1000,7 +1000,6 @@ const KOLOMMEN = [
   { key: "sharepoint", label: "SharePoint", cel: (k) => (k.sharepointUrl ? "Map" : ""), soort: "sharepoint", geenSort: true, geenFilter: true },
   { key: "status", label: "Status", cel: (k) => k.status || "" },
 ];
-const ALLE_KOLOM_KEYS = KOLOMMEN.map((c) => c.key);
 
 function KlantOverzicht() {
   const [klanten, setKlanten] = useState(null); // null = laden
@@ -1011,7 +1010,8 @@ function KlantOverzicht() {
   const [sortKey, setSortKey] = useState("klantnaam");
   const [sortDir, setSortDir] = useState("asc"); // asc | desc
   const [toonAantal, setToonAantal] = useState(50); // aantal getoonde regels
-  const [zichtbareKolommen, setZichtbareKolommen] = useState(() => new Set(ALLE_KOLOM_KEYS));
+  const [config, setConfig] = useState({ extraKolommen: [], standaardVerborgen: [] });
+  const [zichtbareKolommen, setZichtbareKolommen] = useState(null); // null = nog standaard bepalen
   const [menu, setMenu] = useState(null); // { key, x, y } — geopend kolomkop-menu
   const [menuZoek, setMenuZoek] = useState("");
   const [kolomKiezerOpen, setKolomKiezerOpen] = useState(false);
@@ -1030,7 +1030,28 @@ function KlantOverzicht() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setMagWijzigen(!!d.magWijzigen))
       .catch(() => setMagWijzigen(false));
+    fetch("/api/instellingen")
+      .then((r) => r.json())
+      .then((d) => setConfig(d.klantoverzicht && typeof d.klantoverzicht === "object" ? { extraKolommen: d.klantoverzicht.extraKolommen || [], standaardVerborgen: d.klantoverzicht.standaardVerborgen || [] } : { extraKolommen: [], standaardVerborgen: [] }))
+      .catch(() => {});
   }, []);
+
+  // Kolommen = basis + door beheer toegevoegde extra velden.
+  const KOLOMMEN = [
+    ...BASIS_KOLOMMEN,
+    ...(config.extraKolommen || []).filter((c) => c && c.veld).map((c) => ({
+      key: "extra_" + c.veld,
+      label: c.label || c.veld,
+      cel: (k) => (k.extra && k.extra[c.veld]) || "",
+    })),
+  ];
+  const alleKeys = KOLOMMEN.map((c) => c.key);
+  // Standaard-zichtbaarheid uit de beheer-config bepalen zodra we die (en de kolommen) kennen.
+  useEffect(() => {
+    setZichtbareKolommen((huidig) => huidig || new Set(alleKeys.filter((key) => !(config.standaardVerborgen || []).includes(key))));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config]);
+  const zichtbareSet = zichtbareKolommen || new Set(alleKeys.filter((key) => !(config.standaardVerborgen || []).includes(key)));
 
   // Werkt één klant bij in de lijst én in het geopende detail na een opgeslagen wijziging.
   const verwerkKlantWijziging = (accountId, patch) => {
@@ -1090,7 +1111,7 @@ function KlantOverzicht() {
   const pijl = (key) => (sortKey === key ? (sortDir === "asc" ? " ▲" : " ▼") : "");
 
   const zichtbaar = gesorteerd.slice(0, toonAantal);
-  const zichtKols = KOLOMMEN.filter((c) => zichtbareKolommen.has(c.key));
+  const zichtKols = KOLOMMEN.filter((c) => zichtbareSet.has(c.key));
 
   const openKopMenu = (e, key) => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -1142,8 +1163,8 @@ function KlantOverzicht() {
                   <label key={kol.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 12.5, cursor: "pointer" }}>
                     <input
                       type="checkbox"
-                      checked={zichtbareKolommen.has(kol.key)}
-                      onChange={() => setZichtbareKolommen((s) => { const n = new Set(s); if (n.has(kol.key)) n.delete(kol.key); else n.add(kol.key); return n; })}
+                      checked={zichtbareSet.has(kol.key)}
+                      onChange={() => setZichtbareKolommen(() => { const n = new Set(zichtbareSet); if (n.has(kol.key)) n.delete(kol.key); else n.add(kol.key); return n; })}
                     />
                     {kol.label}
                   </label>

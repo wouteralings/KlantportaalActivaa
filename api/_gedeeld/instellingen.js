@@ -30,7 +30,7 @@ async function haalInstellingen() {
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
 
   const bestaat = await blobClient.exists();
-  if (!bestaat) return { googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "", reviewWebhookUrl: "", offerteportaalUrl: "", offerteToolUrl: "" };
+  if (!bestaat) return { googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "", reviewWebhookUrl: "", offerteportaalUrl: "", offerteToolUrl: "", klantoverzicht: { extraKolommen: [], standaardVerborgen: [] } };
 
   const downloadResponse = await blobClient.download();
   const tekst = await streamNaarTekst(downloadResponse.readableStreamBody);
@@ -53,6 +53,9 @@ async function haalInstellingen() {
     offerteportaalUrl: "",
     // Link naar de offertetool "Project" (getoond in het medewerkersportaal).
     offerteToolUrl: "",
+    // Kolom-configuratie voor het klantoverzicht in het medewerkersportaal.
+    // extraKolommen: [{ veld, label, type: "tekst"|"keuze"|"lookup" }]; standaardVerborgen: [kolom-keys].
+    klantoverzicht: { extraKolommen: [], standaardVerborgen: [] },
     ...JSON.parse(tekst),
   };
 }

@@ -11,6 +11,14 @@ const KLEUR = {
   rood: "#B23B3B",
 };
 
+// Basis-kolommen van het klantoverzicht (moet overeenkomen met BASIS_KOLOMMEN in het medewerkersportaal).
+const KLANTOVERZICHT_BASIS = [
+  ["klantnummer", "Cliëntnr"], ["klantnaam", "Cliëntnaam"], ["groepsnaam", "Groep"], ["kantoor", "Kantoor"],
+  ["team", "Team"], ["clienttype", "Cliënttype"], ["contact", "Contactpersoon"], ["manager", "Manager"],
+  ["accountant", "Accountant"], ["assistent", "Assistent"], ["fiscaalMedewerker", "Fiscaal medew."],
+  ["loonadministratie", "Loonadmin."], ["belastingkantoor", "Belastingkantoor"], ["sharepoint", "SharePoint"], ["status", "Status"],
+];
+
 // Vervangt (of maakt) de favicon in de browsertab door de opgegeven URL.
 function zetBrowserFavicon(url) {
   if (!url) return;
@@ -73,6 +81,14 @@ export default function BeheerPortaal() {
   const [wijzigersTekst, setWijzigersTekst] = useState("");
   const [wijzigrechtenStatus, setWijzigrechtenStatus] = useState("idle"); // idle | bezig | gelukt | fout
 
+  // Klantoverzicht-kolommen (medewerkersportaal): extra velden + standaard verborgen kolommen.
+  const [koExtra, setKoExtra] = useState([]); // [{ veld, label, type }]
+  const [koVerborgen, setKoVerborgen] = useState([]); // kolom-keys die standaard verborgen zijn
+  const [koNieuwVeld, setKoNieuwVeld] = useState("");
+  const [koNieuwLabel, setKoNieuwLabel] = useState("");
+  const [koNieuwType, setKoNieuwType] = useState("tekst"); // tekst | keuze | lookup
+  const [koStatus, setKoStatus] = useState("idle"); // idle | bezig | gelukt | fout
+
   // Taaksoorten: welke soorten klanten zien én mogen goedkeuren.
   const [taaksoortenOpties, setTaaksoortenOpties] = useState(null); // null = laden
   const [taaksoortenConfig, setTaaksoortenConfig] = useState({});
@@ -124,6 +140,8 @@ export default function BeheerPortaal() {
         setReviewWebhookUrl(d.reviewWebhookUrl || "");
         setOfferteportaalUrl(d.offerteportaalUrl || "");
         setOfferteToolUrl(d.offerteToolUrl || "");
+        setKoExtra((d.klantoverzicht && d.klantoverzicht.extraKolommen) || []);
+        setKoVerborgen((d.klantoverzicht && d.klantoverzicht.standaardVerborgen) || []);
       })
       .catch(() => {});
     fetch("/api/beheer-klantcategorieen")
@@ -396,6 +414,29 @@ export default function BeheerPortaal() {
       setWijzigrechtenStatus("fout");
     }
   }, [wijzigersTekst]);
+
+  const slaKlantoverzichtOp = useCallback(async () => {
+    setKoStatus("bezig");
+    try {
+      const schoonExtra = koExtra.filter((c) => c && c.veld).map((c) => ({ veld: c.veld.trim(), label: (c.label || c.veld).trim(), type: c.type || "tekst" }));
+      const res = await fetch("/api/beheer-instellingen", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ klantoverzicht: { extraKolommen: schoonExtra, standaardVerborgen: koVerborgen } }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setKoStatus("gelukt");
+    } catch {
+      setKoStatus("fout");
+    }
+  }, [koExtra, koVerborgen]);
+
+  const voegExtraKolomToe = useCallback(() => {
+    const veld = koNieuwVeld.trim();
+    if (!veld) return;
+    setKoExtra((h) => (h.some((c) => c.veld === veld) ? h : [...h, { veld, label: koNieuwLabel.trim() || veld, type: koNieuwType }]));
+    setKoNieuwVeld(""); setKoNieuwLabel(""); setKoNieuwType("tekst");
+  }, [koNieuwVeld, koNieuwLabel, koNieuwType]);
 
   const wijzigTaaksoort = useCallback((waarde, veld, aan, label) => {
     setTaaksoortenConfig((huidig) => {
@@ -1307,6 +1348,70 @@ export default function BeheerPortaal() {
           </span>
         )}
         {wijzigrechtenStatus === "fout" && (
+          <span style={{ marginLeft: 12, fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
+        )}
+      </div>
+
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Klantoverzicht-kolommen (medewerkersportaal)</div>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 14 }}>
+          Bepaal welke kolommen medewerkers standaard zien in het klantoverzicht, en voeg extra
+          Dynamics-velden als kolom toe. Medewerkers kunnen kolommen zelf altijd aan/uit zetten.
+        </div>
+
+        <div style={{ fontSize: 12, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 8 }}>Standaard zichtbare kolommen</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px", marginBottom: 18 }}>
+          {[...KLANTOVERZICHT_BASIS, ...koExtra.filter((c) => c && c.veld).map((c) => ["extra_" + c.veld, c.label || c.veld])].map(([key, labelTekst]) => (
+            <label key={key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={!koVerborgen.includes(key)}
+                onChange={() => setKoVerborgen((h) => (h.includes(key) ? h.filter((k) => k !== key) : [...h, key]))}
+              />
+              {labelTekst}
+            </label>
+          ))}
+        </div>
+
+        <div style={{ fontSize: 12, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 8 }}>Extra kolommen (Dynamics-velden)</div>
+        {koExtra.filter((c) => c && c.veld).length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+            {koExtra.filter((c) => c && c.veld).map((c) => (
+              <div key={c.veld} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12.5 }}>
+                <span style={{ fontWeight: 600 }}>{c.label || c.veld}</span>
+                <code style={{ color: KLEUR.subtekst }}>{c.veld}</code>
+                <span style={{ color: KLEUR.mutedTekst }}>({c.type})</span>
+                <button onClick={() => setKoExtra((h) => h.filter((x) => x.veld !== c.veld))} title="Verwijderen" style={{ marginLeft: "auto", display: "flex", alignItems: "center", justifyContent: "center", width: 26, height: 26, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: KLEUR.rood, cursor: "pointer" }}>
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 16 }}>
+          <input value={koNieuwVeld} onChange={(e) => setKoNieuwVeld(e.target.value)} placeholder="logische veldnaam (bijv. sk_btwnummer)" style={{ flex: "1 1 220px", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5 }} />
+          <input value={koNieuwLabel} onChange={(e) => setKoNieuwLabel(e.target.value)} placeholder="kolomtitel (bijv. BTW-nummer)" style={{ flex: "1 1 180px", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5 }} />
+          <select value={koNieuwType} onChange={(e) => setKoNieuwType(e.target.value)} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, background: "#fff" }}>
+            <option value="tekst">Tekst/getal</option>
+            <option value="keuze">Keuzelijst</option>
+            <option value="lookup">Lookup (verwijzing)</option>
+          </select>
+          <button onClick={voegExtraKolomToe} style={{ padding: "8px 14px", background: "#fff", color: KLEUR.blauw, border: `1px solid ${KLEUR.blauw}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Toevoegen</button>
+        </div>
+
+        <button
+          onClick={slaKlantoverzichtOp}
+          disabled={koStatus === "bezig"}
+          style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+        >
+          {koStatus === "bezig" ? "Opslaan..." : "Opslaan"}
+        </button>
+        {koStatus === "gelukt" && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 12, fontSize: 12.5, color: KLEUR.blauw }}>
+            <CheckCircle2 size={14} /> Opgeslagen.
+          </span>
+        )}
+        {koStatus === "fout" && (
           <span style={{ marginLeft: 12, fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
         )}
       </div>
