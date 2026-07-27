@@ -65,6 +65,7 @@ export default function BeheerPortaal() {
   const [teamsChatUrl, setTeamsChatUrl] = useState("");
   const [whatsappUrl, setWhatsappUrl] = useState("");
   const [copilotEmbedUrl, setCopilotEmbedUrl] = useState("");
+  const [offerteportaalUrl, setOfferteportaalUrl] = useState("");
   const [linksOpslaanStatus, setLinksOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
 
   // Taaksoorten: welke soorten klanten zien én mogen goedkeuren.
@@ -116,6 +117,7 @@ export default function BeheerPortaal() {
         setCopilotEmbedUrl(d.copilotEmbedUrl || "");
         setTaakAfwijzingWebhookUrl(d.taakAfwijzingWebhookUrl || "");
         setReviewWebhookUrl(d.reviewWebhookUrl || "");
+        setOfferteportaalUrl(d.offerteportaalUrl || "");
       })
       .catch(() => {});
     fetch("/api/beheer-klantcategorieen")
@@ -356,6 +358,7 @@ export default function BeheerPortaal() {
           teamsChatUrl: teamsChatUrl.trim(),
           whatsappUrl: whatsappUrl.trim(),
           copilotEmbedUrl: copilotEmbedUrl.trim(),
+          offerteportaalUrl: offerteportaalUrl.trim(),
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -363,7 +366,7 @@ export default function BeheerPortaal() {
     } catch {
       setLinksOpslaanStatus("fout");
     }
-  }, [googleReviewUrl, teamsChatUrl, whatsappUrl, copilotEmbedUrl]);
+  }, [googleReviewUrl, teamsChatUrl, whatsappUrl, copilotEmbedUrl, offerteportaalUrl]);
 
   const wijzigTaaksoort = useCallback((waarde, veld, aan, label) => {
     setTaaksoortenConfig((huidig) => {
@@ -1210,6 +1213,15 @@ export default function BeheerPortaal() {
           value={teamsChatUrl}
           onChange={(e) => setTeamsChatUrl(e.target.value)}
           placeholder="https://teams.microsoft.com/l/chat/..."
+          style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 16, boxSizing: "border-box" }}
+        />
+
+        <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Offerteportaal-link (medewerkersportaal)</div>
+        <input
+          type="text"
+          value={offerteportaalUrl}
+          onChange={(e) => setOfferteportaalUrl(e.target.value)}
+          placeholder="https://…"
           style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 16, boxSizing: "border-box" }}
         />
 

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail } from "lucide-react";
+import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, FileText } from "lucide-react";
 
 const KLEUR = {
   blauw: "#1C5D8C",
@@ -675,13 +675,294 @@ function ReviewBeheer() {
   );
 }
 
+// ── Klantoverzicht ──────────────────────────────────────────────────────────
+function Veld({ label, waarde, link }) {
+  if (!waarde) return null;
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 2 }}>{label}</div>
+      {link ? (
+        <a href={link} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: KLEUR.blauw, textDecoration: "none", wordBreak: "break-word" }}>{waarde}</a>
+      ) : (
+        <div style={{ fontSize: 13, color: KLEUR.tekst }}>{waarde}</div>
+      )}
+    </div>
+  );
+}
+
+function Persoonblok({ label, persoon }) {
+  if (!persoon || !persoon.naam) return null;
+  return (
+    <Veld label={label} waarde={`${persoon.naam}${persoon.email ? " · " + persoon.email : ""}${persoon.telefoon ? " · " + persoon.telefoon : ""}`} />
+  );
+}
+
+function TerugKnop({ onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{ display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 14, padding: "6px 12px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+    >
+      ← Terug naar overzicht
+    </button>
+  );
+}
+
+function KlantDetail({ klant, onTerug, onContact }) {
+  const a = klant.adres || {};
+  const adresRegel = [
+    [a.straat, a.huisnummer, a.toevoeging].filter(Boolean).join(" "),
+    [a.postcode, a.plaats].filter(Boolean).join("  "),
+    a.land,
+  ].filter(Boolean).join(", ");
+  return (
+    <div>
+      <TerugKnop onClick={onTerug} />
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
+        <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 2 }}>{klant.klantnaam}</div>
+        <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, marginBottom: 16 }}>
+          Cliëntnr {klant.klantnummer || "—"}{klant.status ? " · " + klant.status : ""}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0 24px" }}>
+          <div>
+            <Veld label="Groep" waarde={klant.groepsnaam} />
+            <Veld label="Cliënttype" waarde={klant.clienttype} />
+            <Veld label="Team" waarde={klant.team} />
+            <Veld label="Kantoor" waarde={klant.kantoor} />
+            <Veld label="Belastingkantoor" waarde={klant.belastingkantoor} />
+            <Veld label="KvK" waarde={klant.kvk} />
+            <Veld label="Adres" waarde={adresRegel} />
+            <Veld label="SharePoint" waarde={klant.sharepointUrl ? "Map openen" : ""} link={klant.sharepointUrl} />
+          </div>
+          <div>
+            <Persoonblok label="Manager" persoon={{ naam: klant.relatiebeheerder }} />
+            <Persoonblok label="Accountant" persoon={{ naam: klant.accountant }} />
+            <Persoonblok label="Assistent" persoon={klant.assistent} />
+            <Persoonblok label="Fiscaal medewerker" persoon={klant.fiscaalMedewerker} />
+            <Persoonblok label="Loonadministratie" persoon={klant.loonadministratie} />
+          </div>
+        </div>
+
+        <div style={{ marginTop: 12, paddingTop: 14, borderTop: `1px solid ${KLEUR.rand}` }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Primair contactpersoon</div>
+          {klant.contact?.naam ? (
+            <button
+              onClick={() => onContact(klant)}
+              style={{ textAlign: "left", background: "none", border: "none", padding: 0, cursor: "pointer" }}
+            >
+              <span style={{ fontSize: 13, color: KLEUR.blauw, fontWeight: 600 }}>{klant.contact.naam}</span>
+              <span style={{ fontSize: 12.5, color: KLEUR.subtekst }}>
+                {klant.contact.functietitel ? " · " + klant.contact.functietitel : ""}
+                {klant.contact.email ? " · " + klant.contact.email : ""}
+              </span>
+            </button>
+          ) : (
+            <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Geen contactpersoon bekend.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ContactDetail({ klant, onTerug }) {
+  const c = klant.contact || {};
+  return (
+    <div>
+      <TerugKnop onClick={onTerug} />
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
+        <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 2 }}>{c.naam || "Contactpersoon"}</div>
+        <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, marginBottom: 16 }}>
+          Primair contactpersoon van {klant.klantnaam}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0 24px" }}>
+          <div>
+            <Veld label="Functietitel" waarde={c.functietitel} />
+            <Veld label="E-mail" waarde={c.email} link={c.email ? `mailto:${c.email}` : ""} />
+            <Veld label="Telefoon" waarde={c.telefoon} />
+          </div>
+          <div>
+            <Veld label="Klant" waarde={klant.klantnaam} />
+            <Veld label="Team" waarde={klant.team} />
+            <Veld label="Groep" waarde={klant.groepsnaam} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GroepDetail({ groepsnaam, klanten, onTerug, onKlant }) {
+  const leden = klanten.filter((k) => k.groepsnaam === groepsnaam);
+  return (
+    <div>
+      <TerugKnop onClick={onTerug} />
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
+        <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 2 }}>Groep {groepsnaam}</div>
+        <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, marginBottom: 16 }}>
+          {leden.length} klant{leden.length === 1 ? "" : "en"} in deze groep
+        </div>
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          {leden.map((k, i) => (
+            <div key={k.accountId} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "9px 0", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}` }}>
+              <button onClick={() => onKlant(k)} style={{ textAlign: "left", background: "none", border: "none", padding: 0, cursor: "pointer" }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: KLEUR.blauw }}>{k.klantnaam}</span>
+                <span style={{ fontSize: 12, color: KLEUR.mutedTekst }}>{k.klantnummer ? " · nr " + k.klantnummer : ""}</span>
+              </button>
+              <span style={{ fontSize: 12, color: KLEUR.subtekst }}>{k.contact?.naam || ""}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function KlantOverzicht() {
+  const [klanten, setKlanten] = useState(null); // null = laden
+  const [afgekapt, setAfgekapt] = useState(false);
+  const [fout, setFout] = useState(false);
+  const [zoek, setZoek] = useState("");
+  const [detailKlant, setDetailKlant] = useState(null);
+  const [detailContact, setDetailContact] = useState(null);
+  const [detailGroep, setDetailGroep] = useState(null);
+
+  useEffect(() => {
+    fetch("/api/beheer-klanten")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => { setKlanten(d.klanten || []); setAfgekapt(!!d.afgekapt); })
+      .catch(() => { setKlanten([]); setFout(true); });
+  }, []);
+
+  if (klanten === null) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst }}>
+        <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Klantoverzicht ophalen…
+      </div>
+    );
+  }
+
+  if (detailKlant) {
+    return <KlantDetail klant={detailKlant} onTerug={() => setDetailKlant(null)} onContact={(k) => { setDetailKlant(null); setDetailContact(k); }} />;
+  }
+  if (detailContact) {
+    return <ContactDetail klant={detailContact} onTerug={() => setDetailContact(null)} />;
+  }
+  if (detailGroep) {
+    return <GroepDetail groepsnaam={detailGroep} klanten={klanten} onTerug={() => setDetailGroep(null)} onKlant={(k) => { setDetailGroep(null); setDetailKlant(k); }} />;
+  }
+
+  const term = zoek.trim().toLowerCase();
+  const gefilterd = term
+    ? klanten.filter((k) =>
+        [k.klantnaam, String(k.klantnummer ?? ""), k.groepsnaam, k.contact?.naam, k.relatiebeheerder, k.team, k.clienttype]
+          .map((v) => (v == null ? "" : String(v)).toLowerCase())
+          .some((v) => v.includes(term))
+      )
+    : klanten;
+  const MAX_TOON = 500;
+  const zichtbaar = gefilterd.slice(0, MAX_TOON);
+
+  const th = { textAlign: "left", fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", padding: "6px 10px", borderBottom: `1px solid ${KLEUR.rand}`, whiteSpace: "nowrap" };
+  const td = { fontSize: 12.5, padding: "8px 10px", borderBottom: `1px solid ${KLEUR.rand}`, whiteSpace: "nowrap" };
+  const linkStijl = { color: KLEUR.blauw, fontWeight: 600, cursor: "pointer", background: "none", border: "none", padding: 0, fontSize: 12.5, textAlign: "left" };
+
+  return (
+    <div>
+      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Klantoverzicht</div>
+      <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 14 }}>
+        Klik op een klantnaam, groep of contactpersoon om de details te bekijken.
+      </div>
+
+      <div style={{ position: "relative", marginBottom: 12, maxWidth: 360 }}>
+        <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+        <input
+          value={zoek}
+          onChange={(e) => setZoek(e.target.value)}
+          placeholder="Zoek op naam, nummer, groep, contact…"
+          style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 32px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, outline: "none" }}
+        />
+      </div>
+
+      {fout && (
+        <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 10 }}>
+          De klantenlijst kon niet worden geladen. Controleer de Dynamics- en opslag-instellingen.
+        </div>
+      )}
+
+      <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 8 }}>
+        {gefilterd.length} klant{gefilterd.length === 1 ? "" : "en"}
+        {afgekapt ? " · lijst afgekapt, verfijn je zoekopdracht" : ""}
+      </div>
+
+      <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1100 }}>
+          <thead>
+            <tr>
+              <th style={th}>Cliëntnr</th>
+              <th style={th}>Cliëntnaam</th>
+              <th style={th}>Groep</th>
+              <th style={th}>Kantoor</th>
+              <th style={th}>Team</th>
+              <th style={th}>Cliënttype</th>
+              <th style={th}>Contactpersoon</th>
+              <th style={th}>Manager</th>
+              <th style={th}>Assistent</th>
+              <th style={th}>Fiscaal medew.</th>
+              <th style={th}>Loonadmin.</th>
+              <th style={th}>Belastingkantoor</th>
+              <th style={th}>SharePoint</th>
+              <th style={th}>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {zichtbaar.map((k) => (
+              <tr key={k.accountId}>
+                <td style={{ ...td, color: KLEUR.subtekst }}>{k.klantnummer || "—"}</td>
+                <td style={td}>
+                  <button onClick={() => setDetailKlant(k)} style={linkStijl}>{k.klantnaam || "—"}</button>
+                </td>
+                <td style={td}>
+                  {k.groepsnaam ? <button onClick={() => setDetailGroep(k.groepsnaam)} style={linkStijl}>{k.groepsnaam}</button> : "—"}
+                </td>
+                <td style={td}>{k.kantoor || "—"}</td>
+                <td style={td}>{k.team || "—"}</td>
+                <td style={td}>{k.clienttype || "—"}</td>
+                <td style={td}>
+                  {k.contact?.naam ? <button onClick={() => setDetailContact(k)} style={linkStijl}>{k.contact.naam}</button> : "—"}
+                </td>
+                <td style={td}>{k.relatiebeheerder || "—"}</td>
+                <td style={td}>{k.assistent?.naam || "—"}</td>
+                <td style={td}>{k.fiscaalMedewerker?.naam || "—"}</td>
+                <td style={td}>{k.loonadministratie?.naam || "—"}</td>
+                <td style={td}>{k.belastingkantoor || "—"}</td>
+                <td style={td}>
+                  {k.sharepointUrl ? <a href={k.sharepointUrl} target="_blank" rel="noopener noreferrer" style={{ color: KLEUR.blauw, fontWeight: 600, textDecoration: "none" }}>Map</a> : "—"}
+                </td>
+                <td style={td}>{k.status || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {gefilterd.length > MAX_TOON && (
+        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 10 }}>
+          Eerste {MAX_TOON} van {gefilterd.length} getoond — verfijn je zoekopdracht om de rest te zien.
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Medewerkersportaal ──────────────────────────────────────────────────────
 export default function MedewerkerPortaal() {
   const [status, setStatus] = useState("laden"); // laden | nietIngelogd | geenRol | klaar
   const [gebruiker, setGebruiker] = useState(null);
   const [isBeheerder, setIsBeheerder] = useState(false);
-  const [tab, setTab] = useState("verzoeken"); // verzoeken | reacties | ondertekeningen | reviews
+  const [tab, setTab] = useState("klantoverzicht"); // klantoverzicht | verzoeken | reacties | ondertekeningen | reviews
   const [tellingen, setTellingen] = useState({ openWijzigingen: 0, nieuweReviews: 0 });
+  const [offerteUrl, setOfferteUrl] = useState("");
 
   const laadTellingen = useCallback(() => {
     fetch("/api/beheer-tellingen")
@@ -712,7 +993,7 @@ export default function MedewerkerPortaal() {
     if (status !== "klaar") return;
     fetch("/api/instellingen")
       .then((r) => r.json())
-      .then((d) => zetBrowserFavicon(d.faviconUrl))
+      .then((d) => { zetBrowserFavicon(d.faviconUrl); setOfferteUrl(d.offerteportaalUrl || ""); })
       .catch(() => {});
   }, [status]);
 
@@ -771,6 +1052,7 @@ export default function MedewerkerPortaal() {
   }
 
   const tabs = [
+    ["klantoverzicht", "Klantoverzicht", 0],
     ["verzoeken", "Wijzigingsverzoeken", tellingen.openWijzigingen],
     ["reacties", "Log klantreacties", 0],
     ["ondertekeningen", "Ondertekeningen", 0],
@@ -778,7 +1060,7 @@ export default function MedewerkerPortaal() {
   ];
 
   return (
-    <div style={{ maxWidth: 720, margin: "0 auto", padding: "32px 20px", fontFamily: "system-ui, -apple-system, sans-serif", color: KLEUR.tekst }}>
+    <div style={{ maxWidth: tab === "klantoverzicht" ? 1180 : 720, margin: "0 auto", padding: "32px 20px", fontFamily: "system-ui, -apple-system, sans-serif", color: KLEUR.tekst }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28, paddingBottom: 16, borderBottom: `1px solid ${KLEUR.rand}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Users size={20} color={KLEUR.blauw} />
@@ -786,6 +1068,11 @@ export default function MedewerkerPortaal() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <span style={{ fontSize: 12.5, color: KLEUR.subtekst }}>{gebruiker?.userDetails}</span>
+          {offerteUrl && (
+            <a href={offerteUrl} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: KLEUR.blauw, textDecoration: "none" }}>
+              <FileText size={13} /> Offerteportaal
+            </a>
+          )}
           {isBeheerder && (
             <a href="/beheer" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: KLEUR.blauw, textDecoration: "none" }}>
               <Building2 size={13} /> Beheer
@@ -830,6 +1117,7 @@ export default function MedewerkerPortaal() {
         ))}
       </div>
 
+      {tab === "klantoverzicht" && <KlantOverzicht />}
       {tab === "verzoeken" && <WijzigingsverzoekBeheer onAfgehandeld={laadTellingen} />}
       {tab === "reacties" && <AkkoordenLog />}
       {tab === "ondertekeningen" && <OndertekeningenLog />}
