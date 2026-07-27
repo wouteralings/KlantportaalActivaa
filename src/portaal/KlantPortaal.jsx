@@ -416,7 +416,7 @@ export default function KlantPortaal() {
 
           <div style={{ marginTop: 28 }}>
             <Kopje tekst="Mededelingen" />
-            <TabMededelingen content={content} />
+            <TabMededelingen content={content} gelezen={gelezenNieuws} onMarkeerGelezen={markeerNieuwsGelezen} />
           </div>
 
           {nieuws && nieuws.length > 0 && (
@@ -580,26 +580,81 @@ function TabLinks({ programmas }) {
   );
 }
 
-function TabMededelingen({ content }) {
+function MededelingKaart({ m, gelezen, onMarkeerGelezen }) {
+  return (
+    <div style={{ ...kaartStijl, margin: 0, opacity: gelezen ? 0.75 : 1 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8, gap: 12 }}>
+        <div style={{ fontSize: 15, fontWeight: 700 }}>{m.titel}</div>
+        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, flexShrink: 0 }}>
+          {new Date(m.aangemaaktOp).toLocaleDateString("nl-NL")}
+        </div>
+      </div>
+      <div style={{ fontSize: 13, color: KLEUR.subtekst, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{m.tekst}</div>
+      <div style={{ marginTop: 10, borderTop: `1px solid ${KLEUR.rand}`, paddingTop: 8 }}>
+        {gelezen ? (
+          <button
+            onClick={() => onMarkeerGelezen(m.id, false)}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 12, fontWeight: 600, color: KLEUR.mutedTekst }}
+          >
+            <Circle size={13} /> Markeer als ongelezen
+          </button>
+        ) : (
+          <button
+            onClick={() => onMarkeerGelezen(m.id, true)}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 12, fontWeight: 600, color: KLEUR.blauw }}
+          >
+            <CheckCircle2 size={13} /> Markeer als gelezen
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TabMededelingen({ content, gelezen = [], onMarkeerGelezen }) {
+  const [gelezenOpen, setGelezenOpen] = useState(false);
   if (!content) return <Laadscherm />;
   const { mededelingen = [] } = content;
+  if (mededelingen.length === 0) return <LegeStaat tekst="Geen mededelingen op dit moment." />;
+
+  const gelezenSet = new Set(gelezen);
+  const ongelezen = mededelingen.filter((m) => !gelezenSet.has(m.id));
+  const gelezenItems = mededelingen.filter((m) => gelezenSet.has(m.id));
 
   return (
     <div>
-      {mededelingen.length === 0 ? (
-        <LegeStaat tekst="Geen mededelingen op dit moment." />
+      {ongelezen.length === 0 ? (
+        <LegeStaat tekst="Je hebt alle mededelingen gelezen." />
       ) : (
-        mededelingen.map((m) => (
-          <div key={m.id} style={kaartStijl}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
-              <div style={{ fontSize: 15, fontWeight: 700 }}>{m.titel}</div>
-              <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>
-                {new Date(m.aangemaaktOp).toLocaleDateString("nl-NL")}
-              </div>
+        <div style={{ display: "grid", gap: 12 }}>
+          {ongelezen.map((m) => (
+            <MededelingKaart key={m.id} m={m} gelezen={false} onMarkeerGelezen={onMarkeerGelezen} />
+          ))}
+        </div>
+      )}
+
+      {gelezenItems.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <button
+            onClick={() => setGelezenOpen((v) => !v)}
+            aria-expanded={gelezenOpen}
+            style={{
+              display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0,
+              background: "none", border: "none", cursor: "pointer", marginBottom: gelezenOpen ? 12 : 0,
+              fontSize: 13, fontWeight: 700, color: KLEUR.subtekst, textAlign: "left",
+            }}
+          >
+            <ChevronDown size={16} style={{ transform: gelezenOpen ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+            Gelezen berichten <span style={{ fontWeight: 600, color: KLEUR.mutedTekst }}>({gelezenItems.length})</span>
+          </button>
+          {gelezenOpen && (
+            <div style={{ display: "grid", gap: 12 }}>
+              {gelezenItems.map((m) => (
+                <MededelingKaart key={m.id} m={m} gelezen={true} onMarkeerGelezen={onMarkeerGelezen} />
+              ))}
             </div>
-            <div style={{ fontSize: 13, color: KLEUR.subtekst, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{m.tekst}</div>
-          </div>
-        ))
+          )}
+        </div>
       )}
     </div>
   );
