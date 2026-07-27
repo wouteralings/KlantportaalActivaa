@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2 } from "lucide-react";
+import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail } from "lucide-react";
 
 const KLEUR = {
   blauw: "#1C5D8C",
@@ -397,18 +397,296 @@ function OndertekeningenLog() {
   );
 }
 
+// ── Reviews & uitnodigingen ─────────────────────────────────────────────────
+function datumKort(iso) {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleDateString("nl-NL", { day: "numeric", month: "short", year: "numeric" });
+  } catch {
+    return "";
+  }
+}
+
+function Sterren({ n }) {
+  return (
+    <span style={{ display: "inline-flex", gap: 1, verticalAlign: "middle" }}>
+      {[1, 2, 3, 4, 5].map((i) => (
+        <Star key={i} size={12} fill={i <= n ? "#B98237" : "none"} color={i <= n ? "#B98237" : KLEUR.rand} />
+      ))}
+    </span>
+  );
+}
+
+function ReviewBeheer() {
+  const [klanten, setKlanten] = useState(null); // null = laden
+  const [afgekapt, setAfgekapt] = useState(false);
+  const [fout, setFout] = useState(false);
+  const [zoek, setZoek] = useState("");
+  const [fRb, setFRb] = useState("");
+  const [fGroep, setFGroep] = useState("");
+  const [fStatus, setFStatus] = useState("alle"); // alle | met | zonder | uitgenodigd
+  const [sel, setSel] = useState(() => new Set());
+  const [uitnodigStatus, setUitnodigStatus] = useState("idle"); // idle | bezig | klaar | fout
+  const [resultaat, setResultaat] = useState(null);
+
+  const laadKlanten = useCallback(() => {
+    fetch("/api/beheer-klanten")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => {
+        setKlanten(d.klanten || []);
+        setAfgekapt(!!d.afgekapt);
+      })
+      .catch(() => {
+        setKlanten([]);
+        setFout(true);
+      });
+  }, []);
+
+  useEffect(() => {
+    laadKlanten();
+  }, [laadKlanten]);
+
+  const lijst = klanten || [];
+  const rbOpties = [...new Set(lijst.map((k) => k.relatiebeheerder).filter(Boolean))].sort();
+  const groepOpties = [...new Set(lijst.map((k) => k.groepsnaam).filter(Boolean))].sort();
+
+  const term = zoek.trim().toLowerCase();
+  const gefilterd = lijst.filter((k) => {
+    if (fRb && k.relatiebeheerder !== fRb) return false;
+    if (fGroep && k.groepsnaam !== fGroep) return false;
+    if (fStatus === "met" && !k.laatsteReview) return false;
+    if (fStatus === "zonder" && k.laatsteReview) return false;
+    if (fStatus === "uitgenodigd" && !k.laatsteUitnodiging) return false;
+    if (
+      term &&
+      ![k.klantnaam, String(k.klantnummer ?? ""), k.groepsnaam, k.contactNaam]
+        .filter(Boolean)
+        .some((v) => v.toLowerCase().includes(term))
+    )
+      return false;
+    return true;
+  });
+
+  const MAX_TOON = 400;
+  const zichtbaar = gefilterd.slice(0, MAX_TOON);
+  const selecteerbaar = gefilterd.filter((k) => k.contactEmail);
+  const allesGeselecteerd = selecteerbaar.length > 0 && selecteerbaar.every((k) => sel.has(k.accountId));
+
+  const toggle = (id) =>
+    setSel((h) => {
+      const n = new Set(h);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+
+  const toggleAlles = () =>
+    setSel((h) => {
+      const n = new Set(h);
+      if (allesGeselecteerd) selecteerbaar.forEach((k) => n.delete(k.accountId));
+      else selecteerbaar.forEach((k) => n.add(k.accountId));
+      return n;
+    });
+
+  const geselecteerd = lijst.filter((k) => sel.has(k.accountId) && k.contactEmail);
+
+  const uitnodigen = useCallback(async () => {
+    if (geselecteerd.length === 0) return;
+    if (!window.confirm(`${geselecteerd.length} klant(en) een review-uitnodiging mailen?`)) return;
+    setUitnodigStatus("bezig");
+    setResultaat(null);
+    try {
+      const res = await fetch("/api/beheer-review-uitnodiging", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          klanten: geselecteerd.map((k) => ({
+            accountId: k.accountId,
+            contactEmail: k.contactEmail,
+            contactNaam: k.contactNaam,
+            klantnaam: k.klantnaam,
+          })),
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setResultaat(await res.json());
+      setUitnodigStatus("klaar");
+      setSel(new Set());
+      laadKlanten();
+    } catch {
+      setUitnodigStatus("fout");
+    }
+  }, [geselecteerd, laadKlanten]);
+
+  const selectStijl = {
+    border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px",
+    fontSize: 12.5, color: KLEUR.tekst, background: "#fff",
+  };
+  const thStijl = { textAlign: "left", fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", padding: "6px 8px", borderBottom: `1px solid ${KLEUR.rand}` };
+  const tdStijl = { fontSize: 12.5, padding: "8px 8px", borderBottom: `1px solid ${KLEUR.rand}`, verticalAlign: "middle" };
+
+  return (
+    <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <Star size={18} color={KLEUR.blauw} />
+        <div style={{ fontSize: 15, fontWeight: 700 }}>Reviews & uitnodigingen</div>
+      </div>
+      <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 16 }}>
+        Zoek en filter je klantrelaties, zie wie een review gaf en wanneer, en nodig klanten uit
+        om een review te geven (e-mail met een link naar het portaal).
+      </div>
+
+      {fout && (
+        <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 12 }}>
+          De klantenlijst kon niet worden geladen. Controleer of de Dynamics- en opslag-instellingen goed staan.
+        </div>
+      )}
+
+      {klanten === null ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst }}>
+          <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Klantenlijst ophalen…
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+            <div style={{ position: "relative", flex: "1 1 200px", minWidth: 160 }}>
+              <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+              <input
+                value={zoek}
+                onChange={(e) => setZoek(e.target.value)}
+                placeholder="Zoek op naam, nummer, groep of contact…"
+                style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 30px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, outline: "none" }}
+              />
+            </div>
+            <select value={fRb} onChange={(e) => setFRb(e.target.value)} style={selectStijl}>
+              <option value="">Alle relatiebeheerders</option>
+              {rbOpties.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+            <select value={fGroep} onChange={(e) => setFGroep(e.target.value)} style={selectStijl}>
+              <option value="">Alle groepen</option>
+              {groepOpties.map((g) => (
+                <option key={g} value={g}>{g}</option>
+              ))}
+            </select>
+            <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} style={selectStijl}>
+              <option value="alle">Alle reviewstatus</option>
+              <option value="met">Wel een review</option>
+              <option value="zonder">Nog geen review</option>
+              <option value="uitgenodigd">Reeds uitgenodigd</option>
+            </select>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+            <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>
+              {gefilterd.length} klant{gefilterd.length === 1 ? "" : "en"}
+              {sel.size > 0 ? ` · ${sel.size} geselecteerd` : ""}
+              {afgekapt ? " · lijst afgekapt, verfijn je filter" : ""}
+            </div>
+            <button
+              onClick={uitnodigen}
+              disabled={geselecteerd.length === 0 || uitnodigStatus === "bezig"}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px",
+                background: geselecteerd.length === 0 ? KLEUR.rand : KLEUR.blauw,
+                color: geselecteerd.length === 0 ? KLEUR.mutedTekst : "#fff",
+                border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600,
+                cursor: geselecteerd.length === 0 ? "default" : "pointer",
+              }}
+            >
+              <Mail size={14} /> {uitnodigStatus === "bezig" ? "Versturen…" : `Uitnodigen${geselecteerd.length ? ` (${geselecteerd.length})` : ""}`}
+            </button>
+          </div>
+
+          {uitnodigStatus === "klaar" && resultaat && (
+            <div style={{ fontSize: 12.5, color: KLEUR.blauw, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+              <CheckCircle2 size={14} /> {resultaat.verzonden} uitnodiging(en) verstuurd
+              {resultaat.mislukt ? `, ${resultaat.mislukt} mislukt` : ""}
+              {resultaat.overgeslagen ? `, ${resultaat.overgeslagen} overgeslagen (maximum per keer)` : ""}.
+            </div>
+          )}
+          {uitnodigStatus === "fout" && (
+            <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 10 }}>
+              Uitnodigen is niet gelukt. Controleer of de mailmachtiging (Mail.Send) is verleend.
+            </div>
+          )}
+
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  <th style={{ ...thStijl, width: 28 }}>
+                    <input type="checkbox" checked={allesGeselecteerd} onChange={toggleAlles} title="Alles selecteren" />
+                  </th>
+                  <th style={thStijl}>Nr</th>
+                  <th style={thStijl}>Klant</th>
+                  <th style={thStijl}>Groep</th>
+                  <th style={thStijl}>Relatiebeheerder</th>
+                  <th style={thStijl}>Laatste review</th>
+                  <th style={thStijl}>Uitgenodigd</th>
+                </tr>
+              </thead>
+              <tbody>
+                {zichtbaar.map((k) => (
+                  <tr key={k.accountId}>
+                    <td style={tdStijl}>
+                      <input
+                        type="checkbox"
+                        checked={sel.has(k.accountId)}
+                        disabled={!k.contactEmail}
+                        onChange={() => toggle(k.accountId)}
+                        title={k.contactEmail ? "" : "Geen e-mailadres bekend"}
+                      />
+                    </td>
+                    <td style={{ ...tdStijl, color: KLEUR.blauw, fontWeight: 600, whiteSpace: "nowrap" }}>{k.klantnummer || "—"}</td>
+                    <td style={tdStijl}>
+                      <div style={{ fontWeight: 600 }}>{k.klantnaam}</div>
+                      <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>{k.contactNaam}{k.contactEmail ? ` · ${k.contactEmail}` : " · geen e-mail"}</div>
+                    </td>
+                    <td style={tdStijl}>{k.groepsnaam || "—"}</td>
+                    <td style={tdStijl}>{k.relatiebeheerder || "—"}</td>
+                    <td style={{ ...tdStijl, whiteSpace: "nowrap" }}>
+                      {k.laatsteReview ? (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                          <Sterren n={k.laatsteReview.sterren} /> {datumKort(k.laatsteReview.datum)}
+                        </span>
+                      ) : (
+                        <span style={{ color: KLEUR.mutedTekst }}>—</span>
+                      )}
+                    </td>
+                    <td style={{ ...tdStijl, whiteSpace: "nowrap", color: k.laatsteUitnodiging ? KLEUR.subtekst : KLEUR.mutedTekst }}>
+                      {k.laatsteUitnodiging ? datumKort(k.laatsteUitnodiging) : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {gefilterd.length > MAX_TOON && (
+            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 10 }}>
+              Eerste {MAX_TOON} van {gefilterd.length} getoond — verfijn je zoekopdracht of filters
+              om de rest te zien. "Alles selecteren" pakt wél de volledige gefilterde lijst.
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Medewerkersportaal ──────────────────────────────────────────────────────
 export default function MedewerkerPortaal() {
   const [status, setStatus] = useState("laden"); // laden | nietIngelogd | geenRol | klaar
   const [gebruiker, setGebruiker] = useState(null);
   const [isBeheerder, setIsBeheerder] = useState(false);
-  const [tab, setTab] = useState("verzoeken"); // verzoeken | reacties | ondertekeningen
-  const [openWijzigingen, setOpenWijzigingen] = useState(0);
+  const [tab, setTab] = useState("verzoeken"); // verzoeken | reacties | ondertekeningen | reviews
+  const [tellingen, setTellingen] = useState({ openWijzigingen: 0, nieuweReviews: 0 });
 
   const laadTellingen = useCallback(() => {
     fetch("/api/beheer-tellingen")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => setOpenWijzigingen(d.openWijzigingen || 0))
+      .then((d) => setTellingen({ openWijzigingen: d.openWijzigingen || 0, nieuweReviews: d.nieuweReviews || 0 }))
       .catch(() => {});
   }, []);
 
@@ -436,8 +714,24 @@ export default function MedewerkerPortaal() {
       .then((r) => r.json())
       .then((d) => zetBrowserFavicon(d.faviconUrl))
       .catch(() => {});
-    laadTellingen();
-  }, [status, laadTellingen]);
+  }, [status]);
+
+  // Tellingen bijwerken bij elke tabwissel. Op het reviews-tabblad worden de reviews
+  // eerst als "gezien" gemarkeerd (badge naar 0) en daarna worden de tellingen ververst.
+  useEffect(() => {
+    if (status !== "klaar") return;
+    if (tab === "reviews") {
+      fetch("/api/beheer-tellingen", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "reviews-gezien" }),
+      })
+        .then(() => laadTellingen())
+        .catch(() => laadTellingen());
+    } else {
+      laadTellingen();
+    }
+  }, [status, tab, laadTellingen]);
 
   if (status === "laden") {
     return (
@@ -477,9 +771,10 @@ export default function MedewerkerPortaal() {
   }
 
   const tabs = [
-    ["verzoeken", "Wijzigingsverzoeken", openWijzigingen],
+    ["verzoeken", "Wijzigingsverzoeken", tellingen.openWijzigingen],
     ["reacties", "Log klantreacties", 0],
     ["ondertekeningen", "Ondertekeningen", 0],
+    ["reviews", "Reviews", tellingen.nieuweReviews],
   ];
 
   return (
@@ -538,6 +833,7 @@ export default function MedewerkerPortaal() {
       {tab === "verzoeken" && <WijzigingsverzoekBeheer onAfgehandeld={laadTellingen} />}
       {tab === "reacties" && <AkkoordenLog />}
       {tab === "ondertekeningen" && <OndertekeningenLog />}
+      {tab === "reviews" && <ReviewBeheer />}
     </div>
   );
 }

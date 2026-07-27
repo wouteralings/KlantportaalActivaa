@@ -22,11 +22,11 @@
     },
     {
       "route": "/api/beheer-klanten",
-      "allowedRoles": ["beheerder"]
+      "allowedRoles": ["beheerder", "medewerker"]
     },
     {
       "route": "/api/beheer-review-uitnodiging",
-      "allowedRoles": ["beheerder"]
+      "allowedRoles": ["beheerder", "medewerker"]
     },
     {
       "route": "/api/beheer-wijzigingen",
