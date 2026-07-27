@@ -1228,13 +1228,12 @@ function documentEmbedUrl(url) {
 }
 
 // DocuSign-achtig onderteken-paneel: naam, e-mail, toelichting en een getekende handtekening.
-function HandtekeningPaneel({ taak, gebruiker, onOndertekenen, onNietAkkoord }) {
+function HandtekeningPaneel({ taak, voorinvul, onOndertekenen, onNietAkkoord }) {
   const canvasRef = useRef(null);
   const tekentRef = useRef(false);
   const [heeftHandtekening, setHeeftHandtekening] = useState(false);
-  const afgeleid = leidGebruikerAf(gebruiker);
-  const [naam, setNaam] = useState(afgeleid.naam);
-  const [email, setEmail] = useState(afgeleid.email);
+  const [naam, setNaam] = useState(voorinvul?.naam || "");
+  const [email, setEmail] = useState(voorinvul?.email || "");
   const [toelichting, setToelichting] = useState("");
   const [status, setStatus] = useState("invoer"); // invoer | versturen | fout
 
@@ -1351,6 +1350,14 @@ function TabTaken({ data, gebruiker, onAkkoord, onNietAkkoord, onOndertekenen })
   // Backward-compat: als er onverhoopt nog een array binnenkomt, behandel die als groepen.
   const groepen = Array.isArray(data) ? data : data.groepen || [];
   const akkoorden = Array.isArray(data) ? [] : data.akkoorden || [];
+  // Voorinvulling van het onderteken-formulier: naam + e-mail komen bij voorkeur uit de backend
+  // (Dynamics-contact / token-weergavenaam); anders uit de EasyAuth-principal aan de voorkant.
+  const backendGebruiker = (!Array.isArray(data) && data.gebruiker) || {};
+  const principalAfgeleid = leidGebruikerAf(gebruiker);
+  const voorinvul = {
+    naam: backendGebruiker.naam || principalAfgeleid.naam || "",
+    email: backendGebruiker.email || principalAfgeleid.email || "",
+  };
   // Alleen groepen met taken tonen (soorten zijn nu gefilterd, veel accounts hebben er geen).
   const groepenMetTaken = groepen.filter((g) => g.taken.length > 0);
   const totaalOpen = groepenMetTaken.reduce((som, groep) => som + groep.taken.length, 0);
@@ -1455,7 +1462,7 @@ function TabTaken({ data, gebruiker, onAkkoord, onNietAkkoord, onOndertekenen })
                   {taak.vereistHandtekening && open && afwijzenId !== taak.id && (
                     <HandtekeningPaneel
                       taak={taak}
-                      gebruiker={gebruiker}
+                      voorinvul={voorinvul}
                       onOndertekenen={onOndertekenen}
                       onNietAkkoord={() => { setBevestigId(null); setAfwijzenTekst(""); setAfwijzenId(taak.id); }}
                     />

@@ -81,6 +81,39 @@ function haalEmailUitPrincipal(req) {
 }
 
 /**
+ * Leest de weergavenaam van de ingelogde gebruiker uit de x-ms-client-principal header.
+ * Anders dan /.auth/me (dat geen claims teruggeeft) bevat deze header wél de token-claims,
+ * inclusief de 'name'-claim — voor AAD B2B-gasten is dat hun weergavenaam (bijv. "Wouter Alings").
+ * Valt terug op given_name + family_name als 'name' ontbreekt. Geeft "" als er niets bruikbaars is.
+ */
+function haalNaamUitPrincipal(req) {
+  const header = req.headers["x-ms-client-principal"];
+  if (!header) return "";
+
+  let principal;
+  try {
+    principal = JSON.parse(Buffer.from(header, "base64").toString("utf-8"));
+  } catch {
+    return "";
+  }
+
+  const claims = principal.claims || [];
+  const claimVal = (...sleutels) => {
+    for (const sleutel of sleutels) {
+      const c = claims.find((x) => (x.typ || "").toLowerCase().endsWith(sleutel));
+      if (c && c.val && !c.val.includes("@")) return c.val.trim();
+    }
+    return "";
+  };
+
+  const naam = claimVal("/name", "name");
+  if (naam) return naam;
+  const voor = claimVal("givenname", "given_name");
+  const achter = claimVal("surname", "family_name");
+  return [voor, achter].filter(Boolean).join(" ").trim();
+}
+
+/**
  * Herleidt de ingelogde gebruiker naar AL zijn gekoppelde Accounts in Dataverse.
  *
  * De koppeling bij Activaa loopt via het veld "Primair contactpersoon" (primarycontactid)
@@ -252,4 +285,4 @@ async function herleidAccounts(req, token) {
   };
 }
 
-module.exports = { haalDynamicsToken, herleidAccounts, haalEmailUitPrincipal, KLANTCATEGORIE_VELD };
+module.exports = { haalDynamicsToken, herleidAccounts, haalEmailUitPrincipal, haalNaamUitPrincipal, KLANTCATEGORIE_VELD };

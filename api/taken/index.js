@@ -1,4 +1,4 @@
-const { haalDynamicsToken, herleidAccounts } = require("../_gedeeld/identiteit");
+const { haalDynamicsToken, herleidAccounts, haalNaamUitPrincipal } = require("../_gedeeld/identiteit");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
 const { voegAkkoordToe, haalAkkoordenVoorEmail } = require("../_gedeeld/taakakkoorden");
 
@@ -164,9 +164,16 @@ module.exports = async function (context, req) {
       // Archief van eerder gegeven akkoorden (best-effort; portaal werkt ook zonder blob-opslag).
       const akkoorden = await haalAkkoordenVoorEmail(email).catch(() => []);
       akkoorden.sort((a, b) => new Date(b.akkoordOp) - new Date(a.akkoordOp));
+      // Naam + e-mail van de ingelogde contactpersoon, zodat het portaal het onderteken-formulier
+      // vooraf kan invullen. De weergavenaam zit niet in /.auth/me, maar wel op het Contact in Dynamics.
+      const eersteContact = accounts[0] || {};
+      const gebruiker = {
+        naam: haalNaamUitPrincipal(req) || eersteContact.contactNaam || eersteContact.contactpersoon?.naam || "",
+        email: eersteContact.contactpersoon?.email || email || "",
+      };
       context.res = {
         headers: { "Content-Type": "application/json" },
-        body: { groepen, akkoorden, configuratieNodig },
+        body: { groepen, akkoorden, configuratieNodig, gebruiker },
       };
       return;
     }
