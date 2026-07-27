@@ -987,6 +987,8 @@ function KlantOverzicht() {
   const [fout, setFout] = useState(false);
   const [zoek, setZoek] = useState("");
   const [filters, setFilters] = useState({ groep: "", team: "", kantoor: "", clienttype: "", status: "", manager: "", accountant: "" });
+  const [sortKey, setSortKey] = useState("klantnaam");
+  const [sortDir, setSortDir] = useState("asc"); // asc | desc
   const [detailKlant, setDetailKlant] = useState(null);
   const [detailContact, setDetailContact] = useState(null);
   const [detailGroep, setDetailGroep] = useState(null);
@@ -1062,8 +1064,38 @@ function KlantOverzicht() {
     return true;
   });
   const filterActief = Object.values(filters).some(Boolean) || !!term;
+
+  // Sorteerbare kolommen: sleutel → functie die de sorteerwaarde uit een klant haalt.
+  const sortWaarde = {
+    klantnummer: (k) => Number(k.klantnummer) || 0,
+    klantnaam: (k) => k.klantnaam || "",
+    groepsnaam: (k) => k.groepsnaam || "",
+    kantoor: (k) => k.kantoor || "",
+    team: (k) => k.team || "",
+    clienttype: (k) => k.clienttype || "",
+    contact: (k) => k.contact?.naam || "",
+    manager: (k) => k.manager?.naam || k.relatiebeheerder || "",
+    accountant: (k) => k.accountantPersoon?.naam || k.accountant || "",
+    assistent: (k) => k.assistent?.naam || "",
+    fiscaalMedewerker: (k) => k.fiscaalMedewerker?.naam || "",
+    loonadministratie: (k) => k.loonadministratie?.naam || "",
+    belastingkantoor: (k) => k.belastingkantoor || "",
+    status: (k) => k.status || "",
+  };
+  const gesorteerd = [...gefilterd].sort((x, y) => {
+    const fn = sortWaarde[sortKey] || sortWaarde.klantnaam;
+    const va = fn(x), vb = fn(y);
+    let c = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb), "nl", { sensitivity: "base" });
+    return sortDir === "asc" ? c : -c;
+  });
+  const sorteerOp = (key) => {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(key); setSortDir("asc"); }
+  };
+  const pijl = (key) => (sortKey === key ? (sortDir === "asc" ? " ▲" : " ▼") : "");
+
   const MAX_TOON = 500;
-  const zichtbaar = gefilterd.slice(0, MAX_TOON);
+  const zichtbaar = gesorteerd.slice(0, MAX_TOON);
   const zetFilter = (sleutel, waarde) => setFilters((h) => ({ ...h, [sleutel]: waarde }));
   const selectStijl = { border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, background: "#fff", color: KLEUR.tekst };
 
@@ -1141,21 +1173,38 @@ function KlantOverzicht() {
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1250 }}>
           <thead>
             <tr>
-              <th style={th}>Cliëntnr</th>
-              <th style={th}>Cliëntnaam</th>
-              <th style={th}>Groep</th>
-              <th style={th}>Kantoor</th>
-              <th style={th}>Team</th>
-              <th style={th}>Cliënttype</th>
-              <th style={th}>Contactpersoon</th>
-              <th style={th}>Manager</th>
-              <th style={th}>Accountant</th>
-              <th style={th}>Assistent</th>
-              <th style={th}>Fiscaal medew.</th>
-              <th style={th}>Loonadmin.</th>
-              <th style={th}>Belastingkantoor</th>
+              {[
+                ["klantnummer", "Cliëntnr"],
+                ["klantnaam", "Cliëntnaam"],
+                ["groepsnaam", "Groep"],
+                ["kantoor", "Kantoor"],
+                ["team", "Team"],
+                ["clienttype", "Cliënttype"],
+                ["contact", "Contactpersoon"],
+                ["manager", "Manager"],
+                ["accountant", "Accountant"],
+                ["assistent", "Assistent"],
+                ["fiscaalMedewerker", "Fiscaal medew."],
+                ["loonadministratie", "Loonadmin."],
+                ["belastingkantoor", "Belastingkantoor"],
+              ].map(([key, labelTekst]) => (
+                <th
+                  key={key}
+                  onClick={() => sorteerOp(key)}
+                  title="Klik om te sorteren"
+                  style={{ ...th, cursor: "pointer", userSelect: "none", color: sortKey === key ? KLEUR.blauw : th.color }}
+                >
+                  {labelTekst}{pijl(key)}
+                </th>
+              ))}
               <th style={th}>SharePoint</th>
-              <th style={th}>Status</th>
+              <th
+                onClick={() => sorteerOp("status")}
+                title="Klik om te sorteren"
+                style={{ ...th, cursor: "pointer", userSelect: "none", color: sortKey === "status" ? KLEUR.blauw : th.color }}
+              >
+                Status{pijl("status")}
+              </th>
             </tr>
           </thead>
           <tbody>
