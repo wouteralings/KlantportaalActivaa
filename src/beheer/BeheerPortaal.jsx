@@ -38,6 +38,10 @@ export default function BeheerPortaal() {
   const [nieuweTekst, setNieuweTekst] = useState("");
   const [gekozenCategorieen, setGekozenCategorieen] = useState([]);
   const [verzendStatus, setVerzendStatus] = useState("idle"); // idle | bezig | fout
+  const [nieuweZichtbaarTot, setNieuweZichtbaarTot] = useState("");
+  const [onbeperktZichtbaar, setOnbeperktZichtbaar] = useState(true); // "tot nader te bepalen"
+  const [actieveMededelingenOpen, setActieveMededelingenOpen] = useState(true);
+  const [verlopenMededelingenOpen, setVerlopenMededelingenOpen] = useState(false);
 
   const [snellinks, setSnellinks] = useState(null);
   const [snellinksOpen, setSnellinksOpen] = useState(false);
@@ -280,18 +284,21 @@ export default function BeheerPortaal() {
           titel: nieuweTitel.trim(),
           tekst: nieuweTekst.trim(),
           klantcategorieen: gekozenCategorieen,
+          zichtbaarTot: onbeperktZichtbaar ? null : (nieuweZichtbaarTot || null),
         }),
       });
       if (!res.ok) throw new Error(await res.text());
       setNieuweTitel("");
       setNieuweTekst("");
       setGekozenCategorieen([]);
+      setNieuweZichtbaarTot("");
+      setOnbeperktZichtbaar(true);
       setVerzendStatus("idle");
       haalMededelingen();
     } catch {
       setVerzendStatus("fout");
     }
-  }, [nieuweTitel, nieuweTekst, gekozenCategorieen, haalMededelingen]);
+  }, [nieuweTitel, nieuweTekst, gekozenCategorieen, onbeperktZichtbaar, nieuweZichtbaarTot, haalMededelingen]);
 
   const verwijderMededeling = useCallback(
     async (id) => {
@@ -773,6 +780,27 @@ export default function BeheerPortaal() {
           style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13.5, fontFamily: "inherit", resize: "vertical", marginBottom: 14, boxSizing: "border-box" }}
         />
 
+        <div style={{ fontSize: 12, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 8 }}>
+          Zichtbaar tot
+        </div>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 10, cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={onbeperktZichtbaar}
+            onChange={(e) => setOnbeperktZichtbaar(e.target.checked)}
+            style={{ width: 16, height: 16, cursor: "pointer" }}
+          />
+          Tot nader te bepalen (blijft zichtbaar tot je hem verwijdert)
+        </label>
+        {!onbeperktZichtbaar && (
+          <input
+            type="date"
+            value={nieuweZichtbaarTot}
+            onChange={(e) => setNieuweZichtbaarTot(e.target.value)}
+            style={{ display: "block", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 13.5, marginBottom: 16, boxSizing: "border-box" }}
+          />
+        )}
+
         <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 10 }}>
           <Users size={13} /> Klantgroepen (uit Dataverse)
         </div>
@@ -807,11 +835,11 @@ export default function BeheerPortaal() {
 
         <button
           onClick={verstuurMededeling}
-          disabled={!nieuweTitel.trim() || !nieuweTekst.trim() || verzendStatus === "bezig"}
+          disabled={!nieuweTitel.trim() || !nieuweTekst.trim() || (!onbeperktZichtbaar && !nieuweZichtbaarTot) || verzendStatus === "bezig"}
           style={{
             display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: KLEUR.blauw,
             color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer",
-            opacity: !nieuweTitel.trim() || !nieuweTekst.trim() ? 0.5 : 1,
+            opacity: !nieuweTitel.trim() || !nieuweTekst.trim() || (!onbeperktZichtbaar && !nieuweZichtbaarTot) ? 0.5 : 1,
           }}
         >
           <Send size={14} /> {verzendStatus === "bezig" ? "Versturen..." : "Versturen"}
@@ -820,35 +848,81 @@ export default function BeheerPortaal() {
           <div style={{ marginTop: 10, fontSize: 12.5, color: KLEUR.rood }}>Versturen is niet gelukt, probeer het nog eens.</div>
         )}
 
-        {mededelingen && mededelingen.length > 0 && (
-          <div style={{ marginTop: 24, paddingTop: 18, borderTop: `1px solid ${KLEUR.rand}` }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 12 }}>
-              Actieve mededelingen
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {mededelingen.map((m) => (
-                <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "10px 0", borderTop: `1px solid ${KLEUR.rand}` }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700 }}>{m.titel}</div>
-                    <div style={{ fontSize: 12, color: KLEUR.subtekst, marginTop: 2 }}>{m.tekst}</div>
-                    <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 6 }}>
-                      {m.klantcategorieen?.length > 0
-                        ? m.klantcategorieen.map(labelVoorWaarde).join(", ")
-                        : "Alle klanten"}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => verwijderMededeling(m.id)}
-                    title="Verwijderen"
-                    style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: KLEUR.rood, cursor: "pointer", flexShrink: 0 }}
-                  >
-                    <Trash2 size={14} />
-                  </button>
+        {mededelingen && mededelingen.length > 0 && (() => {
+          const isVerlopen = (m) => {
+            if (!m.zichtbaarTot) return false;
+            const t = new Date(m.zichtbaarTot);
+            if (isNaN(t.getTime())) return false;
+            t.setHours(23, 59, 59, 999);
+            return t.getTime() < Date.now();
+          };
+          const actief = mededelingen.filter((m) => !isVerlopen(m));
+          const verlopen = mededelingen.filter(isVerlopen);
+          const zichtbaarTotLabel = (m) =>
+            m.zichtbaarTot
+              ? "Zichtbaar tot " + new Date(m.zichtbaarTot).toLocaleDateString("nl-NL", { day: "numeric", month: "short", year: "numeric" })
+              : "Tot nader te bepalen";
+
+          const MededelingRegel = ({ m, verlopenStijl }) => (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "10px 0", borderTop: `1px solid ${KLEUR.rand}`, opacity: verlopenStijl ? 0.7 : 1 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{m.titel}</div>
+                <div style={{ fontSize: 12, color: KLEUR.subtekst, marginTop: 2 }}>{m.tekst}</div>
+                <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 6 }}>
+                  {(m.klantcategorieen?.length > 0
+                    ? m.klantcategorieen.map(labelVoorWaarde).join(", ")
+                    : "Alle klanten")}
+                  {" · "}
+                  <span style={{ color: verlopenStijl ? KLEUR.rood : KLEUR.mutedTekst }}>{zichtbaarTotLabel(m)}</span>
                 </div>
-              ))}
+              </div>
+              <button
+                onClick={() => verwijderMededeling(m.id)}
+                title="Verwijderen"
+                style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: KLEUR.rood, cursor: "pointer", flexShrink: 0 }}
+              >
+                <Trash2 size={14} />
+              </button>
             </div>
-          </div>
-        )}
+          );
+
+          const sectieKnop = (open, setOpen, label, aantal) => (
+            <button
+              onClick={() => setOpen((v) => !v)}
+              aria-expanded={open}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".04em", textAlign: "left" }}
+            >
+              <ChevronDown size={15} style={{ transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+              {label} <span style={{ color: KLEUR.mutedTekst }}>({aantal})</span>
+            </button>
+          );
+
+          return (
+            <div style={{ marginTop: 24, paddingTop: 18, borderTop: `1px solid ${KLEUR.rand}` }}>
+              {sectieKnop(actieveMededelingenOpen, setActieveMededelingenOpen, "Actieve mededelingen", actief.length)}
+              {actieveMededelingenOpen && (
+                actief.length === 0 ? (
+                  <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, marginTop: 10 }}>Geen actieve mededelingen.</div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", marginTop: 6 }}>
+                    {actief.map((m) => <MededelingRegel key={m.id} m={m} />)}
+                  </div>
+                )
+              )}
+
+              {verlopen.length > 0 && (
+                <div style={{ marginTop: 18 }}>
+                  {sectieKnop(verlopenMededelingenOpen, setVerlopenMededelingenOpen, "Verlopen mededelingen", verlopen.length)}
+                  {verlopenMededelingenOpen && (
+                    <div style={{ display: "flex", flexDirection: "column", marginTop: 6 }}>
+                      {verlopen.map((m) => <MededelingRegel key={m.id} m={m} verlopenStijl />)}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       </>)}

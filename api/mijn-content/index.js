@@ -15,6 +15,17 @@ module.exports = async function (context, req) {
     // Unie van alle klantcategorieën over al je gekoppelde klanten heen.
     const klantcategorieen = [...new Set(accounts.flatMap((a) => a.klantcategorieen))];
 
+    // Een mededeling is zichtbaar zolang er geen einddatum is ("tot nader te bepalen") of de
+    // einddatum nog niet voorbij is (zichtbaar t/m het einde van de gekozen dag).
+    const nu = Date.now();
+    const mededelingActief = (m) => {
+      if (!m.zichtbaarTot) return true;
+      const t = new Date(m.zichtbaarTot);
+      if (isNaN(t.getTime())) return true;
+      t.setHours(23, 59, 59, 999);
+      return t.getTime() >= nu;
+    };
+
     const [programmas, mededelingen, faqs] = await Promise.all([
       haalItems("programma"),
       haalItems("mededeling"),
@@ -30,7 +41,8 @@ module.exports = async function (context, req) {
           url,
         })),
         mededelingen: filterVoorCategorieen(mededelingen, klantcategorieen)
-          .map(({ id, titel, tekst, aangemaaktOp }) => ({ id, titel, tekst, aangemaaktOp }))
+          .filter(mededelingActief)
+          .map(({ id, titel, tekst, aangemaaktOp, zichtbaarTot }) => ({ id, titel, tekst, aangemaaktOp, zichtbaarTot }))
           .sort((a, b) => new Date(b.aangemaaktOp) - new Date(a.aangemaaktOp)),
         faqs: filterVoorCategorieen(faqs, klantcategorieen).map(({ id, vraag, antwoord }) => ({
           id,
