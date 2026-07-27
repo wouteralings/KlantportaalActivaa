@@ -69,6 +69,10 @@ export default function BeheerPortaal() {
   const [offerteToolUrl, setOfferteToolUrl] = useState("");
   const [linksOpslaanStatus, setLinksOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
 
+  // Wijzig-rechten: welke medewerkers (e-mail) klantgegevens mogen wijzigen.
+  const [wijzigersTekst, setWijzigersTekst] = useState("");
+  const [wijzigrechtenStatus, setWijzigrechtenStatus] = useState("idle"); // idle | bezig | gelukt | fout
+
   // Taaksoorten: welke soorten klanten zien én mogen goedkeuren.
   const [taaksoortenOpties, setTaaksoortenOpties] = useState(null); // null = laden
   const [taaksoortenConfig, setTaaksoortenConfig] = useState({});
@@ -126,6 +130,10 @@ export default function BeheerPortaal() {
       .then((r) => r.json())
       .then((d) => setCategorieen(d.opties || []))
       .catch(() => setCategorieen([]));
+    fetch("/api/beheer-wijzigrechten")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setWijzigersTekst((d.wijzigers || []).join("\n")))
+      .catch(() => {});
     fetch("/api/beheer-taaksoorten")
       .then((r) => r.json())
       .then((d) => {
@@ -370,6 +378,24 @@ export default function BeheerPortaal() {
       setLinksOpslaanStatus("fout");
     }
   }, [googleReviewUrl, teamsChatUrl, whatsappUrl, copilotEmbedUrl, offerteportaalUrl, offerteToolUrl]);
+
+  const slaWijzigrechtenOp = useCallback(async () => {
+    setWijzigrechtenStatus("bezig");
+    try {
+      const emails = wijzigersTekst.split(/[\n,;]+/).map((e) => e.trim()).filter(Boolean);
+      const res = await fetch("/api/beheer-wijzigrechten", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ wijzigers: emails }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const d = await res.json();
+      setWijzigersTekst((d.wijzigers || []).join("\n"));
+      setWijzigrechtenStatus("gelukt");
+    } catch {
+      setWijzigrechtenStatus("fout");
+    }
+  }, [wijzigersTekst]);
 
   const wijzigTaaksoort = useCallback((waarde, veld, aan, label) => {
     setTaaksoortenConfig((huidig) => {
@@ -1250,6 +1276,37 @@ export default function BeheerPortaal() {
           </span>
         )}
         {linksOpslaanStatus === "fout" && (
+          <span style={{ marginLeft: 12, fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
+        )}
+      </div>
+
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Wijzig-rechten medewerkers</div>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 14 }}>
+          Standaard mag een medewerker in het medewerkersportaal alleen lezen. Zet hieronder de
+          e-mailadressen van medewerkers die klantgegevens mogen <strong>wijzigen</strong> (één per regel).
+          Beheerders mogen sowieso altijd wijzigen.
+        </div>
+        <textarea
+          value={wijzigersTekst}
+          onChange={(e) => setWijzigersTekst(e.target.value)}
+          rows={5}
+          placeholder={"naam@activaa.nl\ncollega@activaa.nl"}
+          style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13, fontFamily: "inherit", resize: "vertical", marginBottom: 14, boxSizing: "border-box" }}
+        />
+        <button
+          onClick={slaWijzigrechtenOp}
+          disabled={wijzigrechtenStatus === "bezig"}
+          style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+        >
+          {wijzigrechtenStatus === "bezig" ? "Opslaan..." : "Opslaan"}
+        </button>
+        {wijzigrechtenStatus === "gelukt" && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 12, fontSize: 12.5, color: KLEUR.blauw }}>
+            <CheckCircle2 size={14} /> Opgeslagen.
+          </span>
+        )}
+        {wijzigrechtenStatus === "fout" && (
           <span style={{ marginLeft: 12, fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
         )}
       </div>

@@ -113,6 +113,18 @@ function haalNaamUitPrincipal(req) {
   return [voor, achter].filter(Boolean).join(" ").trim();
 }
 
+/** Leest de rollen (userRoles) van de ingelogde gebruiker uit de x-ms-client-principal header. */
+function haalRollenUitPrincipal(req) {
+  const header = req.headers["x-ms-client-principal"];
+  if (!header) return [];
+  try {
+    const principal = JSON.parse(Buffer.from(header, "base64").toString("utf-8"));
+    return Array.isArray(principal.userRoles) ? principal.userRoles : [];
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Herleidt de ingelogde gebruiker naar AL zijn gekoppelde Accounts in Dataverse.
  *
@@ -285,4 +297,4 @@ async function herleidAccounts(req, token) {
   };
 }
 
-module.exports = { haalDynamicsToken, herleidAccounts, haalEmailUitPrincipal, haalNaamUitPrincipal, KLANTCATEGORIE_VELD };
+module.exports = { haalDynamicsToken, herleidAccounts, haalEmailUitPrincipal, haalNaamUitPrincipal, haalRollenUitPrincipal, KLANTCATEGORIE_VELD };

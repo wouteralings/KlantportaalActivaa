@@ -701,13 +701,129 @@ function TerugKnop({ onClick }) {
   );
 }
 
-function KlantDetail({ klant, onTerug, onContact, onMedewerker }) {
+function veldInput(waarde, onChange, placeholder) {
+  return (
+    <input
+      value={waarde}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder || ""}
+      style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 13, marginBottom: 8 }}
+    />
+  );
+}
+
+function KlantBewerken({ klant, onKlaar, onOpgeslagen }) {
+  const a = klant.adres || {};
+  const c = klant.contact || {};
+  const [f, setF] = useState({
+    name: klant.klantnaam || "",
+    straat: a.straat || "", huisnummer: a.huisnummer || "", toevoeging: a.toevoeging || "",
+    postcode: a.postcode || "", plaats: a.plaats || "", land: a.land || "",
+    telefoonKlant: klant.telefoonKlant || "", emailKlant: klant.emailKlant || "",
+    voornaam: c.voornaam || "", tussenvoegsel: c.tussenvoegsel || "", achternaam: c.achternaam || "",
+    functietitel: c.functietitel || "", cEmail: c.email || "", cTelefoon: c.telefoon || "",
+  });
+  const [status, setStatus] = useState("invoer"); // invoer | bezig | fout
+  const zet = (k) => (v) => setF((h) => ({ ...h, [k]: v }));
+  const label = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3, marginTop: 4 };
+
+  const opslaan = async () => {
+    setStatus("bezig");
+    try {
+      const account = {
+        name: f.name, address1_line1: f.straat, cr283_huisnummer: f.huisnummer,
+        cr283_huisnummertoevoeging: f.toevoeging, address1_postalcode: f.postcode,
+        address1_city: f.plaats, address1_country: f.land,
+        telephone1: f.telefoonKlant, emailaddress1: f.emailKlant,
+      };
+      const contact = {
+        firstname: f.voornaam, middlename: f.tussenvoegsel, lastname: f.achternaam,
+        jobtitle: f.functietitel, emailaddress1: f.cEmail, mobilephone: f.cTelefoon,
+      };
+      const res = await fetch("/api/medewerker-klant-wijzigen", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId: klant.accountId, contactId: klant.contact?.contactId, account, contact }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const naam = [f.voornaam, f.tussenvoegsel, f.achternaam].filter(Boolean).join(" ").trim();
+      onOpgeslagen(klant.accountId, {
+        klantnaam: f.name,
+        adres: { straat: f.straat, huisnummer: f.huisnummer, toevoeging: f.toevoeging, postcode: f.postcode, plaats: f.plaats, land: f.land },
+        telefoonKlant: f.telefoonKlant, emailKlant: f.emailKlant,
+        contact: { ...klant.contact, voornaam: f.voornaam, tussenvoegsel: f.tussenvoegsel, achternaam: f.achternaam, functietitel: f.functietitel, email: f.cEmail, telefoon: f.cTelefoon, naam: naam || klant.contact?.naam },
+      });
+      onKlaar();
+    } catch {
+      setStatus("fout");
+    }
+  };
+
+  return (
+    <div>
+      <TerugKnop onClick={onKlaar} />
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Klantgegevens wijzigen</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "0 24px" }}>
+          <div>
+            <div style={label}>Klantnaam</div>
+            {veldInput(f.name, zet("name"))}
+            <div style={label}>Straat</div>
+            {veldInput(f.straat, zet("straat"))}
+            <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ flex: 1 }}><div style={label}>Huisnr</div>{veldInput(f.huisnummer, zet("huisnummer"))}</div>
+              <div style={{ flex: 1 }}><div style={label}>Toevoeging</div>{veldInput(f.toevoeging, zet("toevoeging"))}</div>
+            </div>
+            <div style={label}>Postcode</div>
+            {veldInput(f.postcode, zet("postcode"))}
+            <div style={label}>Plaats</div>
+            {veldInput(f.plaats, zet("plaats"))}
+            <div style={label}>Land</div>
+            {veldInput(f.land, zet("land"))}
+            <div style={label}>Telefoon (klant)</div>
+            {veldInput(f.telefoonKlant, zet("telefoonKlant"))}
+            <div style={label}>E-mail (klant)</div>
+            {veldInput(f.emailKlant, zet("emailKlant"))}
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Primair contactpersoon</div>
+            <div style={label}>Voornaam</div>
+            {veldInput(f.voornaam, zet("voornaam"))}
+            <div style={label}>Tussenvoegsel</div>
+            {veldInput(f.tussenvoegsel, zet("tussenvoegsel"))}
+            <div style={label}>Achternaam</div>
+            {veldInput(f.achternaam, zet("achternaam"))}
+            <div style={label}>Functietitel</div>
+            {veldInput(f.functietitel, zet("functietitel"))}
+            <div style={label}>E-mail</div>
+            {veldInput(f.cEmail, zet("cEmail"))}
+            <div style={label}>Telefoon</div>
+            {veldInput(f.cTelefoon, zet("cTelefoon"))}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
+          <button onClick={opslaan} disabled={status === "bezig"} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: "#2E7D46", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            <CheckCircle2 size={14} /> {status === "bezig" ? "Opslaan…" : "Opslaan"}
+          </button>
+          <button onClick={onKlaar} style={{ padding: "9px 14px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Annuleren</button>
+          {status === "fout" && <span style={{ fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt (mogelijk onvoldoende schrijfrechten in Dynamics).</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function KlantDetail({ klant, magWijzigen, onTerug, onContact, onMedewerker, onOpgeslagen }) {
+  const [bewerken, setBewerken] = useState(false);
   const a = klant.adres || {};
   const adresRegel = [
     [a.straat, a.huisnummer, a.toevoeging].filter(Boolean).join(" "),
     [a.postcode, a.plaats].filter(Boolean).join("  "),
     a.land,
   ].filter(Boolean).join(", ");
+  if (bewerken) {
+    return <KlantBewerken klant={klant} onKlaar={() => setBewerken(false)} onOpgeslagen={onOpgeslagen} />;
+  }
   const MedewerkerRegel = ({ label, persoon, rol }) => {
     if (!persoon || !persoon.naam) return null;
     return (
@@ -724,9 +840,21 @@ function KlantDetail({ klant, onTerug, onContact, onMedewerker }) {
     <div>
       <TerugKnop onClick={onTerug} />
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
-        <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 2 }}>{klant.klantnaam}</div>
-        <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, marginBottom: 16 }}>
-          Cliëntnr {klant.klantnummer || "—"}{klant.status ? " · " + klant.status : ""}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 2 }}>{klant.klantnaam}</div>
+            <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, marginBottom: 16 }}>
+              Cliëntnr {klant.klantnummer || "—"}{klant.status ? " · " + klant.status : ""}
+            </div>
+          </div>
+          {magWijzigen && (
+            <button
+              onClick={() => setBewerken(true)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 7, flexShrink: 0, padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+            >
+              Bewerken
+            </button>
+          )}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0 24px" }}>
           <div>
@@ -863,13 +991,24 @@ function KlantOverzicht() {
   const [detailContact, setDetailContact] = useState(null);
   const [detailGroep, setDetailGroep] = useState(null);
   const [detailMedewerker, setDetailMedewerker] = useState(null); // { persoon, rol, klantnaam }
+  const [magWijzigen, setMagWijzigen] = useState(false);
 
   useEffect(() => {
     fetch("/api/beheer-klanten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => { setKlanten(d.klanten || []); setAfgekapt(!!d.afgekapt); })
       .catch(() => { setKlanten([]); setFout(true); });
+    fetch("/api/medewerker-rechten")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setMagWijzigen(!!d.magWijzigen))
+      .catch(() => setMagWijzigen(false));
   }, []);
+
+  // Werkt één klant bij in de lijst én in het geopende detail na een opgeslagen wijziging.
+  const verwerkKlantWijziging = (accountId, patch) => {
+    setKlanten((huidig) => huidig.map((k) => (k.accountId === accountId ? { ...k, ...patch } : k)));
+    setDetailKlant((huidig) => (huidig && huidig.accountId === accountId ? { ...huidig, ...patch } : huidig));
+  };
 
   if (klanten === null) {
     return (
@@ -885,7 +1024,7 @@ function KlantOverzicht() {
     return <MedewerkerDetail persoon={detailMedewerker.persoon} rol={detailMedewerker.rol} klantnaam={detailMedewerker.klantnaam} onTerug={() => setDetailMedewerker(null)} />;
   }
   if (detailKlant) {
-    return <KlantDetail klant={detailKlant} onTerug={() => setDetailKlant(null)} onContact={(k) => { setDetailKlant(null); setDetailContact(k); }} onMedewerker={openMedewerker} />;
+    return <KlantDetail klant={detailKlant} magWijzigen={magWijzigen} onTerug={() => setDetailKlant(null)} onContact={(k) => { setDetailKlant(null); setDetailContact(k); }} onMedewerker={openMedewerker} onOpgeslagen={verwerkKlantWijziging} />;
   }
   if (detailContact) {
     return <ContactDetail klant={detailContact} onTerug={() => setDetailContact(null)} />;

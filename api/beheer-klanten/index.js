@@ -194,6 +194,7 @@ module.exports = async function (context, req) {
         manager: persoonUitExpand(RELATIEBEHEERDER_NAV, a),
         accountantPersoon: persoonUitExpand(ACCOUNTANT_NAV, a),
         contact: {
+          contactId: contact.contactid || "",
           naam: contact.fullname || "",
           voornaam: contact.firstname || "",
           tussenvoegsel: contact.middlename || "",

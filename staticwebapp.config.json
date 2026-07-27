@@ -49,6 +49,18 @@
       "allowedRoles": ["beheerder", "medewerker"]
     },
     {
+      "route": "/api/beheer-wijzigrechten",
+      "allowedRoles": ["beheerder"]
+    },
+    {
+      "route": "/api/medewerker-rechten",
+      "allowedRoles": ["beheerder", "medewerker"]
+    },
+    {
+      "route": "/api/medewerker-klant-wijzigen",
+      "allowedRoles": ["beheerder", "medewerker"]
+    },
+    {
       "route": "/api/instellingen",
       "allowedRoles": ["anonymous"]
     },
