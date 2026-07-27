@@ -858,6 +858,7 @@ function KlantOverzicht() {
   const [afgekapt, setAfgekapt] = useState(false);
   const [fout, setFout] = useState(false);
   const [zoek, setZoek] = useState("");
+  const [filters, setFilters] = useState({ groep: "", team: "", kantoor: "", clienttype: "", status: "", manager: "", accountant: "" });
   const [detailKlant, setDetailKlant] = useState(null);
   const [detailContact, setDetailContact] = useState(null);
   const [detailGroep, setDetailGroep] = useState(null);
@@ -893,16 +894,39 @@ function KlantOverzicht() {
     return <GroepDetail groepsnaam={detailGroep} klanten={klanten} onTerug={() => setDetailGroep(null)} onKlant={(k) => { setDetailGroep(null); setDetailKlant(k); }} />;
   }
 
+  const uniek = (selector) => [...new Set(klanten.map(selector).filter(Boolean))].sort((a, b) => a.localeCompare(b, "nl"));
+  const opties = {
+    groep: uniek((k) => k.groepsnaam),
+    team: uniek((k) => k.team),
+    kantoor: uniek((k) => k.kantoor),
+    clienttype: uniek((k) => k.clienttype),
+    status: uniek((k) => k.status),
+    manager: uniek((k) => k.manager?.naam || k.relatiebeheerder),
+    accountant: uniek((k) => k.accountantPersoon?.naam || k.accountant),
+  };
   const term = zoek.trim().toLowerCase();
-  const gefilterd = term
-    ? klanten.filter((k) =>
-        [k.klantnaam, String(k.klantnummer ?? ""), k.groepsnaam, k.contact?.naam, k.relatiebeheerder, k.team, k.clienttype]
-          .map((v) => (v == null ? "" : String(v)).toLowerCase())
-          .some((v) => v.includes(term))
-      )
-    : klanten;
+  const gefilterd = klanten.filter((k) => {
+    if (filters.groep && k.groepsnaam !== filters.groep) return false;
+    if (filters.team && k.team !== filters.team) return false;
+    if (filters.kantoor && k.kantoor !== filters.kantoor) return false;
+    if (filters.clienttype && k.clienttype !== filters.clienttype) return false;
+    if (filters.status && k.status !== filters.status) return false;
+    if (filters.manager && (k.manager?.naam || k.relatiebeheerder) !== filters.manager) return false;
+    if (filters.accountant && (k.accountantPersoon?.naam || k.accountant) !== filters.accountant) return false;
+    if (
+      term &&
+      ![k.klantnaam, String(k.klantnummer ?? ""), k.groepsnaam, k.contact?.naam, k.relatiebeheerder, k.team, k.clienttype]
+        .map((v) => (v == null ? "" : String(v)).toLowerCase())
+        .some((v) => v.includes(term))
+    )
+      return false;
+    return true;
+  });
+  const filterActief = Object.values(filters).some(Boolean) || !!term;
   const MAX_TOON = 500;
   const zichtbaar = gefilterd.slice(0, MAX_TOON);
+  const zetFilter = (sleutel, waarde) => setFilters((h) => ({ ...h, [sleutel]: waarde }));
+  const selectStijl = { border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, background: "#fff", color: KLEUR.tekst };
 
   const th = { textAlign: "left", fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", padding: "6px 10px", borderBottom: `1px solid ${KLEUR.rand}`, whiteSpace: "nowrap" };
   const td = { fontSize: 12.5, padding: "8px 10px", borderBottom: `1px solid ${KLEUR.rand}`, whiteSpace: "nowrap" };
@@ -915,14 +939,52 @@ function KlantOverzicht() {
         Klik op een klantnaam, groep of contactpersoon om de details te bekijken.
       </div>
 
-      <div style={{ position: "relative", marginBottom: 12, maxWidth: 360 }}>
-        <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
-        <input
-          value={zoek}
-          onChange={(e) => setZoek(e.target.value)}
-          placeholder="Zoek op naam, nummer, groep, contact…"
-          style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 32px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, outline: "none" }}
-        />
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12, alignItems: "center" }}>
+        <div style={{ position: "relative", flex: "1 1 240px", minWidth: 200 }}>
+          <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+          <input
+            value={zoek}
+            onChange={(e) => setZoek(e.target.value)}
+            placeholder="Zoek op naam, nummer, groep, contact…"
+            style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 32px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, outline: "none" }}
+          />
+        </div>
+        <select value={filters.groep} onChange={(e) => zetFilter("groep", e.target.value)} style={selectStijl}>
+          <option value="">Alle groepen</option>
+          {opties.groep.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+        <select value={filters.team} onChange={(e) => zetFilter("team", e.target.value)} style={selectStijl}>
+          <option value="">Alle teams</option>
+          {opties.team.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+        <select value={filters.kantoor} onChange={(e) => zetFilter("kantoor", e.target.value)} style={selectStijl}>
+          <option value="">Alle kantoren</option>
+          {opties.kantoor.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+        <select value={filters.clienttype} onChange={(e) => zetFilter("clienttype", e.target.value)} style={selectStijl}>
+          <option value="">Alle cliënttypes</option>
+          {opties.clienttype.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+        <select value={filters.status} onChange={(e) => zetFilter("status", e.target.value)} style={selectStijl}>
+          <option value="">Alle statussen</option>
+          {opties.status.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+        <select value={filters.manager} onChange={(e) => zetFilter("manager", e.target.value)} style={selectStijl}>
+          <option value="">Alle managers</option>
+          {opties.manager.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+        <select value={filters.accountant} onChange={(e) => zetFilter("accountant", e.target.value)} style={selectStijl}>
+          <option value="">Alle accountants</option>
+          {opties.accountant.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+        {filterActief && (
+          <button
+            onClick={() => { setZoek(""); setFilters({ groep: "", team: "", kantoor: "", clienttype: "", status: "", manager: "", accountant: "" }); }}
+            style={{ padding: "8px 12px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+          >
+            Filters wissen
+          </button>
+        )}
       </div>
 
       {fout && (
