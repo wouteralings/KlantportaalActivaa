@@ -690,13 +690,6 @@ function Veld({ label, waarde, link }) {
   );
 }
 
-function Persoonblok({ label, persoon }) {
-  if (!persoon || !persoon.naam) return null;
-  return (
-    <Veld label={label} waarde={`${persoon.naam}${persoon.email ? " · " + persoon.email : ""}${persoon.telefoon ? " · " + persoon.telefoon : ""}`} />
-  );
-}
-
 function TerugKnop({ onClick }) {
   return (
     <button
@@ -708,13 +701,25 @@ function TerugKnop({ onClick }) {
   );
 }
 
-function KlantDetail({ klant, onTerug, onContact }) {
+function KlantDetail({ klant, onTerug, onContact, onMedewerker }) {
   const a = klant.adres || {};
   const adresRegel = [
     [a.straat, a.huisnummer, a.toevoeging].filter(Boolean).join(" "),
     [a.postcode, a.plaats].filter(Boolean).join("  "),
     a.land,
   ].filter(Boolean).join(", ");
+  const MedewerkerRegel = ({ label, persoon, rol }) => {
+    if (!persoon || !persoon.naam) return null;
+    return (
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 2 }}>{label}</div>
+        <button onClick={() => onMedewerker && onMedewerker(persoon, rol, klant.klantnaam)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}>
+          <span style={{ fontSize: 13, color: KLEUR.blauw, fontWeight: 600 }}>{persoon.naam}</span>
+          {persoon.email ? <span style={{ fontSize: 12.5, color: KLEUR.subtekst }}>{" · " + persoon.email}</span> : null}
+        </button>
+      </div>
+    );
+  };
   return (
     <div>
       <TerugKnop onClick={onTerug} />
@@ -735,27 +740,36 @@ function KlantDetail({ klant, onTerug, onContact }) {
             <Veld label="SharePoint" waarde={klant.sharepointUrl ? "Map openen" : ""} link={klant.sharepointUrl} />
           </div>
           <div>
-            <Persoonblok label="Manager" persoon={{ naam: klant.relatiebeheerder }} />
-            <Persoonblok label="Accountant" persoon={{ naam: klant.accountant }} />
-            <Persoonblok label="Assistent" persoon={klant.assistent} />
-            <Persoonblok label="Fiscaal medewerker" persoon={klant.fiscaalMedewerker} />
-            <Persoonblok label="Loonadministratie" persoon={klant.loonadministratie} />
+            <MedewerkerRegel label="Manager" persoon={klant.manager || { naam: klant.relatiebeheerder }} rol="Manager" />
+            <MedewerkerRegel label="Accountant" persoon={klant.accountantPersoon || { naam: klant.accountant }} rol="Accountant" />
+            <MedewerkerRegel label="Assistent" persoon={klant.assistent} rol="Assistent" />
+            <MedewerkerRegel label="Fiscaal medewerker" persoon={klant.fiscaalMedewerker} rol="Fiscaal medewerker" />
+            <MedewerkerRegel label="Loonadministratie" persoon={klant.loonadministratie} rol="Loonadministratie" />
           </div>
         </div>
 
         <div style={{ marginTop: 12, paddingTop: 14, borderTop: `1px solid ${KLEUR.rand}` }}>
           <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Primair contactpersoon</div>
           {klant.contact?.naam ? (
-            <button
-              onClick={() => onContact(klant)}
-              style={{ textAlign: "left", background: "none", border: "none", padding: 0, cursor: "pointer" }}
-            >
-              <span style={{ fontSize: 13, color: KLEUR.blauw, fontWeight: 600 }}>{klant.contact.naam}</span>
-              <span style={{ fontSize: 12.5, color: KLEUR.subtekst }}>
-                {klant.contact.functietitel ? " · " + klant.contact.functietitel : ""}
-                {klant.contact.email ? " · " + klant.contact.email : ""}
-              </span>
-            </button>
+            <div>
+              <button
+                onClick={() => onContact(klant)}
+                style={{ textAlign: "left", background: "none", border: "none", padding: 0, cursor: "pointer" }}
+              >
+                <span style={{ fontSize: 13, color: KLEUR.blauw, fontWeight: 600 }}>{klant.contact.naam}</span>
+                {klant.contact.functietitel ? <span style={{ fontSize: 12.5, color: KLEUR.subtekst }}>{" · " + klant.contact.functietitel}</span> : null}
+              </button>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 18px", marginTop: 6 }}>
+                {klant.contact.email && (
+                  <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>
+                    E-mail: <a href={`mailto:${klant.contact.email}`} style={{ color: KLEUR.blauw, textDecoration: "none" }}>{klant.contact.email}</a>
+                  </div>
+                )}
+                {klant.contact.telefoon && (
+                  <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>Telefoon: {klant.contact.telefoon}</div>
+                )}
+              </div>
+            </div>
           ) : (
             <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Geen contactpersoon bekend.</div>
           )}
@@ -818,6 +832,27 @@ function GroepDetail({ groepsnaam, klanten, onTerug, onKlant }) {
   );
 }
 
+function MedewerkerDetail({ persoon, rol, klantnaam, onTerug }) {
+  const p = persoon || {};
+  return (
+    <div>
+      <TerugKnop onClick={onTerug} />
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
+        <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 2 }}>{p.naam || "Medewerker"}</div>
+        <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, marginBottom: 16 }}>
+          {rol}{klantnaam ? " · " + klantnaam : ""}
+        </div>
+        <Veld label="Rol" waarde={rol} />
+        <Veld label="E-mail" waarde={p.email} link={p.email ? `mailto:${p.email}` : ""} />
+        <Veld label="Telefoon" waarde={p.telefoon} />
+        {!p.email && !p.telefoon && (
+          <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Geen verdere contactgegevens beschikbaar.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function KlantOverzicht() {
   const [klanten, setKlanten] = useState(null); // null = laden
   const [afgekapt, setAfgekapt] = useState(false);
@@ -826,6 +861,7 @@ function KlantOverzicht() {
   const [detailKlant, setDetailKlant] = useState(null);
   const [detailContact, setDetailContact] = useState(null);
   const [detailGroep, setDetailGroep] = useState(null);
+  const [detailMedewerker, setDetailMedewerker] = useState(null); // { persoon, rol, klantnaam }
 
   useEffect(() => {
     fetch("/api/beheer-klanten")
@@ -842,8 +878,13 @@ function KlantOverzicht() {
     );
   }
 
+  const openMedewerker = (persoon, rol, klantnaam) => { if (persoon && persoon.naam) setDetailMedewerker({ persoon, rol, klantnaam }); };
+
+  if (detailMedewerker) {
+    return <MedewerkerDetail persoon={detailMedewerker.persoon} rol={detailMedewerker.rol} klantnaam={detailMedewerker.klantnaam} onTerug={() => setDetailMedewerker(null)} />;
+  }
   if (detailKlant) {
-    return <KlantDetail klant={detailKlant} onTerug={() => setDetailKlant(null)} onContact={(k) => { setDetailKlant(null); setDetailContact(k); }} />;
+    return <KlantDetail klant={detailKlant} onTerug={() => setDetailKlant(null)} onContact={(k) => { setDetailKlant(null); setDetailContact(k); }} onMedewerker={openMedewerker} />;
   }
   if (detailContact) {
     return <ContactDetail klant={detailContact} onTerug={() => setDetailContact(null)} />;
@@ -896,7 +937,7 @@ function KlantOverzicht() {
       </div>
 
       <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1100 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1250 }}>
           <thead>
             <tr>
               <th style={th}>Cliëntnr</th>
@@ -907,6 +948,7 @@ function KlantOverzicht() {
               <th style={th}>Cliënttype</th>
               <th style={th}>Contactpersoon</th>
               <th style={th}>Manager</th>
+              <th style={th}>Accountant</th>
               <th style={th}>Assistent</th>
               <th style={th}>Fiscaal medew.</th>
               <th style={th}>Loonadmin.</th>
@@ -931,10 +973,21 @@ function KlantOverzicht() {
                 <td style={td}>
                   {k.contact?.naam ? <button onClick={() => setDetailContact(k)} style={linkStijl}>{k.contact.naam}</button> : "—"}
                 </td>
-                <td style={td}>{k.relatiebeheerder || "—"}</td>
-                <td style={td}>{k.assistent?.naam || "—"}</td>
-                <td style={td}>{k.fiscaalMedewerker?.naam || "—"}</td>
-                <td style={td}>{k.loonadministratie?.naam || "—"}</td>
+                <td style={td}>
+                  {k.manager?.naam ? <button onClick={() => openMedewerker(k.manager, "Manager", k.klantnaam)} style={linkStijl}>{k.manager.naam}</button> : (k.relatiebeheerder || "—")}
+                </td>
+                <td style={td}>
+                  {k.accountantPersoon?.naam ? <button onClick={() => openMedewerker(k.accountantPersoon, "Accountant", k.klantnaam)} style={linkStijl}>{k.accountantPersoon.naam}</button> : (k.accountant || "—")}
+                </td>
+                <td style={td}>
+                  {k.assistent?.naam ? <button onClick={() => openMedewerker(k.assistent, "Assistent", k.klantnaam)} style={linkStijl}>{k.assistent.naam}</button> : "—"}
+                </td>
+                <td style={td}>
+                  {k.fiscaalMedewerker?.naam ? <button onClick={() => openMedewerker(k.fiscaalMedewerker, "Fiscaal medewerker", k.klantnaam)} style={linkStijl}>{k.fiscaalMedewerker.naam}</button> : "—"}
+                </td>
+                <td style={td}>
+                  {k.loonadministratie?.naam ? <button onClick={() => openMedewerker(k.loonadministratie, "Loonadministratie", k.klantnaam)} style={linkStijl}>{k.loonadministratie.naam}</button> : "—"}
+                </td>
                 <td style={td}>{k.belastingkantoor || "—"}</td>
                 <td style={td}>
                   {k.sharepointUrl ? <a href={k.sharepointUrl} target="_blank" rel="noopener noreferrer" style={{ color: KLEUR.blauw, fontWeight: 600, textDecoration: "none" }}>Map</a> : "—"}
@@ -963,6 +1016,7 @@ export default function MedewerkerPortaal() {
   const [tab, setTab] = useState("klantoverzicht"); // klantoverzicht | verzoeken | reacties | ondertekeningen | reviews
   const [tellingen, setTellingen] = useState({ openWijzigingen: 0, nieuweReviews: 0 });
   const [offerteUrl, setOfferteUrl] = useState("");
+  const [offerteToolUrl, setOfferteToolUrl] = useState("");
 
   const laadTellingen = useCallback(() => {
     fetch("/api/beheer-tellingen")
@@ -993,7 +1047,7 @@ export default function MedewerkerPortaal() {
     if (status !== "klaar") return;
     fetch("/api/instellingen")
       .then((r) => r.json())
-      .then((d) => { zetBrowserFavicon(d.faviconUrl); setOfferteUrl(d.offerteportaalUrl || ""); })
+      .then((d) => { zetBrowserFavicon(d.faviconUrl); setOfferteUrl(d.offerteportaalUrl || ""); setOfferteToolUrl(d.offerteToolUrl || ""); })
       .catch(() => {});
   }, [status]);
 
@@ -1071,6 +1125,11 @@ export default function MedewerkerPortaal() {
           {offerteUrl && (
             <a href={offerteUrl} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: KLEUR.blauw, textDecoration: "none" }}>
               <FileText size={13} /> Offerteportaal
+            </a>
+          )}
+          {offerteToolUrl && (
+            <a href={offerteToolUrl} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: KLEUR.blauw, textDecoration: "none" }}>
+              <FileText size={13} /> Offertetool Project
             </a>
           )}
           {isBeheerder && (

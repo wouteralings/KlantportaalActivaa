@@ -5,14 +5,14 @@ const { haalInstellingen } = require("../_gedeeld/instellingen");
  * endpoint voor elke ingelogde klant leesbaar — puur om instellingen te tonen die in de
  * portal-UI gebruikt worden, zoals de Teams-chatlink en de wijzigingsformulier-links.
  */
-const LEGE_INSTELLINGEN = { teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", offerteportaalUrl: "" };
+const LEGE_INSTELLINGEN = { teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", offerteportaalUrl: "", offerteToolUrl: "" };
 
 module.exports = async function (context, req) {
   try {
-    const { teamsChatUrl, whatsappUrl, copilotEmbedUrl, logoUrl, faviconUrl, wijzigingFormNawUrl, wijzigingFormContactUrl, offerteportaalUrl } = await haalInstellingen();
+    const { teamsChatUrl, whatsappUrl, copilotEmbedUrl, logoUrl, faviconUrl, wijzigingFormNawUrl, wijzigingFormContactUrl, offerteportaalUrl, offerteToolUrl } = await haalInstellingen();
     context.res = {
       headers: { "Content-Type": "application/json" },
-      body: { teamsChatUrl, whatsappUrl, copilotEmbedUrl, logoUrl, faviconUrl, wijzigingFormNawUrl, wijzigingFormContactUrl, offerteportaalUrl },
+      body: { teamsChatUrl, whatsappUrl, copilotEmbedUrl, logoUrl, faviconUrl, wijzigingFormNawUrl, wijzigingFormContactUrl, offerteportaalUrl, offerteToolUrl },
     };
   } catch (err) {
     context.log.error(err);

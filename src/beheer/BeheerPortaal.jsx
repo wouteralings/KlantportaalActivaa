@@ -66,6 +66,7 @@ export default function BeheerPortaal() {
   const [whatsappUrl, setWhatsappUrl] = useState("");
   const [copilotEmbedUrl, setCopilotEmbedUrl] = useState("");
   const [offerteportaalUrl, setOfferteportaalUrl] = useState("");
+  const [offerteToolUrl, setOfferteToolUrl] = useState("");
   const [linksOpslaanStatus, setLinksOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
 
   // Taaksoorten: welke soorten klanten zien én mogen goedkeuren.
@@ -118,6 +119,7 @@ export default function BeheerPortaal() {
         setTaakAfwijzingWebhookUrl(d.taakAfwijzingWebhookUrl || "");
         setReviewWebhookUrl(d.reviewWebhookUrl || "");
         setOfferteportaalUrl(d.offerteportaalUrl || "");
+        setOfferteToolUrl(d.offerteToolUrl || "");
       })
       .catch(() => {});
     fetch("/api/beheer-klantcategorieen")
@@ -359,6 +361,7 @@ export default function BeheerPortaal() {
           whatsappUrl: whatsappUrl.trim(),
           copilotEmbedUrl: copilotEmbedUrl.trim(),
           offerteportaalUrl: offerteportaalUrl.trim(),
+          offerteToolUrl: offerteToolUrl.trim(),
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -366,7 +369,7 @@ export default function BeheerPortaal() {
     } catch {
       setLinksOpslaanStatus("fout");
     }
-  }, [googleReviewUrl, teamsChatUrl, whatsappUrl, copilotEmbedUrl, offerteportaalUrl]);
+  }, [googleReviewUrl, teamsChatUrl, whatsappUrl, copilotEmbedUrl, offerteportaalUrl, offerteToolUrl]);
 
   const wijzigTaaksoort = useCallback((waarde, veld, aan, label) => {
     setTaaksoortenConfig((huidig) => {
@@ -1221,6 +1224,15 @@ export default function BeheerPortaal() {
           type="text"
           value={offerteportaalUrl}
           onChange={(e) => setOfferteportaalUrl(e.target.value)}
+          placeholder="https://…"
+          style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 16, boxSizing: "border-box" }}
+        />
+
+        <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Offertetool Project-link (medewerkersportaal)</div>
+        <input
+          type="text"
+          value={offerteToolUrl}
+          onChange={(e) => setOfferteToolUrl(e.target.value)}
           placeholder="https://…"
           style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 16, boxSizing: "border-box" }}
         />

@@ -85,6 +85,35 @@ function leesLookup(rij, veld) {
   return rij[`_${veld}_value${FV}`] || "";
 }
 
+// Haalt naam/e-mail/telefoon van systemusers op in batches. Best-effort: bij een fout
+// (of geen ids) komt er een lege map terug, zodat de medewerker-details terugvallen op de naam.
+async function haalSystemusers(resource, token, ids) {
+  const uniek = [...new Set((ids || []).filter(Boolean))];
+  const map = {};
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/json",
+    "OData-MaxVersion": "4.0",
+    "OData-Version": "4.0",
+  };
+  for (let i = 0; i < uniek.length; i += 60) {
+    const chunk = uniek.slice(i, i + 60);
+    const filter = chunk.map((id) => `systemuserid eq ${id}`).join(" or ");
+    const url = `${resource}/api/data/v9.2/systemusers?$select=systemuserid,fullname,internalemailaddress,mobilephone&$filter=${filter}`;
+    try {
+      const res = await fetch(url, { headers });
+      if (!res.ok) continue;
+      const data = await res.json();
+      for (const u of data.value || []) {
+        map[u.systemuserid] = { naam: u.fullname || "", email: u.internalemailaddress || "", telefoon: u.mobilephone || "" };
+      }
+    } catch {
+      // negeren; terugval op naam-only
+    }
+  }
+  return map;
+}
+
 module.exports = async function (context, req) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   if (!resource) {
@@ -99,6 +128,17 @@ module.exports = async function (context, req) {
       haalReviews().catch(() => []),
       haalUitnodigingen().catch(() => ({})),
     ]);
+
+    // Medewerker-lookups (assistent/fiscaal/loon) verrijken met e-mail + telefoon via systemusers.
+    const lookupAttrs = [ASSISTENT_VELD, FISCAALMEDEWERKER_VELD, LOONADMIN_VELD].filter(Boolean);
+    const persoonIds = [];
+    for (const a of rijen) {
+      for (const v of lookupAttrs) {
+        const id = a[`_${v}_value`];
+        if (id) persoonIds.push(id);
+      }
+    }
+    const gebruikerMap = await haalSystemusers(resource, token, persoonIds).catch(() => ({}));
 
     // Reviews indexeren per account: aantal + laatste (nieuwste) review.
     const perAccount = new Map();
@@ -117,8 +157,15 @@ module.exports = async function (context, req) {
       return u ? { naam: u.fullname || "", email: u.internalemailaddress || "", telefoon: u.mobilephone || "" } : null;
     };
     const persoonUitLookup = (veld, rij) => {
+      const id = rij[`_${veld}_value`];
       const naam = leesLookup(rij, veld);
-      return naam ? { naam, email: "", telefoon: "" } : null;
+      if (!id && !naam) return null;
+      const verrijkt = id ? gebruikerMap[id] : null;
+      return {
+        naam: (verrijkt && verrijkt.naam) || naam || "",
+        email: (verrijkt && verrijkt.email) || "",
+        telefoon: (verrijkt && verrijkt.telefoon) || "",
+      };
     };
 
     const klanten = rijen.map((a) => {
@@ -145,6 +192,7 @@ module.exports = async function (context, req) {
         fiscaalMedewerker: persoonUitLookup(FISCAALMEDEWERKER_VELD, a),
         loonadministratie: persoonUitLookup(LOONADMIN_VELD, a),
         manager: persoonUitExpand(RELATIEBEHEERDER_NAV, a),
+        accountantPersoon: persoonUitExpand(ACCOUNTANT_NAV, a),
         contact: {
           naam: contact.fullname || "",
           voornaam: contact.firstname || "",
