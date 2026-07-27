@@ -46,7 +46,7 @@ async function haalAlleKlanten(resource, token, extraKolommen) {
   ].filter(Boolean);
 
   const expand = [
-    `primarycontactid($select=contactid,fullname,firstname,middlename,lastname,jobtitle,emailaddress1,mobilephone,telephone1)`,
+    `primarycontactid($select=contactid,fullname,firstname,middlename,lastname,jobtitle,emailaddress1,mobilephone,telephone1,address1_line1,cr283_huisnummer,cr283_huisnummertoevoeging,address1_postalcode,address1_city,address1_country)`,
     `${GROEPSNAAM_NAV}($select=${GROEPSNAAM_NAAMVELD})`,
     `${RELATIEBEHEERDER_NAV}($select=fullname,internalemailaddress,mobilephone)`,
     `${ACCOUNTANT_NAV}($select=fullname,internalemailaddress,mobilephone)`,
@@ -216,6 +216,14 @@ module.exports = async function (context, req) {
           functietitel: contact.jobtitle || "",
           email: contact.emailaddress1 || "",
           telefoon: contact.mobilephone || contact.telephone1 || "",
+          adres: {
+            straat: contact.address1_line1 || "",
+            huisnummer: contact.cr283_huisnummer || "",
+            toevoeging: contact.cr283_huisnummertoevoeging || "",
+            postcode: contact.address1_postalcode || "",
+            plaats: contact.address1_city || "",
+            land: contact.address1_country || "",
+          },
         },
         adres: {
           straat: a.address1_line1 || "",

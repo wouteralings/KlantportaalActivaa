@@ -10,6 +10,8 @@ const ACCOUNT_VELDEN = [
 const CONTACT_VELDEN = [
   "firstname", "middlename", "lastname", "jobtitle",
   "emailaddress1", "mobilephone", "telephone1",
+  "address1_line1", "cr283_huisnummer", "cr283_huisnummertoevoeging",
+  "address1_postalcode", "address1_city", "address1_country",
 ];
 
 function filterVelden(bron, toegestaan) {

@@ -65,6 +65,10 @@
       "allowedRoles": ["beheerder", "medewerker"]
     },
     {
+      "route": "/api/medewerker-weergaven",
+      "allowedRoles": ["beheerder", "medewerker"]
+    },
+    {
       "route": "/api/instellingen",
       "allowedRoles": ["anonymous"]
     },

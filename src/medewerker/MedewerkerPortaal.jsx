@@ -722,6 +722,8 @@ function KlantBewerken({ klant, onKlaar, onOpgeslagen }) {
     telefoonKlant: klant.telefoonKlant || "", emailKlant: klant.emailKlant || "",
     voornaam: c.voornaam || "", tussenvoegsel: c.tussenvoegsel || "", achternaam: c.achternaam || "",
     functietitel: c.functietitel || "", cEmail: c.email || "", cTelefoon: c.telefoon || "",
+    cStraat: (c.adres && c.adres.straat) || "", cHuisnummer: (c.adres && c.adres.huisnummer) || "", cToevoeging: (c.adres && c.adres.toevoeging) || "",
+    cPostcode: (c.adres && c.adres.postcode) || "", cPlaats: (c.adres && c.adres.plaats) || "", cLand: (c.adres && c.adres.land) || "",
   });
   const [status, setStatus] = useState("invoer"); // invoer | bezig | fout
   const zet = (k) => (v) => setF((h) => ({ ...h, [k]: v }));
@@ -739,6 +741,8 @@ function KlantBewerken({ klant, onKlaar, onOpgeslagen }) {
       const contact = {
         firstname: f.voornaam, middlename: f.tussenvoegsel, lastname: f.achternaam,
         jobtitle: f.functietitel, emailaddress1: f.cEmail, mobilephone: f.cTelefoon,
+        address1_line1: f.cStraat, cr283_huisnummer: f.cHuisnummer, cr283_huisnummertoevoeging: f.cToevoeging,
+        address1_postalcode: f.cPostcode, address1_city: f.cPlaats, address1_country: f.cLand,
       };
       const res = await fetch("/api/medewerker-klant-wijzigen", {
         method: "PATCH",
@@ -751,7 +755,7 @@ function KlantBewerken({ klant, onKlaar, onOpgeslagen }) {
         klantnaam: f.name,
         adres: { straat: f.straat, huisnummer: f.huisnummer, toevoeging: f.toevoeging, postcode: f.postcode, plaats: f.plaats, land: f.land },
         telefoonKlant: f.telefoonKlant, emailKlant: f.emailKlant,
-        contact: { ...klant.contact, voornaam: f.voornaam, tussenvoegsel: f.tussenvoegsel, achternaam: f.achternaam, functietitel: f.functietitel, email: f.cEmail, telefoon: f.cTelefoon, naam: naam || klant.contact?.naam },
+        contact: { ...klant.contact, voornaam: f.voornaam, tussenvoegsel: f.tussenvoegsel, achternaam: f.achternaam, functietitel: f.functietitel, email: f.cEmail, telefoon: f.cTelefoon, naam: naam || klant.contact?.naam, adres: { straat: f.cStraat, huisnummer: f.cHuisnummer, toevoeging: f.cToevoeging, postcode: f.cPostcode, plaats: f.cPlaats, land: f.cLand } },
       });
       onKlaar();
     } catch {
@@ -799,6 +803,18 @@ function KlantBewerken({ klant, onKlaar, onOpgeslagen }) {
             {veldInput(f.cEmail, zet("cEmail"))}
             <div style={label}>Telefoon</div>
             {veldInput(f.cTelefoon, zet("cTelefoon"))}
+            <div style={label}>Straat</div>
+            {veldInput(f.cStraat, zet("cStraat"))}
+            <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ flex: 1 }}><div style={label}>Huisnr</div>{veldInput(f.cHuisnummer, zet("cHuisnummer"))}</div>
+              <div style={{ flex: 1 }}><div style={label}>Toevoeging</div>{veldInput(f.cToevoeging, zet("cToevoeging"))}</div>
+            </div>
+            <div style={label}>Postcode</div>
+            {veldInput(f.cPostcode, zet("cPostcode"))}
+            <div style={label}>Plaats</div>
+            {veldInput(f.cPlaats, zet("cPlaats"))}
+            <div style={label}>Land</div>
+            {veldInput(f.cLand, zet("cLand"))}
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
@@ -909,6 +925,12 @@ function KlantDetail({ klant, magWijzigen, onTerug, onContact, onMedewerker, onO
 
 function ContactDetail({ klant, onTerug }) {
   const c = klant.contact || {};
+  const ca = c.adres || {};
+  const contactAdres = [
+    [ca.straat, ca.huisnummer, ca.toevoeging].filter(Boolean).join(" "),
+    [ca.postcode, ca.plaats].filter(Boolean).join("  "),
+    ca.land,
+  ].filter(Boolean).join(", ");
   return (
     <div>
       <TerugKnop onClick={onTerug} />
@@ -922,6 +944,7 @@ function ContactDetail({ klant, onTerug }) {
             <Veld label="Functietitel" waarde={c.functietitel} />
             <Veld label="E-mail" waarde={c.email} link={c.email ? `mailto:${c.email}` : ""} />
             <Veld label="Telefoon" waarde={c.telefoon} />
+            <Veld label="Adres" waarde={contactAdres} />
           </div>
           <div>
             <Veld label="Klant" waarde={klant.klantnaam} />
@@ -1012,6 +1035,8 @@ function KlantOverzicht() {
   const [toonAantal, setToonAantal] = useState(50); // aantal getoonde regels
   const [config, setConfig] = useState({ extraKolommen: [], standaardVerborgen: [] });
   const [zichtbareKolommen, setZichtbareKolommen] = useState(null); // null = nog standaard bepalen
+  const [weergaven, setWeergaven] = useState([]); // [{ naam, config }]
+  const [actieveWeergave, setActieveWeergave] = useState("");
   const [menu, setMenu] = useState(null); // { key, x, y } — geopend kolomkop-menu
   const [menuZoek, setMenuZoek] = useState("");
   const [kolomKiezerOpen, setKolomKiezerOpen] = useState(false);
@@ -1033,6 +1058,10 @@ function KlantOverzicht() {
     fetch("/api/instellingen")
       .then((r) => r.json())
       .then((d) => setConfig(d.klantoverzicht && typeof d.klantoverzicht === "object" ? { extraKolommen: d.klantoverzicht.extraKolommen || [], standaardVerborgen: d.klantoverzicht.standaardVerborgen || [] } : { extraKolommen: [], standaardVerborgen: [] }))
+      .catch(() => {});
+    fetch("/api/medewerker-weergaven")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setWeergaven(d.views || []))
       .catch(() => {});
   }, []);
 
@@ -1126,6 +1155,38 @@ function KlantOverzicht() {
   };
   const wisAllesFilters = () => { setKolomFilters({}); setZoek(""); };
 
+  // Opgeslagen weergaven (persoonlijk): kolommen + filters + sortering + aantal regels.
+  const huidigeConfig = () => ({ kolommen: [...zichtbareSet], filters: kolomFilters, sortKey, sortDir, toonAantal });
+  const pasWeergaveToe = (cfg) => {
+    if (!cfg) return;
+    if (Array.isArray(cfg.kolommen)) setZichtbareKolommen(new Set(cfg.kolommen));
+    setKolomFilters(cfg.filters || {});
+    if (cfg.sortKey) setSortKey(cfg.sortKey);
+    if (cfg.sortDir) setSortDir(cfg.sortDir);
+    if (cfg.toonAantal) setToonAantal(cfg.toonAantal);
+  };
+  const bewaarWeergaven = (lijst) => {
+    setWeergaven(lijst);
+    fetch("/api/medewerker-weergaven", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ views: lijst }) }).catch(() => {});
+  };
+  const opslaanAlsWeergave = () => {
+    const naam = (window.prompt("Naam van de weergave:") || "").trim();
+    if (!naam) return;
+    bewaarWeergaven([...weergaven.filter((v) => v.naam !== naam), { naam, config: huidigeConfig() }]);
+    setActieveWeergave(naam);
+  };
+  const kiesWeergave = (naam) => {
+    setActieveWeergave(naam);
+    const v = weergaven.find((w) => w.naam === naam);
+    if (v) pasWeergaveToe(v.config);
+  };
+  const verwijderWeergave = () => {
+    if (!actieveWeergave) return;
+    if (!window.confirm(`Weergave "${actieveWeergave}" verwijderen?`)) return;
+    bewaarWeergaven(weergaven.filter((v) => v.naam !== actieveWeergave));
+    setActieveWeergave("");
+  };
+
   const selectStijl = { border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, background: "#fff", color: KLEUR.tekst, cursor: "pointer" };
   const menuItem = { display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: "6px 8px", borderRadius: 6, cursor: "pointer", fontSize: 12.5, color: KLEUR.tekst };
   const th = { textAlign: "left", fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", padding: "6px 10px", borderBottom: `1px solid ${KLEUR.rand}`, whiteSpace: "nowrap" };
@@ -1179,6 +1240,14 @@ function KlantOverzicht() {
             </>
           )}
         </div>
+        <select value={actieveWeergave} onChange={(e) => kiesWeergave(e.target.value)} style={selectStijl} title="Opgeslagen weergave">
+          <option value="">Weergave…</option>
+          {weergaven.map((v) => <option key={v.naam} value={v.naam}>{v.naam}</option>)}
+        </select>
+        <button onClick={opslaanAlsWeergave} style={selectStijl} title="Huidige indeling opslaan als weergave">Opslaan als…</button>
+        {actieveWeergave && (
+          <button onClick={verwijderWeergave} style={{ ...selectStijl, color: KLEUR.rood }} title="Verwijder deze weergave">Verwijderen</button>
+        )}
         {filterActief && (
           <button
             onClick={wisAllesFilters}
