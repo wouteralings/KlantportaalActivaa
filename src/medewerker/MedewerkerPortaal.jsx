@@ -1010,6 +1010,7 @@ function KlantOverzicht() {
   const [kolomFilters, setKolomFilters] = useState({}); // { kolomKey: waarde }
   const [sortKey, setSortKey] = useState("klantnaam");
   const [sortDir, setSortDir] = useState("asc"); // asc | desc
+  const [toonAantal, setToonAantal] = useState(50); // aantal getoonde regels
   const [zichtbareKolommen, setZichtbareKolommen] = useState(() => new Set(ALLE_KOLOM_KEYS));
   const [menu, setMenu] = useState(null); // { key, x, y } — geopend kolomkop-menu
   const [menuZoek, setMenuZoek] = useState("");
@@ -1088,8 +1089,7 @@ function KlantOverzicht() {
   });
   const pijl = (key) => (sortKey === key ? (sortDir === "asc" ? " ▲" : " ▼") : "");
 
-  const MAX_TOON = 500;
-  const zichtbaar = gesorteerd.slice(0, MAX_TOON);
+  const zichtbaar = gesorteerd.slice(0, toonAantal);
   const zichtKols = KOLOMMEN.filter((c) => zichtbareKolommen.has(c.key));
 
   const openKopMenu = (e, key) => {
@@ -1215,11 +1215,29 @@ function KlantOverzicht() {
         </table>
       </div>
 
-      {gefilterd.length > MAX_TOON && (
-        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 10 }}>
-          Eerste {MAX_TOON} van {gefilterd.length} getoond — verfijn je zoekopdracht om de rest te zien.
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>
+          {Math.min(toonAantal, gefilterd.length)} van {gefilterd.length} getoond
+          {afgekapt ? " · lijst afgekapt in Dynamics" : ""}
         </div>
-      )}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+          <span style={{ color: KLEUR.mutedTekst }}>Toon:</span>
+          {[50, 100, 250, 500].map((n) => (
+            <button
+              key={n}
+              onClick={() => setToonAantal(n)}
+              style={{
+                padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                border: `1px solid ${toonAantal === n ? KLEUR.blauw : KLEUR.rand}`,
+                background: toonAantal === n ? KLEUR.blauw : "#fff",
+                color: toonAantal === n ? "#fff" : KLEUR.subtekst,
+              }}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {menu && (() => {
         const kol = kolomVan(menu.key);
