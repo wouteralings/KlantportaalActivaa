@@ -6,6 +6,11 @@ const ACCOUNT_VELDEN = [
   "name", "address1_line1", "cr283_huisnummer", "cr283_huisnummertoevoeging",
   "address1_postalcode", "address1_city", "address1_country",
   "telephone1", "emailaddress1",
+  // Classificatie-keuzevelden (numerieke optieset-waarde):
+  process.env.DYNAMICS_KLANT_CLIENTTYPE_VELD || "businesstypecode",
+  process.env.DYNAMICS_KLANT_STATUS_VELD || "cr283_clienttype",
+  process.env.DYNAMICS_KLANT_TEAM_VELD || "cr283_team",
+  process.env.DYNAMICS_KLANT_KANTOOR_VELD || "cr283_kantoor",
 ];
 const CONTACT_VELDEN = [
   "firstname", "middlename", "lastname", "jobtitle",

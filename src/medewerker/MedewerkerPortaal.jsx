@@ -712,7 +712,14 @@ function veldInput(waarde, onChange, placeholder) {
   );
 }
 
-function KlantBewerken({ klant, onKlaar, onOpgeslagen }) {
+const CHOICE_VELD = { clienttype: "businesstypecode", status: "cr283_clienttype", team: "cr283_team", kantoor: "cr283_kantoor" };
+
+function KlantBewerken({ klant, keuzes, onKlaar, onOpgeslagen }) {
+  const kz = keuzes || { clienttype: [], status: [], team: [], kantoor: [] };
+  const initKeuze = (lijstKey, huidigeLabel) => {
+    const opt = (kz[lijstKey] || []).find((o) => o.label === huidigeLabel);
+    return opt ? String(opt.value) : "";
+  };
   const a = klant.adres || {};
   const c = klant.contact || {};
   const [f, setF] = useState({
@@ -720,6 +727,8 @@ function KlantBewerken({ klant, onKlaar, onOpgeslagen }) {
     straat: a.straat || "", huisnummer: a.huisnummer || "", toevoeging: a.toevoeging || "",
     postcode: a.postcode || "", plaats: a.plaats || "", land: a.land || "",
     telefoonKlant: klant.telefoonKlant || "", emailKlant: klant.emailKlant || "",
+    clienttypeVal: initKeuze("clienttype", klant.clienttype), statusVal: initKeuze("status", klant.status),
+    teamVal: initKeuze("team", klant.team), kantoorVal: initKeuze("kantoor", klant.kantoor),
     voornaam: c.voornaam || "", tussenvoegsel: c.tussenvoegsel || "", achternaam: c.achternaam || "",
     functietitel: c.functietitel || "", cEmail: c.email || "", cTelefoon: c.telefoon || "",
     cStraat: (c.adres && c.adres.straat) || "", cHuisnummer: (c.adres && c.adres.huisnummer) || "", cToevoeging: (c.adres && c.adres.toevoeging) || "",
@@ -738,6 +747,11 @@ function KlantBewerken({ klant, onKlaar, onOpgeslagen }) {
         address1_city: f.plaats, address1_country: f.land,
         telephone1: f.telefoonKlant, emailaddress1: f.emailKlant,
       };
+      // Classificatie-keuzevelden: alleen meesturen als er een waarde is gekozen (numeriek).
+      if (f.clienttypeVal !== "") account[CHOICE_VELD.clienttype] = Number(f.clienttypeVal);
+      if (f.statusVal !== "") account[CHOICE_VELD.status] = Number(f.statusVal);
+      if (f.teamVal !== "") account[CHOICE_VELD.team] = Number(f.teamVal);
+      if (f.kantoorVal !== "") account[CHOICE_VELD.kantoor] = Number(f.kantoorVal);
       const contact = {
         firstname: f.voornaam, middlename: f.tussenvoegsel, lastname: f.achternaam,
         jobtitle: f.functietitel, emailaddress1: f.cEmail, mobilephone: f.cTelefoon,
@@ -751,10 +765,15 @@ function KlantBewerken({ klant, onKlaar, onOpgeslagen }) {
       });
       if (!res.ok) throw new Error(await res.text());
       const naam = [f.voornaam, f.tussenvoegsel, f.achternaam].filter(Boolean).join(" ").trim();
+      const labelVan = (lijstKey, val) => { const o = (kz[lijstKey] || []).find((x) => String(x.value) === String(val)); return o ? o.label : ""; };
       onOpgeslagen(klant.accountId, {
         klantnaam: f.name,
         adres: { straat: f.straat, huisnummer: f.huisnummer, toevoeging: f.toevoeging, postcode: f.postcode, plaats: f.plaats, land: f.land },
         telefoonKlant: f.telefoonKlant, emailKlant: f.emailKlant,
+        clienttype: f.clienttypeVal !== "" ? labelVan("clienttype", f.clienttypeVal) : klant.clienttype,
+        status: f.statusVal !== "" ? labelVan("status", f.statusVal) : klant.status,
+        team: f.teamVal !== "" ? labelVan("team", f.teamVal) : klant.team,
+        kantoor: f.kantoorVal !== "" ? labelVan("kantoor", f.kantoorVal) : klant.kantoor,
         contact: { ...klant.contact, voornaam: f.voornaam, tussenvoegsel: f.tussenvoegsel, achternaam: f.achternaam, functietitel: f.functietitel, email: f.cEmail, telefoon: f.cTelefoon, naam: naam || klant.contact?.naam, adres: { straat: f.cStraat, huisnummer: f.cHuisnummer, toevoeging: f.cToevoeging, postcode: f.cPostcode, plaats: f.cPlaats, land: f.cLand } },
       });
       onKlaar();
@@ -788,6 +807,21 @@ function KlantBewerken({ klant, onKlaar, onOpgeslagen }) {
             {veldInput(f.telefoonKlant, zet("telefoonKlant"))}
             <div style={label}>E-mail (klant)</div>
             {veldInput(f.emailKlant, zet("emailKlant"))}
+            {[["Cliënttype", "clienttype", "clienttypeVal"], ["Status", "status", "statusVal"], ["Team", "team", "teamVal"], ["Kantoor", "kantoor", "kantoorVal"]].map(([lbl, lijstKey, veldKey]) => (
+              (kz[lijstKey] || []).length > 0 ? (
+                <div key={veldKey}>
+                  <div style={label}>{lbl}</div>
+                  <select
+                    value={f[veldKey]}
+                    onChange={(e) => zet(veldKey)(e.target.value)}
+                    style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 13, marginBottom: 8, background: "#fff" }}
+                  >
+                    <option value="">— kies —</option>
+                    {kz[lijstKey].map((o) => <option key={o.value} value={String(o.value)}>{o.label}</option>)}
+                  </select>
+                </div>
+              ) : null
+            ))}
           </div>
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Primair contactpersoon</div>
@@ -829,7 +863,7 @@ function KlantBewerken({ klant, onKlaar, onOpgeslagen }) {
   );
 }
 
-function KlantDetail({ klant, magWijzigen, onTerug, onContact, onMedewerker, onOpgeslagen }) {
+function KlantDetail({ klant, magWijzigen, keuzes, onTerug, onContact, onMedewerker, onOpgeslagen }) {
   const [bewerken, setBewerken] = useState(false);
   const a = klant.adres || {};
   const adresRegel = [
@@ -838,7 +872,7 @@ function KlantDetail({ klant, magWijzigen, onTerug, onContact, onMedewerker, onO
     a.land,
   ].filter(Boolean).join(", ");
   if (bewerken) {
-    return <KlantBewerken klant={klant} onKlaar={() => setBewerken(false)} onOpgeslagen={onOpgeslagen} />;
+    return <KlantBewerken klant={klant} keuzes={keuzes} onKlaar={() => setBewerken(false)} onOpgeslagen={onOpgeslagen} />;
   }
   const MedewerkerRegel = ({ label, persoon, rol }) => {
     if (!persoon || !persoon.naam) return null;
@@ -1037,6 +1071,7 @@ function KlantOverzicht() {
   const [zichtbareKolommen, setZichtbareKolommen] = useState(null); // null = nog standaard bepalen
   const [weergaven, setWeergaven] = useState([]); // [{ naam, config }]
   const [actieveWeergave, setActieveWeergave] = useState("");
+  const [keuzes, setKeuzes] = useState({ clienttype: [], status: [], team: [], kantoor: [] });
   const [menu, setMenu] = useState(null); // { key, x, y } — geopend kolomkop-menu
   const [menuZoek, setMenuZoek] = useState("");
   const [kolomKiezerOpen, setKolomKiezerOpen] = useState(false);
@@ -1062,6 +1097,10 @@ function KlantOverzicht() {
     fetch("/api/medewerker-weergaven")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setWeergaven(d.views || []))
+      .catch(() => {});
+    fetch("/api/klant-keuzelijsten")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setKeuzes({ clienttype: d.clienttype || [], status: d.status || [], team: d.team || [], kantoor: d.kantoor || [] }))
       .catch(() => {});
   }, []);
 
@@ -1102,7 +1141,7 @@ function KlantOverzicht() {
     return <MedewerkerDetail persoon={detailMedewerker.persoon} rol={detailMedewerker.rol} klantnaam={detailMedewerker.klantnaam} onTerug={() => setDetailMedewerker(null)} />;
   }
   if (detailKlant) {
-    return <KlantDetail klant={detailKlant} magWijzigen={magWijzigen} onTerug={() => setDetailKlant(null)} onContact={(k) => { setDetailKlant(null); setDetailContact(k); }} onMedewerker={openMedewerker} onOpgeslagen={verwerkKlantWijziging} />;
+    return <KlantDetail klant={detailKlant} magWijzigen={magWijzigen} keuzes={keuzes} onTerug={() => setDetailKlant(null)} onContact={(k) => { setDetailKlant(null); setDetailContact(k); }} onMedewerker={openMedewerker} onOpgeslagen={verwerkKlantWijziging} />;
   }
   if (detailContact) {
     return <ContactDetail klant={detailContact} onTerug={() => setDetailContact(null)} />;

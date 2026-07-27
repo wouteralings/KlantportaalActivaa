@@ -69,6 +69,10 @@
       "allowedRoles": ["beheerder", "medewerker"]
     },
     {
+      "route": "/api/klant-keuzelijsten",
+      "allowedRoles": ["beheerder", "medewerker"]
+    },
+    {
       "route": "/api/instellingen",
       "allowedRoles": ["anonymous"]
     },
