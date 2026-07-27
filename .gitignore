@@ -7,3 +7,6 @@ dist
 .mcp.json
 .vscode/mcp.json
 .claude/settings.local.json
+
+# Handmatig te verwijderen rommel (buiten git gezet)
+_to_delete/
