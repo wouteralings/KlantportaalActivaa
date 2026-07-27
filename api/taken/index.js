@@ -15,6 +15,12 @@ const VERLOOPDATUM_VELD = process.env.DYNAMICS_TAAK_VERLOOPDATUM_VELD || "";
 // taken: we willen nooit per ongeluk verkeerde soorten aan de klant laten zien.
 const SOORT_VELD = process.env.DYNAMICS_TAAK_SOORT_VELD || "";
 
+// De lookup op Task die naar de klant (Account) wijst. Bij Activaa is dat het eigen veld
+// "Cliënt" (`sk_client`), NIET het standaardveld "Betreft" (`regardingobjectid`). Overschrijf
+// via Application Setting DYNAMICS_TAAK_KLANT_VELD als het bij jullie anders heet.
+const KLANT_VELD = process.env.DYNAMICS_TAAK_KLANT_VELD || "sk_client";
+const KLANT_VALUE = `_${KLANT_VELD}_value`;
+
 const EXTRA_TAAK_VELDEN = [UPLOADLINK_VELD, VERLOOPDATUM_VELD, SOORT_VELD].filter(Boolean).join(",");
 const FV = "@OData.Community.Display.V1.FormattedValue";
 
@@ -62,13 +68,14 @@ async function haalZichtbareTaken(resource, token, accounts, soortConfig) {
     return { groepen: leegPerAccount(), configuratieNodig: true };
   }
 
+  // Een taak hoort bij een klant via "Cliënt" (sk_client) óf via "Betreft" (regardingobjectid).
   const filterPerAccount = accounts
-    .map((a) => `_regardingobjectid_value eq ${a.accountId}`)
+    .map((a) => `(${KLANT_VALUE} eq ${a.accountId} or _regardingobjectid_value eq ${a.accountId})`)
     .join(" or ");
 
   const query =
     `${resource}/api/data/v9.2/tasks` +
-    `?$select=activityid,subject,description,scheduledend,prioritycode,_regardingobjectid_value` +
+    `?$select=activityid,subject,description,scheduledend,prioritycode,_regardingobjectid_value,${KLANT_VALUE}` +
     (EXTRA_TAAK_VELDEN ? "," + EXTRA_TAAK_VELDEN : "") +
     `&$filter=(${filterPerAccount}) and statecode eq 0` +
     `&$orderby=scheduledend asc`;
@@ -86,7 +93,8 @@ async function haalZichtbareTaken(resource, token, accounts, soortConfig) {
   );
 
   for (const rij of data.value || []) {
-    const groep = perAccount.get(rij._regardingobjectid_value);
+    const accId = rij[KLANT_VALUE] || rij._regardingobjectid_value;
+    const groep = perAccount.get(accId);
     if (!groep) continue;
 
     const soortWaarde = rij[SOORT_VELD];
@@ -114,14 +122,15 @@ async function haalZichtbareTaken(resource, token, accounts, soortConfig) {
  */
 async function haalTaakVoorControle(resource, token, taakId, accountIds) {
   const select =
-    `$select=subject,description,_regardingobjectid_value` + (SOORT_VELD ? "," + SOORT_VELD : "");
+    `$select=subject,description,_regardingobjectid_value,${KLANT_VALUE}` + (SOORT_VELD ? "," + SOORT_VELD : "");
   const query = `${resource}/api/data/v9.2/tasks(${taakId})?${select}`;
   const res = await fetch(query, { headers: DYNAMICS_HEADERS(token) });
   if (!res.ok) return null;
   const data = await res.json();
-  if (!accountIds.includes(data._regardingobjectid_value)) return null;
+  const accId = data[KLANT_VALUE] || data._regardingobjectid_value;
+  if (!accountIds.includes(accId)) return null;
   return {
-    accountId: data._regardingobjectid_value,
+    accountId: accId,
     subject: data.subject || "",
     description: data.description || "",
     soortWaarde: SOORT_VELD ? data[SOORT_VELD] : null,
