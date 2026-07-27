@@ -5,6 +5,7 @@ import {
   FileText,
   CheckCircle2,
   XCircle,
+  Circle,
   Tag,
   LogOut,
   Loader2,
@@ -81,6 +82,7 @@ export default function KlantPortaal() {
   const [taken, setTaken] = useState(null);
   const [content, setContent] = useState(null);
   const [nieuws, setNieuws] = useState(null);
+  const [gelezenNieuws, setGelezenNieuws] = useState([]);
   const [geenKoppeling, setGeenKoppeling] = useState(false);
   const [mijnVerzoeken, setMijnVerzoeken] = useState([]);
   const [documenten, setDocumenten] = useState(null);
@@ -146,6 +148,10 @@ export default function KlantPortaal() {
       .then(haalData)
       .then(setNieuws)
       .catch(() => setNieuws([])); // niet-kritisch, portaal blijft verder werken
+    fetch("/api/nieuws-gelezen")
+      .then(haalData)
+      .then((d) => setGelezenNieuws(d.gelezen || []))
+      .catch(() => setGelezenNieuws([])); // niet-kritisch
     fetch("/api/wijzigingsverzoek")
       .then(haalData)
       .then((d) => setMijnVerzoeken(d.verzoeken || []))
@@ -232,6 +238,26 @@ export default function KlantPortaal() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taken, haalTakenOp]);
+
+  const markeerNieuwsGelezen = useCallback(async (url, gelezen = true) => {
+    // Optimistisch bijwerken zodat het bericht meteen naar (of uit) de gelezen-sectie schuift.
+    setGelezenNieuws((huidig) =>
+      gelezen ? (huidig.includes(url) ? huidig : [...huidig, url]) : huidig.filter((u) => u !== url)
+    );
+    try {
+      const res = await fetch("/api/nieuws-gelezen", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, gelezen }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+    } catch {
+      // Terugdraaien bij een fout.
+      setGelezenNieuws((huidig) =>
+        gelezen ? huidig.filter((u) => u !== url) : (huidig.includes(url) ? huidig : [...huidig, url])
+      );
+    }
+  }, []);
 
   const haalDocumentenOp = useCallback(async () => {
     if (documentenStatus === "laden") return; // voorkomt dubbele, gelijktijdige aanvragen
@@ -344,7 +370,7 @@ export default function KlantPortaal() {
           {nieuws && nieuws.length > 0 && (
             <div style={{ marginTop: 28 }}>
               <Kopje tekst="Nieuws & blog" />
-              <TabNieuws nieuws={nieuws} />
+              <TabNieuws nieuws={nieuws} gelezen={gelezenNieuws} onMarkeerGelezen={markeerNieuwsGelezen} />
             </div>
           )}
         </>
@@ -524,34 +550,93 @@ function TabMededelingen({ content }) {
   );
 }
 
-function TabNieuws({ nieuws }) {
+function NieuwsKaart({ n, gelezen, onMarkeerGelezen }) {
+  return (
+    <div style={{ ...kaartStijl, margin: 0, opacity: gelezen ? 0.75 : 1 }}>
+      <a
+        href={n.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ textDecoration: "none", color: "inherit", display: "block" }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6, gap: 12 }}>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>{n.titel}</div>
+          <span style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", color: KLEUR.goud, flexShrink: 0 }}>
+            {n.categorie}
+          </span>
+        </div>
+        <div style={{ fontSize: 12.5, color: KLEUR.subtekst, lineHeight: 1.5 }}>{n.samenvatting}</div>
+        {n.datum && (
+          <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 8 }}>
+            {new Date(n.datum).toLocaleDateString("nl-NL")}
+          </div>
+        )}
+      </a>
+      <div style={{ marginTop: 10, borderTop: `1px solid ${KLEUR.rand}`, paddingTop: 8 }}>
+        {gelezen ? (
+          <button
+            onClick={() => onMarkeerGelezen(n.url, false)}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 12, fontWeight: 600, color: KLEUR.mutedTekst }}
+          >
+            <Circle size={13} /> Markeer als ongelezen
+          </button>
+        ) : (
+          <button
+            onClick={() => onMarkeerGelezen(n.url, true)}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 12, fontWeight: 600, color: KLEUR.blauw }}
+          >
+            <CheckCircle2 size={13} /> Markeer als gelezen
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TabNieuws({ nieuws, gelezen = [], onMarkeerGelezen }) {
+  const [gelezenOpen, setGelezenOpen] = useState(false);
   if (!nieuws) return <Laadscherm />;
   if (nieuws.length === 0) return <LegeStaat tekst="Geen nieuws of blogposts op dit moment." />;
 
+  const gelezenSet = new Set(gelezen);
+  const ongelezen = nieuws.filter((n) => !gelezenSet.has(n.url));
+  const gelezenItems = nieuws.filter((n) => gelezenSet.has(n.url));
+
   return (
-    <div style={{ display: "grid", gap: 12 }}>
-      {nieuws.map((n) => (
-        <a
-          key={n.url}
-          href={n.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ ...kaartStijl, margin: 0, textDecoration: "none", color: "inherit", display: "block" }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6, gap: 12 }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>{n.titel}</div>
-            <span style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", color: KLEUR.goud, flexShrink: 0 }}>
-              {n.categorie}
-            </span>
-          </div>
-          <div style={{ fontSize: 12.5, color: KLEUR.subtekst, lineHeight: 1.5 }}>{n.samenvatting}</div>
-          {n.datum && (
-            <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 8 }}>
-              {new Date(n.datum).toLocaleDateString("nl-NL")}
+    <div>
+      {ongelezen.length === 0 ? (
+        <LegeStaat tekst="Je hebt alle berichten gelezen." />
+      ) : (
+        <div style={{ display: "grid", gap: 12 }}>
+          {ongelezen.map((n) => (
+            <NieuwsKaart key={n.url} n={n} gelezen={false} onMarkeerGelezen={onMarkeerGelezen} />
+          ))}
+        </div>
+      )}
+
+      {gelezenItems.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <button
+            onClick={() => setGelezenOpen((v) => !v)}
+            aria-expanded={gelezenOpen}
+            style={{
+              display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0,
+              background: "none", border: "none", cursor: "pointer", marginBottom: gelezenOpen ? 12 : 0,
+              fontSize: 13, fontWeight: 700, color: KLEUR.subtekst, textAlign: "left",
+            }}
+          >
+            <ChevronDown size={16} style={{ transform: gelezenOpen ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+            Gelezen berichten <span style={{ fontWeight: 600, color: KLEUR.mutedTekst }}>({gelezenItems.length})</span>
+          </button>
+          {gelezenOpen && (
+            <div style={{ display: "grid", gap: 12 }}>
+              {gelezenItems.map((n) => (
+                <NieuwsKaart key={n.url} n={n} gelezen={true} onMarkeerGelezen={onMarkeerGelezen} />
+              ))}
             </div>
           )}
-        </a>
-      ))}
+        </div>
+      )}
     </div>
   );
 }

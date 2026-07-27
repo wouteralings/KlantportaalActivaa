@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, XCircle, Trash2, Send, Users, LayoutGrid, ExternalLink, Star, Search, Mail, ArrowUp, ArrowDown, HelpCircle } from "lucide-react";
+import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, XCircle, Trash2, Send, Users, LayoutGrid, ExternalLink, Star, Search, Mail, ArrowUp, ArrowDown, HelpCircle, ChevronDown } from "lucide-react";
 
 const KLEUR = {
   blauw: "#1C5D8C",
@@ -41,6 +41,7 @@ export default function BeheerPortaal() {
   const [verzendStatus, setVerzendStatus] = useState("idle"); // idle | bezig | fout
 
   const [snellinks, setSnellinks] = useState(null);
+  const [snellinksOpen, setSnellinksOpen] = useState(false);
   const [nieuweLinkTitel, setNieuweLinkTitel] = useState("");
   const [nieuweLinkUrl, setNieuweLinkUrl] = useState("");
   const [gekozenLinkCategorieen, setGekozenLinkCategorieen] = useState([]);
@@ -69,10 +70,14 @@ export default function BeheerPortaal() {
   const [taaksoortenConfiguratieNodig, setTaaksoortenConfiguratieNodig] = useState(false);
   const [taaksoortenFout, setTaaksoortenFout] = useState("");
   const [taaksoortenOpslaanStatus, setTaaksoortenOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
+  const [taaksoortenSectieOpen, setTaaksoortenSectieOpen] = useState(false);
+  const [taaksoortenZoek, setTaaksoortenZoek] = useState("");
   const [akkoordenLog, setAkkoordenLog] = useState(null); // null = laden; log van klantreacties op taken
+  const [logZoek, setLogZoek] = useState("");
 
   // Webhooks (Power Automate), onderhoudbaar onder Instellingen.
   const [taakAfwijzingWebhookUrl, setTaakAfwijzingWebhookUrl] = useState("");
+  const [reviewWebhookUrl, setReviewWebhookUrl] = useState("");
   const [webhookOpslaanStatus, setWebhookOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
 
   const laadTellingen = useCallback(() => {
@@ -115,6 +120,7 @@ export default function BeheerPortaal() {
         setWhatsappUrl(d.whatsappUrl || "");
         setCopilotEmbedUrl(d.copilotEmbedUrl || "");
         setTaakAfwijzingWebhookUrl(d.taakAfwijzingWebhookUrl || "");
+        setReviewWebhookUrl(d.reviewWebhookUrl || "");
       })
       .catch(() => {});
     fetch("/api/beheer-klantcategorieen")
@@ -338,14 +344,14 @@ export default function BeheerPortaal() {
       const res = await fetch("/api/beheer-instellingen", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taakAfwijzingWebhookUrl: taakAfwijzingWebhookUrl.trim() }),
+        body: JSON.stringify({ taakAfwijzingWebhookUrl: taakAfwijzingWebhookUrl.trim(), reviewWebhookUrl: reviewWebhookUrl.trim() }),
       });
       if (!res.ok) throw new Error(await res.text());
       setWebhookOpslaanStatus("gelukt");
     } catch {
       setWebhookOpslaanStatus("fout");
     }
-  }, [taakAfwijzingWebhookUrl]);
+  }, [taakAfwijzingWebhookUrl, reviewWebhookUrl]);
 
   const slaFormLinksOp = useCallback(async () => {
     setFormOpslaanStatus("bezig");
@@ -725,21 +731,31 @@ export default function BeheerPortaal() {
 
         {snellinks && snellinks.length > 0 && (
           <div style={{ marginTop: 24, paddingTop: 18, borderTop: `1px solid ${KLEUR.rand}` }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 4 }}>
-              Actieve snellinks
-            </div>
-            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 12 }}>
+            <button
+              onClick={() => setSnellinksOpen((v) => !v)}
+              aria-expanded={snellinksOpen}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+            >
+              <ChevronDown size={15} color={KLEUR.mutedTekst} style={{ transform: snellinksOpen ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+              <span style={{ fontSize: 12, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".04em" }}>
+                Actieve snellinks
+              </span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: KLEUR.mutedTekst }}>({snellinks.length})</span>
+            </button>
+            {snellinksOpen && (<>
+            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, margin: "8px 0 12px" }}>
               De volgorde hieronder is ook de volgorde waarin klanten de knoppen zien. Gebruik de pijltjes om te rangschikken.
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {snellinks.map((s, i) => (
                 <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "10px 0", borderTop: `1px solid ${KLEUR.rand}` }}>
-                  <div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700 }}>
                       <LayoutGrid size={13} color={KLEUR.blauw} /> {s.titel}
                     </div>
-                    <a href={s.url} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: KLEUR.subtekst, marginTop: 2, textDecoration: "none" }}>
-                      {s.url} <ExternalLink size={11} />
+                    <a href={s.url} target="_blank" rel="noopener noreferrer" title={s.url} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: KLEUR.subtekst, marginTop: 2, textDecoration: "none", maxWidth: "100%" }}>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{s.url}</span>
+                      <ExternalLink size={11} style={{ flexShrink: 0 }} />
                     </a>
                     <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 6 }}>
                       {s.klantcategorieen?.length > 0
@@ -775,6 +791,7 @@ export default function BeheerPortaal() {
                 </div>
               ))}
             </div>
+            </>)}
           </div>
         )}
       </div>
@@ -1030,6 +1047,22 @@ export default function BeheerPortaal() {
           placeholder="https://prod-XX.westeurope.logic.azure.com:443/workflows/.../triggers/manual/paths/invoke?..."
           style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 16, boxSizing: "border-box" }}
         />
+
+        <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Webhook-URL — review onder 5 sterren</div>
+        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 6, lineHeight: 1.5 }}>
+          Bij een review van minder dan 5 sterren stuurt het portaal de score en opmerking hierheen
+          (naast de bestaande meldingsmail), zodat je de afhandeling in Power Automate kunt regelen.
+          Body: <code>gebeurtenis</code>, <code>sterren</code>, <code>opmerking</code>,{" "}
+          <code>reviewerEmail</code>, <code>klantnaam</code>, <code>klantnummer</code>,{" "}
+          <code>relatiebeheerder(Email)</code>, <code>accountant(Email)</code>, <code>tijdstip</code>.
+        </div>
+        <input
+          type="text"
+          value={reviewWebhookUrl}
+          onChange={(e) => setReviewWebhookUrl(e.target.value)}
+          placeholder="https://prod-XX.westeurope.logic.azure.com:443/workflows/.../triggers/manual/paths/invoke?..."
+          style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 16, boxSizing: "border-box" }}
+        />
         <button
           onClick={slaWebhooksOp}
           disabled={webhookOpslaanStatus === "bezig"}
@@ -1171,8 +1204,16 @@ export default function BeheerPortaal() {
 
       {tab === "taken" && (<>
         <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Zichtbare taaksoorten</div>
-          <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 16, lineHeight: 1.6 }}>
+          <button
+            onClick={() => setTaaksoortenSectieOpen((v) => !v)}
+            aria-expanded={taaksoortenSectieOpen}
+            style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+          >
+            <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: taaksoortenSectieOpen ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+            <span style={{ fontSize: 15, fontWeight: 700 }}>Zichtbare taaksoorten</span>
+          </button>
+          {taaksoortenSectieOpen && (<>
+          <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 16px", lineHeight: 1.6 }}>
             Bepaal per soort taak of klanten hem in het portaal zien, en of ze hem zelf mogen
             goedkeuren. Bij goedkeuren wordt de taak in Dynamics afgerond, met een notitie dat de
             klant akkoord gaf. Soorten die niet zijn aangevinkt blijven voor de klant verborgen.
@@ -1192,11 +1233,23 @@ export default function BeheerPortaal() {
             </div>
           ) : (
             <>
+              <div style={{ position: "relative", marginBottom: 12 }}>
+                <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+                <input
+                  type="text"
+                  value={taaksoortenZoek}
+                  onChange={(e) => setTaaksoortenZoek(e.target.value)}
+                  placeholder="Zoek een taaksoort…"
+                  style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px 8px 32px", fontSize: 13 }}
+                />
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: "0 20px", alignItems: "center" }}>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}` }}>Soort</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Zichtbaar</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Mag goedkeuren</div>
-                {taaksoortenOpties.map((optie) => {
+                {taaksoortenOpties
+                  .filter((optie) => (optie.label || "").toLowerCase().includes(taaksoortenZoek.trim().toLowerCase()))
+                  .map((optie) => {
                   const cfg = taaksoortenConfig[String(optie.waarde)] || {};
                   return (
                     <React.Fragment key={optie.waarde}>
@@ -1241,6 +1294,7 @@ export default function BeheerPortaal() {
               </div>
             </>
           )}
+          </>)}
         </div>
 
         <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
@@ -1249,13 +1303,35 @@ export default function BeheerPortaal() {
             Wie heeft welke taak goedgekeurd of afgewezen, en wanneer. Bij "Niet akkoord" staat
             ook de toelichting van de klant erbij (die is ook per mail via de webhook verstuurd).
           </div>
+          {akkoordenLog !== null && akkoordenLog.length > 0 && (
+            <div style={{ position: "relative", marginBottom: 14 }}>
+              <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+              <input
+                type="text"
+                value={logZoek}
+                onChange={(e) => setLogZoek(e.target.value)}
+                placeholder="Zoek op taak, klant of e-mail…"
+                style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px 8px 32px", fontSize: 13 }}
+              />
+            </div>
+          )}
           {akkoordenLog === null ? (
             <div style={{ fontSize: 13, color: KLEUR.mutedTekst }}>Laden…</div>
           ) : akkoordenLog.length === 0 ? (
             <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Nog geen reacties vastgelegd.</div>
-          ) : (
+          ) : (() => {
+            const q = logZoek.trim().toLowerCase();
+            const rijen = q
+              ? akkoordenLog.filter((a) =>
+                  [a.taaktitel, a.klantnaam, a.klantnummer, a.aanvragerEmail, a.soort, a.bericht]
+                    .map((v) => (v == null ? "" : String(v)).toLowerCase())
+                    .some((v) => v.includes(q))
+                )
+              : akkoordenLog;
+            if (rijen.length === 0) return <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Geen resultaten voor "{logZoek}".</div>;
+            return (
             <div style={{ display: "flex", flexDirection: "column" }}>
-              {akkoordenLog.map((a, i) => {
+              {rijen.map((a, i) => {
                 const nietAkkoord = a.beslissing === "niet_akkoord";
                 return (
                   <div key={a.id || a.taakId} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 0", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}` }}>
@@ -1283,7 +1359,8 @@ export default function BeheerPortaal() {
                 );
               })}
             </div>
-          )}
+            );
+          })()}
         </div>
       </>)}
 

@@ -44,6 +44,30 @@ async function stuurReviewMelding(account, sterren, opmerking, reviewerEmail) {
   await verstuurMail({ ontvangers, onderwerp, tekst });
 }
 
+/**
+ * Stuurt bij een lage review de gegevens naar de Power Automate-webhook (indien ingesteld),
+ * zodat de afhandeling daar kan lopen (bijv. taak aanmaken, Teams-bericht, ticket). Best-effort.
+ */
+async function stuurReviewWebhook(webhookUrl, account, sterren, opmerking, reviewerEmail) {
+  await fetch(webhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      gebeurtenis: "lage_review",
+      sterren,
+      opmerking: opmerking || "",
+      reviewerEmail: reviewerEmail || "",
+      klantnaam: account?.klantnaam || "",
+      klantnummer: account?.klantnummer ?? "",
+      relatiebeheerder: account?.relatiebeheerder?.naam || "",
+      relatiebeheerderEmail: account?.relatiebeheerder?.email || "",
+      accountant: account?.accountant?.naam || "",
+      accountantEmail: account?.accountant?.email || "",
+      tijdstip: new Date().toISOString(),
+    }),
+  });
+}
+
 module.exports = async function (context, req) {
   if (req.method !== "POST") {
     context.res = { status: 405, body: { error: "Methode niet ondersteund." } };
@@ -113,7 +137,20 @@ module.exports = async function (context, req) {
       return;
     }
 
-    await stuurReviewMelding(account, sterren, opmerking, reviewerEmail);
+    // Melding per mail (best-effort) én, indien ingesteld, naar de Power Automate-webhook.
+    try {
+      await stuurReviewMelding(account, sterren, opmerking, reviewerEmail);
+    } catch (mailFout) {
+      context.log.error("Review-meldingsmail mislukt:", mailFout);
+    }
+    try {
+      const { reviewWebhookUrl } = await haalInstellingen();
+      const webhookUrl = reviewWebhookUrl || process.env.REVIEW_WEBHOOK_URL || "";
+      if (webhookUrl) await stuurReviewWebhook(webhookUrl, account, sterren, opmerking, reviewerEmail);
+    } catch (webhookFout) {
+      context.log.error("Review-webhook aanroepen mislukt:", webhookFout);
+    }
+
     context.res = {
       headers: { "Content-Type": "application/json" },
       body: { doorsturenNaarGoogle: false },
