@@ -405,7 +405,7 @@ export default function KlantPortaal() {
       {tab === "home" && (
         <>
           <Kopje tekst="Open taken" />
-          <TabTaken data={taken} onAkkoord={geefAkkoord} onNietAkkoord={geefNietAkkoord} onOndertekenen={geefHandtekening} />
+          <TabTaken data={taken} gebruiker={gebruiker} onAkkoord={geefAkkoord} onNietAkkoord={geefNietAkkoord} onOndertekenen={geefHandtekening} />
 
           {content?.programmas?.length > 0 && (
             <div style={{ marginTop: 28 }}>
@@ -1228,12 +1228,13 @@ function documentEmbedUrl(url) {
 }
 
 // DocuSign-achtig onderteken-paneel: naam, e-mail, toelichting en een getekende handtekening.
-function HandtekeningPaneel({ taak, onOndertekenen, onNietAkkoord }) {
+function HandtekeningPaneel({ taak, gebruiker, onOndertekenen, onNietAkkoord }) {
   const canvasRef = useRef(null);
   const tekentRef = useRef(false);
   const [heeftHandtekening, setHeeftHandtekening] = useState(false);
-  const [naam, setNaam] = useState("");
-  const [email, setEmail] = useState("");
+  const afgeleid = leidGebruikerAf(gebruiker);
+  const [naam, setNaam] = useState(afgeleid.naam);
+  const [email, setEmail] = useState(afgeleid.email);
   const [toelichting, setToelichting] = useState("");
   const [status, setStatus] = useState("invoer"); // invoer | versturen | fout
 
@@ -1315,11 +1316,36 @@ function HandtekeningPaneel({ taak, onOndertekenen, onNietAkkoord }) {
   );
 }
 
-function TabTaken({ data, onAkkoord, onNietAkkoord, onOndertekenen }) {
+// Haalt naam + e-mailadres uit de EasyAuth-principal, om het onderteken-formulier
+// vast voor de klant in te vullen.
+function leidGebruikerAf(gebruiker) {
+  if (!gebruiker) return { naam: "", email: "" };
+  const claims = Array.isArray(gebruiker.claims) ? gebruiker.claims : [];
+  const claim = (...types) => {
+    for (const t of types) {
+      const c = claims.find((x) => x && (x.typ === t || x.type === t));
+      if (c && c.val) return c.val;
+    }
+    return "";
+  };
+  const naam =
+    claim("name", "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name") ||
+    [claim("given_name", "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/givenname"),
+     claim("family_name", "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/surname")]
+      .filter(Boolean).join(" ").trim();
+  const email =
+    claim("email", "emails", "preferred_username",
+      "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress") ||
+    (gebruiker.userDetails && gebruiker.userDetails.includes("@") ? gebruiker.userDetails : "");
+  return { naam: naam || "", email: email || "" };
+}
+
+function TabTaken({ data, gebruiker, onAkkoord, onNietAkkoord, onOndertekenen }) {
   const [bevestigId, setBevestigId] = useState(null);
   const [afwijzenId, setAfwijzenId] = useState(null);
   const [afwijzenTekst, setAfwijzenTekst] = useState("");
   const [archiefOpen, setArchiefOpen] = useState(false);
+  const [uitgeklapt, setUitgeklapt] = useState({});
   if (!data) return <Laadscherm />;
 
   // Backward-compat: als er onverhoopt nog een array binnenkomt, behandel die als groepen.
@@ -1343,10 +1369,18 @@ function TabTaken({ data, onAkkoord, onNietAkkoord, onOndertekenen }) {
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {groep.taken.map((taak) => {
                 const idle = bevestigId !== taak.id && afwijzenId !== taak.id;
+                // Taken die ondertekend moeten worden staan standaard ingeklapt; de klant
+                // vouwt ze zelf open om het document te bekijken en te ondertekenen.
+                const isTekentaak = taak.vereistHandtekening;
+                const open = !isTekentaak || !!uitgeklapt[taak.id];
+                const toggleOpen = () => setUitgeklapt((v) => ({ ...v, [taak.id]: !v[taak.id] }));
                 return (
                 <div key={taak.id} style={{ padding: "12px 0", borderTop: `1px solid ${KLEUR.rand}` }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      onClick={isTekentaak ? toggleOpen : undefined}
+                      style={{ flex: 1, minWidth: 0, cursor: isTekentaak ? "pointer" : "default" }}
+                    >
                       {taak.soort && (
                         <span style={{ display: "inline-flex", alignItems: "center", gap: 5, marginBottom: 6, padding: "2px 9px", background: KLEUR.lichtblauw, color: KLEUR.blauw, borderRadius: 999, fontSize: 11, fontWeight: 600 }}>
                           <Tag size={11} /> {taak.soort}
@@ -1359,7 +1393,22 @@ function TabTaken({ data, onAkkoord, onNietAkkoord, onOndertekenen }) {
                           Deadline: {new Date(taak.deadline).toLocaleDateString("nl-NL")}
                         </div>
                       )}
+                      {isTekentaak && !open && (
+                        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4 }}>
+                          Ondertekening vereist — klik om te openen.
+                        </div>
+                      )}
                     </div>
+                    {isTekentaak && (
+                      <button
+                        onClick={toggleOpen}
+                        aria-expanded={open}
+                        style={{ display: "inline-flex", alignItems: "center", gap: 7, flexShrink: 0, padding: "8px 14px", background: open ? "#fff" : "#2E7D46", color: open ? KLEUR.subtekst : "#fff", border: open ? `1px solid ${KLEUR.rand}` : "none", borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
+                      >
+                        <ChevronDown size={14} style={{ transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+                        {open ? "Inklappen" : "Bekijken & ondertekenen"}
+                      </button>
+                    )}
                     {taak.kanAkkoord && !taak.vereistHandtekening && idle && (
                       <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
                         <button
@@ -1391,7 +1440,7 @@ function TabTaken({ data, onAkkoord, onNietAkkoord, onOndertekenen }) {
                     </div>
                   )}
 
-                  {taak.documentUrl && (
+                  {taak.documentUrl && open && (
                     <div style={{ marginTop: 12 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: KLEUR.subtekst }}>Document</div>
@@ -1403,9 +1452,10 @@ function TabTaken({ data, onAkkoord, onNietAkkoord, onOndertekenen }) {
                     </div>
                   )}
 
-                  {taak.vereistHandtekening && afwijzenId !== taak.id && (
+                  {taak.vereistHandtekening && open && afwijzenId !== taak.id && (
                     <HandtekeningPaneel
                       taak={taak}
+                      gebruiker={gebruiker}
                       onOndertekenen={onOndertekenen}
                       onNietAkkoord={() => { setBevestigId(null); setAfwijzenTekst(""); setAfwijzenId(taak.id); }}
                     />

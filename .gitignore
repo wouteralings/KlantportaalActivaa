@@ -2,3 +2,8 @@ node_modules
 dist
 .env
 .env.local
+# Bevatten een machine-specifiek pad naar npx (node staat hier niet in PATH),
+# plus de persoonlijke MCP-goedkeuring. Niet delen via de repo.
+.mcp.json
+.vscode/mcp.json
+.claude/settings.local.json
