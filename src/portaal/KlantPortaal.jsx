@@ -4,6 +4,7 @@ import {
   ClipboardList,
   FileText,
   CheckCircle2,
+  XCircle,
   Tag,
   LogOut,
   Loader2,
@@ -205,6 +206,33 @@ export default function KlantPortaal() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taken, haalTakenOp]);
 
+  const geefNietAkkoord = useCallback(async (taakId, bericht) => {
+    const vorigeTaken = taken;
+    setTaken((huidig) => {
+      if (!huidig || !Array.isArray(huidig.groepen)) return huidig;
+      return {
+        ...huidig,
+        groepen: huidig.groepen.map((groep) => ({
+          ...groep,
+          taken: groep.taken.filter((t) => t.id !== taakId),
+        })),
+      };
+    });
+    try {
+      const res = await fetch(`/api/taken?id=${taakId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "niet-akkoord", bericht }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      haalTakenOp();
+    } catch (e) {
+      setTaken(vorigeTaken);
+      setFout("Versturen van je reactie is niet gelukt: " + String(e));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taken, haalTakenOp]);
+
   const haalDocumentenOp = useCallback(async () => {
     if (documentenStatus === "laden") return; // voorkomt dubbele, gelijktijdige aanvragen
     setDocumentenStatus("laden");
@@ -299,7 +327,7 @@ export default function KlantPortaal() {
       {tab === "home" && (
         <>
           <Kopje tekst="Open taken" />
-          <TabTaken data={taken} onAkkoord={geefAkkoord} />
+          <TabTaken data={taken} onAkkoord={geefAkkoord} onNietAkkoord={geefNietAkkoord} />
 
           {content?.programmas?.length > 0 && (
             <div style={{ marginTop: 28 }}>
@@ -1051,8 +1079,11 @@ function TabGegevens({ data, verzoeken, onWijzigen }) {
   );
 }
 
-function TabTaken({ data, onAkkoord }) {
+function TabTaken({ data, onAkkoord, onNietAkkoord }) {
   const [bevestigId, setBevestigId] = useState(null);
+  const [afwijzenId, setAfwijzenId] = useState(null);
+  const [afwijzenTekst, setAfwijzenTekst] = useState("");
+  const [archiefOpen, setArchiefOpen] = useState(false);
   if (!data) return <Laadscherm />;
 
   // Backward-compat: als er onverhoopt nog een array binnenkomt, behandel die als groepen.
@@ -1139,17 +1170,69 @@ function TabTaken({ data, onAkkoord }) {
                             Annuleren
                           </button>
                         </div>
+                      ) : afwijzenId === taak.id ? (
+                        <div>
+                          <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 6 }}>
+                            Geef aan waarom je niet akkoord gaat — dit bericht gaat naar Activaa.
+                          </div>
+                          <textarea
+                            value={afwijzenTekst}
+                            onChange={(e) => setAfwijzenTekst(e.target.value)}
+                            rows={3}
+                            placeholder="Je toelichting…"
+                            style={{
+                              width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`,
+                              borderRadius: 8, padding: 10, fontSize: 13, fontFamily: "inherit", resize: "vertical",
+                            }}
+                          />
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                            <button
+                              disabled={!afwijzenTekst.trim()}
+                              onClick={() => { const t = afwijzenTekst.trim(); setAfwijzenId(null); setAfwijzenTekst(""); onNietAkkoord(taak.id, t); }}
+                              style={{
+                                display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px",
+                                background: afwijzenTekst.trim() ? KLEUR.rood : "#C9A3A3", color: "#fff",
+                                border: "none", borderRadius: 6, fontSize: 12.5, fontWeight: 600,
+                                cursor: afwijzenTekst.trim() ? "pointer" : "not-allowed",
+                              }}
+                            >
+                              <Send size={13} /> Versturen
+                            </button>
+                            <button
+                              onClick={() => { setAfwijzenId(null); setAfwijzenTekst(""); }}
+                              style={{
+                                padding: "7px 12px", background: "#fff", color: KLEUR.subtekst,
+                                border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 12.5,
+                                fontWeight: 600, cursor: "pointer",
+                              }}
+                            >
+                              Annuleren
+                            </button>
+                          </div>
+                        </div>
                       ) : (
-                        <button
-                          onClick={() => setBevestigId(taak.id)}
-                          style={{
-                            display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 16px",
-                            background: "#2E7D46", color: "#fff", border: "none", borderRadius: 6,
-                            fontSize: 12.5, fontWeight: 600, cursor: "pointer",
-                          }}
-                        >
-                          <CheckCircle2 size={14} /> Akkoord geven
-                        </button>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <button
+                            onClick={() => { setAfwijzenId(null); setBevestigId(taak.id); }}
+                            style={{
+                              display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 16px",
+                              background: "#2E7D46", color: "#fff", border: "none", borderRadius: 6,
+                              fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+                            }}
+                          >
+                            <CheckCircle2 size={14} /> Akkoord geven
+                          </button>
+                          <button
+                            onClick={() => { setBevestigId(null); setAfwijzenTekst(""); setAfwijzenId(taak.id); }}
+                            style={{
+                              display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 16px",
+                              background: "#fff", color: KLEUR.rood, border: `1px solid ${KLEUR.rood}`,
+                              borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+                            }}
+                          >
+                            Niet akkoord
+                          </button>
+                        </div>
                       )}
                     </div>
                   )}
@@ -1162,22 +1245,56 @@ function TabTaken({ data, onAkkoord }) {
 
       {akkoorden.length > 0 && (
         <div style={{ marginTop: 24 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 10 }}>Akkoord gegeven</div>
-          <div style={kaartStijl}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-              {akkoorden.map((a, i) => (
-                <div key={a.id || a.taakId} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "9px 0", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}` }}>
-                  <CheckCircle2 size={16} color="#2E7D46" style={{ marginTop: 2, flexShrink: 0 }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600 }}>{a.taaktitel || "(taak)"}</div>
-                    <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 2 }}>
-                      {a.klantnaam ? a.klantnaam + " · " : ""}Akkoord op {new Date(a.akkoordOp).toLocaleDateString("nl-NL")}
+          <button
+            onClick={() => setArchiefOpen((v) => !v)}
+            aria-expanded={archiefOpen}
+            style={{
+              display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0,
+              background: "none", border: "none", cursor: "pointer", marginBottom: archiefOpen ? 10 : 0,
+              fontSize: 13, fontWeight: 700, color: KLEUR.subtekst, textAlign: "left",
+            }}
+          >
+            <ChevronDown
+              size={16}
+              style={{ transform: archiefOpen ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }}
+            />
+            Akkoord gegeven
+            <span style={{ fontWeight: 600, color: KLEUR.mutedTekst }}>({akkoorden.length})</span>
+          </button>
+          {archiefOpen && (
+            <div style={kaartStijl}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                {akkoorden.map((a, i) => {
+                  const nietAkkoord = a.beslissing === "niet_akkoord";
+                  return (
+                    <div key={a.id || a.taakId} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "9px 0", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}` }}>
+                      {nietAkkoord
+                        ? <XCircle size={16} color={KLEUR.rood} style={{ marginTop: 2, flexShrink: 0 }} />
+                        : <CheckCircle2 size={16} color="#2E7D46" style={{ marginTop: 2, flexShrink: 0 }} />}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>
+                          {a.taaktitel || "(taak)"}
+                          <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: nietAkkoord ? KLEUR.rood : "#2E7D46" }}>
+                            {nietAkkoord ? "Niet akkoord" : "Akkoord"}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 2 }}>
+                          {a.klantnaam ? a.klantnaam + " · " : ""}
+                          {new Date(a.akkoordOp).toLocaleString("nl-NL", { dateStyle: "short", timeStyle: "short" })}
+                          {a.aanvragerEmail ? " · door " + a.aanvragerEmail : ""}
+                        </div>
+                        {nietAkkoord && a.bericht && (
+                          <div style={{ fontSize: 12, color: KLEUR.subtekst, marginTop: 3, whiteSpace: "pre-wrap" }}>
+                            “{a.bericht}”
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </div>
-              ))}
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
     </div>

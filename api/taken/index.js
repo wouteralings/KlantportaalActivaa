@@ -165,11 +165,21 @@ module.exports = async function (context, req) {
 
     if (req.method === "PATCH") {
       const taakId = req.query.id || req.body?.id;
-      // Standaardactie is "akkoord": de klant keurt een zichtbare taak goed. "afhandelen" blijft
-      // bestaan voor terugwaartse compatibiliteit (rondt zonder soort-controle af).
-      const actie = req.body?.actie || req.query.actie || "akkoord";
+      // Standaardactie is "akkoord". "niet-akkoord" (of "afwijzen") = klant wijst af met reden.
+      // "afhandelen" blijft bestaan voor terugwaartse compatibiliteit (rondt af zonder soort-controle).
+      const actieRuw = req.body?.actie || req.query.actie || "akkoord";
+      const isNietAkkoord = ["niet-akkoord", "niet_akkoord", "afwijzen"].includes(actieRuw);
+      const isAkkoord = actieRuw === "akkoord";
+      const isKlantReactie = isAkkoord || isNietAkkoord;
+      const bericht = (req.body?.bericht || "").toString().trim();
+
       if (!taakId) {
         context.res = { status: 400, body: { error: "Geef het id van de taak mee." } };
+        return;
+      }
+      // Bij "niet akkoord" is een toelichting/reden verplicht (die gaat mee in de mail naar Activaa).
+      if (isNietAkkoord && !bericht) {
+        context.res = { status: 400, body: { error: "Geef een reden/bericht mee bij 'Niet akkoord'." } };
         return;
       }
 
@@ -180,33 +190,35 @@ module.exports = async function (context, req) {
         return;
       }
 
-      // Voor een akkoord moet het soort in beheer op "mag goedkeuren" staan. Zo kan niemand via
-      // een handmatige aanroep een taak goedkeuren die daar niet voor bedoeld is.
-      if (actie === "akkoord") {
+      // Een klantreactie (akkoord of niet-akkoord) mag alleen bij een soort dat in beheer op
+      // "mag goedkeuren" staat. Zo kan niemand via een handmatige aanroep een taak afhandelen
+      // die daar niet voor bedoeld is.
+      if (isKlantReactie) {
         const magGoedkeuren =
           SOORT_VELD &&
           taak.soortWaarde != null &&
           soortConfig.magGoedkeuren.has(String(taak.soortWaarde));
         if (!magGoedkeuren) {
-          context.res = { status: 403, body: { error: "Deze taak kun je niet goedkeuren." } };
+          context.res = { status: 403, body: { error: "Op deze taak kun je niet reageren." } };
           return;
         }
       }
 
       const account = accounts.find((a) => a.accountId === taak.accountId) || {};
-
-      // Notitie in de Dynamics-taak zodat Activaa ook in Dynamics ziet dat de klant akkoord gaf.
       const stempel = new Date().toLocaleString("nl-NL", { timeZone: "Europe/Amsterdam" });
-      const notitie =
-        actie === "akkoord"
-          ? `\n\n[Akkoord gegeven door klant (${email}) via het klantportaal op ${stempel}]`
-          : "";
-      const nieuweOmschrijving = notitie ? (taak.description || "") + notitie : undefined;
 
-      // Taak afronden (statecode 1 = Voltooid, statuscode 5 = standaard 'Voltooid'-reden) en de
-      // notitie in dezelfde PATCH meesturen.
-      const body = { statecode: 1, statuscode: 5 };
-      if (nieuweOmschrijving !== undefined) body.description = nieuweOmschrijving;
+      // Dynamics bijwerken: akkoord => Voltooid (statecode 1/5); niet-akkoord => Geannuleerd
+      // (statecode 2/6). In beide gevallen een notitie in de omschrijving zodat Activaa het terugziet.
+      let body;
+      let notitie = "";
+      if (isNietAkkoord) {
+        body = { statecode: 2, statuscode: 6 };
+        notitie = `\n\n[NIET akkoord door klant (${email}) via het klantportaal op ${stempel}. Reden: ${bericht}]`;
+      } else {
+        body = { statecode: 1, statuscode: 5 };
+        if (isAkkoord) notitie = `\n\n[Akkoord gegeven door klant (${email}) via het klantportaal op ${stempel}]`;
+      }
+      if (notitie) body.description = (taak.description || "") + notitie;
 
       const updateRes = await fetch(`${resource}/api/data/v9.2/tasks(${taakId})`, {
         method: "PATCH",
@@ -215,10 +227,9 @@ module.exports = async function (context, req) {
       });
       if (!updateRes.ok) throw new Error(`Verwerken taak mislukt: ${await updateRes.text()}`);
 
-      // Akkoord vastleggen zodat het klantportaal een archief kan tonen. Best-effort: als de
-      // opslag (nog) niet is geconfigureerd, is de taak al wél afgerond in Dynamics.
+      // Reactie vastleggen in de log zodat klantportaal én beheer het terugzien. Best-effort.
       let akkoord = null;
-      if (actie === "akkoord") {
+      if (isKlantReactie) {
         try {
           akkoord = await voegAkkoordToe({
             taakId,
@@ -228,9 +239,40 @@ module.exports = async function (context, req) {
             taaktitel: taak.subject,
             soort: taak.soortLabel,
             aanvragerEmail: email,
+            beslissing: isNietAkkoord ? "niet_akkoord" : "akkoord",
+            bericht: isNietAkkoord ? bericht : "",
           });
         } catch (opslagFout) {
-          context.log.error("Akkoord vastleggen in opslag mislukt:", opslagFout);
+          context.log.error("Reactie vastleggen in opslag mislukt:", opslagFout);
+        }
+      }
+
+      // Bij "niet akkoord": mail via de Power Automate-webhook (best-effort; blokkeert niet).
+      if (isNietAkkoord) {
+        try {
+          const instellingen = await haalInstellingen().catch(() => ({}));
+          const webhookUrl = instellingen.taakAfwijzingWebhookUrl || process.env.TAAK_AFWIJZING_WEBHOOK_URL || "";
+          if (webhookUrl) {
+            await fetch(webhookUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                gebeurtenis: "taak_niet_akkoord",
+                taakId,
+                taaktitel: taak.subject || "",
+                soort: taak.soortLabel || "",
+                klantnaam: account.klantnaam || "",
+                klantnummer: account.klantnummer ?? "",
+                aanvragerEmail: email,
+                bericht,
+                tijdstip: stempel,
+              }),
+            });
+          } else {
+            context.log.warn("Geen taakAfwijzingWebhookUrl ingesteld; mail bij 'niet akkoord' overgeslagen.");
+          }
+        } catch (webhookFout) {
+          context.log.error("Webhook 'niet akkoord' aanroepen mislukt:", webhookFout);
         }
       }
 

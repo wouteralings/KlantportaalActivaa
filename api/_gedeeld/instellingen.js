@@ -30,7 +30,7 @@ async function haalInstellingen() {
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
 
   const bestaat = await blobClient.exists();
-  if (!bestaat) return { googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {} };
+  if (!bestaat) return { googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "" };
 
   const downloadResponse = await blobClient.download();
   const tekst = await streamNaarTekst(downloadResponse.readableStreamBody);
@@ -45,6 +45,8 @@ async function haalInstellingen() {
     wijzigingFormContactUrl: "",
     // Per soort (op numerieke optieset-waarde): { zichtbaar: bool, magGoedkeuren: bool, label: string }.
     taaksoorten: {},
+    // Power Automate HTTP-trigger (webhook) die een mail stuurt als een klant "Niet akkoord" geeft.
+    taakAfwijzingWebhookUrl: "",
     ...JSON.parse(tekst),
   };
 }

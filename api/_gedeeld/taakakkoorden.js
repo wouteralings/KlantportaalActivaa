@@ -52,15 +52,20 @@ async function schrijfAkkoorden(akkoorden) {
 }
 
 /**
- * Legt een gegeven akkoord vast. Als voor dezelfde taak al een akkoord bestaat wordt het
- * bijgewerkt i.p.v. gedupliceerd (idempotent bij dubbelklikken).
+ * Legt de reactie van de klant op een taak vast: "akkoord" of "niet_akkoord" (met bericht/reden).
+ * Als voor dezelfde taak al een reactie bestaat wordt die bijgewerkt i.p.v. gedupliceerd
+ * (idempotent bij dubbelklikken).
  */
-async function voegAkkoordToe({ taakId, accountId, klantnummer, klantnaam, taaktitel, soort, aanvragerEmail }) {
+async function voegAkkoordToe({ taakId, accountId, klantnummer, klantnaam, taaktitel, soort, aanvragerEmail, beslissing, bericht }) {
   const akkoorden = await haalAlleAkkoorden();
+  const nu = new Date().toISOString();
+  const beslissingWaarde = beslissing === "niet_akkoord" ? "niet_akkoord" : "akkoord";
   const bestaand = akkoorden.find((a) => a.taakId === taakId);
   if (bestaand) {
-    bestaand.akkoordOp = new Date().toISOString();
+    bestaand.akkoordOp = nu;
     bestaand.aanvragerEmail = aanvragerEmail || bestaand.aanvragerEmail || "";
+    bestaand.beslissing = beslissingWaarde;
+    bestaand.bericht = bericht || "";
     await schrijfAkkoorden(akkoorden);
     return bestaand;
   }
@@ -73,7 +78,9 @@ async function voegAkkoordToe({ taakId, accountId, klantnummer, klantnaam, taakt
     taaktitel: taaktitel || "",
     soort: soort || "",
     aanvragerEmail: aanvragerEmail || "",
-    akkoordOp: new Date().toISOString(),
+    beslissing: beslissingWaarde,
+    bericht: bericht || "",
+    akkoordOp: nu,
   };
   akkoorden.push(nieuw);
   await schrijfAkkoorden(akkoorden);

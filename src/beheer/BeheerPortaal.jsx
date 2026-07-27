@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Star, Search, Mail, ArrowUp, ArrowDown, HelpCircle } from "lucide-react";
+import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, XCircle, Trash2, Send, Users, LayoutGrid, ExternalLink, Star, Search, Mail, ArrowUp, ArrowDown, HelpCircle } from "lucide-react";
 
 const KLEUR = {
   blauw: "#1C5D8C",
@@ -69,6 +69,11 @@ export default function BeheerPortaal() {
   const [taaksoortenConfiguratieNodig, setTaaksoortenConfiguratieNodig] = useState(false);
   const [taaksoortenFout, setTaaksoortenFout] = useState("");
   const [taaksoortenOpslaanStatus, setTaaksoortenOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
+  const [akkoordenLog, setAkkoordenLog] = useState(null); // null = laden; log van klantreacties op taken
+
+  // Webhooks (Power Automate), onderhoudbaar onder Instellingen.
+  const [taakAfwijzingWebhookUrl, setTaakAfwijzingWebhookUrl] = useState("");
+  const [webhookOpslaanStatus, setWebhookOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
 
   const laadTellingen = useCallback(() => {
     fetch("/api/beheer-tellingen")
@@ -109,6 +114,7 @@ export default function BeheerPortaal() {
         setTeamsChatUrl(d.teamsChatUrl || "");
         setWhatsappUrl(d.whatsappUrl || "");
         setCopilotEmbedUrl(d.copilotEmbedUrl || "");
+        setTaakAfwijzingWebhookUrl(d.taakAfwijzingWebhookUrl || "");
       })
       .catch(() => {});
     fetch("/api/beheer-klantcategorieen")
@@ -124,6 +130,10 @@ export default function BeheerPortaal() {
         if (d.error) setTaaksoortenFout(d.error);
       })
       .catch(() => { setTaaksoortenOpties([]); setTaaksoortenFout("Kon de taaksoorten niet ophalen."); });
+    fetch("/api/beheer-taakakkoorden")
+      .then((r) => r.json())
+      .then((d) => setAkkoordenLog(d.akkoorden || []))
+      .catch(() => setAkkoordenLog([]));
     haalMededelingen();
     haalSnellinks();
     haalFaqs();
@@ -321,6 +331,21 @@ export default function BeheerPortaal() {
   );
 
   const labelVoorWaarde = (waarde) => categorieen?.find((c) => c.waarde === waarde)?.label || waarde;
+
+  const slaWebhooksOp = useCallback(async () => {
+    setWebhookOpslaanStatus("bezig");
+    try {
+      const res = await fetch("/api/beheer-instellingen", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taakAfwijzingWebhookUrl: taakAfwijzingWebhookUrl.trim() }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setWebhookOpslaanStatus("gelukt");
+    } catch {
+      setWebhookOpslaanStatus("fout");
+    }
+  }, [taakAfwijzingWebhookUrl]);
 
   const slaFormLinksOp = useCallback(async () => {
     setFormOpslaanStatus("bezig");
@@ -985,6 +1010,44 @@ export default function BeheerPortaal() {
 
       {tab === "instellingen" && (<>
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Webhooks (Power Automate)</div>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 6 }}>
+          Wanneer een klant bij een taak op <strong>"Niet akkoord"</strong> klikt, stuurt het portaal
+          de toelichting naar deze webhook. Maak in Power Automate een stroom met trigger
+          "Wanneer een HTTP-aanvraag wordt ontvangen" en plak hier de gegenereerde URL; de stroom
+          kan dan een mail versturen.
+        </div>
+        <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 12, lineHeight: 1.6 }}>
+          De POST-body bevat: <code>gebeurtenis</code>, <code>taaktitel</code>, <code>soort</code>,{" "}
+          <code>klantnaam</code>, <code>klantnummer</code>, <code>aanvragerEmail</code>,{" "}
+          <code>bericht</code>, <code>tijdstip</code>. Laat leeg om geen webhook te gebruiken.
+        </div>
+        <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Webhook-URL — "Niet akkoord" op taken</div>
+        <input
+          type="text"
+          value={taakAfwijzingWebhookUrl}
+          onChange={(e) => setTaakAfwijzingWebhookUrl(e.target.value)}
+          placeholder="https://prod-XX.westeurope.logic.azure.com:443/workflows/.../triggers/manual/paths/invoke?..."
+          style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 16, boxSizing: "border-box" }}
+        />
+        <button
+          onClick={slaWebhooksOp}
+          disabled={webhookOpslaanStatus === "bezig"}
+          style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+        >
+          {webhookOpslaanStatus === "bezig" ? "Opslaan..." : "Opslaan"}
+        </button>
+        {webhookOpslaanStatus === "gelukt" && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 12, fontSize: 12.5, color: KLEUR.blauw }}>
+            <CheckCircle2 size={14} /> Opgeslagen.
+          </span>
+        )}
+        {webhookOpslaanStatus === "fout" && (
+          <span style={{ marginLeft: 12, fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
+        )}
+      </div>
+
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Wijzigingsformulieren</div>
         <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 4 }}>
           Links naar (bijv. Microsoft Forms-)formulieren waarmee klanten wijzigingen in hun
@@ -1106,7 +1169,7 @@ export default function BeheerPortaal() {
 
       </>)}
 
-      {tab === "taken" && (
+      {tab === "taken" && (<>
         <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
           <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Zichtbare taaksoorten</div>
           <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 16, lineHeight: 1.6 }}>
@@ -1179,7 +1242,50 @@ export default function BeheerPortaal() {
             </>
           )}
         </div>
-      )}
+
+        <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Log — klantreacties op taken</div>
+          <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 16 }}>
+            Wie heeft welke taak goedgekeurd of afgewezen, en wanneer. Bij "Niet akkoord" staat
+            ook de toelichting van de klant erbij (die is ook per mail via de webhook verstuurd).
+          </div>
+          {akkoordenLog === null ? (
+            <div style={{ fontSize: 13, color: KLEUR.mutedTekst }}>Laden…</div>
+          ) : akkoordenLog.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Nog geen reacties vastgelegd.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              {akkoordenLog.map((a, i) => {
+                const nietAkkoord = a.beslissing === "niet_akkoord";
+                return (
+                  <div key={a.id || a.taakId} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 0", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}` }}>
+                    {nietAkkoord
+                      ? <XCircle size={16} color={KLEUR.rood} style={{ marginTop: 2, flexShrink: 0 }} />
+                      : <CheckCircle2 size={16} color="#2E7D46" style={{ marginTop: 2, flexShrink: 0 }} />}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>
+                        {a.taaktitel || "(taak)"}
+                        <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: nietAkkoord ? KLEUR.rood : "#2E7D46" }}>
+                          {nietAkkoord ? "Niet akkoord" : "Akkoord"}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 2 }}>
+                        {a.klantnaam ? a.klantnaam + " · " : ""}
+                        {a.klantnummer ? "nr " + a.klantnummer + " · " : ""}
+                        {a.aanvragerEmail || "onbekend"} ·{" "}
+                        {new Date(a.akkoordOp).toLocaleString("nl-NL", { dateStyle: "short", timeStyle: "short" })}
+                      </div>
+                      {nietAkkoord && a.bericht && (
+                        <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginTop: 3, whiteSpace: "pre-wrap" }}>“{a.bericht}”</div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </>)}
 
       {tab === "reviews" && <ReviewBeheer />}
 
