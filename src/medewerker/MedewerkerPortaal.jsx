@@ -981,14 +981,39 @@ function MedewerkerDetail({ persoon, rol, klantnaam, onTerug }) {
   );
 }
 
+// Kolomdefinities voor het klantoverzicht-raster. cel(k) geeft de tekstwaarde (voor sorteren,
+// filteren en zoeken); soort bepaalt hoe de cel wordt weergegeven (link/medewerker/sharepoint).
+const KOLOMMEN = [
+  { key: "klantnummer", label: "Cliëntnr", cel: (k) => (k.klantnummer === "" || k.klantnummer == null ? "" : String(k.klantnummer)), num: true },
+  { key: "klantnaam", label: "Cliëntnaam", cel: (k) => k.klantnaam || "", soort: "klant" },
+  { key: "groepsnaam", label: "Groep", cel: (k) => k.groepsnaam || "", soort: "groep" },
+  { key: "kantoor", label: "Kantoor", cel: (k) => k.kantoor || "" },
+  { key: "team", label: "Team", cel: (k) => k.team || "" },
+  { key: "clienttype", label: "Cliënttype", cel: (k) => k.clienttype || "" },
+  { key: "contact", label: "Contactpersoon", cel: (k) => k.contact?.naam || "", soort: "contact" },
+  { key: "manager", label: "Manager", cel: (k) => k.manager?.naam || k.relatiebeheerder || "", soort: "medewerker", rol: "Manager", persoon: (k) => k.manager || { naam: k.relatiebeheerder } },
+  { key: "accountant", label: "Accountant", cel: (k) => k.accountantPersoon?.naam || k.accountant || "", soort: "medewerker", rol: "Accountant", persoon: (k) => k.accountantPersoon || { naam: k.accountant } },
+  { key: "assistent", label: "Assistent", cel: (k) => k.assistent?.naam || "", soort: "medewerker", rol: "Assistent", persoon: (k) => k.assistent },
+  { key: "fiscaalMedewerker", label: "Fiscaal medew.", cel: (k) => k.fiscaalMedewerker?.naam || "", soort: "medewerker", rol: "Fiscaal medewerker", persoon: (k) => k.fiscaalMedewerker },
+  { key: "loonadministratie", label: "Loonadmin.", cel: (k) => k.loonadministratie?.naam || "", soort: "medewerker", rol: "Loonadministratie", persoon: (k) => k.loonadministratie },
+  { key: "belastingkantoor", label: "Belastingkantoor", cel: (k) => k.belastingkantoor || "" },
+  { key: "sharepoint", label: "SharePoint", cel: (k) => (k.sharepointUrl ? "Map" : ""), soort: "sharepoint", geenSort: true, geenFilter: true },
+  { key: "status", label: "Status", cel: (k) => k.status || "" },
+];
+const ALLE_KOLOM_KEYS = KOLOMMEN.map((c) => c.key);
+
 function KlantOverzicht() {
   const [klanten, setKlanten] = useState(null); // null = laden
   const [afgekapt, setAfgekapt] = useState(false);
   const [fout, setFout] = useState(false);
   const [zoek, setZoek] = useState("");
-  const [filters, setFilters] = useState({ groep: "", team: "", kantoor: "", clienttype: "", status: "", manager: "", accountant: "" });
+  const [kolomFilters, setKolomFilters] = useState({}); // { kolomKey: waarde }
   const [sortKey, setSortKey] = useState("klantnaam");
   const [sortDir, setSortDir] = useState("asc"); // asc | desc
+  const [zichtbareKolommen, setZichtbareKolommen] = useState(() => new Set(ALLE_KOLOM_KEYS));
+  const [menu, setMenu] = useState(null); // { key, x, y } — geopend kolomkop-menu
+  const [menuZoek, setMenuZoek] = useState("");
+  const [kolomKiezerOpen, setKolomKiezerOpen] = useState(false);
   const [detailKlant, setDetailKlant] = useState(null);
   const [detailContact, setDetailContact] = useState(null);
   const [detailGroep, setDetailGroep] = useState(null);
@@ -1035,73 +1060,60 @@ function KlantOverzicht() {
     return <GroepDetail groepsnaam={detailGroep} klanten={klanten} onTerug={() => setDetailGroep(null)} onKlant={(k) => { setDetailGroep(null); setDetailKlant(k); }} />;
   }
 
-  const uniek = (selector) => [...new Set(klanten.map(selector).filter(Boolean))].sort((a, b) => a.localeCompare(b, "nl"));
-  const opties = {
-    groep: uniek((k) => k.groepsnaam),
-    team: uniek((k) => k.team),
-    kantoor: uniek((k) => k.kantoor),
-    clienttype: uniek((k) => k.clienttype),
-    status: uniek((k) => k.status),
-    manager: uniek((k) => k.manager?.naam || k.relatiebeheerder),
-    accountant: uniek((k) => k.accountantPersoon?.naam || k.accountant),
-  };
+  const kolomVan = (key) => KOLOMMEN.find((c) => c.key === key);
   const term = zoek.trim().toLowerCase();
   const gefilterd = klanten.filter((k) => {
-    if (filters.groep && k.groepsnaam !== filters.groep) return false;
-    if (filters.team && k.team !== filters.team) return false;
-    if (filters.kantoor && k.kantoor !== filters.kantoor) return false;
-    if (filters.clienttype && k.clienttype !== filters.clienttype) return false;
-    if (filters.status && k.status !== filters.status) return false;
-    if (filters.manager && (k.manager?.naam || k.relatiebeheerder) !== filters.manager) return false;
-    if (filters.accountant && (k.accountantPersoon?.naam || k.accountant) !== filters.accountant) return false;
-    if (
-      term &&
-      ![k.klantnaam, String(k.klantnummer ?? ""), k.groepsnaam, k.contact?.naam, k.relatiebeheerder, k.team, k.clienttype]
+    for (const [key, val] of Object.entries(kolomFilters)) {
+      if (!val) continue;
+      const kol = kolomVan(key);
+      if (kol && kol.cel(k) !== val) return false;
+    }
+    if (term) {
+      const raak = [k.klantnaam, String(k.klantnummer ?? ""), k.groepsnaam, k.contact?.naam, k.relatiebeheerder, k.team, k.clienttype]
         .map((v) => (v == null ? "" : String(v)).toLowerCase())
-        .some((v) => v.includes(term))
-    )
-      return false;
+        .some((v) => v.includes(term));
+      if (!raak) return false;
+    }
     return true;
   });
-  const filterActief = Object.values(filters).some(Boolean) || !!term;
+  const filterActief = Object.values(kolomFilters).some(Boolean) || !!term;
 
-  // Sorteerbare kolommen: sleutel → functie die de sorteerwaarde uit een klant haalt.
-  const sortWaarde = {
-    klantnummer: (k) => Number(k.klantnummer) || 0,
-    klantnaam: (k) => k.klantnaam || "",
-    groepsnaam: (k) => k.groepsnaam || "",
-    kantoor: (k) => k.kantoor || "",
-    team: (k) => k.team || "",
-    clienttype: (k) => k.clienttype || "",
-    contact: (k) => k.contact?.naam || "",
-    manager: (k) => k.manager?.naam || k.relatiebeheerder || "",
-    accountant: (k) => k.accountantPersoon?.naam || k.accountant || "",
-    assistent: (k) => k.assistent?.naam || "",
-    fiscaalMedewerker: (k) => k.fiscaalMedewerker?.naam || "",
-    loonadministratie: (k) => k.loonadministratie?.naam || "",
-    belastingkantoor: (k) => k.belastingkantoor || "",
-    status: (k) => k.status || "",
-  };
+  const sortKol = kolomVan(sortKey) || kolomVan("klantnaam");
   const gesorteerd = [...gefilterd].sort((x, y) => {
-    const fn = sortWaarde[sortKey] || sortWaarde.klantnaam;
-    const va = fn(x), vb = fn(y);
-    let c = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb), "nl", { sensitivity: "base" });
+    const va = sortKol.cel(x), vb = sortKol.cel(y);
+    let c;
+    if (sortKol.num) c = (Number(va) || 0) - (Number(vb) || 0);
+    else c = String(va).localeCompare(String(vb), "nl", { sensitivity: "base" });
     return sortDir === "asc" ? c : -c;
   });
-  const sorteerOp = (key) => {
-    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    else { setSortKey(key); setSortDir("asc"); }
-  };
   const pijl = (key) => (sortKey === key ? (sortDir === "asc" ? " ▲" : " ▼") : "");
 
   const MAX_TOON = 500;
   const zichtbaar = gesorteerd.slice(0, MAX_TOON);
-  const zetFilter = (sleutel, waarde) => setFilters((h) => ({ ...h, [sleutel]: waarde }));
-  const selectStijl = { border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, background: "#fff", color: KLEUR.tekst };
+  const zichtKols = KOLOMMEN.filter((c) => zichtbareKolommen.has(c.key));
 
+  const openKopMenu = (e, key) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setMenuZoek("");
+    setMenu((m) => (m && m.key === key ? null : { key, x: r.left, y: r.bottom }));
+  };
+  const wisAllesFilters = () => { setKolomFilters({}); setZoek(""); };
+
+  const selectStijl = { border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, background: "#fff", color: KLEUR.tekst, cursor: "pointer" };
+  const menuItem = { display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: "6px 8px", borderRadius: 6, cursor: "pointer", fontSize: 12.5, color: KLEUR.tekst };
   const th = { textAlign: "left", fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", padding: "6px 10px", borderBottom: `1px solid ${KLEUR.rand}`, whiteSpace: "nowrap" };
   const td = { fontSize: 12.5, padding: "8px 10px", borderBottom: `1px solid ${KLEUR.rand}`, whiteSpace: "nowrap" };
   const linkStijl = { color: KLEUR.blauw, fontWeight: 600, cursor: "pointer", background: "none", border: "none", padding: 0, fontSize: 12.5, textAlign: "left" };
+
+  const renderCel = (kol, k) => {
+    const tekst = kol.cel(k);
+    if (kol.soort === "klant") return <button onClick={() => setDetailKlant(k)} style={linkStijl}>{tekst || "—"}</button>;
+    if (kol.soort === "groep") return tekst ? <button onClick={() => setDetailGroep(tekst)} style={linkStijl}>{tekst}</button> : "—";
+    if (kol.soort === "contact") return tekst ? <button onClick={() => setDetailContact(k)} style={linkStijl}>{tekst}</button> : "—";
+    if (kol.soort === "medewerker") { const p = kol.persoon(k); return p && p.naam ? <button onClick={() => openMedewerker(p, kol.rol, k.klantnaam)} style={linkStijl}>{p.naam}</button> : "—"; }
+    if (kol.soort === "sharepoint") return k.sharepointUrl ? <a href={k.sharepointUrl} target="_blank" rel="noopener noreferrer" style={{ color: KLEUR.blauw, fontWeight: 600, textDecoration: "none" }}>Map</a> : "—";
+    return tekst || "—";
+  };
 
   return (
     <div>
@@ -1110,7 +1122,7 @@ function KlantOverzicht() {
         Klik op een klantnaam, groep of contactpersoon om de details te bekijken.
       </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12, alignItems: "center" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10, alignItems: "center" }}>
         <div style={{ position: "relative", flex: "1 1 240px", minWidth: 200 }}>
           <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
           <input
@@ -1120,43 +1132,46 @@ function KlantOverzicht() {
             style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 32px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, outline: "none" }}
           />
         </div>
-        <select value={filters.groep} onChange={(e) => zetFilter("groep", e.target.value)} style={selectStijl}>
-          <option value="">Alle groepen</option>
-          {opties.groep.map((v) => <option key={v} value={v}>{v}</option>)}
-        </select>
-        <select value={filters.team} onChange={(e) => zetFilter("team", e.target.value)} style={selectStijl}>
-          <option value="">Alle teams</option>
-          {opties.team.map((v) => <option key={v} value={v}>{v}</option>)}
-        </select>
-        <select value={filters.kantoor} onChange={(e) => zetFilter("kantoor", e.target.value)} style={selectStijl}>
-          <option value="">Alle kantoren</option>
-          {opties.kantoor.map((v) => <option key={v} value={v}>{v}</option>)}
-        </select>
-        <select value={filters.clienttype} onChange={(e) => zetFilter("clienttype", e.target.value)} style={selectStijl}>
-          <option value="">Alle cliënttypes</option>
-          {opties.clienttype.map((v) => <option key={v} value={v}>{v}</option>)}
-        </select>
-        <select value={filters.status} onChange={(e) => zetFilter("status", e.target.value)} style={selectStijl}>
-          <option value="">Alle statussen</option>
-          {opties.status.map((v) => <option key={v} value={v}>{v}</option>)}
-        </select>
-        <select value={filters.manager} onChange={(e) => zetFilter("manager", e.target.value)} style={selectStijl}>
-          <option value="">Alle managers</option>
-          {opties.manager.map((v) => <option key={v} value={v}>{v}</option>)}
-        </select>
-        <select value={filters.accountant} onChange={(e) => zetFilter("accountant", e.target.value)} style={selectStijl}>
-          <option value="">Alle accountants</option>
-          {opties.accountant.map((v) => <option key={v} value={v}>{v}</option>)}
-        </select>
+        <div style={{ position: "relative" }}>
+          <button onClick={() => setKolomKiezerOpen((o) => !o)} style={selectStijl}>Kolommen ▾</button>
+          {kolomKiezerOpen && (
+            <>
+              <div onClick={() => setKolomKiezerOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+              <div style={{ position: "absolute", top: "110%", right: 0, zIndex: 41, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, boxShadow: "0 6px 24px rgba(0,0,0,0.12)", padding: 10, width: 220, maxHeight: 320, overflowY: "auto" }}>
+                {KOLOMMEN.map((kol) => (
+                  <label key={kol.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 12.5, cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={zichtbareKolommen.has(kol.key)}
+                      onChange={() => setZichtbareKolommen((s) => { const n = new Set(s); if (n.has(kol.key)) n.delete(kol.key); else n.add(kol.key); return n; })}
+                    />
+                    {kol.label}
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
         {filterActief && (
           <button
-            onClick={() => { setZoek(""); setFilters({ groep: "", team: "", kantoor: "", clienttype: "", status: "", manager: "", accountant: "" }); }}
+            onClick={wisAllesFilters}
             style={{ padding: "8px 12px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
           >
             Filters wissen
           </button>
         )}
       </div>
+
+      {Object.entries(kolomFilters).filter(([, v]) => v).length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+          {Object.entries(kolomFilters).filter(([, v]) => v).map(([key, v]) => (
+            <span key={key} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 6px 3px 10px", background: KLEUR.lichtblauw, color: KLEUR.blauw, borderRadius: 999, fontSize: 11.5, fontWeight: 600 }}>
+              {(kolomVan(key)?.label || key)}: {v}
+              <button onClick={() => setKolomFilters((h) => { const n = { ...h }; delete n[key]; return n; })} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.blauw, fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>
+            </span>
+          ))}
+        </div>
+      )}
 
       {fout && (
         <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 10 }}>
@@ -1170,79 +1185,30 @@ function KlantOverzicht() {
       </div>
 
       <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1250 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: Math.max(600, zichtKols.length * 95) }}>
           <thead>
             <tr>
-              {[
-                ["klantnummer", "Cliëntnr"],
-                ["klantnaam", "Cliëntnaam"],
-                ["groepsnaam", "Groep"],
-                ["kantoor", "Kantoor"],
-                ["team", "Team"],
-                ["clienttype", "Cliënttype"],
-                ["contact", "Contactpersoon"],
-                ["manager", "Manager"],
-                ["accountant", "Accountant"],
-                ["assistent", "Assistent"],
-                ["fiscaalMedewerker", "Fiscaal medew."],
-                ["loonadministratie", "Loonadmin."],
-                ["belastingkantoor", "Belastingkantoor"],
-              ].map(([key, labelTekst]) => (
-                <th
-                  key={key}
-                  onClick={() => sorteerOp(key)}
-                  title="Klik om te sorteren"
-                  style={{ ...th, cursor: "pointer", userSelect: "none", color: sortKey === key ? KLEUR.blauw : th.color }}
-                >
-                  {labelTekst}{pijl(key)}
-                </th>
-              ))}
-              <th style={th}>SharePoint</th>
-              <th
-                onClick={() => sorteerOp("status")}
-                title="Klik om te sorteren"
-                style={{ ...th, cursor: "pointer", userSelect: "none", color: sortKey === "status" ? KLEUR.blauw : th.color }}
-              >
-                Status{pijl("status")}
-              </th>
+              {zichtKols.map((kol) => {
+                const actief = sortKey === kol.key || kolomFilters[kol.key];
+                return (
+                  <th
+                    key={kol.key}
+                    onClick={(e) => openKopMenu(e, kol.key)}
+                    title="Klik om te sorteren of filteren"
+                    style={{ ...th, cursor: "pointer", userSelect: "none", color: actief ? KLEUR.blauw : th.color }}
+                  >
+                    {kol.label}{pijl(kol.key)}{kolomFilters[kol.key] ? " •" : ""} <span style={{ color: KLEUR.mutedTekst }}>▾</span>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
             {zichtbaar.map((k) => (
               <tr key={k.accountId}>
-                <td style={{ ...td, color: KLEUR.subtekst }}>{k.klantnummer || "—"}</td>
-                <td style={td}>
-                  <button onClick={() => setDetailKlant(k)} style={linkStijl}>{k.klantnaam || "—"}</button>
-                </td>
-                <td style={td}>
-                  {k.groepsnaam ? <button onClick={() => setDetailGroep(k.groepsnaam)} style={linkStijl}>{k.groepsnaam}</button> : "—"}
-                </td>
-                <td style={td}>{k.kantoor || "—"}</td>
-                <td style={td}>{k.team || "—"}</td>
-                <td style={td}>{k.clienttype || "—"}</td>
-                <td style={td}>
-                  {k.contact?.naam ? <button onClick={() => setDetailContact(k)} style={linkStijl}>{k.contact.naam}</button> : "—"}
-                </td>
-                <td style={td}>
-                  {k.manager?.naam ? <button onClick={() => openMedewerker(k.manager, "Manager", k.klantnaam)} style={linkStijl}>{k.manager.naam}</button> : (k.relatiebeheerder || "—")}
-                </td>
-                <td style={td}>
-                  {k.accountantPersoon?.naam ? <button onClick={() => openMedewerker(k.accountantPersoon, "Accountant", k.klantnaam)} style={linkStijl}>{k.accountantPersoon.naam}</button> : (k.accountant || "—")}
-                </td>
-                <td style={td}>
-                  {k.assistent?.naam ? <button onClick={() => openMedewerker(k.assistent, "Assistent", k.klantnaam)} style={linkStijl}>{k.assistent.naam}</button> : "—"}
-                </td>
-                <td style={td}>
-                  {k.fiscaalMedewerker?.naam ? <button onClick={() => openMedewerker(k.fiscaalMedewerker, "Fiscaal medewerker", k.klantnaam)} style={linkStijl}>{k.fiscaalMedewerker.naam}</button> : "—"}
-                </td>
-                <td style={td}>
-                  {k.loonadministratie?.naam ? <button onClick={() => openMedewerker(k.loonadministratie, "Loonadministratie", k.klantnaam)} style={linkStijl}>{k.loonadministratie.naam}</button> : "—"}
-                </td>
-                <td style={td}>{k.belastingkantoor || "—"}</td>
-                <td style={td}>
-                  {k.sharepointUrl ? <a href={k.sharepointUrl} target="_blank" rel="noopener noreferrer" style={{ color: KLEUR.blauw, fontWeight: 600, textDecoration: "none" }}>Map</a> : "—"}
-                </td>
-                <td style={td}>{k.status || "—"}</td>
+                {zichtKols.map((kol) => (
+                  <td key={kol.key} style={td}>{renderCel(kol, k)}</td>
+                ))}
               </tr>
             ))}
           </tbody>
@@ -1254,6 +1220,38 @@ function KlantOverzicht() {
           Eerste {MAX_TOON} van {gefilterd.length} getoond — verfijn je zoekopdracht om de rest te zien.
         </div>
       )}
+
+      {menu && (() => {
+        const kol = kolomVan(menu.key);
+        if (!kol) return null;
+        const waarden = kol.geenFilter ? [] : [...new Set(klanten.map(kol.cel).filter(Boolean))]
+          .sort((a, b) => a.localeCompare(b, "nl"))
+          .filter((v) => !menuZoek || v.toLowerCase().includes(menuZoek.toLowerCase()));
+        return (
+          <>
+            <div onClick={() => setMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 50 }} />
+            <div style={{ position: "fixed", left: Math.min(menu.x, (typeof window !== "undefined" ? window.innerWidth : 1000) - 260), top: menu.y + 4, width: 240, maxHeight: 360, overflowY: "auto", background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, boxShadow: "0 6px 24px rgba(0,0,0,0.14)", zIndex: 51, padding: 8 }}>
+              {!kol.geenSort && (
+                <>
+                  <button onClick={() => { setSortKey(kol.key); setSortDir("asc"); setMenu(null); }} style={menuItem}>↑ Sorteer A→Z</button>
+                  <button onClick={() => { setSortKey(kol.key); setSortDir("desc"); setMenu(null); }} style={menuItem}>↓ Sorteer Z→A</button>
+                </>
+              )}
+              {!kol.geenFilter && (
+                <>
+                  <div style={{ height: 1, background: KLEUR.rand, margin: "6px 0" }} />
+                  <input value={menuZoek} onChange={(e) => setMenuZoek(e.target.value)} placeholder="Filter waarde…" style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "6px 8px", marginBottom: 6, fontSize: 12.5 }} />
+                  <button onClick={() => { setKolomFilters((h) => { const n = { ...h }; delete n[kol.key]; return n; }); setMenu(null); }} style={{ ...menuItem, fontWeight: kolomFilters[kol.key] ? 400 : 700 }}>Alles tonen</button>
+                  {waarden.map((v) => (
+                    <button key={v} onClick={() => { setKolomFilters((h) => ({ ...h, [kol.key]: v })); setMenu(null); }} style={{ ...menuItem, color: kolomFilters[kol.key] === v ? KLEUR.blauw : KLEUR.tekst, fontWeight: kolomFilters[kol.key] === v ? 700 : 400 }}>{v}</button>
+                  ))}
+                  {waarden.length === 0 && <div style={{ fontSize: 12, color: KLEUR.mutedTekst, padding: "4px 8px" }}>Geen waarden</div>}
+                </>
+              )}
+            </div>
+          </>
+        );
+      })()}
     </div>
   );
 }
