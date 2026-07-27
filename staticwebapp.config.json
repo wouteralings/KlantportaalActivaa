@@ -53,6 +53,10 @@
       "allowedRoles": ["beheerder"]
     },
     {
+      "route": "/api/beheer-medewerkers",
+      "allowedRoles": ["beheerder"]
+    },
+    {
       "route": "/api/medewerker-rechten",
       "allowedRoles": ["beheerder", "medewerker"]
     },

@@ -78,8 +78,10 @@ export default function BeheerPortaal() {
   const [linksOpslaanStatus, setLinksOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
 
   // Wijzig-rechten: welke medewerkers (e-mail) klantgegevens mogen wijzigen.
-  const [wijzigersTekst, setWijzigersTekst] = useState("");
+  const [wijzigersSet, setWijzigersSet] = useState(() => new Set()); // e-mailadressen (kleine letters)
   const [wijzigrechtenStatus, setWijzigrechtenStatus] = useState("idle"); // idle | bezig | gelukt | fout
+  const [medewerkers, setMedewerkers] = useState(null); // null = laden; alle Activaa-medewerkers
+  const [medewerkerZoek, setMedewerkerZoek] = useState("");
 
   // Klantoverzicht-kolommen (medewerkersportaal): extra velden + standaard verborgen kolommen.
   const [koExtra, setKoExtra] = useState([]); // [{ veld, label, type }]
@@ -150,8 +152,12 @@ export default function BeheerPortaal() {
       .catch(() => setCategorieen([]));
     fetch("/api/beheer-wijzigrechten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => setWijzigersTekst((d.wijzigers || []).join("\n")))
+      .then((d) => setWijzigersSet(new Set((d.wijzigers || []).map((e) => String(e).toLowerCase()))))
       .catch(() => {});
+    fetch("/api/beheer-medewerkers")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setMedewerkers(d.medewerkers || []))
+      .catch(() => setMedewerkers([]));
     fetch("/api/beheer-taaksoorten")
       .then((r) => r.json())
       .then((d) => {
@@ -397,23 +403,28 @@ export default function BeheerPortaal() {
     }
   }, [googleReviewUrl, teamsChatUrl, whatsappUrl, copilotEmbedUrl, offerteportaalUrl, offerteToolUrl]);
 
+  const toggleWijziger = useCallback((email) => {
+    const laag = String(email).toLowerCase();
+    setWijzigersSet((h) => { const n = new Set(h); if (n.has(laag)) n.delete(laag); else n.add(laag); return n; });
+    setWijzigrechtenStatus("idle");
+  }, []);
+
   const slaWijzigrechtenOp = useCallback(async () => {
     setWijzigrechtenStatus("bezig");
     try {
-      const emails = wijzigersTekst.split(/[\n,;]+/).map((e) => e.trim()).filter(Boolean);
       const res = await fetch("/api/beheer-wijzigrechten", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ wijzigers: emails }),
+        body: JSON.stringify({ wijzigers: [...wijzigersSet] }),
       });
       if (!res.ok) throw new Error(await res.text());
       const d = await res.json();
-      setWijzigersTekst((d.wijzigers || []).join("\n"));
+      setWijzigersSet(new Set((d.wijzigers || []).map((e) => String(e).toLowerCase())));
       setWijzigrechtenStatus("gelukt");
     } catch {
       setWijzigrechtenStatus("fout");
     }
-  }, [wijzigersTekst]);
+  }, [wijzigersSet]);
 
   const slaKlantoverzichtOp = useCallback(async () => {
     setKoStatus("bezig");
@@ -596,6 +607,7 @@ export default function BeheerPortaal() {
           ["content", "Content"],
           ["faq", "FAQ"],
           ["taken", "Taken"],
+          ["medewerkers", "Medewerkers"],
           ["instellingen", "Instellingen"],
         ].map(([k, label]) => (
           <button
@@ -1322,37 +1334,6 @@ export default function BeheerPortaal() {
       </div>
 
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Wijzig-rechten medewerkers</div>
-        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 14 }}>
-          Standaard mag een medewerker in het medewerkersportaal alleen lezen. Zet hieronder de
-          e-mailadressen van medewerkers die klantgegevens mogen <strong>wijzigen</strong> (één per regel).
-          Beheerders mogen sowieso altijd wijzigen.
-        </div>
-        <textarea
-          value={wijzigersTekst}
-          onChange={(e) => setWijzigersTekst(e.target.value)}
-          rows={5}
-          placeholder={"naam@activaa.nl\ncollega@activaa.nl"}
-          style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13, fontFamily: "inherit", resize: "vertical", marginBottom: 14, boxSizing: "border-box" }}
-        />
-        <button
-          onClick={slaWijzigrechtenOp}
-          disabled={wijzigrechtenStatus === "bezig"}
-          style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-        >
-          {wijzigrechtenStatus === "bezig" ? "Opslaan..." : "Opslaan"}
-        </button>
-        {wijzigrechtenStatus === "gelukt" && (
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 12, fontSize: 12.5, color: KLEUR.blauw }}>
-            <CheckCircle2 size={14} /> Opgeslagen.
-          </span>
-        )}
-        {wijzigrechtenStatus === "fout" && (
-          <span style={{ marginLeft: 12, fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
-        )}
-      </div>
-
-      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Klantoverzicht-kolommen (medewerkersportaal)</div>
         <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 14 }}>
           Bepaal welke kolommen medewerkers standaard zien in het klantoverzicht, en voeg extra
@@ -1417,6 +1398,65 @@ export default function BeheerPortaal() {
       </div>
 
       </>)}
+
+      {tab === "medewerkers" && (
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Medewerkers — wijzig-rechten</div>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 14 }}>
+          Standaard mag een medewerker in het medewerkersportaal alleen lezen. Vink hieronder aan wie
+          klantgegevens mag <strong>wijzigen</strong>. Beheerders mogen sowieso altijd wijzigen.
+        </div>
+
+        {medewerkers === null ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst }}>
+            <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Medewerkers ophalen…
+          </div>
+        ) : medewerkers.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: KLEUR.rood }}>Geen medewerkers gevonden (controleer de Dynamics-koppeling).</div>
+        ) : (
+          <>
+            <div style={{ position: "relative", marginBottom: 12, maxWidth: 320 }}>
+              <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+              <input
+                value={medewerkerZoek}
+                onChange={(e) => setMedewerkerZoek(e.target.value)}
+                placeholder="Zoek medewerker…"
+                style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 32px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}
+              />
+            </div>
+            <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 8 }}>{wijzigersSet.size} met wijzig-recht</div>
+            <div style={{ display: "flex", flexDirection: "column", maxHeight: 420, overflowY: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
+              {medewerkers
+                .filter((m) => { const q = medewerkerZoek.trim().toLowerCase(); return !q || m.naam.toLowerCase().includes(q) || m.email.toLowerCase().includes(q); })
+                .map((m, i) => (
+                  <label key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, cursor: "pointer" }}>
+                    <input type="checkbox" checked={wijzigersSet.has(m.email)} onChange={() => toggleWijziger(m.email)} style={{ width: 16, height: 16 }} />
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>{m.naam || m.email}</span>
+                    <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{m.email}</span>
+                  </label>
+                ))}
+            </div>
+            <div style={{ marginTop: 14 }}>
+              <button
+                onClick={slaWijzigrechtenOp}
+                disabled={wijzigrechtenStatus === "bezig"}
+                style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+              >
+                {wijzigrechtenStatus === "bezig" ? "Opslaan..." : "Opslaan"}
+              </button>
+              {wijzigrechtenStatus === "gelukt" && (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 12, fontSize: 12.5, color: KLEUR.blauw }}>
+                  <CheckCircle2 size={14} /> Opgeslagen.
+                </span>
+              )}
+              {wijzigrechtenStatus === "fout" && (
+                <span style={{ marginLeft: 12, fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+      )}
 
       {tab === "taken" && (<>
         <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
