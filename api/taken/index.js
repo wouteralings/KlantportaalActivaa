@@ -47,11 +47,13 @@ async function haalSoortConfig() {
   const config = instellingen.taaksoorten || {};
   const zichtbaar = new Set();
   const magGoedkeuren = new Set();
+  const vereistHandtekening = new Set();
   for (const [waarde, opties] of Object.entries(config)) {
     if (opties?.zichtbaar) zichtbaar.add(String(waarde));
     if (opties?.magGoedkeuren) magGoedkeuren.add(String(waarde));
+    if (opties?.vereistHandtekening) vereistHandtekening.add(String(waarde));
   }
-  return { config, zichtbaar, magGoedkeuren };
+  return { config, zichtbaar, magGoedkeuren, vereistHandtekening };
 }
 
 /**
@@ -112,6 +114,7 @@ async function haalZichtbareTaken(resource, token, accounts, soortConfig) {
       prioriteit: rij.prioritycode ?? 1,
       soort: rij[SOORT_VELD + FV] || "",
       kanAkkoord: soortConfig.magGoedkeuren.has(String(soortWaarde)),
+      vereistHandtekening: soortConfig.vereistHandtekening.has(String(soortWaarde)),
       uploadLink: UPLOADLINK_VELD ? rij[UPLOADLINK_VELD] || null : null,
       uploadVerloopt: VERLOOPDATUM_VELD ? rij[VERLOOPDATUM_VELD] || null : null,
       documentUrl: DOCUMENT_VELD ? rij[DOCUMENT_VELD] || null : null,

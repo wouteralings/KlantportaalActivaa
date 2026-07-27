@@ -16,7 +16,7 @@ function haalGebruikersToken(req) {
   return header.slice("Bearer ".length).trim();
 }
 
-async function wisselVoorGraphToken(gebruikersToken) {
+async function wisselVoorGraphToken(gebruikersToken, scope = "https://graph.microsoft.com/Files.Read offline_access") {
   const tenantId = process.env.AAD_TENANT_ID;
   const clientId = process.env.AAD_CLIENT_ID;
   const clientSecret = process.env.AAD_CLIENT_SECRET;
@@ -31,7 +31,7 @@ async function wisselVoorGraphToken(gebruikersToken) {
     client_secret: clientSecret,
     grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
     assertion: gebruikersToken,
-    scope: "https://graph.microsoft.com/Files.Read offline_access",
+    scope,
     requested_token_use: "on_behalf_of",
   });
 

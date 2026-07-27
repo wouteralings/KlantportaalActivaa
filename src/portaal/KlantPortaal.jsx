@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Building2,
   ClipboardList,
@@ -242,6 +242,28 @@ export default function KlantPortaal() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taken, haalTakenOp]);
 
+  const geefHandtekening = useCallback(async (taakId, gegevens) => {
+    // gegevens = { naam, email, toelichting, handtekening (data-URL) }
+    const token = await haalApiToken(); // MSAL-token nodig voor de on-behalf-of-upload naar SharePoint
+    const res = await fetch("/api/taken-ondertekenen", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ taakId, ...gegevens }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json().catch(() => ({}));
+    // Taak uit de open lijst halen en verversen (verschijnt in de beheer-log).
+    setTaken((huidig) => {
+      if (!huidig || !Array.isArray(huidig.groepen)) return huidig;
+      return { ...huidig, groepen: huidig.groepen.map((g) => ({ ...g, taken: g.taken.filter((t) => t.id !== taakId) })) };
+    });
+    haalTakenOp();
+    if (data.sharepointFout) {
+      setFout("Ondertekend en vastgelegd. Let op: opslaan in SharePoint lukte nog niet (" + data.sharepointFout + ").");
+    }
+    return data;
+  }, [haalTakenOp]);
+
   const markeerNieuwsGelezen = useCallback(async (url, gelezen = true) => {
     // Optimistisch bijwerken zodat het bericht meteen naar (of uit) de gelezen-sectie schuift.
     setGelezenNieuws((huidig) =>
@@ -383,7 +405,7 @@ export default function KlantPortaal() {
       {tab === "home" && (
         <>
           <Kopje tekst="Open taken" />
-          <TabTaken data={taken} onAkkoord={geefAkkoord} onNietAkkoord={geefNietAkkoord} />
+          <TabTaken data={taken} onAkkoord={geefAkkoord} onNietAkkoord={geefNietAkkoord} onOndertekenen={geefHandtekening} />
 
           {content?.programmas?.length > 0 && (
             <div style={{ marginTop: 28 }}>
@@ -1205,7 +1227,95 @@ function documentEmbedUrl(url) {
   return url + (url.includes("?") ? "&" : "?") + "action=embedview";
 }
 
-function TabTaken({ data, onAkkoord, onNietAkkoord }) {
+// DocuSign-achtig onderteken-paneel: naam, e-mail, toelichting en een getekende handtekening.
+function HandtekeningPaneel({ taak, onOndertekenen, onNietAkkoord }) {
+  const canvasRef = useRef(null);
+  const tekentRef = useRef(false);
+  const [heeftHandtekening, setHeeftHandtekening] = useState(false);
+  const [naam, setNaam] = useState("");
+  const [email, setEmail] = useState("");
+  const [toelichting, setToelichting] = useState("");
+  const [status, setStatus] = useState("invoer"); // invoer | versturen | fout
+
+  const positie = (e) => {
+    const c = canvasRef.current;
+    const r = c.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    return { x: (clientX - r.left) * (c.width / r.width), y: (clientY - r.top) * (c.height / r.height) };
+  };
+  const start = (e) => { e.preventDefault(); tekentRef.current = true; const ctx = canvasRef.current.getContext("2d"); const p = positie(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); };
+  const beweeg = (e) => {
+    if (!tekentRef.current) return;
+    e.preventDefault();
+    const ctx = canvasRef.current.getContext("2d");
+    const p = positie(e);
+    ctx.lineTo(p.x, p.y); ctx.strokeStyle = "#1C2321"; ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.stroke();
+    setHeeftHandtekening(true);
+  };
+  const stop = () => { tekentRef.current = false; };
+  const wissen = () => { const c = canvasRef.current; c.getContext("2d").clearRect(0, 0, c.width, c.height); setHeeftHandtekening(false); };
+
+  const verstuur = async () => {
+    if (!naam.trim() || !heeftHandtekening || status === "versturen") return;
+    setStatus("versturen");
+    try {
+      const handtekening = canvasRef.current.toDataURL("image/png");
+      await onOndertekenen(taak.id, { naam: naam.trim(), email: email.trim(), toelichting: toelichting.trim(), handtekening });
+    } catch {
+      setStatus("fout");
+      return;
+    }
+    setStatus("invoer");
+  };
+
+  const label = { fontSize: 12, fontWeight: 700, color: KLEUR.tekst, marginBottom: 4, display: "block" };
+  const input = { width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 9, fontSize: 13, fontFamily: "inherit", marginBottom: 12 };
+
+  return (
+    <div style={{ marginTop: 12, padding: 14, background: "#FAFBF9", border: `1px solid ${KLEUR.rand}`, borderRadius: 10 }}>
+      <label style={label}>Naam</label>
+      <input style={input} value={naam} onChange={(e) => setNaam(e.target.value)} placeholder="Voor- en achternaam" />
+      <label style={label}>E-mailadres</label>
+      <input style={input} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="naam@bedrijf.nl" />
+      <label style={label}>Toelichting (optioneel)</label>
+      <textarea style={{ ...input, resize: "vertical" }} rows={2} value={toelichting} onChange={(e) => setToelichting(e.target.value)} placeholder="Eventuele opmerkingen…" />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <label style={label}>Handtekening (nodig om te ondertekenen — teken met muis of vinger)</label>
+        <button onClick={wissen} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11.5, color: KLEUR.mutedTekst }}>Wissen</button>
+      </div>
+      <canvas
+        ref={canvasRef}
+        width={520}
+        height={150}
+        onMouseDown={start} onMouseMove={beweeg} onMouseUp={stop} onMouseLeave={stop}
+        onTouchStart={start} onTouchMove={beweeg} onTouchEnd={stop}
+        style={{ width: "100%", height: 150, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, touchAction: "none", cursor: "crosshair" }}
+      />
+      <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+        <button
+          onClick={verstuur}
+          disabled={!naam.trim() || !heeftHandtekening || status === "versturen"}
+          style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: (naam.trim() && heeftHandtekening) ? "#2E7D46" : "#9BBFA6", color: "#fff", border: "none", borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: (naam.trim() && heeftHandtekening && status !== "versturen") ? "pointer" : "not-allowed" }}
+        >
+          <CheckCircle2 size={14} /> {status === "versturen" ? "Bezig…" : "Akkoord — ondertekenen"}
+        </button>
+        <button
+          onClick={() => onNietAkkoord()}
+          style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+        >
+          <XCircle size={14} /> Niet akkoord
+        </button>
+      </div>
+      {status === "fout" && <div style={{ fontSize: 12, color: KLEUR.rood, marginTop: 8 }}>Ondertekenen is niet gelukt. Probeer het opnieuw.</div>}
+      <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 8, lineHeight: 1.5 }}>
+        Voor akkoord is een handtekening verplicht; voor "Niet akkoord" niet. Door te ondertekenen bevestig je deze reactie. We leggen daarbij je naam, e-mailadres, handtekening, het tijdstip en je IP-adres vast als bewijs.
+      </div>
+    </div>
+  );
+}
+
+function TabTaken({ data, onAkkoord, onNietAkkoord, onOndertekenen }) {
   const [bevestigId, setBevestigId] = useState(null);
   const [afwijzenId, setAfwijzenId] = useState(null);
   const [afwijzenTekst, setAfwijzenTekst] = useState("");
@@ -1250,7 +1360,7 @@ function TabTaken({ data, onAkkoord, onNietAkkoord }) {
                         </div>
                       )}
                     </div>
-                    {taak.kanAkkoord && idle && (
+                    {taak.kanAkkoord && !taak.vereistHandtekening && idle && (
                       <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
                         <button
                           onClick={() => { setAfwijzenId(null); setBevestigId(taak.id); }}
@@ -1293,6 +1403,14 @@ function TabTaken({ data, onAkkoord, onNietAkkoord }) {
                     </div>
                   )}
 
+                  {taak.vereistHandtekening && afwijzenId !== taak.id && (
+                    <HandtekeningPaneel
+                      taak={taak}
+                      onOndertekenen={onOndertekenen}
+                      onNietAkkoord={() => { setBevestigId(null); setAfwijzenTekst(""); setAfwijzenId(taak.id); }}
+                    />
+                  )}
+
                   {taak.kanAkkoord && bevestigId === taak.id && (
                     <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 12.5, color: KLEUR.subtekst }}>Weet je zeker dat je akkoord geeft?</span>
@@ -1305,7 +1423,7 @@ function TabTaken({ data, onAkkoord, onNietAkkoord }) {
                     </div>
                   )}
 
-                  {taak.kanAkkoord && afwijzenId === taak.id && (
+                  {(taak.kanAkkoord || taak.vereistHandtekening) && afwijzenId === taak.id && (
                     <div style={{ marginTop: 12 }}>
                       <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 6 }}>
                         Geef aan waarom je niet akkoord gaat — dit bericht gaat naar Activaa.

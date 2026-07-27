@@ -45,6 +45,10 @@
       "allowedRoles": ["beheerder"]
     },
     {
+      "route": "/api/beheer-handtekeningen",
+      "allowedRoles": ["beheerder"]
+    },
+    {
       "route": "/api/instellingen",
       "allowedRoles": ["anonymous"]
     },

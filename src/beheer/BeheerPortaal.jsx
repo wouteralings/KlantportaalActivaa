@@ -73,6 +73,7 @@ export default function BeheerPortaal() {
   const [taaksoortenSectieOpen, setTaaksoortenSectieOpen] = useState(false);
   const [taaksoortenZoek, setTaaksoortenZoek] = useState("");
   const [akkoordenLog, setAkkoordenLog] = useState(null); // null = laden; log van klantreacties op taken
+  const [handtekeningenLog, setHandtekeningenLog] = useState(null); // null = laden; log van ondertekeningen
   const [logZoek, setLogZoek] = useState("");
 
   // Webhooks (Power Automate), onderhoudbaar onder Instellingen.
@@ -140,6 +141,10 @@ export default function BeheerPortaal() {
       .then((r) => r.json())
       .then((d) => setAkkoordenLog(d.akkoorden || []))
       .catch(() => setAkkoordenLog([]));
+    fetch("/api/beheer-handtekeningen")
+      .then((r) => r.json())
+      .then((d) => setHandtekeningenLog(d.handtekeningen || []))
+      .catch(() => setHandtekeningenLog([]));
     haalMededelingen();
     haalSnellinks();
     haalFaqs();
@@ -393,10 +398,10 @@ export default function BeheerPortaal() {
       const key = String(waarde);
       const bestaand = huidig[key] || {};
       const nieuw = { ...bestaand, [veld]: aan, label: label ?? bestaand.label };
-      // Goedkeuren kan alleen bij een zichtbare soort: zet je 'zichtbaar' uit, dan valt
-      // 'mag goedkeuren' automatisch mee weg.
-      if (veld === "zichtbaar" && !aan) nieuw.magGoedkeuren = false;
+      // Goedkeuren én ondertekenen kunnen alleen bij een zichtbare soort.
+      if (veld === "zichtbaar" && !aan) { nieuw.magGoedkeuren = false; nieuw.vereistHandtekening = false; }
       if (veld === "magGoedkeuren" && aan) nieuw.zichtbaar = true;
+      if (veld === "vereistHandtekening" && aan) nieuw.zichtbaar = true;
       return { ...huidig, [key]: nieuw };
     });
     setTaaksoortenOpslaanStatus("idle");
@@ -1243,10 +1248,11 @@ export default function BeheerPortaal() {
                   style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px 8px 32px", fontSize: 13 }}
                 />
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: "0 20px", alignItems: "center" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: "0 18px", alignItems: "center" }}>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}` }}>Soort</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Zichtbaar</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Mag goedkeuren</div>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Vereist handtekening</div>
                 {taaksoortenOpties
                   .filter((optie) => (optie.label || "").toLowerCase().includes(taaksoortenZoek.trim().toLowerCase()))
                   .map((optie) => {
@@ -1267,6 +1273,14 @@ export default function BeheerPortaal() {
                           type="checkbox"
                           checked={!!cfg.magGoedkeuren}
                           onChange={(e) => wijzigTaaksoort(optie.waarde, "magGoedkeuren", e.target.checked, optie.label)}
+                          style={{ width: 16, height: 16, cursor: "pointer" }}
+                        />
+                      </div>
+                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: `1px solid ${KLEUR.rand}` }}>
+                        <input
+                          type="checkbox"
+                          checked={!!cfg.vereistHandtekening}
+                          onChange={(e) => wijzigTaaksoort(optie.waarde, "vereistHandtekening", e.target.checked, optie.label)}
                           style={{ width: 16, height: 16, cursor: "pointer" }}
                         />
                       </div>
@@ -1361,6 +1375,48 @@ export default function BeheerPortaal() {
             </div>
             );
           })()}
+        </div>
+
+        <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Ondertekeningen</div>
+          <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 16 }}>
+            Digitale handtekeningen die klanten via een taak hebben gezet, met downloadlink naar de
+            bewijs-PDF. De PDF wordt ook in SharePoint opgeslagen (map "1. Intern / 0. Permanent dossier").
+          </div>
+          {handtekeningenLog === null ? (
+            <div style={{ fontSize: 13, color: KLEUR.mutedTekst }}>Laden…</div>
+          ) : handtekeningenLog.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Nog geen ondertekeningen vastgelegd.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              {handtekeningenLog.map((h, i) => (
+                <div key={h.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 0", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}` }}>
+                  <CheckCircle2 size={16} color="#2E7D46" style={{ marginTop: 2, flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{h.taaktitel || "(taak)"}</div>
+                    <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 2 }}>
+                      {h.klantnaam ? h.klantnaam + " · " : ""}
+                      Getekend door {h.naam || "onbekend"}{h.opgegevenEmail ? " (" + h.opgegevenEmail + ")" : ""} ·{" "}
+                      {new Date(h.ondertekendOp).toLocaleString("nl-NL", { dateStyle: "short", timeStyle: "short" })}
+                      {h.ip ? " · IP " + h.ip : ""}
+                    </div>
+                    {h.toelichting && <div style={{ fontSize: 12, color: KLEUR.subtekst, marginTop: 3, whiteSpace: "pre-wrap" }}>“{h.toelichting}”</div>}
+                    <div style={{ marginTop: 5, display: "flex", gap: 12, flexWrap: "wrap" }}>
+                      {h.sharepointUrl && (
+                        <a href={h.sharepointUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, fontWeight: 600, color: KLEUR.blauw, textDecoration: "none" }}>Bewijs in SharePoint</a>
+                      )}
+                      {h.blobNaam && (
+                        <a href={`/api/beheer-handtekeningen?blob=${encodeURIComponent(h.blobNaam)}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, fontWeight: 600, color: KLEUR.blauw, textDecoration: "none" }}>Download bewijs-PDF</a>
+                      )}
+                      {!h.sharepointUrl && h.sharepointFout && (
+                        <span style={{ fontSize: 11.5, color: KLEUR.rood }}>SharePoint-opslag mislukt ({h.sharepointFout})</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </>)}
 
