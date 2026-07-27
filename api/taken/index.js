@@ -8,6 +8,10 @@ const { voegAkkoordToe, haalAkkoordenVoorEmail } = require("../_gedeeld/taakakko
  */
 const UPLOADLINK_VELD = process.env.DYNAMICS_TAAK_UPLOADLINK_VELD || "";
 const VERLOOPDATUM_VELD = process.env.DYNAMICS_TAAK_VERLOOPDATUM_VELD || "";
+// Veld op Task met de SharePoint-link naar het document dat bij de taak hoort. Is dit gevuld,
+// dan toont het portaal het document ingesloten onder de taak. Zet de logische veldnaam via
+// Application Setting DYNAMICS_TAAK_DOCUMENT_VELD (leeg = geen documentweergave).
+const DOCUMENT_VELD = process.env.DYNAMICS_TAAK_DOCUMENT_VELD || "";
 
 // Het "Soort"-veld op Task is een keuzelijst (option set). Zet de LOGISCHE veldnaam via de
 // Application Setting DYNAMICS_TAAK_SOORT_VELD (bijv. "sk_soort" of "cr283_soort"). Zolang dit
@@ -21,7 +25,7 @@ const SOORT_VELD = process.env.DYNAMICS_TAAK_SOORT_VELD || "";
 const KLANT_VELD = process.env.DYNAMICS_TAAK_KLANT_VELD || "sk_client";
 const KLANT_VALUE = `_${KLANT_VELD}_value`;
 
-const EXTRA_TAAK_VELDEN = [UPLOADLINK_VELD, VERLOOPDATUM_VELD, SOORT_VELD].filter(Boolean).join(",");
+const EXTRA_TAAK_VELDEN = [UPLOADLINK_VELD, VERLOOPDATUM_VELD, SOORT_VELD, DOCUMENT_VELD].filter(Boolean).join(",");
 const FV = "@OData.Community.Display.V1.FormattedValue";
 
 const DYNAMICS_HEADERS = (token) => ({
@@ -110,6 +114,7 @@ async function haalZichtbareTaken(resource, token, accounts, soortConfig) {
       kanAkkoord: soortConfig.magGoedkeuren.has(String(soortWaarde)),
       uploadLink: UPLOADLINK_VELD ? rij[UPLOADLINK_VELD] || null : null,
       uploadVerloopt: VERLOOPDATUM_VELD ? rij[VERLOOPDATUM_VELD] || null : null,
+      documentUrl: DOCUMENT_VELD ? rij[DOCUMENT_VELD] || null : null,
     });
   }
 

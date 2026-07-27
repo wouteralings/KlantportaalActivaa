@@ -1197,6 +1197,14 @@ function TabGegevens({ data, verzoeken, onWijzigen }) {
   );
 }
 
+// Maakt van een SharePoint-/Office-documentlink een insluitbare weergave-URL. De "Openen"-link
+// blijft altijd de volledige originele URL, zodat de klant er sowieso bij kan als insluiten
+// door SharePoint-instellingen wordt geblokkeerd.
+function documentEmbedUrl(url) {
+  if (!url) return url;
+  return url + (url.includes("?") ? "&" : "?") + "action=embedview";
+}
+
 function TabTaken({ data, onAkkoord, onNietAkkoord }) {
   const [bevestigId, setBevestigId] = useState(null);
   const [afwijzenId, setAfwijzenId] = useState(null);
@@ -1223,36 +1231,46 @@ function TabTaken({ data, onAkkoord, onNietAkkoord }) {
               <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Klantnummer {groep.klantnummer}</div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {groep.taken.map((taak) => (
-                <div key={taak.id} style={{ padding: "10px 0", borderTop: `1px solid ${KLEUR.rand}` }}>
-                  {taak.soort && (
-                    <span style={{
-                      display: "inline-flex", alignItems: "center", gap: 5, marginBottom: 6,
-                      padding: "2px 9px", background: KLEUR.lichtblauw, color: KLEUR.blauw,
-                      borderRadius: 999, fontSize: 11, fontWeight: 600,
-                    }}>
-                      <Tag size={11} /> {taak.soort}
-                    </span>
-                  )}
-                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>{taak.titel}</div>
-                  {taak.omschrijving && <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginTop: 2, whiteSpace: "pre-wrap" }}>{taak.omschrijving}</div>}
-                  {taak.deadline && (
-                    <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4 }}>
-                      Deadline: {new Date(taak.deadline).toLocaleDateString("nl-NL")}
+              {groep.taken.map((taak) => {
+                const idle = bevestigId !== taak.id && afwijzenId !== taak.id;
+                return (
+                <div key={taak.id} style={{ padding: "12px 0", borderTop: `1px solid ${KLEUR.rand}` }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {taak.soort && (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 5, marginBottom: 6, padding: "2px 9px", background: KLEUR.lichtblauw, color: KLEUR.blauw, borderRadius: 999, fontSize: 11, fontWeight: 600 }}>
+                          <Tag size={11} /> {taak.soort}
+                        </span>
+                      )}
+                      <div style={{ fontSize: 13.5, fontWeight: 600 }}>{taak.titel}</div>
+                      {taak.omschrijving && <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginTop: 2, whiteSpace: "pre-wrap" }}>{taak.omschrijving}</div>}
+                      {taak.deadline && (
+                        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4 }}>
+                          Deadline: {new Date(taak.deadline).toLocaleDateString("nl-NL")}
+                        </div>
+                      )}
                     </div>
-                  )}
+                    {taak.kanAkkoord && idle && (
+                      <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                        <button
+                          onClick={() => { setAfwijzenId(null); setBevestigId(taak.id); }}
+                          style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px", background: "#2E7D46", color: "#fff", border: "none", borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
+                        >
+                          <CheckCircle2 size={14} /> Akkoord geven
+                        </button>
+                        <button
+                          onClick={() => { setBevestigId(null); setAfwijzenTekst(""); setAfwijzenId(taak.id); }}
+                          style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px", background: "#fff", color: KLEUR.rood, border: `1px solid ${KLEUR.rood}`, borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
+                        >
+                          Niet akkoord
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
                   {taak.uploadLink && (
                     <div style={{ marginTop: 10 }}>
-                      <a
-                        href={taak.uploadLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 14px",
-                          background: KLEUR.blauw, color: "#fff", borderRadius: 6, fontSize: 12.5,
-                          fontWeight: 600, textDecoration: "none",
-                        }}
-                      >
+                      <a href={taak.uploadLink} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 14px", background: KLEUR.blauw, color: "#fff", borderRadius: 6, fontSize: 12.5, fontWeight: 600, textDecoration: "none" }}>
                         <Upload size={13} /> Bestanden uploaden
                       </a>
                       {taak.uploadVerloopt && (
@@ -1262,100 +1280,50 @@ function TabTaken({ data, onAkkoord, onNietAkkoord }) {
                       )}
                     </div>
                   )}
-                  {taak.kanAkkoord && (
-                    <div style={{ marginTop: 10 }}>
-                      {bevestigId === taak.id ? (
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                          <span style={{ fontSize: 12.5, color: KLEUR.subtekst }}>Weet je zeker dat je akkoord geeft?</span>
-                          <button
-                            onClick={() => { setBevestigId(null); onAkkoord(taak.id); }}
-                            style={{
-                              display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px",
-                              background: "#2E7D46", color: "#fff", border: "none", borderRadius: 6,
-                              fontSize: 12.5, fontWeight: 600, cursor: "pointer",
-                            }}
-                          >
-                            <CheckCircle2 size={14} /> Ja, akkoord
-                          </button>
-                          <button
-                            onClick={() => setBevestigId(null)}
-                            style={{
-                              padding: "7px 12px", background: "#fff", color: KLEUR.subtekst,
-                              border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 12.5,
-                              fontWeight: 600, cursor: "pointer",
-                            }}
-                          >
-                            Annuleren
-                          </button>
-                        </div>
-                      ) : afwijzenId === taak.id ? (
-                        <div>
-                          <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 6 }}>
-                            Geef aan waarom je niet akkoord gaat — dit bericht gaat naar Activaa.
-                          </div>
-                          <textarea
-                            value={afwijzenTekst}
-                            onChange={(e) => setAfwijzenTekst(e.target.value)}
-                            rows={3}
-                            placeholder="Je toelichting…"
-                            style={{
-                              width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`,
-                              borderRadius: 8, padding: 10, fontSize: 13, fontFamily: "inherit", resize: "vertical",
-                            }}
-                          />
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-                            <button
-                              disabled={!afwijzenTekst.trim()}
-                              onClick={() => { const t = afwijzenTekst.trim(); setAfwijzenId(null); setAfwijzenTekst(""); onNietAkkoord(taak.id, t); }}
-                              style={{
-                                display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px",
-                                background: afwijzenTekst.trim() ? KLEUR.rood : "#C9A3A3", color: "#fff",
-                                border: "none", borderRadius: 6, fontSize: 12.5, fontWeight: 600,
-                                cursor: afwijzenTekst.trim() ? "pointer" : "not-allowed",
-                              }}
-                            >
-                              <Send size={13} /> Versturen
-                            </button>
-                            <button
-                              onClick={() => { setAfwijzenId(null); setAfwijzenTekst(""); }}
-                              style={{
-                                padding: "7px 12px", background: "#fff", color: KLEUR.subtekst,
-                                border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 12.5,
-                                fontWeight: 600, cursor: "pointer",
-                              }}
-                            >
-                              Annuleren
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                          <button
-                            onClick={() => { setAfwijzenId(null); setBevestigId(taak.id); }}
-                            style={{
-                              display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 16px",
-                              background: "#2E7D46", color: "#fff", border: "none", borderRadius: 6,
-                              fontSize: 12.5, fontWeight: 600, cursor: "pointer",
-                            }}
-                          >
-                            <CheckCircle2 size={14} /> Akkoord geven
-                          </button>
-                          <button
-                            onClick={() => { setBevestigId(null); setAfwijzenTekst(""); setAfwijzenId(taak.id); }}
-                            style={{
-                              display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 16px",
-                              background: "#fff", color: KLEUR.rood, border: `1px solid ${KLEUR.rood}`,
-                              borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
-                            }}
-                          >
-                            Niet akkoord
-                          </button>
-                        </div>
-                      )}
+
+                  {taak.documentUrl && (
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: KLEUR.subtekst }}>Document</div>
+                        <a href={taak.documentUrl} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: KLEUR.blauw, textDecoration: "none" }}>
+                          <ExternalLink size={12} /> Openen
+                        </a>
+                      </div>
+                      <iframe title={taak.titel} src={documentEmbedUrl(taak.documentUrl)} style={{ width: "100%", height: 460, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, background: "#fff" }} />
+                    </div>
+                  )}
+
+                  {taak.kanAkkoord && bevestigId === taak.id && (
+                    <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 12.5, color: KLEUR.subtekst }}>Weet je zeker dat je akkoord geeft?</span>
+                      <button onClick={() => { setBevestigId(null); onAkkoord(taak.id); }} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px", background: "#2E7D46", color: "#fff", border: "none", borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+                        <CheckCircle2 size={14} /> Ja, akkoord
+                      </button>
+                      <button onClick={() => setBevestigId(null)} style={{ padding: "7px 12px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+                        Annuleren
+                      </button>
+                    </div>
+                  )}
+
+                  {taak.kanAkkoord && afwijzenId === taak.id && (
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 6 }}>
+                        Geef aan waarom je niet akkoord gaat — dit bericht gaat naar Activaa.
+                      </div>
+                      <textarea value={afwijzenTekst} onChange={(e) => setAfwijzenTekst(e.target.value)} rows={3} placeholder="Je toelichting…" style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13, fontFamily: "inherit", resize: "vertical" }} />
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                        <button disabled={!afwijzenTekst.trim()} onClick={() => { const t = afwijzenTekst.trim(); setAfwijzenId(null); setAfwijzenTekst(""); onNietAkkoord(taak.id, t); }} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px", background: afwijzenTekst.trim() ? KLEUR.rood : "#C9A3A3", color: "#fff", border: "none", borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: afwijzenTekst.trim() ? "pointer" : "not-allowed" }}>
+                          <Send size={13} /> Versturen
+                        </button>
+                        <button onClick={() => { setAfwijzenId(null); setAfwijzenTekst(""); }} style={{ padding: "7px 12px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+                          Annuleren
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ))
