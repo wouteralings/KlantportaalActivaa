@@ -1088,7 +1088,13 @@ function KlantOverzicht() {
     for (const [key, val] of Object.entries(kolomFilters)) {
       if (!val) continue;
       const kol = kolomVan(key);
-      if (kol && kol.cel(k) !== val) return false;
+      if (!kol) continue;
+      const cel = kol.cel(k);
+      if (typeof val === "object" && val.bevat) {
+        if (!String(cel).toLowerCase().includes(val.bevat.toLowerCase())) return false;
+      } else if (cel !== val) {
+        return false;
+      }
     }
     if (term) {
       const raak = [k.klantnaam, String(k.klantnummer ?? ""), k.groepsnaam, k.contact?.naam, k.relatiebeheerder, k.team, k.clienttype]
@@ -1187,7 +1193,7 @@ function KlantOverzicht() {
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
           {Object.entries(kolomFilters).filter(([, v]) => v).map(([key, v]) => (
             <span key={key} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 6px 3px 10px", background: KLEUR.lichtblauw, color: KLEUR.blauw, borderRadius: 999, fontSize: 11.5, fontWeight: 600 }}>
-              {(kolomVan(key)?.label || key)}: {v}
+              {(kolomVan(key)?.label || key)}{typeof v === "object" && v.bevat ? ` bevat "${v.bevat}"` : `: ${v}`}
               <button onClick={() => setKolomFilters((h) => { const n = { ...h }; delete n[key]; return n; })} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.blauw, fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>
             </span>
           ))}
@@ -1279,7 +1285,23 @@ function KlantOverzicht() {
               {!kol.geenFilter && (
                 <>
                   <div style={{ height: 1, background: KLEUR.rand, margin: "6px 0" }} />
-                  <input value={menuZoek} onChange={(e) => setMenuZoek(e.target.value)} placeholder="Filter waarde…" style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "6px 8px", marginBottom: 6, fontSize: 12.5 }} />
+                  <input
+                    value={menuZoek}
+                    onChange={(e) => setMenuZoek(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && menuZoek.trim()) {
+                        setKolomFilters((h) => ({ ...h, [kol.key]: { bevat: menuZoek.trim() } }));
+                        setMenu(null);
+                      }
+                    }}
+                    placeholder="Typ en Enter = bevat…"
+                    style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "6px 8px", marginBottom: 4, fontSize: 12.5 }}
+                  />
+                  {menuZoek.trim() && (
+                    <button onClick={() => { setKolomFilters((h) => ({ ...h, [kol.key]: { bevat: menuZoek.trim() } })); setMenu(null); }} style={{ ...menuItem, color: KLEUR.blauw, fontWeight: 600 }}>
+                      Filter op: bevat “{menuZoek.trim()}”
+                    </button>
+                  )}
                   <button onClick={() => { setKolomFilters((h) => { const n = { ...h }; delete n[kol.key]; return n; }); setMenu(null); }} style={{ ...menuItem, fontWeight: kolomFilters[kol.key] ? 400 : 700 }}>Alles tonen</button>
                   {waarden.map((v) => (
                     <button key={v} onClick={() => { setKolomFilters((h) => ({ ...h, [kol.key]: v })); setMenu(null); }} style={{ ...menuItem, color: kolomFilters[kol.key] === v ? KLEUR.blauw : KLEUR.tekst, fontWeight: kolomFilters[kol.key] === v ? 700 : 400 }}>{v}</button>
