@@ -23,7 +23,7 @@ module.exports = async function (context, req) {
     // Actieve, interne gebruikers met een e-mailadres; applicatie-/systeemaccounts (applicationid) uitgesloten.
     const start =
       `${resource}/api/data/v9.2/systemusers` +
-      `?$select=systemuserid,fullname,internalemailaddress` +
+      `?$select=systemuserid,fullname,internalemailaddress,title,address1_telephone1` +
       `&$filter=isdisabled eq false and internalemailaddress ne null and applicationid eq null` +
       `&$orderby=fullname asc`;
 
@@ -36,8 +36,13 @@ module.exports = async function (context, req) {
       alles.push(...(data.value || []));
       next = data["@odata.nextLink"] || null;
     }
+    // Alleen echte Activaa-medewerkers: kantoor-telefoonnummer geregistreerd én een functie.
+    // Het significante deel van 085 060 09 60 is 850600960 (werkt ook met +31-notatie).
+    const TELFILTER = (process.env.MEDEWERKER_TELEFOONFILTER || "850600960").replace(/\D/g, "");
+    const cijfers = (s) => String(s || "").replace(/\D/g, "");
     const medewerkers = alles
-      .map((u) => ({ id: u.systemuserid, naam: u.fullname || "", email: (u.internalemailaddress || "").toLowerCase() }))
+      .filter((u) => u.title && cijfers(u.address1_telephone1).includes(TELFILTER))
+      .map((u) => ({ id: u.systemuserid, naam: u.fullname || "", email: (u.internalemailaddress || "").toLowerCase(), functie: u.title || "" }))
       .filter((m) => m.email);
 
     context.res = { headers: { "Content-Type": "application/json" }, body: { medewerkers } };

@@ -1,25 +1,25 @@
-const { haalWijzigers, zetWijzigers } = require("../_gedeeld/wijzigrechten");
+const { haalNiveaus, zetNiveaus } = require("../_gedeeld/wijzigrechten");
 
 /**
  * Route is beveiligd via staticwebapp.config.json (alleen rol 'beheerder').
  *
- * GET → { wijzigers: [emails] } — de medewerkers die mogen wijzigen.
- * PUT body { wijzigers: [emails] } → overschrijft de lijst.
+ * GET → { niveaus: { "<email>": "manager"|"beheerder" } } — medewerker = standaard (niet opgeslagen).
+ * PUT body { niveaus: {...} } → overschrijft de niveaus.
  */
 module.exports = async function (context, req) {
   try {
     if (req.method === "GET") {
-      context.res = { headers: { "Content-Type": "application/json" }, body: { wijzigers: await haalWijzigers() } };
+      context.res = { headers: { "Content-Type": "application/json" }, body: { niveaus: await haalNiveaus() } };
       return;
     }
     if (req.method === "PUT") {
-      const emails = (req.body && req.body.wijzigers) || [];
-      if (!Array.isArray(emails)) {
-        context.res = { status: 400, body: { error: "Geef 'wijzigers' (array van e-mailadressen) mee." } };
+      const niveaus = (req.body && req.body.niveaus) || {};
+      if (typeof niveaus !== "object" || Array.isArray(niveaus)) {
+        context.res = { status: 400, body: { error: "Geef 'niveaus' (object van e-mail → niveau) mee." } };
         return;
       }
-      const opgeslagen = await zetWijzigers(emails);
-      context.res = { headers: { "Content-Type": "application/json" }, body: { wijzigers: opgeslagen } };
+      const opgeslagen = await zetNiveaus(niveaus);
+      context.res = { headers: { "Content-Type": "application/json" }, body: { niveaus: opgeslagen } };
       return;
     }
     context.res = { status: 405, body: { error: "Methode niet ondersteund." } };

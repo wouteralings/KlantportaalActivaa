@@ -1423,7 +1423,7 @@ export default function MedewerkerPortaal() {
   ];
 
   return (
-    <div style={{ maxWidth: tab === "klantoverzicht" ? 1180 : 720, margin: "0 auto", padding: "32px 20px", fontFamily: "system-ui, -apple-system, sans-serif", color: KLEUR.tekst }}>
+    <div style={{ maxWidth: "none", width: "100%", margin: "0 auto", padding: "24px 32px", boxSizing: "border-box", fontFamily: "system-ui, -apple-system, sans-serif", color: KLEUR.tekst }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28, paddingBottom: 16, borderBottom: `1px solid ${KLEUR.rand}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Users size={20} color={KLEUR.blauw} />

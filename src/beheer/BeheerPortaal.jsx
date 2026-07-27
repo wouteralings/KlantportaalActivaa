@@ -77,8 +77,8 @@ export default function BeheerPortaal() {
   const [offerteToolUrl, setOfferteToolUrl] = useState("");
   const [linksOpslaanStatus, setLinksOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
 
-  // Wijzig-rechten: welke medewerkers (e-mail) klantgegevens mogen wijzigen.
-  const [wijzigersSet, setWijzigersSet] = useState(() => new Set()); // e-mailadressen (kleine letters)
+  // Rechtenniveau per medewerker (e-mail → 'manager'|'beheerder'; standaard = medewerker).
+  const [niveaus, setNiveaus] = useState({});
   const [wijzigrechtenStatus, setWijzigrechtenStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [medewerkers, setMedewerkers] = useState(null); // null = laden; alle Activaa-medewerkers
   const [medewerkerZoek, setMedewerkerZoek] = useState("");
@@ -152,7 +152,7 @@ export default function BeheerPortaal() {
       .catch(() => setCategorieen([]));
     fetch("/api/beheer-wijzigrechten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => setWijzigersSet(new Set((d.wijzigers || []).map((e) => String(e).toLowerCase()))))
+      .then((d) => setNiveaus(d.niveaus || {}))
       .catch(() => {});
     fetch("/api/beheer-medewerkers")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
@@ -403,9 +403,9 @@ export default function BeheerPortaal() {
     }
   }, [googleReviewUrl, teamsChatUrl, whatsappUrl, copilotEmbedUrl, offerteportaalUrl, offerteToolUrl]);
 
-  const toggleWijziger = useCallback((email) => {
+  const zetNiveau = useCallback((email, niveau) => {
     const laag = String(email).toLowerCase();
-    setWijzigersSet((h) => { const n = new Set(h); if (n.has(laag)) n.delete(laag); else n.add(laag); return n; });
+    setNiveaus((h) => { const n = { ...h }; if (niveau === "medewerker") delete n[laag]; else n[laag] = niveau; return n; });
     setWijzigrechtenStatus("idle");
   }, []);
 
@@ -415,16 +415,16 @@ export default function BeheerPortaal() {
       const res = await fetch("/api/beheer-wijzigrechten", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ wijzigers: [...wijzigersSet] }),
+        body: JSON.stringify({ niveaus }),
       });
       if (!res.ok) throw new Error(await res.text());
       const d = await res.json();
-      setWijzigersSet(new Set((d.wijzigers || []).map((e) => String(e).toLowerCase())));
+      setNiveaus(d.niveaus || {});
       setWijzigrechtenStatus("gelukt");
     } catch {
       setWijzigrechtenStatus("fout");
     }
-  }, [wijzigersSet]);
+  }, [niveaus]);
 
   const slaKlantoverzichtOp = useCallback(async () => {
     setKoStatus("bezig");
@@ -1424,16 +1424,28 @@ export default function BeheerPortaal() {
                 style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 32px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}
               />
             </div>
-            <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 8 }}>{wijzigersSet.size} met wijzig-recht</div>
-            <div style={{ display: "flex", flexDirection: "column", maxHeight: 420, overflowY: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
+            <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 8 }}>
+              {Object.values(niveaus).filter((n) => n === "manager" || n === "beheerder").length} met wijzig-recht · {medewerkers.length} medewerkers
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", maxHeight: 460, overflowY: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
               {medewerkers
-                .filter((m) => { const q = medewerkerZoek.trim().toLowerCase(); return !q || m.naam.toLowerCase().includes(q) || m.email.toLowerCase().includes(q); })
+                .filter((m) => { const q = medewerkerZoek.trim().toLowerCase(); return !q || m.naam.toLowerCase().includes(q) || m.email.toLowerCase().includes(q) || (m.functie || "").toLowerCase().includes(q); })
                 .map((m, i) => (
-                  <label key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, cursor: "pointer" }}>
-                    <input type="checkbox" checked={wijzigersSet.has(m.email)} onChange={() => toggleWijziger(m.email)} style={{ width: 16, height: 16 }} />
-                    <span style={{ fontSize: 13, fontWeight: 600 }}>{m.naam || m.email}</span>
-                    <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{m.email}</span>
-                  </label>
+                  <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}` }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>{m.naam || m.email}</div>
+                      <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{m.functie ? m.functie + " · " : ""}{m.email}</div>
+                    </div>
+                    <select
+                      value={niveaus[m.email] || "medewerker"}
+                      onChange={(e) => zetNiveau(m.email, e.target.value)}
+                      style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "6px 8px", fontSize: 12.5, background: "#fff" }}
+                    >
+                      <option value="medewerker">Medewerker</option>
+                      <option value="manager">Manager</option>
+                      <option value="beheerder">Beheerder</option>
+                    </select>
+                  </div>
                 ))}
             </div>
             <div style={{ marginTop: 14 }}>
