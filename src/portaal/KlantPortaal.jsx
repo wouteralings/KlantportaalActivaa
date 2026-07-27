@@ -389,7 +389,7 @@ export default function KlantPortaal() {
   if (!ingelogd) return <Inlogscherm logoUrl={logoUrl} />;
 
   return (
-    <div className="kp-container" style={{ maxWidth: 880, margin: "0 auto", fontFamily: "system-ui, -apple-system, sans-serif", color: KLEUR.tekst }}>
+    <div className="kp-container" style={{ maxWidth: "none", width: "100%", margin: "0 auto", fontFamily: "system-ui, -apple-system, sans-serif", color: KLEUR.tekst }}>
       <Header gebruiker={gebruiker} logoUrl={logoUrl} />
       <Tabs tab={tab} setTab={setTab} />
 
