@@ -30,11 +30,11 @@
     },
     {
       "route": "/api/beheer-wijzigingen",
-      "allowedRoles": ["beheerder"]
+      "allowedRoles": ["beheerder", "medewerker"]
     },
     {
       "route": "/api/beheer-tellingen",
-      "allowedRoles": ["beheerder"]
+      "allowedRoles": ["beheerder", "medewerker"]
     },
     {
       "route": "/api/beheer-taaksoorten",
@@ -42,11 +42,11 @@
     },
     {
       "route": "/api/beheer-taakakkoorden",
-      "allowedRoles": ["beheerder"]
+      "allowedRoles": ["beheerder", "medewerker"]
     },
     {
       "route": "/api/beheer-handtekeningen",
-      "allowedRoles": ["beheerder"]
+      "allowedRoles": ["beheerder", "medewerker"]
     },
     {
       "route": "/api/instellingen",
