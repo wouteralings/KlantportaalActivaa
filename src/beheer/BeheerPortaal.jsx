@@ -63,6 +63,13 @@ export default function BeheerPortaal() {
   const [copilotEmbedUrl, setCopilotEmbedUrl] = useState("");
   const [linksOpslaanStatus, setLinksOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
 
+  // Taaksoorten: welke soorten klanten zien én mogen goedkeuren.
+  const [taaksoortenOpties, setTaaksoortenOpties] = useState(null); // null = laden
+  const [taaksoortenConfig, setTaaksoortenConfig] = useState({});
+  const [taaksoortenConfiguratieNodig, setTaaksoortenConfiguratieNodig] = useState(false);
+  const [taaksoortenFout, setTaaksoortenFout] = useState("");
+  const [taaksoortenOpslaanStatus, setTaaksoortenOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
+
   const laadTellingen = useCallback(() => {
     fetch("/api/beheer-tellingen")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
@@ -108,6 +115,15 @@ export default function BeheerPortaal() {
       .then((r) => r.json())
       .then((d) => setCategorieen(d.opties || []))
       .catch(() => setCategorieen([]));
+    fetch("/api/beheer-taaksoorten")
+      .then((r) => r.json())
+      .then((d) => {
+        setTaaksoortenOpties(d.opties || []);
+        setTaaksoortenConfig(d.config || {});
+        setTaaksoortenConfiguratieNodig(!!d.configuratieNodig);
+        if (d.error) setTaaksoortenFout(d.error);
+      })
+      .catch(() => { setTaaksoortenOpties([]); setTaaksoortenFout("Kon de taaksoorten niet ophalen."); });
     haalMededelingen();
     haalSnellinks();
     haalFaqs();
@@ -341,6 +357,35 @@ export default function BeheerPortaal() {
     }
   }, [googleReviewUrl, teamsChatUrl, whatsappUrl, copilotEmbedUrl]);
 
+  const wijzigTaaksoort = useCallback((waarde, veld, aan, label) => {
+    setTaaksoortenConfig((huidig) => {
+      const key = String(waarde);
+      const bestaand = huidig[key] || {};
+      const nieuw = { ...bestaand, [veld]: aan, label: label ?? bestaand.label };
+      // Goedkeuren kan alleen bij een zichtbare soort: zet je 'zichtbaar' uit, dan valt
+      // 'mag goedkeuren' automatisch mee weg.
+      if (veld === "zichtbaar" && !aan) nieuw.magGoedkeuren = false;
+      if (veld === "magGoedkeuren" && aan) nieuw.zichtbaar = true;
+      return { ...huidig, [key]: nieuw };
+    });
+    setTaaksoortenOpslaanStatus("idle");
+  }, []);
+
+  const slaTaaksoortenOp = useCallback(async () => {
+    setTaaksoortenOpslaanStatus("bezig");
+    try {
+      const res = await fetch("/api/beheer-instellingen", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taaksoorten: taaksoortenConfig }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setTaaksoortenOpslaanStatus("gelukt");
+    } catch {
+      setTaaksoortenOpslaanStatus("fout");
+    }
+  }, [taaksoortenConfig]);
+
   const toggleLinkCategorie = useCallback((waarde) => {
     setGekozenLinkCategorieen((huidig) =>
       huidig.includes(waarde) ? huidig.filter((c) => c !== waarde) : [...huidig, waarde]
@@ -466,6 +511,7 @@ export default function BeheerPortaal() {
           ["uitstraling", "Uitstraling"],
           ["content", "Content"],
           ["faq", "FAQ"],
+          ["taken", "Taken"],
           ["reviews", "Reviews"],
           ["verzoeken", "Wijzigingsverzoeken"],
           ["instellingen", "Instellingen"],
@@ -1059,6 +1105,81 @@ export default function BeheerPortaal() {
       </div>
 
       </>)}
+
+      {tab === "taken" && (
+        <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Zichtbare taaksoorten</div>
+          <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 16, lineHeight: 1.6 }}>
+            Bepaal per soort taak of klanten hem in het portaal zien, en of ze hem zelf mogen
+            goedkeuren. Bij goedkeuren wordt de taak in Dynamics afgerond, met een notitie dat de
+            klant akkoord gaf. Soorten die niet zijn aangevinkt blijven voor de klant verborgen.
+          </div>
+
+          {taaksoortenOpties === null ? (
+            <div style={{ fontSize: 13, color: KLEUR.mutedTekst }}>Laden…</div>
+          ) : taaksoortenConfiguratieNodig ? (
+            <div style={{ padding: "12px 14px", background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12.5, color: KLEUR.tekst, lineHeight: 1.6 }}>
+              Het soort-veld is nog niet ingesteld. Zet de logische veldnaam van het "Soort"-veld
+              op taken in de Application Setting <code>DYNAMICS_TAAK_SOORT_VELD</code> (bijv.{" "}
+              <code>sk_soort</code>). Zolang dit ontbreekt, ziet de klant — uit voorzorg — geen taken.
+            </div>
+          ) : taaksoortenOpties.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: KLEUR.rood }}>
+              {taaksoortenFout || "Geen taaksoorten gevonden. Controleer of DYNAMICS_TAAK_SOORT_VELD de juiste veldnaam is."}
+            </div>
+          ) : (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: "0 20px", alignItems: "center" }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}` }}>Soort</div>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Zichtbaar</div>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Mag goedkeuren</div>
+                {taaksoortenOpties.map((optie) => {
+                  const cfg = taaksoortenConfig[String(optie.waarde)] || {};
+                  return (
+                    <React.Fragment key={optie.waarde}>
+                      <div style={{ fontSize: 13, padding: "10px 0", borderBottom: `1px solid ${KLEUR.rand}` }}>{optie.label}</div>
+                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: `1px solid ${KLEUR.rand}` }}>
+                        <input
+                          type="checkbox"
+                          checked={!!cfg.zichtbaar}
+                          onChange={(e) => wijzigTaaksoort(optie.waarde, "zichtbaar", e.target.checked, optie.label)}
+                          style={{ width: 16, height: 16, cursor: "pointer" }}
+                        />
+                      </div>
+                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: `1px solid ${KLEUR.rand}` }}>
+                        <input
+                          type="checkbox"
+                          checked={!!cfg.magGoedkeuren}
+                          onChange={(e) => wijzigTaaksoort(optie.waarde, "magGoedkeuren", e.target.checked, optie.label)}
+                          style={{ width: 16, height: 16, cursor: "pointer" }}
+                        />
+                      </div>
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+
+              <div style={{ marginTop: 18 }}>
+                <button
+                  onClick={slaTaaksoortenOp}
+                  disabled={taaksoortenOpslaanStatus === "bezig"}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                >
+                  {taaksoortenOpslaanStatus === "bezig" ? "Opslaan..." : "Opslaan"}
+                </button>
+                {taaksoortenOpslaanStatus === "gelukt" && (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 12, fontSize: 12.5, color: KLEUR.blauw }}>
+                    <CheckCircle2 size={14} /> Opgeslagen.
+                  </span>
+                )}
+                {taaksoortenOpslaanStatus === "fout" && (
+                  <span style={{ marginLeft: 12, fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {tab === "reviews" && <ReviewBeheer />}
 

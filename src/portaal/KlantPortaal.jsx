@@ -4,7 +4,6 @@ import {
   ClipboardList,
   FileText,
   CheckCircle2,
-  Circle,
   Tag,
   LogOut,
   Loader2,
@@ -137,7 +136,7 @@ export default function KlantPortaal() {
     fetch("/api/taken")
       .then(haalData)
       .then(setTaken)
-      .catch((e) => { setTaken([]); verwerkFout(e); });
+      .catch((e) => { setTaken({ groepen: [], akkoorden: [] }); verwerkFout(e); });
     fetch("/api/mijn-content")
       .then(haalData)
       .then(setContent)
@@ -171,20 +170,40 @@ export default function KlantPortaal() {
     return data;
   }, [haalVerzoekenOp]);
 
-  const handelTaakAf = useCallback(async (taakId) => {
+  const haalTakenOp = useCallback(() => {
+    fetch("/api/taken")
+      .then(haalData)
+      .then(setTaken)
+      .catch(() => {}); // niet-kritisch; bestaande weergave blijft staan
+  }, []);
+
+  const geefAkkoord = useCallback(async (taakId) => {
     const vorigeTaken = taken;
-    setTaken((huidig) =>
-      huidig.map((groep) => ({ ...groep, taken: groep.taken.filter((t) => t.id !== taakId) }))
-    );
+    // Optimistisch: haal de taak uit de open lijst zodat de knop meteen reageert.
+    setTaken((huidig) => {
+      if (!huidig || !Array.isArray(huidig.groepen)) return huidig;
+      return {
+        ...huidig,
+        groepen: huidig.groepen.map((groep) => ({
+          ...groep,
+          taken: groep.taken.filter((t) => t.id !== taakId),
+        })),
+      };
+    });
     try {
-      const res = await fetch(`/api/taken?id=${taakId}`, { method: "PATCH" });
+      const res = await fetch(`/api/taken?id=${taakId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "akkoord" }),
+      });
       if (!res.ok) throw new Error(await res.text());
+      haalTakenOp(); // ververst zodat de taak in het archief "Akkoord gegeven" verschijnt
     } catch (e) {
       setTaken(vorigeTaken); // terugzetten bij een fout
-      setFout("Afhandelen is niet gelukt: " + String(e));
+      setFout("Akkoord geven is niet gelukt: " + String(e));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [taken]);
+  }, [taken, haalTakenOp]);
 
   const haalDocumentenOp = useCallback(async () => {
     if (documentenStatus === "laden") return; // voorkomt dubbele, gelijktijdige aanvragen
@@ -280,7 +299,7 @@ export default function KlantPortaal() {
       {tab === "home" && (
         <>
           <Kopje tekst="Open taken" />
-          <TabTaken data={taken} onAfhandelen={handelTaakAf} />
+          <TabTaken data={taken} onAkkoord={geefAkkoord} />
 
           {content?.programmas?.length > 0 && (
             <div style={{ marginTop: 28 }}>
@@ -1032,68 +1051,135 @@ function TabGegevens({ data, verzoeken, onWijzigen }) {
   );
 }
 
-function TabTaken({ data, onAfhandelen }) {
+function TabTaken({ data, onAkkoord }) {
+  const [bevestigId, setBevestigId] = useState(null);
   if (!data) return <Laadscherm />;
-  const totaalOpen = data.reduce((som, groep) => som + groep.taken.length, 0);
-  if (totaalOpen === 0) return <LegeStaat tekst="Geen openstaande taken — helemaal bij." />;
+
+  // Backward-compat: als er onverhoopt nog een array binnenkomt, behandel die als groepen.
+  const groepen = Array.isArray(data) ? data : data.groepen || [];
+  const akkoorden = Array.isArray(data) ? [] : data.akkoorden || [];
+  // Alleen groepen met taken tonen (soorten zijn nu gefilterd, veel accounts hebben er geen).
+  const groepenMetTaken = groepen.filter((g) => g.taken.length > 0);
+  const totaalOpen = groepenMetTaken.reduce((som, groep) => som + groep.taken.length, 0);
 
   return (
     <div>
-      {data.map((groep) => (
-        <div key={groep.accountId} style={kaartStijl}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: groep.taken.length ? 14 : 0 }}>
-            <div style={{ fontSize: 14.5, fontWeight: 700 }}>{groep.klantnaam}</div>
-            <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Klantnummer {groep.klantnummer}</div>
-          </div>
-          {groep.taken.length === 0 ? (
-            <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Geen openstaande taken.</div>
-          ) : (
+      {totaalOpen === 0 ? (
+        <LegeStaat tekst="Geen taken die op je reactie wachten — helemaal bij." />
+      ) : (
+        groepenMetTaken.map((groep) => (
+          <div key={groep.accountId} style={kaartStijl}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14 }}>
+              <div style={{ fontSize: 14.5, fontWeight: 700 }}>{groep.klantnaam}</div>
+              <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Klantnummer {groep.klantnummer}</div>
+            </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {groep.taken.map((taak) => (
-                <div key={taak.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 0", borderTop: `1px solid ${KLEUR.rand}` }}>
-                  <button
-                    onClick={() => onAfhandelen(taak.id)}
-                    title="Markeer als afgehandeld"
-                    style={{ background: "none", border: "none", cursor: "pointer", padding: 0, marginTop: 1 }}
-                  >
-                    <Circle size={18} color={KLEUR.blauw} />
-                  </button>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 600 }}>{taak.titel}</div>
-                    {taak.omschrijving && <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginTop: 2 }}>{taak.omschrijving}</div>}
-                    {taak.deadline && (
-                      <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4 }}>
-                        Deadline: {new Date(taak.deadline).toLocaleDateString("nl-NL")}
-                      </div>
-                    )}
-                    {taak.uploadLink && (
-                      <div style={{ marginTop: 10 }}>
-                        <a
-                          href={taak.uploadLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                <div key={taak.id} style={{ padding: "10px 0", borderTop: `1px solid ${KLEUR.rand}` }}>
+                  {taak.soort && (
+                    <span style={{
+                      display: "inline-flex", alignItems: "center", gap: 5, marginBottom: 6,
+                      padding: "2px 9px", background: KLEUR.lichtblauw, color: KLEUR.blauw,
+                      borderRadius: 999, fontSize: 11, fontWeight: 600,
+                    }}>
+                      <Tag size={11} /> {taak.soort}
+                    </span>
+                  )}
+                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>{taak.titel}</div>
+                  {taak.omschrijving && <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginTop: 2, whiteSpace: "pre-wrap" }}>{taak.omschrijving}</div>}
+                  {taak.deadline && (
+                    <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4 }}>
+                      Deadline: {new Date(taak.deadline).toLocaleDateString("nl-NL")}
+                    </div>
+                  )}
+                  {taak.uploadLink && (
+                    <div style={{ marginTop: 10 }}>
+                      <a
+                        href={taak.uploadLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 14px",
+                          background: KLEUR.blauw, color: "#fff", borderRadius: 6, fontSize: 12.5,
+                          fontWeight: 600, textDecoration: "none",
+                        }}
+                      >
+                        <Upload size={13} /> Bestanden uploaden
+                      </a>
+                      {taak.uploadVerloopt && (
+                        <span style={{ display: "inline-block", marginLeft: 10, fontSize: 11.5, color: KLEUR.mutedTekst }}>
+                          Link verloopt op {new Date(taak.uploadVerloopt).toLocaleDateString("nl-NL")}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {taak.kanAkkoord && (
+                    <div style={{ marginTop: 10 }}>
+                      {bevestigId === taak.id ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 12.5, color: KLEUR.subtekst }}>Weet je zeker dat je akkoord geeft?</span>
+                          <button
+                            onClick={() => { setBevestigId(null); onAkkoord(taak.id); }}
+                            style={{
+                              display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px",
+                              background: "#2E7D46", color: "#fff", border: "none", borderRadius: 6,
+                              fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+                            }}
+                          >
+                            <CheckCircle2 size={14} /> Ja, akkoord
+                          </button>
+                          <button
+                            onClick={() => setBevestigId(null)}
+                            style={{
+                              padding: "7px 12px", background: "#fff", color: KLEUR.subtekst,
+                              border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 12.5,
+                              fontWeight: 600, cursor: "pointer",
+                            }}
+                          >
+                            Annuleren
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setBevestigId(taak.id)}
                           style={{
-                            display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 14px",
-                            background: KLEUR.blauw, color: "#fff", borderRadius: 6, fontSize: 12.5,
-                            fontWeight: 600, textDecoration: "none",
+                            display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 16px",
+                            background: "#2E7D46", color: "#fff", border: "none", borderRadius: 6,
+                            fontSize: 12.5, fontWeight: 600, cursor: "pointer",
                           }}
                         >
-                          <Upload size={13} /> Bestanden uploaden
-                        </a>
-                        {taak.uploadVerloopt && (
-                          <span style={{ display: "inline-block", marginLeft: 10, fontSize: 11.5, color: KLEUR.mutedTekst }}>
-                            Link verloopt op {new Date(taak.uploadVerloopt).toLocaleDateString("nl-NL")}
-                          </span>
-                        )}
-                      </div>
-                    )}
+                          <CheckCircle2 size={14} /> Akkoord geven
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))
+      )}
+
+      {akkoorden.length > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 10 }}>Akkoord gegeven</div>
+          <div style={kaartStijl}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {akkoorden.map((a, i) => (
+                <div key={a.id || a.taakId} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "9px 0", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}` }}>
+                  <CheckCircle2 size={16} color="#2E7D46" style={{ marginTop: 2, flexShrink: 0 }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{a.taaktitel || "(taak)"}</div>
+                    <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 2 }}>
+                      {a.klantnaam ? a.klantnaam + " · " : ""}Akkoord op {new Date(a.akkoordOp).toLocaleDateString("nl-NL")}
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
-          )}
+          </div>
         </div>
-      ))}
+      )}
     </div>
   );
 }
