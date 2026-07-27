@@ -3,6 +3,8 @@ import {
   Building2,
   ClipboardList,
   FileText,
+  Folder,
+  ChevronRight,
   CheckCircle2,
   XCircle,
   Circle,
@@ -88,6 +90,7 @@ export default function KlantPortaal() {
   const [documenten, setDocumenten] = useState(null);
   const [documentenStatus, setDocumentenStatus] = useState("nietOpgehaald");
   const [documentenFoutmelding, setDocumentenFoutmelding] = useState("");
+  const [documentenPad, setDocumentenPad] = useState([]); // breadcrumb: [{naam, driveId, itemId}]
   const [teamsChatUrl, setTeamsChatUrl] = useState("");
   const [whatsappUrl, setWhatsappUrl] = useState("");
   const [copilotEmbedUrl, setCopilotEmbedUrl] = useState("");
@@ -259,17 +262,20 @@ export default function KlantPortaal() {
     }
   }, []);
 
-  const haalDocumentenOp = useCallback(async () => {
-    if (documentenStatus === "laden") return; // voorkomt dubbele, gelijktijdige aanvragen
+  // Laadt de wortel (leeg pad) of de inhoud van een map (laatste item van 'pad').
+  const laadDocumenten = useCallback(async (pad) => {
     setDocumentenStatus("laden");
     setFout("");
     try {
       const token = await haalApiToken();
-      const res = await fetch("/api/documenten", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const laatste = pad[pad.length - 1];
+      const qs = laatste
+        ? `?driveId=${encodeURIComponent(laatste.driveId)}&itemId=${encodeURIComponent(laatste.itemId)}`
+        : "";
+      const res = await fetch(`/api/documenten${qs}`, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error(await res.text());
       setDocumenten(await res.json());
+      setDocumentenPad(pad);
       setDocumentenStatus("klaar");
     } catch (e) {
       // Bij een MSAL-inlogprobleem (geannuleerd, popup blocked, interaction_in_progress)
@@ -283,7 +289,31 @@ export default function KlantPortaal() {
         setDocumentenStatus("fout");
       }
     }
-  }, [documentenStatus]);
+  }, []);
+
+  // Huidige map opnieuw laden (of, bij de eerste keer, de wortel).
+  const haalDocumentenOp = useCallback(() => {
+    if (documentenStatus === "laden") return;
+    laadDocumenten(documentenPad);
+  }, [documentenStatus, documentenPad, laadDocumenten]);
+
+  // Een map openen: pad uitbreiden en de inhoud laden.
+  const openMap = useCallback(
+    (item) => {
+      if (documentenStatus === "laden" || !item.driveId || !item.itemId) return;
+      laadDocumenten([...documentenPad, { naam: item.label || item.naam, driveId: item.driveId, itemId: item.itemId }]);
+    },
+    [documentenStatus, documentenPad, laadDocumenten]
+  );
+
+  // Via de breadcrumb naar een hoger niveau (index -1 = wortel).
+  const gaNaarPad = useCallback(
+    (index) => {
+      if (documentenStatus === "laden") return;
+      laadDocumenten(index < 0 ? [] : documentenPad.slice(0, index + 1));
+    },
+    [documentenStatus, documentenPad, laadDocumenten]
+  );
 
   const wijzigDocumentVeld = useCallback(async (id, updates) => {
     try {
@@ -383,7 +413,10 @@ export default function KlantPortaal() {
           status={documentenStatus}
           data={documenten}
           foutmelding={documentenFoutmelding}
+          pad={documentenPad}
           onOphalen={haalDocumentenOp}
+          onOpenMap={openMap}
+          onNavigeer={gaNaarPad}
           onLabelWijzigen={wijzigLabel}
           onEntiteitWijzigen={wijzigEntiteit}
         />
@@ -1386,7 +1419,7 @@ function TabTaken({ data, onAkkoord, onNietAkkoord }) {
   );
 }
 
-function TabDocumenten({ status, data, foutmelding, onOphalen, onLabelWijzigen, onEntiteitWijzigen }) {
+function TabDocumenten({ status, data, foutmelding, pad = [], onOphalen, onOpenMap, onNavigeer, onLabelWijzigen, onEntiteitWijzigen }) {
   if (status === "nietOpgehaald") {
     return (
       <div style={{ ...kaartStijl, textAlign: "center", padding: 36 }}>
@@ -1423,49 +1456,106 @@ function TabDocumenten({ status, data, foutmelding, onOphalen, onLabelWijzigen, 
     );
   }
 
-  if (!data || data.length === 0) return <LegeStaat tekst="Er is nog niets met jou gedeeld in SharePoint." />;
+  const items = data || [];
+  const inMap = pad.length > 0;
+  // Wortel én leeg = er is niets gedeeld. In een submap tonen we wel de breadcrumb.
+  if (!inMap && items.length === 0) {
+    return <LegeStaat tekst="Er is nog niets met jou gedeeld in SharePoint." />;
+  }
+
+  const kruimelStijl = (klikbaar) => ({
+    background: "none", border: "none", padding: 0, cursor: klikbaar ? "pointer" : "default",
+    fontSize: 12.5, fontWeight: klikbaar ? 600 : 700,
+    color: klikbaar ? KLEUR.blauw : KLEUR.tekst,
+  });
 
   return (
     <div style={kaartStijl}>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", minWidth: 0 }}>
+          <button onClick={() => onNavigeer(-1)} style={kruimelStijl(inMap)} disabled={!inMap}>Documenten</button>
+          {pad.map((p, i) => (
+            <span key={p.itemId} style={{ display: "inline-flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+              <span style={{ color: KLEUR.mutedTekst }}>›</span>
+              <button
+                onClick={() => onNavigeer(i)}
+                style={{ ...kruimelStijl(i < pad.length - 1), maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                disabled={i === pad.length - 1}
+                title={p.naam}
+              >
+                {p.naam}
+              </button>
+            </span>
+          ))}
+        </div>
         <button onClick={onOphalen} style={{ ...knopStijlSecundair, fontSize: 12 }}><RefreshCw size={12} /> Vernieuwen</button>
       </div>
-      <div style={{ display: "flex", flexDirection: "column" }}>
-        {data.map((item) => (
-          <div key={item.id} className="kp-doc-row" style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderTop: `1px solid ${KLEUR.rand}` }}>
-            <FileText size={16} color={KLEUR.mutedTekst} style={{ flexShrink: 0 }} />
-            <div className="kp-doc-name" style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.label}</div>
-                {item.entiteit && (
-                  <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 5, padding: "2px 7px", flexShrink: 0 }}>
-                    {item.entiteit}
-                  </span>
+
+      {items.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, padding: "8px 0" }}>Deze map is leeg.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          {items.map((item) => {
+            const isMap = item.type === "map";
+            return (
+              <div key={item.id} className="kp-doc-row" style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderTop: `1px solid ${KLEUR.rand}` }}>
+                {isMap ? <Folder size={16} color={KLEUR.goud} style={{ flexShrink: 0 }} /> : <FileText size={16} color={KLEUR.mutedTekst} style={{ flexShrink: 0 }} />}
+                <div className="kp-doc-name" style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {isMap ? (
+                      <button
+                        onClick={() => onOpenMap(item)}
+                        style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 13.5, fontWeight: 600, color: KLEUR.tekst, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "left" }}
+                        title={`Map openen: ${item.label}`}
+                      >
+                        {item.label}
+                      </button>
+                    ) : (
+                      <div style={{ fontSize: 13.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.label}</div>
+                    )}
+                    {item.entiteit && (
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 5, padding: "2px 7px", flexShrink: 0 }}>
+                        {item.entiteit}
+                      </span>
+                    )}
+                  </div>
+                  {isMap
+                    ? item.aantalItems != null && (
+                        <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>{item.aantalItems} item{item.aantalItems === 1 ? "" : "s"}</div>
+                      )
+                    : item.label !== item.naam && (
+                        <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>Oorspronkelijke naam: {item.naam}</div>
+                      )}
+                </div>
+                {item.gewijzigd && (
+                  <div className="kp-doc-date" style={{ fontSize: 11.5, color: KLEUR.mutedTekst, flexShrink: 0 }}>
+                    {new Date(item.gewijzigd).toLocaleDateString("nl-NL")}
+                  </div>
+                )}
+                {isMap ? (
+                  <button onClick={() => onOpenMap(item)} title="Map openen" style={iconKnopStijl}>
+                    <ChevronRight size={16} />
+                  </button>
+                ) : (
+                  <>
+                    <button onClick={() => onEntiteitWijzigen(item.id, item.entiteit)} title="Aan klant koppelen" style={iconKnopStijl}>
+                      <Building2 size={14} />
+                    </button>
+                    <button onClick={() => onLabelWijzigen(item.id, item.label)} title="Eigen naam geven" style={iconKnopStijl}>
+                      <Tag size={14} />
+                    </button>
+                    {item.url && (
+                      <a href={item.url} target="_blank" rel="noopener noreferrer" title="Openen in SharePoint" style={iconKnopStijl}>
+                        <ExternalLink size={14} />
+                      </a>
+                    )}
+                  </>
                 )}
               </div>
-              {item.label !== item.naam && (
-                <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>Oorspronkelijke naam: {item.naam}</div>
-              )}
-            </div>
-            {item.gewijzigd && (
-              <div className="kp-doc-date" style={{ fontSize: 11.5, color: KLEUR.mutedTekst, flexShrink: 0 }}>
-                {new Date(item.gewijzigd).toLocaleDateString("nl-NL")}
-              </div>
-            )}
-            <button onClick={() => onEntiteitWijzigen(item.id, item.entiteit)} title="Aan klant koppelen" style={iconKnopStijl}>
-              <Building2 size={14} />
-            </button>
-            <button onClick={() => onLabelWijzigen(item.id, item.label)} title="Eigen naam geven" style={iconKnopStijl}>
-              <Tag size={14} />
-            </button>
-            {item.url && (
-              <a href={item.url} target="_blank" rel="noopener noreferrer" title="Openen in SharePoint" style={iconKnopStijl}>
-                <ExternalLink size={14} />
-              </a>
-            )}
-          </div>
-        ))}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
