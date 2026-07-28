@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   FileText, FileSpreadsheet, Package, Users, Settings, Plus, Send, Check, X,
   Trash2, Pencil, CreditCard, Bell, Sliders, ArrowLeft, ChevronDown, Search,
-  Lock, Clock, Copy, Repeat, Download, Pause, Play, Mail,
+  Lock, Clock, Copy, Repeat, Download, Pause, Play, Mail, Eye,
 } from "lucide-react";
 
 const KLEUR = {
@@ -413,7 +413,14 @@ function DocumentVoorbeeld({ bedrijfsgegevens, documenttype, klant, document }) 
   );
 }
 
-function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tarieven, bedrijfsgegevens, bestaand, onKlaar, onOpgeslagen }) {
+function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tarieven, bedrijfsgegevens, bestaand, onKlaar, onOpgeslagen, onVerstuurd }) {
+  // Het laatst opgeslagen document (concept) — zodra dit gezet is, kunnen Download PDF en
+  // Versturen getoond worden náást Opslaan, op hetzelfde scherm (geen aparte detailpagina meer
+  // nodig). Start met `bestaand` (bij het bewerken van een reeds opgeslagen concept) of leeg
+  // (bij een gloednieuw document — pas gezet na de eerste keer opslaan).
+  const [opgeslagenDocument, setOpgeslagenDocument] = useState(bestaand || null);
+  const [pdfStatus, setPdfStatus] = useState("idle"); // idle | bezig | fout
+  const [verstuurStatus, setVerstuurStatus] = useState("idle"); // idle | bezig | fout
   const [klantKlantId, setKlantKlantId] = useState(bestaand?.klantKlantId || "");
   const [betalingstermijnDagen, setBetalingstermijnDagen] = useState(bestaand?.betalingstermijnDagen ?? 30);
   const [leveringsperiodeStart, setLeveringsperiodeStart] = useState(bestaand?.leveringsperiodeStart ? String(bestaand.leveringsperiodeStart).slice(0, 10) : "");
@@ -435,8 +442,9 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
 
   // Terugkerend (abonnement) — alleen relevant bij het aanmaken van een NIEUWE factuur; een
   // bestaand concept bewerk je gewoon als eenmalige factuur (het sjabloon zelf wijzig je via
-  // de tab "Abonnementen").
-  const kanTerugkerend = documenttype === "factuur" && !bestaand;
+  // de tab "Abonnementen"). Is dit document al (één keer) opgeslagen, dan is het een echte
+  // eenmalige factuur geworden — dan verdwijnt de optie om het alsnog een abonnement te maken.
+  const kanTerugkerend = documenttype === "factuur" && !bestaand && !opgeslagenDocument;
   const [terugkerend, setTerugkerend] = useState(false);
   const [frequentie, setFrequentie] = useState("maandelijks");
   const [terugkerendStart, setTerugkerendStart] = useState(new Date().toISOString().slice(0, 10));
@@ -524,11 +532,11 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
         regels: regelsVoorVerzending,
       };
       let res;
-      if (bestaand) {
+      if (opgeslagenDocument?.id) {
         res = await fetch("/api/facturen-klanten", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...payload, id: bestaand.id }),
+          body: JSON.stringify({ ...payload, id: opgeslagenDocument.id }),
         });
       } else {
         res = await fetch("/api/facturen-klanten", {
@@ -539,10 +547,54 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
       }
       const data = await haalJson(res);
       onOpgeslagen(data);
-      onKlaar();
+      // Blijf op dit scherm staan (i.p.v. terug naar het overzicht) — zodra het document
+      // opgeslagen is, verschijnen Download PDF en Versturen hieronder gewoon náást Opslaan.
+      setOpgeslagenDocument(data);
+      setStatus("invoer");
     } catch (e) {
       setFoutmelding(e.message || String(e));
       setStatus("fout");
+    }
+  };
+
+  const downloadPdf = async () => {
+    if (!opgeslagenDocument?.id) return;
+    setPdfStatus("bezig");
+    try {
+      const res = await fetch(`/api/facturen-klanten?accountId=${encodeURIComponent(accountId)}&id=${opgeslagenDocument.id}&formaat=pdf`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      // Let op: bewust window.document (niet het bare `document`) — die naam is elders in deze
+      // module al de factuur/offerte-prop, niet het globale DOM-document.
+      const a = window.document.createElement("a");
+      a.href = url;
+      a.download = `${opgeslagenDocument.documenttype}-${opgeslagenDocument.nummer || "concept"}.pdf`;
+      window.document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setPdfStatus("idle");
+    } catch {
+      setPdfStatus("fout");
+    }
+  };
+
+  const versturen = async () => {
+    if (!opgeslagenDocument?.id) return;
+    setVerstuurStatus("bezig");
+    setFoutmelding("");
+    try {
+      const res = await fetch("/api/facturen-klanten", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId, id: opgeslagenDocument.id, actie: "versturen" }),
+      });
+      const bijgewerkt = await haalJson(res);
+      onVerstuurd(bijgewerkt);
+    } catch (e) {
+      setFoutmelding(e.message || String(e));
+      setVerstuurStatus("fout");
     }
   };
 
@@ -553,9 +605,9 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
     const vandaag = new Date();
     const vervaldatum = new Date(vandaag.getTime() + (Number(betalingstermijnDagen) || 30) * 24 * 60 * 60 * 1000);
     return {
-      nummer: bestaand?.nummer || null,
-      factuurdatum: bestaand?.factuurdatum || vandaag.toISOString(),
-      vervaldatum: bestaand?.vervaldatum || vervaldatum.toISOString(),
+      nummer: opgeslagenDocument?.nummer || null,
+      factuurdatum: opgeslagenDocument?.factuurdatum || vandaag.toISOString(),
+      vervaldatum: opgeslagenDocument?.vervaldatum || vervaldatum.toISOString(),
       leveringsperiodeStart: leveringsperiodeStart || null,
       leveringsperiodeEind: leveringsperiodeEind || null,
       regels,
@@ -563,7 +615,7 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
       btwBedrag,
       opmerkingen,
     };
-  }, [bestaand, betalingstermijnDagen, leveringsperiodeStart, leveringsperiodeEind, regels, subtotaal, btwBedrag, opmerkingen]);
+  }, [opgeslagenDocument, betalingstermijnDagen, leveringsperiodeStart, leveringsperiodeEind, regels, subtotaal, btwBedrag, opmerkingen]);
 
   if (terugkerendOpgeslagen) {
     return (
@@ -590,7 +642,7 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
           <ArrowLeft size={16} />
         </button>
         <div style={{ fontSize: 15, fontWeight: 700 }}>
-          {bestaand ? `Concept-${naam} bewerken` : terugkerend ? "Nieuw abonnement" : `Nieuwe ${naam}`}
+          {opgeslagenDocument ? `Concept-${naam} bewerken` : terugkerend ? "Nieuw abonnement" : `Nieuwe ${naam}`}
         </div>
       </div>
 
@@ -612,7 +664,7 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
           )}
         </div>
         <div>
-          <div style={labelStijl}>Betalingstermijn (dagen)</div>
+          <div style={labelStijl}>Betalingstermijn</div>
           <select value={betalingstermijnDagen} onChange={(e) => setBetalingstermijnDagen(Number(e.target.value))} style={inputStijl}>
             {[...new Set([...BETALINGSTERMIJN_OPTIES, Number(betalingstermijnDagen) || 30])]
               .sort((a, b) => a - b)
@@ -716,15 +768,32 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+      <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
         <Knop variant="primair" onClick={opslaan} disabled={status === "bezig"} icon={Check}>
-          {status === "bezig" ? "Bezig…" : terugkerend ? "Abonnement aanmaken" : "Opslaan als concept"}
+          {status === "bezig" ? "Bezig…" : terugkerend ? "Abonnement aanmaken" : opgeslagenDocument ? "Wijzigingen opslaan" : "Opslaan als concept"}
         </Knop>
-        <Knop onClick={onKlaar}>Annuleren</Knop>
+        {opgeslagenDocument && (
+          <>
+            <Knop icon={Download} disabled={pdfStatus === "bezig"} onClick={downloadPdf}>
+              {pdfStatus === "bezig" ? "PDF downloaden…" : "Download PDF"}
+            </Knop>
+            {opgeslagenDocument.status === "concept" && (
+              <Knop variant="primair" icon={Send} disabled={verstuurStatus === "bezig"} onClick={versturen}>
+                {verstuurStatus === "bezig" ? "Versturen…" : "Versturen"}
+              </Knop>
+            )}
+          </>
+        )}
+        <Knop onClick={onKlaar}>{opgeslagenDocument ? "Terug naar overzicht" : "Annuleren"}</Knop>
       </div>
+      {pdfStatus === "fout" && <div style={{ marginTop: 10 }}><Melding tekst="PDF downloaden is niet gelukt, probeer het nog eens." /></div>}
       {terugkerend ? (
         <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8 }}>
           Er wordt vanaf de startdatum automatisch periodiek een nieuwe conceptfactuur aangemaakt met deze regels — te beheren via de tab "Abonnementen".
+        </div>
+      ) : opgeslagenDocument ? (
+        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8 }}>
+          Opgeslagen als concept{opgeslagenDocument.nummer ? ` (${opgeslagenDocument.nummer})` : ""}. Een nummer wordt pas definitief toegekend zodra je 'm verstuurt.
         </div>
       ) : (
         <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8 }}>
@@ -734,7 +803,9 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
     </div>
 
     <div>
-      <div style={{ ...labelStijl, marginTop: 0 }}>Voorbeeld</div>
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: KLEUR.blauw, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+        <Eye size={14} /> Zo ziet je {naam} eruit (voorbeeld, wordt live bijgewerkt)
+      </div>
       <DocumentVoorbeeld
         bedrijfsgegevens={bedrijfsgegevens}
         documenttype={documenttype}
@@ -878,12 +949,22 @@ function DocumentenTab({ accountId, documenttype, klanten, artikelen, tarieven, 
     }
   };
 
+  // Na het versturen (vanuit het formulier zelf, zie DocumentFormulier) is het geen concept
+  // meer — dan naar de gewone detailweergave, die de juiste vervolgacties toont (betaald/
+  // annuleren, of accepteren/afwijzen bij een offerte).
+  const naVersturenVanuitFormulier = (bijgewerkt) => {
+    verversen();
+    setActief(bijgewerkt);
+    setWeergave("detail");
+  };
+
   if (weergave === "nieuw") {
     return (
       <DocumentFormulier
         accountId={accountId} documenttype={documenttype} klanten={klanten} artikelen={artikelen} tarieven={tarieven} bedrijfsgegevens={bedrijfsgegevens}
         onKlaar={() => setWeergave("lijst")}
         onOpgeslagen={() => verversen()}
+        onVerstuurd={naVersturenVanuitFormulier}
       />
     );
   }
@@ -893,6 +974,7 @@ function DocumentenTab({ accountId, documenttype, klanten, artikelen, tarieven, 
         accountId={accountId} documenttype={documenttype} klanten={klanten} artikelen={artikelen} tarieven={tarieven} bedrijfsgegevens={bedrijfsgegevens} bestaand={actief}
         onKlaar={() => setWeergave("lijst")}
         onOpgeslagen={() => verversen()}
+        onVerstuurd={naVersturenVanuitFormulier}
       />
     );
   }
@@ -1400,9 +1482,9 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
   useEffect(() => {
     if (!data || f) return;
     // Voor ieder veld dat bij Activaa al bekend is uit Dynamics (bedrijfsnaam, adres,
-    // KvK-nummer) vullen we het aan zodra het nog leeg is — nooit een al opgeslagen/
-    // goedgekeurde eigen waarde overschrijven. Staat iets niet in Dynamics (BTW-nummer,
-    // IBAN, tenaamstelling), dan blijft het gewoon leeg totdat de klant het zelf invult.
+    // KvK-nummer, BTW-nummer) vullen we het aan zodra het nog leeg is — nooit een al
+    // opgeslagen/goedgekeurde eigen waarde overschrijven. Staat iets niet in Dynamics
+    // (IBAN, tenaamstelling), dan blijft het gewoon leeg totdat de klant het zelf invult.
     const a = account?.klantadres || {};
     setF({
       ...data,
@@ -1413,6 +1495,7 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
       postcode: data.postcode || a.postcode || "",
       plaats: data.plaats || a.plaats || "",
       kvkNummer: data.kvkNummer || account?.kvkNummer || "",
+      btwNummer: data.btwNummer || account?.btwNummer || "",
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
@@ -1420,7 +1503,7 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
   if (status === "laden" || !f) {
     return (
       <div style={kaartStijl}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Bedrijfsgegevens & logo</div>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Bedrijfsgegevens</div>
         <LegeStaat tekst="Laden…" />
       </div>
     );
@@ -1497,55 +1580,74 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
   };
 
   return (
-    <div style={kaartStijl}>
-      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Bedrijfsgegevens & logo</div>
-      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 16 }}>
-        Deze gegevens en dit logo komen als afzender ("Van:") bovenaan je facturen en offertes te staan.
-        Bedrijfsnaam, adres en KvK-nummer zijn al ingevuld met wat bij Activaa bekend is; een wijziging
-        wordt eerst door Activaa beoordeeld. Het logo pas je direct zelf aan, zonder goedkeuring.
+    <>
+      <div style={kaartStijl}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Bedrijfsgegevens</div>
+        <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 16 }}>
+          Deze gegevens komen als afzender ("Van:") bovenaan je facturen en offertes te staan.
+          Bedrijfsnaam, adres, KvK-nummer en BTW-nummer zijn al ingevuld met wat bij Activaa bekend
+          is; een wijziging hier wordt eerst door Activaa beoordeeld voordat hij ingaat.
+        </div>
+
+        {andereAccounts.length > 0 && !inBehandeling && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
+            <select value={kopieerVan} onChange={(e) => setKopieerVan(e.target.value)} style={{ ...inputStijl, maxWidth: 260 }}>
+              <option value="">Kopieer van andere klant…</option>
+              {andereAccounts.map((a) => <option key={a.accountId} value={a.accountId}>{a.klantnaam}</option>)}
+            </select>
+            <Knop onClick={kopieer} disabled={!kopieerVan || kopieerBezig} icon={Copy}>{kopieerBezig ? "Bezig…" : "Kopieer"}</Knop>
+            <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>(logo wordt niet overgenomen)</span>
+          </div>
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "0 20px", opacity: inBehandeling ? 0.6 : 1 }}>
+          <div>
+            <div style={labelStijl}>Bedrijfsnaam</div>
+            <input value={f.bedrijfsnaam} onChange={zet("bedrijfsnaam")} style={inputStijl} disabled={inBehandeling} />
+            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 8 }}>
+              <div><div style={labelStijl}>Straat</div><input value={f.straat} onChange={zet("straat")} style={inputStijl} disabled={inBehandeling} /></div>
+              <div><div style={labelStijl}>Huisnr.</div><input value={f.huisnummer} onChange={zet("huisnummer")} style={inputStijl} disabled={inBehandeling} /></div>
+              <div><div style={labelStijl}>Toev.</div><input value={f.toevoeging} onChange={zet("toevoeging")} style={inputStijl} disabled={inBehandeling} /></div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 8 }}>
+              <div><div style={labelStijl}>Postcode</div><input value={f.postcode} onChange={zet("postcode")} style={inputStijl} disabled={inBehandeling} /></div>
+              <div><div style={labelStijl}>Plaats</div><input value={f.plaats} onChange={zet("plaats")} style={inputStijl} disabled={inBehandeling} /></div>
+            </div>
+            <div style={labelStijl}>Land</div>
+            <input value={f.land} onChange={zet("land")} style={inputStijl} disabled={inBehandeling} />
+          </div>
+          <div>
+            <div style={labelStijl}>KvK-nummer</div>
+            <input value={f.kvkNummer} onChange={zet("kvkNummer")} style={inputStijl} disabled={inBehandeling} />
+            <div style={labelStijl}>BTW-nummer</div>
+            <input value={f.btwNummer} onChange={zet("btwNummer")} style={inputStijl} disabled={inBehandeling} />
+            <div style={labelStijl}>IBAN</div>
+            <input value={f.iban} onChange={zet("iban")} style={inputStijl} disabled={inBehandeling} />
+            <div style={labelStijl}>Tenaamstelling IBAN</div>
+            <input value={f.ibanTenaamstelling} onChange={zet("ibanTenaamstelling")} style={inputStijl} disabled={inBehandeling} />
+          </div>
+        </div>
+
+        {inBehandeling ? (
+          <div style={{ marginTop: 16, padding: "10px 12px", background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12.5, color: KLEUR.tekst, display: "flex", alignItems: "center", gap: 8 }}>
+            <Clock size={14} color={KLEUR.blauw} /> Je wijziging is ingediend en wacht op goedkeuring door Activaa.
+          </div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 18 }}>
+            <Knop variant="primair" icon={Send} onClick={dienIn} disabled={indienStatus === "bezig"}>
+              {indienStatus === "bezig" ? "Indienen…" : "Wijziging indienen"}
+            </Knop>
+            {indienStatus === "fout" && <span style={{ fontSize: 12.5, color: KLEUR.rood }}>Indienen mislukt, probeer het nog eens.</span>}
+          </div>
+        )}
       </div>
 
-      {andereAccounts.length > 0 && !inBehandeling && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
-          <select value={kopieerVan} onChange={(e) => setKopieerVan(e.target.value)} style={{ ...inputStijl, maxWidth: 260 }}>
-            <option value="">Kopieer van andere klant…</option>
-            {andereAccounts.map((a) => <option key={a.accountId} value={a.accountId}>{a.klantnaam}</option>)}
-          </select>
-          <Knop onClick={kopieer} disabled={!kopieerVan || kopieerBezig} icon={Copy}>{kopieerBezig ? "Bezig…" : "Kopieer"}</Knop>
-          <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>(logo wordt niet overgenomen)</span>
+      <div style={kaartStijl}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Logo</div>
+        <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 16 }}>
+          Dit logo komt bovenaan je facturen en offertes te staan. In tegenstelling tot de
+          bedrijfsgegevens hiernaast pas je dit direct zelf aan, zonder goedkeuring door Activaa.
         </div>
-      )}
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "0 20px", opacity: inBehandeling ? 0.6 : 1 }}>
-        <div>
-          <div style={labelStijl}>Bedrijfsnaam</div>
-          <input value={f.bedrijfsnaam} onChange={zet("bedrijfsnaam")} style={inputStijl} disabled={inBehandeling} />
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 8 }}>
-            <div><div style={labelStijl}>Straat</div><input value={f.straat} onChange={zet("straat")} style={inputStijl} disabled={inBehandeling} /></div>
-            <div><div style={labelStijl}>Huisnr.</div><input value={f.huisnummer} onChange={zet("huisnummer")} style={inputStijl} disabled={inBehandeling} /></div>
-            <div><div style={labelStijl}>Toev.</div><input value={f.toevoeging} onChange={zet("toevoeging")} style={inputStijl} disabled={inBehandeling} /></div>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 8 }}>
-            <div><div style={labelStijl}>Postcode</div><input value={f.postcode} onChange={zet("postcode")} style={inputStijl} disabled={inBehandeling} /></div>
-            <div><div style={labelStijl}>Plaats</div><input value={f.plaats} onChange={zet("plaats")} style={inputStijl} disabled={inBehandeling} /></div>
-          </div>
-          <div style={labelStijl}>Land</div>
-          <input value={f.land} onChange={zet("land")} style={inputStijl} disabled={inBehandeling} />
-        </div>
-        <div>
-          <div style={labelStijl}>KvK-nummer</div>
-          <input value={f.kvkNummer} onChange={zet("kvkNummer")} style={inputStijl} disabled={inBehandeling} />
-          <div style={labelStijl}>BTW-nummer</div>
-          <input value={f.btwNummer} onChange={zet("btwNummer")} style={inputStijl} disabled={inBehandeling} />
-          <div style={labelStijl}>IBAN</div>
-          <input value={f.iban} onChange={zet("iban")} style={inputStijl} disabled={inBehandeling} />
-          <div style={labelStijl}>Tenaamstelling IBAN</div>
-          <input value={f.ibanTenaamstelling} onChange={zet("ibanTenaamstelling")} style={inputStijl} disabled={inBehandeling} />
-        </div>
-      </div>
-
-      <div style={{ marginTop: 14 }}>
-        <div style={labelStijl}>Logo</div>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           {f.logoUrl && (
             <img src={f.logoUrl} alt="Logo" style={{ maxHeight: 46, maxWidth: 150, objectFit: "contain", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: 4 }} />
@@ -1566,20 +1668,7 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
         </div>
         {logoStatus === "fout" && <div style={{ fontSize: 12, color: KLEUR.rood, marginTop: 4 }}>Actie mislukt, probeer het nog eens.</div>}
       </div>
-
-      {inBehandeling ? (
-        <div style={{ marginTop: 16, padding: "10px 12px", background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12.5, color: KLEUR.tekst, display: "flex", alignItems: "center", gap: 8 }}>
-          <Clock size={14} color={KLEUR.blauw} /> Je wijziging is ingediend en wacht op goedkeuring door Activaa.
-        </div>
-      ) : (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 18 }}>
-          <Knop variant="primair" icon={Send} onClick={dienIn} disabled={indienStatus === "bezig"}>
-            {indienStatus === "bezig" ? "Indienen…" : "Wijziging indienen"}
-          </Knop>
-          {indienStatus === "fout" && <span style={{ fontSize: 12.5, color: KLEUR.rood }}>Indienen mislukt, probeer het nog eens.</span>}
-        </div>
-      )}
-    </div>
+    </>
   );
 }
 

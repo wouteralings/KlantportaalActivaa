@@ -41,6 +41,9 @@ module.exports = async function (context, req) {
           // Zelfde KvK-nummer, maar dan de waarde zelf — gebruikt om de eigen bedrijfsgegevens
           // (Facturatiemodule → Bedrijfsgegevens & logo) mee voor te vullen.
           kvkNummer: (account[process.env.DYNAMICS_KVK_VELD || "accountnumber"] || "").toString().trim(),
+          // BTW-nummer, zelfde voorvul-doel als kvkNummer hierboven. Leeg als het veld (nog)
+          // niet in Dataverse staat onder deze naam — zie identiteit.js / DYNAMICS_BTW_VELD.
+          btwNummer: (account[process.env.DYNAMICS_BTW_VELD || "sk_btwnummer"] || "").toString().trim(),
           // Volledige contactpersoon-gegevens (wijzigbaar via een verzoek, behalve functie rol).
           contactpersoon: contactpersoon || {},
           relatiebeheerder,

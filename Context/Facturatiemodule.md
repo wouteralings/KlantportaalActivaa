@@ -298,6 +298,10 @@ Twee opeenvolgende verzoeken van Wouter, beide over "Bedrijfsgegevens & logo":
   Gecommit op de machine (bedrijfsgegevens-wijziging als `7fb23d3`); Wouter moet `git push`
   zelf uitvoeren (netwerktoegang tot GitHub is vanuit deze sessie niet beschikbaar).
 
+  **Let op — deze BTW-nummer-conclusie is inmiddels achterhaald.** Wouter gaf later aan dat het
+  BTW-nummer wél in Dataverse staat; zie de sectie "BTW-nummer-prefill, logo als apart blok, één
+  factuurscherm" verderop in dit document voor de daadwerkelijke BTW-nummer-prefill.
+
 ## Leveringsperiode, terugkerende facturen (abonnementen), echte PDF + e-mail (28-07-2026, vervolgsessie)
 
 Verzoek van Wouter (met 3 screenshots als voorbeeld): *"Tevens wil ik bij een factuur opnemen
@@ -392,6 +396,79 @@ in plaats van zelf ingevuld.
    automatisch via de GitHub Actions-build, maar check dat 'm ook echt meekomt).
 5. `git add`/`git commit`/`git push` — zie onderaan dit document voor de status van eerdere,
    nog niet gepushte commits.
+
+## BTW-nummer-prefill, logo als apart blok, één factuurscherm (28-07-2026, vervolgsessie)
+
+Feedback van Wouter op de nieuwe factuurschermen, in twee berichten: *"BTW-nummer staat in
+Datavers en ingevuld. Deze kunnen dus meegenomen worden. Kan je logo lostrekken in apart blok
+zodat duidelijk is wat je wijzigd. Ik mis knop opslaan en versturen factuur."* — gevolgd door
+*"Ik mis de volgende zaken: terugkerende factuur (abonnement) automatisch versturen optie.
+Leveringsperiode staat bovenin dubbel Betalingstermijn mag (Dagen) (dagen) weg."* Voor het
+"knop opslaan en versturen"-punt is expliciet doorgevraagd (AskUserQuestion) — Wouter koos
+**"Eén scherm met alle knoppen samen"**: Opslaan, Download PDF en Versturen altijd samen
+zichtbaar, zonder eerst te hoeven navigeren.
+
+- **BTW-nummer nu ook vanuit Dynamics voor-ingevuld.** Zelfde patroon als bedrijfsnaam/adres/
+  KvK-nummer. Nieuw veld `BTW_VELD` in `api/_gedeeld/identiteit.js`
+  (`process.env.DYNAMICS_BTW_VELD || "sk_btwnummer"` — een **inschatting** o.b.v. de
+  naamgevingsconventie die elders in de code al voorkwam als voorbeeld, dus niet 100% zeker of
+  dit exact zo heet in Datavers). Om te voorkomen dat een verkeerde veldnaam de hele
+  Dynamics-koppeling (voor alle klanten!) zou breken, doet `herleidAccounts()` eerst een poging
+  mét dit veld in de `$select`; faalt die specifiek op dit veld (400 met de veldnaam in de
+  foutmelding), dan valt hij automatisch terug op dezelfde query zónder dat veld — de rest
+  blijft dan gewoon werken, alleen het BTW-nummer blijft leeg totdat de juiste schemanaam is
+  ingesteld via de Application Setting `DYNAMICS_BTW_VELD`. `api/mijn-gegevens/index.js` geeft
+  het nu door als `btwNummer`; `BedrijfsgegevensKaart` in `FacturatieModule.jsx` vult het aan
+  zodra het eigen veld nog leeg is (nooit een al opgeslagen waarde overschrijven, zelfde regel
+  als bij KvK). **Check aanbevolen**: als het BTW-nummer na deze wijziging niet verschijnt,
+  klopt `sk_btwnummer` niet als schemanaam — dan de echte naam opzoeken in Dataverse en instellen
+  via `DYNAMICS_BTW_VELD`.
+- **Logo losgetrokken in een apart blok.** `BedrijfsgegevensKaart` was één kaart met zowel de
+  (via wijzigingsverzoek goedgekeurde) bedrijfsgegevens als het (direct, zonder goedkeuring)
+  logo. Nu twee losse kaarten — "Bedrijfsgegevens" en "Logo" — elk met een eigen, kortere
+  uitleg die het verschil in goedkeuringsstatus benoemt. Achterliggende state/logica ongewijzigd,
+  puur een visuele/structurele knip.
+- **Eén scherm: Opslaan, Download PDF en Versturen samen.** Vóór deze wijziging kon een
+  *concept*-factuur alleen bereikt worden via "bewerken" (potlood-icoon in de lijst) — en dat
+  scherm (`DocumentFormulier`) had geen Download PDF/Versturen. Die knoppen zaten alleen in
+  `DocumentDetail`, dat voor concepten via de lijst nooit bereikbaar was (alleen "Bekijken" voor
+  niet-conceptstatussen). Concepten hadden dus feitelijk geen route naar downloaden/versturen —
+  dat was de daadwerkelijke oorzaak achter "ik mis de knop". Opgelost door `DocumentFormulier`
+  zelf Download PDF/Versturen te laten tonen zodra er een opgeslagen document is:
+  - Nieuw: `opgeslagenDocument`-state (start op `bestaand`, of leeg bij een nieuw document).
+    Na de eerste "Opslaan als concept" blijft het scherm nu gewoon staan (i.p.v. terug naar het
+    overzicht) en verschijnen Download PDF en (bij status concept) Versturen ernaast. De
+    Opslaan-knop wisselt dan naar "Wijzigingen opslaan"; Annuleren wisselt naar "Terug naar
+    overzicht".
+  - De create/update-keuze (POST vs. PUT) is verplaatst van de oorspronkelijke `bestaand`-prop
+    naar deze `opgeslagenDocument`-state — anders zou een tweede keer opslaan van een net
+    aangemaakt (voorheen "nieuw") document per ongeluk weer een POST doen en een dubbel document
+    aanmaken.
+  - Na "Versturen" (vanuit dit ene scherm) schakelt `DocumentenTab` door naar de bestaande
+    detailweergave (`onVerstuurd`-prop) — die blijft verantwoordelijk voor de acties ná
+    versturen (betaald/annuleren, accepteren/afwijzen bij een offerte), dat viel buiten de scope
+    van dit verzoek.
+  - "Terugkerende factuur (abonnement)"/"automatisch verzenden" (uit het tweede bericht) stond
+    al langer in `DocumentFormulier` bij een nieuwe factuur — met dit scherm nu ineens
+    zichtbaar naast Opslaan/Download PDF/Versturen was het waarschijnlijk vooral de eerdere
+    onbereikbaarheid van dat hele scherm die de indruk van "ontbreekt" gaf. Om te voorkomen dat
+    iemand een al opgeslagen eenmalige factuur alsnog per ongeluk als abonnement probeert op te
+    slaan (zou een verweesd concept + los abonnement opleveren), verdwijnt de
+    terugkerend-optie zodra het document al (eenmalig) is opgeslagen.
+- **"Leveringsperiode staat bovenin dubbel"** — geen dubbele render-bug: het formulier heeft één
+  invoerveld "Leveringsperiode (optioneel)", en het live voorbeeld ernaast toont diezelfde waarde
+  nogmaals als onderdeel van de factuur-preview (bewust — dat ís het doel van een live
+  voorbeeld). Bij smallere schermen staan formulier en voorbeeld onder elkaar, wat het beeld
+  van een letterlijke dubbeling kan geven. Als concrete verbetering: de voorbeeld-kop
+  ("Voorbeeld") is vervangen door een duidelijker, blauw gekleurde kop met oog-icoon: "Zo ziet
+  je factuur eruit (voorbeeld, wordt live bijgewerkt)" — zodat in één oogopslag duidelijk is dat
+  het een weergave is, geen tweede invoerveld.
+- **"Betalingstermijn (dagen)" → "Betalingstermijn"** — het label toonde de eenheid twee keer
+  (het label zelf "(DAGEN)" én elke keuze-optie als "30 dagen"). Alleen het label ingekort;
+  de opties zelf ("7 dagen", "14 dagen", ...) zijn al duidelijk genoeg.
+- Alles geverifieerd met `npx vite build` (1913 modules, geen nieuwe fouten) en `npx oxlint`
+  (geen nieuwe waarschuwingen t.o.v. de bestaande) en `node --check` op de gewijzigde
+  backend-bestanden (`identiteit.js`, `mijn-gegevens/index.js`). Nog niet gecommit/gepusht.
 
 ## Nog te doen (bewust nog niet gebouwd, om scope behapbaar te houden)
 

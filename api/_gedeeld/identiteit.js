@@ -164,6 +164,12 @@ const CLIENTNRAUTO_VELD = process.env.DYNAMICS_KLANT_NUMMER_VELD || "sk_clientnr
 // Het KvK-nummer staat op het Account in 'accountnumber'. Is dit gevuld, dan wordt het
 // bedrijfsadres automatisch met de KvK gesynchroniseerd (en is het in het portaal read-only).
 const KVK_VELD = process.env.DYNAMICS_KVK_VELD || "accountnumber";
+// Het BTW-nummer staat (naar verwachting) op het Account in het veld sk_btwnummer — gebruikt om
+// de eigen bedrijfsgegevens (Facturatiemodule → Bedrijfsgegevens & logo) mee voor te vullen.
+// Overschrijf via de Application Setting DYNAMICS_BTW_VELD als de schemanaam bij jullie anders is.
+// Bestaat het veld (nog) niet onder die naam, dan valt herleidAccounts() er automatisch op terug
+// om het gewoon niet mee te selecteren, zodat de rest van de koppeling blijft werken.
+const BTW_VELD = process.env.DYNAMICS_BTW_VELD || "sk_btwnummer";
 // De groepsnaam ("cliëntgroep", bv. ACTIVAA/JOWO) is een lookup op Account naar de entiteit
 // sk_groepen; de leesbare naam staat daar in het veld sk_name.
 const GROEPSNAAM_NAV = process.env.DYNAMICS_GROEPSNAAM_NAV || "sk_Groepsnaam";
@@ -184,9 +190,9 @@ async function herleidAccounts(req, token) {
   // De relatiebeheerder (veld "Manager") en de accountant zijn eigen lookup-velden op Account
   // naar de systemuser; die halen we mee via $expand. Kloppen de schemanamen bij jullie niet,
   // pas ze dan aan via de Application Settings DYNAMICS_RELATIEBEHEERDER_NAV / DYNAMICS_ACCOUNTANT_NAV.
-  const query =
+  const maakQuery = (metBtw) =>
     `${resource}/api/data/v9.2/accounts` +
-    `?$select=accountid,${CLIENTNUMMER_VELD},${CLIENTNRAUTO_VELD},${KVK_VELD},name,address1_line1,cr283_huisnummer,` +
+    `?$select=accountid,${CLIENTNUMMER_VELD},${CLIENTNRAUTO_VELD},${KVK_VELD}${metBtw && BTW_VELD ? "," + BTW_VELD : ""},name,address1_line1,cr283_huisnummer,` +
     `cr283_huisnummertoevoeging,address1_postalcode,address1_city,address1_country,` +
     `emailaddress1,telephone1${KLANTCATEGORIE_VELD ? "," + KLANTCATEGORIE_VELD : ""}` +
     `&$filter=primarycontactid/emailaddress1 eq '${veilig}' and statecode eq 0` +
@@ -198,20 +204,30 @@ async function herleidAccounts(req, token) {
     `${RELATIEBEHEERDER_NAV}($select=fullname,internalemailaddress,mobilephone,address1_telephone1),` +
     `${ACCOUNTANT_NAV}($select=fullname,internalemailaddress,mobilephone,address1_telephone1)`;
 
-  const res = await fetch(query, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/json",
-      "OData-MaxVersion": "4.0",
-      "OData-Version": "4.0",
-      // Geeft naast de ruwe optieset-waarde ook het leesbare label mee
-      // (bijv. "...@OData.Community.Display.V1.FormattedValue": "Zorg").
-      Prefer: 'odata.include-annotations="OData.Community.Display.V1.FormattedValue"',
-    },
-  });
+  const HEADERS = {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/json",
+    "OData-MaxVersion": "4.0",
+    "OData-Version": "4.0",
+    // Geeft naast de ruwe optieset-waarde ook het leesbare label mee
+    // (bijv. "...@OData.Community.Display.V1.FormattedValue": "Zorg").
+    Prefer: 'odata.include-annotations="OData.Community.Display.V1.FormattedValue"',
+  };
+
+  let res = await fetch(maakQuery(true), { headers: HEADERS });
+  let tekstBijFout = "";
+  if (!res.ok) {
+    tekstBijFout = await res.text();
+    // Staat het BTW-veld (nog) niet onder deze naam in Dataverse, val dan terug op de query
+    // zonder dat veld — zo blijft de rest van de koppeling gewoon werken totdat de juiste
+    // schemanaam is ingesteld via de Application Setting DYNAMICS_BTW_VELD.
+    if (BTW_VELD && tekstBijFout.includes(BTW_VELD)) {
+      res = await fetch(maakQuery(false), { headers: HEADERS });
+    }
+  }
 
   if (!res.ok) {
-    const tekst = await res.text();
+    const tekst = tekstBijFout || (await res.text());
     const fout = new Error(`Contacten opzoeken bij Dynamics mislukt: ${tekst}`);
     fout.code = "DYNAMICS_FOUT";
     throw fout;
