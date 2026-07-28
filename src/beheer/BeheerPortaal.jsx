@@ -64,6 +64,12 @@ export default function BeheerPortaal() {
   const [status, setStatus] = useState("laden"); // laden | nietIngelogd | geenRol | klaar
   const [gebruiker, setGebruiker] = useState(null);
   const [tab, setTab] = useState("uitstraling"); // uitstraling | content | faq | taken | instellingen
+  // Open/dicht per rubriek-kaart (zelfde patroon als de taaksoorten-sectie onder "Taken");
+  // undefined/true = open (standaard), false = ingeklapt. Eén gedeelde state i.p.v. een
+  // aparte useState per rubriek.
+  const [rubriekOpen, setRubriekOpen] = useState({});
+  const rubriekIsOpen = (key) => rubriekOpen[key] !== false;
+  const toggleRubriek = (key) => setRubriekOpen((h) => ({ ...h, [key]: !rubriekIsOpen(key) }));
   const [logoUrl, setLogoUrl] = useState("");
   const [uploadStatus, setUploadStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [faviconUrl, setFaviconUrl] = useState("");
@@ -827,8 +833,16 @@ export default function BeheerPortaal() {
 
       {tab === "uitstraling" && (<>
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Logo</div>
-        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 18 }}>
+        <button
+          onClick={() => toggleRubriek("logo")}
+          aria-expanded={rubriekIsOpen("logo")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("logo") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Logo</span>
+        </button>
+        {rubriekIsOpen("logo") && (<>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 18px" }}>
           Verschijnt op het inlogscherm en bovenaan het klantportaal.
         </div>
 
@@ -863,11 +877,20 @@ export default function BeheerPortaal() {
         {uploadStatus === "fout" && (
           <div style={{ marginTop: 12, fontSize: 12.5, color: KLEUR.rood }}>Uploaden is niet gelukt, probeer het nog eens.</div>
         )}
+        </>)}
       </div>
 
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Favicon</div>
-        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 18 }}>
+        <button
+          onClick={() => toggleRubriek("favicon")}
+          aria-expanded={rubriekIsOpen("favicon")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("favicon") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Favicon</span>
+        </button>
+        {rubriekIsOpen("favicon") && (<>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 18px" }}>
           Het kleine icoon in de browsertab. Gebruik bij voorkeur een vierkante afbeelding (PNG of SVG).
         </div>
 
@@ -902,14 +925,23 @@ export default function BeheerPortaal() {
         {faviconUploadStatus === "fout" && (
           <div style={{ marginTop: 12, fontSize: 12.5, color: KLEUR.rood }}>Uploaden is niet gelukt, probeer het nog eens.</div>
         )}
+        </>)}
       </div>
 
       </>)}
 
       {tab === "content" && (<>
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Snellinks</div>
-        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 18 }}>
+        <button
+          onClick={() => toggleRubriek("snellinks")}
+          aria-expanded={rubriekIsOpen("snellinks")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("snellinks") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Snellinks</span>
+        </button>
+        {rubriekIsOpen("snellinks") && (<>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 18px" }}>
           Knoppen die op home boven de mededelingen staan. Kies eventueel voor welke klantgroepen
           een link zichtbaar is — niets aanvinken = voor iedereen.
         </div>
@@ -1041,11 +1073,20 @@ export default function BeheerPortaal() {
             </>)}
           </div>
         )}
+        </>)}
       </div>
 
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Mededeling versturen</div>
-        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 18 }}>
+        <button
+          onClick={() => toggleRubriek("mededeling")}
+          aria-expanded={rubriekIsOpen("mededeling")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("mededeling") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Mededeling versturen</span>
+        </button>
+        {rubriekIsOpen("mededeling") && (<>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 18px" }}>
           Kies aan welke klantgroepen deze zichtbaar wordt. Niets aanvinken = zichtbaar voor iedereen.
         </div>
 
@@ -1207,14 +1248,23 @@ export default function BeheerPortaal() {
             </div>
           );
         })()}
+        </>)}
       </div>
 
       </>)}
 
       {tab === "faq" && (
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Veelgestelde vragen (FAQ)</div>
-        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 18 }}>
+        <button
+          onClick={() => toggleRubriek("faq")}
+          aria-expanded={rubriekIsOpen("faq")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("faq") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Veelgestelde vragen (FAQ)</span>
+        </button>
+        {rubriekIsOpen("faq") && (<>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 18px" }}>
           Vraag en antwoord die klanten op de pagina "Veelgestelde vragen" zien. Kies eventueel voor
           welke klantgroepen een vraag zichtbaar is — niets aanvinken = voor iedereen.
         </div>
@@ -1336,13 +1386,22 @@ export default function BeheerPortaal() {
             })()}
           </div>
         )}
+        </>)}
       </div>
       )}
 
       {tab === "instellingen" && (<>
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Webhooks (Power Automate)</div>
-        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 6 }}>
+        <button
+          onClick={() => toggleRubriek("webhooks")}
+          aria-expanded={rubriekIsOpen("webhooks")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("webhooks") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Webhooks (Power Automate)</span>
+        </button>
+        {rubriekIsOpen("webhooks") && (<>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 6px" }}>
           Wanneer een klant bij een taak op <strong>"Niet akkoord"</strong> klikt, stuurt het portaal
           de toelichting naar deze webhook. Maak in Power Automate een stroom met trigger
           "Wanneer een HTTP-aanvraag wordt ontvangen" en plak hier de gegenereerde URL; de stroom
@@ -1392,11 +1451,20 @@ export default function BeheerPortaal() {
         {webhookOpslaanStatus === "fout" && (
           <span style={{ marginLeft: 12, fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
         )}
+        </>)}
       </div>
 
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Wijzigingsformulieren</div>
-        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 4 }}>
+        <button
+          onClick={() => toggleRubriek("wijzigingsformulieren")}
+          aria-expanded={rubriekIsOpen("wijzigingsformulieren")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("wijzigingsformulieren") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Wijzigingsformulieren</span>
+        </button>
+        {rubriekIsOpen("wijzigingsformulieren") && (<>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 4px" }}>
           Links naar (bijv. Microsoft Forms-)formulieren waarmee klanten wijzigingen in hun
           gegevens kunnen doorgeven — verschijnen onder "Mijn gegevens", bij respectievelijk
           de bedrijfsgegevens en de contactgegevens.
@@ -1443,11 +1511,20 @@ export default function BeheerPortaal() {
         {formOpslaanStatus === "fout" && (
           <span style={{ marginLeft: 12, fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
         )}
+        </>)}
       </div>
 
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Assistent, reviews & contact</div>
-        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 18 }}>
+        <button
+          onClick={() => toggleRubriek("assistentReviews")}
+          aria-expanded={rubriekIsOpen("assistentReviews")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("assistentReviews") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Assistent, reviews & contact</span>
+        </button>
+        {rubriekIsOpen("assistentReviews") && (<>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 18px" }}>
           Deze links sturen de knoppen en de assistent op de pagina "Veelgestelde vragen" en de
           reviewpagina aan. Laat een veld leeg om die knop/optie te verbergen.
         </div>
@@ -1530,11 +1607,20 @@ export default function BeheerPortaal() {
         {linksOpslaanStatus === "fout" && (
           <span style={{ marginLeft: 12, fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
         )}
+        </>)}
       </div>
 
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Klantoverzicht-kolommen (medewerkersportaal)</div>
-        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 14 }}>
+        <button
+          onClick={() => toggleRubriek("klantoverzichtKolommen")}
+          aria-expanded={rubriekIsOpen("klantoverzichtKolommen")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("klantoverzichtKolommen") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Klantoverzicht-kolommen (medewerkersportaal)</span>
+        </button>
+        {rubriekIsOpen("klantoverzichtKolommen") && (<>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 14px" }}>
           Bepaal welke kolommen medewerkers standaard zien in het klantoverzicht, en voeg extra
           Dynamics-velden als kolom toe. Medewerkers kunnen kolommen zelf altijd aan/uit zetten.
         </div>
@@ -1594,14 +1680,23 @@ export default function BeheerPortaal() {
         {koStatus === "fout" && (
           <span style={{ marginLeft: 12, fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
         )}
+        </>)}
       </div>
 
       </>)}
 
       {tab === "medewerkers" && (
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Medewerkers — wijzig-rechten</div>
-        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 14 }}>
+        <button
+          onClick={() => toggleRubriek("medewerkers")}
+          aria-expanded={rubriekIsOpen("medewerkers")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("medewerkers") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Medewerkers — wijzig-rechten</span>
+        </button>
+        {rubriekIsOpen("medewerkers") && (<>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 14px" }}>
           Standaard mag een medewerker in het medewerkersportaal alleen lezen. Kies per medewerker het
           <strong> niveau</strong> (wijzigen van klantgegevens) en vink aan wie <strong>bulk-aanpassingen</strong>
           {" "}op meerdere klanten tegelijk mag doen. Beheerders mogen sowieso altijd wijzigen én bulk-aanpassingen doen.
@@ -1675,13 +1770,22 @@ export default function BeheerPortaal() {
             </div>
           </>
         )}
+        </>)}
       </div>
       )}
 
       {tab === "facturatie" && (<>
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Facturatiemodule — per klant aan/uit</div>
-        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 14 }}>
+        <button
+          onClick={() => toggleRubriek("facturatieKlanten")}
+          aria-expanded={rubriekIsOpen("facturatieKlanten")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("facturatieKlanten") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Facturatiemodule — per klant aan/uit</span>
+        </button>
+        {rubriekIsOpen("facturatieKlanten") && (<>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 14px" }}>
           Standaard staat de facturatiemodule <strong>uit</strong> voor elke klant. Zet 'm per klant aan zodra
           die klant hem mag gebruiken — de tab "Facturen" verschijnt dan meteen in het klantportaal van die klant.
         </div>
@@ -1745,11 +1849,20 @@ export default function BeheerPortaal() {
             </div>
           </>
         )}
+        </>)}
       </div>
 
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>BTW-tarieven</div>
-        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 14 }}>
+        <button
+          onClick={() => toggleRubriek("btwTarieven")}
+          aria-expanded={rubriekIsOpen("btwTarieven")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("btwTarieven") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>BTW-tarieven</span>
+        </button>
+        {rubriekIsOpen("btwTarieven") && (<>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 14px" }}>
           Elk tarief geldt vanaf een datum tot (optioneel) een einddatum. Voeg je een nieuw tarief toe voor een
           bestaande categorie, dan sluit het vorige tarief van die categorie automatisch af op de dag ervoor —
           al gemaakte facturen blijven ongewijzigd, want die bevriezen het percentage op het moment van opstellen.
@@ -1831,21 +1944,30 @@ export default function BeheerPortaal() {
             </div>
           </>
         )}
+        </>)}
       </div>
 
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
-          <div style={{ fontSize: 15, fontWeight: 700 }}>Standaardartikelen</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+          <button
+            onClick={() => toggleRubriek("standaardartikelen")}
+            aria-expanded={rubriekIsOpen("standaardartikelen")}
+            style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+          >
+            <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("standaardartikelen") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s", flexShrink: 0 }} />
+            <span style={{ fontSize: 15, fontWeight: 700 }}>Standaardartikelen</span>
+          </button>
           {standaardartikelBewerken === null && (
             <button
-              onClick={() => beginStandaardartikel(null)}
-              style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+              onClick={() => { setRubriekOpen((h) => ({ ...h, standaardartikelen: true })); beginStandaardartikel(null); }}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}
             >
               <Plus size={13} /> Nieuw artikel
             </button>
           )}
         </div>
-        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 14 }}>
+        {rubriekIsOpen("standaardartikelen") && (<>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 14px" }}>
           Deze artikelen staan voor elke klant beschikbaar bij het opstellen van een factuur of offerte
           (bijvoorbeeld Managementvergoeding, Huur, Diensten). Wijzig je hier de prijs, dan geldt dat voor
           alle klanten tegelijk — al opgestelde facturen blijven ongewijzigd.
@@ -1904,6 +2026,7 @@ export default function BeheerPortaal() {
             ))}
           </div>
         )}
+        </>)}
       </div>
       </>)}
 
