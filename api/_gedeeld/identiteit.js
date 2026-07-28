@@ -145,10 +145,10 @@ function haalRollenUitPrincipal(req) {
  * Application Setting DYNAMICS_KLANTCATEGORIE_VELD als het bij jullie anders heet
  * (bijv. "cr3a2_klantcategorie" i.p.v. dit voorbeeld).
  */
-// Leeg laten als jullie geen klantcategorie-veld op Account gebruiken; zet anders de
-// logische veldnaam als Application Setting DYNAMICS_KLANTCATEGORIE_VELD. Is dit leeg,
-// dan wordt het veld niet opgevraagd (en zijn er simpelweg geen klantcategorieën).
-const KLANTCATEGORIE_VELD = process.env.DYNAMICS_KLANTCATEGORIE_VELD || "";
+// De klantcategorie ("rechtsvorm") staat op Account in het veld sk_rechtsvorm. Overschrijf
+// via de Application Setting DYNAMICS_KLANTCATEGORIE_VELD als het bij jullie anders heet.
+// Zet expliciet op "-" (of een andere niet-bestaande naam) om het veld niet te gebruiken.
+const KLANTCATEGORIE_VELD = process.env.DYNAMICS_KLANTCATEGORIE_VELD || "sk_rechtsvorm";
 
 // Navigatie-eigenschappen (schemanamen) van de eigen lookup-velden op Account naar de
 // systemuser: de relatiebeheerder (veld "Manager") en de accountant. Overschrijf via

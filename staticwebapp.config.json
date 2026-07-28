@@ -85,6 +85,10 @@
       "allowedRoles": ["anonymous"]
     },
     {
+      "route": "/api/media/*",
+      "allowedRoles": ["anonymous"]
+    },
+    {
       "route": "/*",
       "allowedRoles": ["authenticated"]
     }
