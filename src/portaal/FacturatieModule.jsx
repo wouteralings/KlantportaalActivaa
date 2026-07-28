@@ -1043,36 +1043,56 @@ function NogNietGebouwdKaart({ icon: Icon, titel, tekst }) {
  * geen goedkeuring door Activaa nodig (in tegenstelling tot bedrijfs-/contactgegevens uit
  * Dynamics bij "Mijn gegevens"). "Kopieer van" is alleen zichtbaar met >1 gekoppeld account
  * met de facturatiemodule aan, en neemt bewust het logo niet over (dat is echt per klant). */
+/** De op dit moment ingediende (nog niet beoordeelde) wijzigingsverzoeken van de ingelogde
+ * klant, over alle accounts en types heen — gebruikt om te bepalen of "Bedrijfsgegevens &
+ * logo" voor een account al een openstaand verzoek heeft (dan is het formulier gesloten
+ * totdat Activaa het beoordeeld heeft). */
+function useEigenWijzigingsverzoeken() {
+  const [items, setItems] = useState([]);
+
+  const verversen = useCallback(() => {
+    fetch("/api/wijzigingsverzoek")
+      .then(haalJson)
+      .then((d) => setItems(d.verzoeken || []))
+      .catch(() => setItems([]));
+  }, []);
+
+  useEffect(() => { verversen(); }, [verversen]);
+  return { items, verversen };
+}
+
 function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, account }) {
   const { status, data } = bedrijfsgegevens;
   const [f, setF] = useState(null);
-  const [opslaanStatus, setOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
+  const [indienStatus, setIndienStatus] = useState("idle"); // idle | bezig | fout
+  const [ingediend, setIngediend] = useState(false);
   const [logoStatus, setLogoStatus] = useState("idle"); // idle | bezig | fout | verwijderen
   const [kopieerVan, setKopieerVan] = useState("");
   const [kopieerBezig, setKopieerBezig] = useState(false);
+  const { items: eigenVerzoeken, verversen: verversVerzoeken } = useEigenWijzigingsverzoeken();
+
+  const openVerzoek = eigenVerzoeken.find(
+    (v) => v.accountId === accountId && v.type === "bedrijfsgegevens_facturatie" && v.status === "open"
+  );
+  const inBehandeling = !!openVerzoek || ingediend;
 
   useEffect(() => {
     if (!data || f) return;
-    // Nog niets opgeslagen (geen bedrijfsnaam, nooit gewijzigd) — vul het formulier dan vast
-    // in met wat we al uit Dynamics weten (bedrijfsnaam, adres, KvK-nummer), zodat de klant
-    // niet alles opnieuw hoeft te typen. Alleen als aanvulling, nooit als overschrijving.
-    const nogNietsOpgeslagen = !data.gewijzigdOp && !data.bedrijfsnaam;
-    if (nogNietsOpgeslagen && account) {
-      const a = account.klantadres || {};
-      setF({
-        ...data,
-        bedrijfsnaam: account.klantnaam || data.bedrijfsnaam,
-        straat: a.straat || data.straat,
-        huisnummer: a.huisnummer || data.huisnummer,
-        toevoeging: a.toevoeging || data.toevoeging,
-        postcode: a.postcode || data.postcode,
-        plaats: a.plaats || data.plaats,
-        land: a.land || data.land,
-        kvkNummer: account.kvkNummer || data.kvkNummer,
-      });
-    } else {
-      setF({ ...data });
-    }
+    // Voor ieder veld dat bij Activaa al bekend is uit Dynamics (bedrijfsnaam, adres,
+    // KvK-nummer) vullen we het aan zodra het nog leeg is — nooit een al opgeslagen/
+    // goedgekeurde eigen waarde overschrijven. Staat iets niet in Dynamics (BTW-nummer,
+    // IBAN, tenaamstelling), dan blijft het gewoon leeg totdat de klant het zelf invult.
+    const a = account?.klantadres || {};
+    setF({
+      ...data,
+      bedrijfsnaam: data.bedrijfsnaam || account?.klantnaam || "",
+      straat: data.straat || a.straat || "",
+      huisnummer: data.huisnummer || a.huisnummer || "",
+      toevoeging: data.toevoeging || a.toevoeging || "",
+      postcode: data.postcode || a.postcode || "",
+      plaats: data.plaats || a.plaats || "",
+      kvkNummer: data.kvkNummer || account?.kvkNummer || "",
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
@@ -1087,22 +1107,23 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
 
   const zet = (k) => (e) => setF((h) => ({ ...h, [k]: e.target.value }));
 
-  const opslaan = async () => {
-    setOpslaanStatus("bezig");
+  const dienIn = async () => {
+    setIndienStatus("bezig");
     try {
-      // logo gaat via een eigen upload-endpoint (niet mee in dit formulier); gewijzigdOp is
-      // read-only metadata die de server zelf teruggeeft.
+      // logo en gewijzigdOp horen niet bij dit verzoek — logo gaat via een eigen, direct
+      // endpoint (geen goedkeuring nodig), gewijzigdOp is read-only metadata.
       const { logoUrl: _logoUrl, gewijzigdOp: _gewijzigdOp, ...velden } = f;
-      const res = await fetch("/api/bedrijfsgegevens-klanten", {
-        method: "PUT",
+      const res = await fetch("/api/wijzigingsverzoek", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accountId, ...velden }),
+        body: JSON.stringify({ accountId, type: "bedrijfsgegevens_facturatie", voorstel: velden }),
       });
-      const opgeslagen = await haalJson(res);
-      setF(opgeslagen);
-      setOpslaanStatus("gelukt");
-    } catch {
-      setOpslaanStatus("fout");
+      await haalJson(res);
+      setIngediend(true);
+      setIndienStatus("idle");
+      verversVerzoeken();
+    } catch (e) {
+      setIndienStatus("fout");
     }
   };
 
@@ -1131,13 +1152,13 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
     if (!window.confirm("Logo verwijderen?")) return;
     setLogoStatus("verwijderen");
     try {
-      const res = await fetch("/api/bedrijfsgegevens-klanten", {
-        method: "PUT",
+      const res = await fetch("/api/bedrijfsgegevens-logo", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accountId, logoUrl: "" }),
+        body: JSON.stringify({ accountId, actie: "verwijderen" }),
       });
-      const opgeslagen = await haalJson(res);
-      setF((h) => ({ ...h, logoUrl: opgeslagen.logoUrl }));
+      const d = await haalJson(res);
+      setF((h) => ({ ...h, logoUrl: d.logoUrl }));
       setLogoStatus("idle");
     } catch {
       setLogoStatus("fout");
@@ -1159,9 +1180,11 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
       <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Bedrijfsgegevens & logo</div>
       <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 16 }}>
         Deze gegevens en dit logo komen als afzender ("Van:") bovenaan je facturen en offertes te staan.
+        Bedrijfsnaam, adres en KvK-nummer zijn al ingevuld met wat bij Activaa bekend is; een wijziging
+        wordt eerst door Activaa beoordeeld. Het logo pas je direct zelf aan, zonder goedkeuring.
       </div>
 
-      {andereAccounts.length > 0 && (
+      {andereAccounts.length > 0 && !inBehandeling && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
           <select value={kopieerVan} onChange={(e) => setKopieerVan(e.target.value)} style={{ ...inputStijl, maxWidth: 260 }}>
             <option value="">Kopieer van andere klant…</option>
@@ -1172,62 +1195,69 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "0 20px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "0 20px", opacity: inBehandeling ? 0.6 : 1 }}>
         <div>
           <div style={labelStijl}>Bedrijfsnaam</div>
-          <input value={f.bedrijfsnaam} onChange={zet("bedrijfsnaam")} style={inputStijl} />
+          <input value={f.bedrijfsnaam} onChange={zet("bedrijfsnaam")} style={inputStijl} disabled={inBehandeling} />
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 8 }}>
-            <div><div style={labelStijl}>Straat</div><input value={f.straat} onChange={zet("straat")} style={inputStijl} /></div>
-            <div><div style={labelStijl}>Huisnr.</div><input value={f.huisnummer} onChange={zet("huisnummer")} style={inputStijl} /></div>
-            <div><div style={labelStijl}>Toev.</div><input value={f.toevoeging} onChange={zet("toevoeging")} style={inputStijl} /></div>
+            <div><div style={labelStijl}>Straat</div><input value={f.straat} onChange={zet("straat")} style={inputStijl} disabled={inBehandeling} /></div>
+            <div><div style={labelStijl}>Huisnr.</div><input value={f.huisnummer} onChange={zet("huisnummer")} style={inputStijl} disabled={inBehandeling} /></div>
+            <div><div style={labelStijl}>Toev.</div><input value={f.toevoeging} onChange={zet("toevoeging")} style={inputStijl} disabled={inBehandeling} /></div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 8 }}>
-            <div><div style={labelStijl}>Postcode</div><input value={f.postcode} onChange={zet("postcode")} style={inputStijl} /></div>
-            <div><div style={labelStijl}>Plaats</div><input value={f.plaats} onChange={zet("plaats")} style={inputStijl} /></div>
+            <div><div style={labelStijl}>Postcode</div><input value={f.postcode} onChange={zet("postcode")} style={inputStijl} disabled={inBehandeling} /></div>
+            <div><div style={labelStijl}>Plaats</div><input value={f.plaats} onChange={zet("plaats")} style={inputStijl} disabled={inBehandeling} /></div>
           </div>
           <div style={labelStijl}>Land</div>
-          <input value={f.land} onChange={zet("land")} style={inputStijl} />
+          <input value={f.land} onChange={zet("land")} style={inputStijl} disabled={inBehandeling} />
         </div>
         <div>
           <div style={labelStijl}>KvK-nummer</div>
-          <input value={f.kvkNummer} onChange={zet("kvkNummer")} style={inputStijl} />
+          <input value={f.kvkNummer} onChange={zet("kvkNummer")} style={inputStijl} disabled={inBehandeling} />
           <div style={labelStijl}>BTW-nummer</div>
-          <input value={f.btwNummer} onChange={zet("btwNummer")} style={inputStijl} />
+          <input value={f.btwNummer} onChange={zet("btwNummer")} style={inputStijl} disabled={inBehandeling} />
           <div style={labelStijl}>IBAN</div>
-          <input value={f.iban} onChange={zet("iban")} style={inputStijl} />
+          <input value={f.iban} onChange={zet("iban")} style={inputStijl} disabled={inBehandeling} />
           <div style={labelStijl}>Tenaamstelling IBAN</div>
-          <input value={f.ibanTenaamstelling} onChange={zet("ibanTenaamstelling")} style={inputStijl} />
-
-          <div style={labelStijl}>Logo</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            {f.logoUrl && (
-              <img src={f.logoUrl} alt="Logo" style={{ maxHeight: 46, maxWidth: 150, objectFit: "contain", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: 4 }} />
-            )}
-            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, color: KLEUR.blauw, cursor: "pointer" }}>
-              <input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => uploadLogo(e.target.files[0])} />
-              {logoStatus === "bezig" ? "Bezig met uploaden…" : f.logoUrl ? "Ander logo kiezen" : "Logo uploaden"}
-            </label>
-            {f.logoUrl && (
-              <button
-                onClick={verwijderLogo}
-                disabled={logoStatus === "verwijderen"}
-                style={{ background: "none", border: "none", cursor: logoStatus === "verwijderen" ? "default" : "pointer", color: KLEUR.rood, fontSize: 12.5, fontWeight: 600, padding: 0 }}
-              >
-                {logoStatus === "verwijderen" ? "Bezig…" : "Logo verwijderen"}
-              </button>
-            )}
-          </div>
-          {logoStatus === "fout" && <div style={{ fontSize: 12, color: KLEUR.rood, marginTop: 4 }}>Actie mislukt, probeer het nog eens.</div>}
+          <input value={f.ibanTenaamstelling} onChange={zet("ibanTenaamstelling")} style={inputStijl} disabled={inBehandeling} />
         </div>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 18 }}>
-        <Knop variant="primair" icon={Check} onClick={opslaan} disabled={opslaanStatus === "bezig"}>
-          {opslaanStatus === "bezig" ? "Opslaan…" : "Opslaan"}
-        </Knop>
-        {opslaanStatus === "gelukt" && <span style={{ fontSize: 12.5, color: KLEUR.groen }}>Opgeslagen.</span>}
-        {opslaanStatus === "fout" && <span style={{ fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>}
+      <div style={{ marginTop: 14 }}>
+        <div style={labelStijl}>Logo</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          {f.logoUrl && (
+            <img src={f.logoUrl} alt="Logo" style={{ maxHeight: 46, maxWidth: 150, objectFit: "contain", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: 4 }} />
+          )}
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, color: KLEUR.blauw, cursor: "pointer" }}>
+            <input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => uploadLogo(e.target.files[0])} />
+            {logoStatus === "bezig" ? "Bezig met uploaden…" : f.logoUrl ? "Ander logo kiezen" : "Logo uploaden"}
+          </label>
+          {f.logoUrl && (
+            <button
+              onClick={verwijderLogo}
+              disabled={logoStatus === "verwijderen"}
+              style={{ background: "none", border: "none", cursor: logoStatus === "verwijderen" ? "default" : "pointer", color: KLEUR.rood, fontSize: 12.5, fontWeight: 600, padding: 0 }}
+            >
+              {logoStatus === "verwijderen" ? "Bezig…" : "Logo verwijderen"}
+            </button>
+          )}
+        </div>
+        {logoStatus === "fout" && <div style={{ fontSize: 12, color: KLEUR.rood, marginTop: 4 }}>Actie mislukt, probeer het nog eens.</div>}
       </div>
+
+      {inBehandeling ? (
+        <div style={{ marginTop: 16, padding: "10px 12px", background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12.5, color: KLEUR.tekst, display: "flex", alignItems: "center", gap: 8 }}>
+          <Clock size={14} color={KLEUR.blauw} /> Je wijziging is ingediend en wacht op goedkeuring door Activaa.
+        </div>
+      ) : (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 18 }}>
+          <Knop variant="primair" icon={Send} onClick={dienIn} disabled={indienStatus === "bezig"}>
+            {indienStatus === "bezig" ? "Indienen…" : "Wijziging indienen"}
+          </Knop>
+          {indienStatus === "fout" && <span style={{ fontSize: 12.5, color: KLEUR.rood }}>Indienen mislukt, probeer het nog eens.</span>}
+        </div>
+      )}
     </div>
   );
 }

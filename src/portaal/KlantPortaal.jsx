@@ -1211,7 +1211,12 @@ function TabGegevens({ data, verzoeken, onWijzigen }) {
   if (!data) return <Laadscherm />;
   if (data.accounts?.length === 0) return <LegeStaat tekst="Er zijn nog geen klantgegevens aan jouw account gekoppeld." />;
 
-  const openVerzoeken = new Set((verzoeken || []).filter((v) => v.status === "open").map((v) => v.accountId));
+  // Alleen NAW-verzoeken (contactpersoon/bedrijfsadres) tellen hier mee — een openstaand
+  // verzoek van een ander type (bijv. facturatiemodule-bedrijfsgegevens) mag deze sectie
+  // niet blokkeren/badgen.
+  const openVerzoeken = new Set(
+    (verzoeken || []).filter((v) => v.status === "open" && (v.type || "naw") === "naw").map((v) => v.accountId)
+  );
 
   const term = zoek.trim().toLowerCase();
   const lijst = data.accounts.filter((acc) =>

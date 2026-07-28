@@ -1,5 +1,6 @@
 const { haalDynamicsToken, haalEmailUitPrincipal } = require("../_gedeeld/identiteit");
 const { haalAlleVerzoeken, werkVerzoekBij } = require("../_gedeeld/wijzigingen");
+const { zetGegevens: zetBedrijfsgegevens } = require("../_gedeeld/bedrijfsgegevensKlanten");
 
 const DYN_HEADERS = (token) => ({
   Authorization: `Bearer ${token}`,
@@ -125,14 +126,20 @@ module.exports = async function (context, req) {
         return;
       }
 
-      // Goedkeuren → in Dynamics verwerken.
-      const resource = process.env.DYNAMICS_RESOURCE_URL;
+      // Goedkeuren → verwerken. Het type van het verzoek bepaalt het doelsysteem: NAW-
+      // verzoeken (of oudere verzoeken zonder type) gaan naar Dynamics; de facturatiemodule-
+      // bedrijfsgegevens gaan naar onze eigen SQL-tabel (geen Dynamics bij betrokken).
       let verwerkingsfout = null;
       try {
-        const token = await haalDynamicsToken();
-        await verwerkInDynamics(resource, token, verzoek);
+        if (verzoek.type === "bedrijfsgegevens_facturatie") {
+          await zetBedrijfsgegevens(verzoek.accountId, verzoek.voorstel, beheerder);
+        } else {
+          const resource = process.env.DYNAMICS_RESOURCE_URL;
+          const token = await haalDynamicsToken();
+          await verwerkInDynamics(resource, token, verzoek);
+        }
       } catch (schrijfFout) {
-        context.log.error("Verwerken in Dynamics mislukt:", schrijfFout);
+        context.log.error("Verwerken van wijzigingsverzoek mislukt:", schrijfFout);
         verwerkingsfout = String(schrijfFout.message || schrijfFout);
       }
 

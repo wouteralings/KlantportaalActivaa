@@ -39,6 +39,10 @@ const WIJZIG_VELD_LABELS = {
   bedrijf_straat: "Bedrijf · Straat", bedrijf_huisnummer: "Bedrijf · Huisnummer",
   bedrijf_toevoeging: "Bedrijf · Toevoeging", bedrijf_postcode: "Bedrijf · Postcode",
   bedrijf_plaats: "Bedrijf · Plaats", bedrijf_land: "Bedrijf · Land",
+  // Facturatiemodule → Bedrijfsgegevens (type "bedrijfsgegevens_facturatie"); straat/huisnummer/
+  // toevoeging/postcode/plaats/land hierboven worden hergebruikt, dit zijn alleen de extra velden.
+  bedrijfsnaam: "Bedrijfsnaam", kvkNummer: "KvK-nummer", btwNummer: "BTW-nummer",
+  iban: "IBAN", ibanTenaamstelling: "Tenaamstelling IBAN",
 };
 
 function StatusBadge({ status }) {
@@ -91,9 +95,11 @@ function WijzigingsverzoekBeheer({ onAfgehandeld }) {
         if (!res.ok) throw new Error();
         const d = await res.json();
         if (actie === "goedkeuren" && d.verwerkt === false) {
+          const verzoek = verzoeken?.find((x) => x.id === id);
+          const doel = verzoek?.type === "bedrijfsgegevens_facturatie" ? "de database" : "Dynamics";
           window.alert(
-            "Goedgekeurd, maar automatisch verwerken in Dynamics lukte niet " +
-              "(waarschijnlijk onvoldoende schrijfrechten). De gegevens staan wel klaar om handmatig door te voeren."
+            `Goedgekeurd, maar automatisch verwerken in ${doel} lukte niet ` +
+              "(waarschijnlijk onvoldoende schrijfrechten/verbinding). De gegevens staan wel klaar om handmatig door te voeren."
           );
         }
         laad();
@@ -104,7 +110,7 @@ function WijzigingsverzoekBeheer({ onAfgehandeld }) {
         setBezigId(null);
       }
     },
-    [laad, onAfgehandeld]
+    [laad, onAfgehandeld, verzoeken]
   );
 
   if (verzoeken === null) {
@@ -229,7 +235,8 @@ function WijzigingsverzoekBeheer({ onAfgehandeld }) {
                 )}
                 {v.status === "goedgekeurd" && !v.verwerkingsfout && (
                   <div style={{ fontSize: 11.5, color: "#1E6B33", marginTop: 10, display: "flex", alignItems: "center", gap: 6 }}>
-                    <CheckCircle2 size={13} /> Verwerkt in Dynamics{v.verwerktDoor ? ` door ${v.verwerktDoor}` : ""}.
+                    <CheckCircle2 size={13} /> Verwerkt{v.type === "bedrijfsgegevens_facturatie" ? "" : " in Dynamics"}
+                    {v.verwerktDoor ? ` door ${v.verwerktDoor}` : ""}.
                   </div>
                 )}
 

@@ -3,6 +3,14 @@
  * Azure Blob Storage, in dezelfde container (portaalcontent), blob wijzigingsverzoeken.json.
  *
  * Statussen: "open" (wacht op goedkeuring) | "goedgekeurd" | "afgewezen".
+ *
+ * `type` onderscheidt wat voor verzoek het is en dus hoe een goedkeuring verwerkt moet
+ * worden (zie de dispatch in api/beheer-wijzigingen/index.js):
+ *   - "naw" (of ontbrekend, voor oudere al opgeslagen verzoeken) — contactpersoon/bedrijfsadres,
+ *     wordt bij goedkeuring in Dynamics weggeschreven.
+ *   - "bedrijfsgegevens_facturatie" — de eigen afzendergegevens/logo-gegevens van de
+ *     facturatiemodule (dbo.bedrijfsgegevens_klanten), wordt bij goedkeuring in die SQL-tabel
+ *     weggeschreven (geen Dynamics bij betrokken).
  */
 const { BlobServiceClient } = require("@azure/storage-blob");
 const crypto = require("crypto");
@@ -49,10 +57,11 @@ async function schrijfVerzoeken(verzoeken) {
   await blobClient.upload(buffer, buffer.length, { overwrite: true });
 }
 
-async function voegVerzoekToe({ accountId, contactId, klantnummer, klantnaam, aanvragerEmail, huidig, voorstel }) {
+async function voegVerzoekToe({ accountId, contactId, klantnummer, klantnaam, aanvragerEmail, huidig, voorstel, type }) {
   const verzoeken = await haalAlleVerzoeken();
   const nieuw = {
     id: crypto.randomUUID(),
+    type: type || "naw",
     accountId,
     contactId: contactId || null,
     klantnummer: klantnummer ?? null,

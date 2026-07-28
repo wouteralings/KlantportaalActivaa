@@ -1,6 +1,8 @@
 const { haalDynamicsToken, herleidAccounts, haalEmailUitPrincipal } = require("../_gedeeld/identiteit");
 const { voegVerzoekToe, haalVerzoekenVoorEmail } = require("../_gedeeld/wijzigingen");
 const { verstuurMail } = require("../_gedeeld/mail");
+const { isIngeschakeld } = require("../_gedeeld/facturatieInstellingen");
+const { haalGegevens: haalBedrijfsgegevens } = require("../_gedeeld/bedrijfsgegevensKlanten");
 
 const INFO_EMAIL = process.env.REVIEW_INFO_EMAIL || "info@activaa.nl";
 
@@ -14,6 +16,13 @@ const CONTACT_VELDEN = [
 const BEDRIJF_VELDEN = [
   "bedrijf_straat", "bedrijf_huisnummer", "bedrijf_toevoeging",
   "bedrijf_postcode", "bedrijf_plaats", "bedrijf_land",
+];
+// Facturatiemodule "Bedrijfsgegevens & logo" (dbo.bedrijfsgegevens_klanten) — logoUrl zit hier
+// bewust niet bij: het logo blijft direct zelf te wijzigen (geen goedkeuring nodig), alleen
+// de tekstvelden lopen sinds 28-07-2026 via een wijzigingsverzoek.
+const BEDRIJFSGEGEVENS_VELDEN = [
+  "bedrijfsnaam", "straat", "huisnummer", "toevoeging", "postcode", "plaats", "land",
+  "kvkNummer", "btwNummer", "iban", "ibanTenaamstelling",
 ];
 
 function schoonVoorstel(voorstel, toegestaan) {
@@ -58,7 +67,12 @@ module.exports = async function (context, req) {
       const eigen = await haalVerzoekenVoorEmail(email).catch(() => []);
       context.res = {
         headers: { "Content-Type": "application/json" },
-        body: { verzoeken: eigen.map((v) => ({ id: v.id, accountId: v.accountId, status: v.status, aangevraagdOp: v.aangevraagdOp })) },
+        body: {
+          verzoeken: eigen.map((v) => ({
+            id: v.id, accountId: v.accountId, status: v.status, aangevraagdOp: v.aangevraagdOp,
+            type: v.type || "naw",
+          })),
+        },
       };
       return;
     }
@@ -75,6 +89,71 @@ module.exports = async function (context, req) {
     const account = accounts.find((a) => a.accountId === accountId);
     if (!account) {
       context.res = { status: 403, body: { error: "Dit account hoort niet bij jouw gegevens." } };
+      return;
+    }
+
+    // Facturatiemodule "Bedrijfsgegevens & logo" — apart afgehandeld, want dit gaat over
+    // dbo.bedrijfsgegevens_klanten (eigen SQL-tabel), niet over Dynamics-velden.
+    if (req.body?.type === "bedrijfsgegevens_facturatie") {
+      const aan = await isIngeschakeld(accountId).catch(() => false);
+      if (!aan) {
+        context.res = { status: 403, body: { error: "De facturatiemodule staat niet aan voor dit account." } };
+        return;
+      }
+
+      const opgeslagen = await haalBedrijfsgegevens(accountId);
+      const ka = account.klantadres || {};
+      // Voor elk veld: de al opgeslagen waarde, en anders (nog leeg) de bekende CRM-waarde als
+      // die er is — zo blijft een al goedgekeurde eigen waarde behouden bij een volgend verzoek,
+      // en wordt alleen een nog leeg veld aangevuld vanuit wat we al weten.
+      const huidig = {
+        bedrijfsnaam: opgeslagen.bedrijfsnaam || account.klantnaam || "",
+        straat: opgeslagen.straat || ka.straat || "",
+        huisnummer: opgeslagen.huisnummer || ka.huisnummer || "",
+        toevoeging: opgeslagen.toevoeging || ka.toevoeging || "",
+        postcode: opgeslagen.postcode || ka.postcode || "",
+        plaats: opgeslagen.plaats || ka.plaats || "",
+        land: opgeslagen.land || ka.land || "NL",
+        kvkNummer: opgeslagen.kvkNummer || account.kvkNummer || "",
+        // Niet in CRM beschikbaar — blijft leeg totdat de klant (of Activaa) het zelf invult.
+        btwNummer: opgeslagen.btwNummer || "",
+        iban: opgeslagen.iban || "",
+        ibanTenaamstelling: opgeslagen.ibanTenaamstelling || "",
+      };
+
+      const voorstel = schoonVoorstel(req.body?.voorstel, BEDRIJFSGEGEVENS_VELDEN);
+      const definitiefVoorstel = { ...huidig };
+      for (const veld of BEDRIJFSGEGEVENS_VELDEN) {
+        if (voorstel[veld] !== undefined) definitiefVoorstel[veld] = voorstel[veld];
+      }
+
+      const isGewijzigd = BEDRIJFSGEGEVENS_VELDEN.some((v) => (definitiefVoorstel[v] ?? "") !== (huidig[v] ?? ""));
+      if (!isGewijzigd) {
+        context.res = { status: 400, body: { error: "Er zijn geen wijzigingen ten opzichte van de huidige gegevens." } };
+        return;
+      }
+
+      const verzoek = await voegVerzoekToe({
+        type: "bedrijfsgegevens_facturatie",
+        accountId: account.accountId,
+        klantnummer: account.klantnummer,
+        klantnaam: account.klantnaam,
+        aanvragerEmail: email,
+        huidig,
+        voorstel: definitiefVoorstel,
+      });
+
+      // Melding is best-effort: als mailen (nog) niet kan, faalt het verzoek zelf niet.
+      try {
+        await stuurMelding(account, email, huidig, definitiefVoorstel, BEDRIJFSGEGEVENS_VELDEN);
+      } catch (mailFout) {
+        context.log.error("Melding wijzigingsverzoek mislukt:", mailFout);
+      }
+
+      context.res = {
+        headers: { "Content-Type": "application/json" },
+        body: { ok: true, id: verzoek.id, status: verzoek.status },
+      };
       return;
     }
 
@@ -125,6 +204,7 @@ module.exports = async function (context, req) {
     }
 
     const verzoek = await voegVerzoekToe({
+      type: "naw",
       accountId: account.accountId,
       contactId: account.contactId,
       klantnummer: account.klantnummer,
