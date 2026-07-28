@@ -921,6 +921,7 @@ function KlantDetail({ klant, magWijzigen, keuzes, onTerug, onContact, onMedewer
             <MedewerkerRegel label="Manager" persoon={klant.manager || { naam: klant.relatiebeheerder }} rol="Manager" />
             <MedewerkerRegel label="Accountant" persoon={klant.accountantPersoon || { naam: klant.accountant }} rol="Accountant" />
             <MedewerkerRegel label="Assistent" persoon={klant.assistent} rol="Assistent" />
+            <MedewerkerRegel label="Back-up" persoon={klant.backup} rol="Back-up" />
             <MedewerkerRegel label="Fiscaal medewerker" persoon={klant.fiscaalMedewerker} rol="Fiscaal medewerker" />
             <MedewerkerRegel label="Loonadministratie" persoon={klant.loonadministratie} rol="Loonadministratie" />
           </div>
@@ -952,6 +953,23 @@ function KlantDetail({ klant, magWijzigen, keuzes, onTerug, onContact, onMedewer
             <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Geen contactpersoon bekend.</div>
           )}
         </div>
+
+        {klant.secundairContact?.naam && (() => {
+          const s = klant.secundairContact;
+          const sa = s.adres || {};
+          const sAdres = [[sa.straat, sa.huisnummer, sa.toevoeging].filter(Boolean).join(" "), [sa.postcode, sa.plaats].filter(Boolean).join("  "), sa.land].filter(Boolean).join(", ");
+          return (
+            <div style={{ marginTop: 12, paddingTop: 14, borderTop: `1px solid ${KLEUR.rand}` }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Secundaire contactpersoon</div>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{s.naam}{s.functietitel ? <span style={{ fontWeight: 400, color: KLEUR.subtekst }}>{" · " + s.functietitel}</span> : null}</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 18px", marginTop: 4 }}>
+                {s.email && <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>E-mail: <a href={`mailto:${s.email}`} style={{ color: KLEUR.blauw, textDecoration: "none" }}>{s.email}</a></div>}
+                {s.telefoon && <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>Telefoon: {s.telefoon}</div>}
+                {sAdres && <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>Adres: {sAdres}</div>}
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

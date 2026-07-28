@@ -9,6 +9,9 @@ const GROEPSNAAM_NAV = process.env.DYNAMICS_GROEPSNAAM_NAV || "sk_Groepsnaam";
 const GROEPSNAAM_NAAMVELD = process.env.DYNAMICS_GROEPSNAAM_NAAMVELD || "sk_name";
 const RELATIEBEHEERDER_NAV = process.env.DYNAMICS_RELATIEBEHEERDER_NAV || "cr283_Manager";
 const ACCOUNTANT_NAV = process.env.DYNAMICS_ACCOUNTANT_NAV || "sk_Accountant";
+// Attribuut- (logische) namen van manager/accountant, voor het meelezen van de GUID (_value).
+const RELATIEBEHEERDER_ATTR = process.env.DYNAMICS_RELATIEBEHEERDER_VELD || "cr283_manager";
+const ACCOUNTANT_ATTR = process.env.DYNAMICS_ACCOUNTANT_VELD || "sk_accountant";
 const SHAREPOINT_VELD = process.env.DYNAMICS_KLANT_SHAREPOINT_VELD || "cr283_sharepoint";
 const KVK_VELD = process.env.DYNAMICS_KVK_VELD || "accountnumber";
 
@@ -22,14 +25,17 @@ const KANTOOR_VELD = process.env.DYNAMICS_KLANT_KANTOOR_VELD || "cr283_kantoor";
 const ASSISTENT_VELD = process.env.DYNAMICS_KLANT_ASSISTENT_VELD || "cr283_assistant1";
 const FISCAALMEDEWERKER_VELD = process.env.DYNAMICS_KLANT_FISCAALMEDEWERKER_VELD || "cr283_fiscaalmedewerker";
 const LOONADMIN_VELD = process.env.DYNAMICS_KLANT_LOONADMIN_VELD || "cr283_verantwoordelijkeloonadministratie";
+const BACKUP_VELD = process.env.DYNAMICS_KLANT_BACKUP_VELD || "cr283_assistent2";
 const BELASTINGKANTOOR_VELD = process.env.DYNAMICS_KLANT_BELASTINGKANTOOR_VELD || "cr283_belastingkantoor";
+// Navigatie-eigenschap van de secundaire contactpersoon (lookup naar contact).
+const SECUNDAIR_NAV = process.env.DYNAMICS_KLANT_SECUNDAIRCONTACT_NAV || "cr283_Secundairecontactpersoon";
 
 const MAX_KLANTEN = Number(process.env.BEHEER_MAX_KLANTEN || 3000);
 const FV = "@OData.Community.Display.V1.FormattedValue";
 
 async function haalAlleKlanten(resource, token, extraKolommen) {
   const keuzeVelden = [CLIENTTYPE_VELD, STATUS_VELD, TEAM_VELD, KANTOOR_VELD].filter(Boolean);
-  const lookupVelden = [ASSISTENT_VELD, FISCAALMEDEWERKER_VELD, LOONADMIN_VELD, BELASTINGKANTOOR_VELD].filter(Boolean);
+  const lookupVelden = [ASSISTENT_VELD, FISCAALMEDEWERKER_VELD, LOONADMIN_VELD, BACKUP_VELD, BELASTINGKANTOOR_VELD].filter(Boolean);
 
   // Door de beheerder toegevoegde extra kolommen (tekst/keuze op het veld zelf, lookup via _value).
   const extra = Array.isArray(extraKolommen) ? extraKolommen.filter((c) => c && c.veld) : [];
@@ -42,6 +48,7 @@ async function haalAlleKlanten(resource, token, extraKolommen) {
     "emailaddress1", "telephone1",
     ...keuzeVelden,
     ...lookupVelden.map((v) => `_${v}_value`),
+    `_${RELATIEBEHEERDER_ATTR}_value`, `_${ACCOUNTANT_ATTR}_value`,
     ...extraSelect,
   ].filter(Boolean);
 
@@ -50,6 +57,7 @@ async function haalAlleKlanten(resource, token, extraKolommen) {
     `${GROEPSNAAM_NAV}($select=${GROEPSNAAM_NAAMVELD})`,
     `${RELATIEBEHEERDER_NAV}($select=fullname,internalemailaddress,mobilephone)`,
     `${ACCOUNTANT_NAV}($select=fullname,internalemailaddress,mobilephone)`,
+    `${SECUNDAIR_NAV}($select=contactid,fullname,firstname,middlename,lastname,jobtitle,emailaddress1,mobilephone,telephone1,address1_line1,cr283_huisnummer,cr283_huisnummertoevoeging,address1_postalcode,address1_city,address1_country)`,
   ].join(",");
 
   const startQuery =
@@ -138,7 +146,7 @@ module.exports = async function (context, req) {
     ]);
 
     // Medewerker-lookups (assistent/fiscaal/loon) verrijken met e-mail + telefoon via systemusers.
-    const lookupAttrs = [ASSISTENT_VELD, FISCAALMEDEWERKER_VELD, LOONADMIN_VELD].filter(Boolean);
+    const lookupAttrs = [ASSISTENT_VELD, FISCAALMEDEWERKER_VELD, LOONADMIN_VELD, BACKUP_VELD].filter(Boolean);
     const persoonIds = [];
     for (const a of rijen) {
       for (const v of lookupAttrs) {
@@ -160,9 +168,10 @@ module.exports = async function (context, req) {
       perAccount.set(r.accountId, huidig);
     }
 
-    const persoonUitExpand = (nav, rij) => {
+    const persoonUitExpand = (nav, rij, attr) => {
       const u = nav ? rij[nav] : null;
-      return u ? { naam: u.fullname || "", email: u.internalemailaddress || "", telefoon: u.mobilephone || "" } : null;
+      const id = attr ? rij[`_${attr}_value`] || "" : "";
+      return u ? { naam: u.fullname || "", email: u.internalemailaddress || "", telefoon: u.mobilephone || "", id } : null;
     };
     const persoonUitLookup = (veld, rij) => {
       const id = rij[`_${veld}_value`];
@@ -173,6 +182,7 @@ module.exports = async function (context, req) {
         naam: (verrijkt && verrijkt.naam) || naam || "",
         email: (verrijkt && verrijkt.email) || "",
         telefoon: (verrijkt && verrijkt.telefoon) || "",
+        id: id || "",
       };
     };
 
@@ -205,8 +215,25 @@ module.exports = async function (context, req) {
         assistent: persoonUitLookup(ASSISTENT_VELD, a),
         fiscaalMedewerker: persoonUitLookup(FISCAALMEDEWERKER_VELD, a),
         loonadministratie: persoonUitLookup(LOONADMIN_VELD, a),
-        manager: persoonUitExpand(RELATIEBEHEERDER_NAV, a),
-        accountantPersoon: persoonUitExpand(ACCOUNTANT_NAV, a),
+        backup: persoonUitLookup(BACKUP_VELD, a),
+        manager: persoonUitExpand(RELATIEBEHEERDER_NAV, a, RELATIEBEHEERDER_ATTR),
+        accountantPersoon: persoonUitExpand(ACCOUNTANT_NAV, a, ACCOUNTANT_ATTR),
+        secundairContact: (() => {
+          const s = a[SECUNDAIR_NAV];
+          if (!s) return null;
+          return {
+            contactId: s.contactid || "",
+            naam: s.fullname || "",
+            voornaam: s.firstname || "", tussenvoegsel: s.middlename || "", achternaam: s.lastname || "",
+            functietitel: s.jobtitle || "",
+            email: s.emailaddress1 || "",
+            telefoon: s.mobilephone || s.telephone1 || "",
+            adres: {
+              straat: s.address1_line1 || "", huisnummer: s.cr283_huisnummer || "", toevoeging: s.cr283_huisnummertoevoeging || "",
+              postcode: s.address1_postalcode || "", plaats: s.address1_city || "", land: s.address1_country || "",
+            },
+          };
+        })(),
         contact: {
           contactId: contact.contactid || "",
           naam: contact.fullname || "",
