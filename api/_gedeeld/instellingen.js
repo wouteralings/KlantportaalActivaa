@@ -30,7 +30,7 @@ async function haalInstellingen() {
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
 
   const bestaat = await blobClient.exists();
-  if (!bestaat) return { googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "", reviewWebhookUrl: "", offerteportaalUrl: "", offerteToolUrl: "", klantoverzicht: { extraKolommen: [], standaardVerborgen: [] } };
+  if (!bestaat) return { googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "", reviewWebhookUrl: "", offerteportaalUrl: "", offerteToolUrl: "", facturatiemodulePrijs: 5, klantoverzicht: { extraKolommen: [], standaardVerborgen: [] } };
 
   const downloadResponse = await blobClient.download();
   const tekst = await streamNaarTekst(downloadResponse.readableStreamBody);
@@ -53,6 +53,10 @@ async function haalInstellingen() {
     offerteportaalUrl: "",
     // Link naar de offertetool "Project" (getoond in het medewerkersportaal).
     offerteToolUrl: "",
+    // Prijs (in hele euro's of met centen, bijv. 5 of 7.5) van de facturatiemodule per
+    // klantaccount per maand — getoond in het klantportaal bij een nog niet actief account
+    // (Facturatiemodule → "Niet actief"-uitleg), instelbaar in Beheer → Facturatie.
+    facturatiemodulePrijs: 5,
     // Kolom-configuratie voor het klantoverzicht in het medewerkersportaal.
     // extraKolommen: [{ veld, label, type: "tekst"|"keuze"|"lookup" }]; standaardVerborgen: [kolom-keys].
     klantoverzicht: { extraKolommen: [], standaardVerborgen: [] },

@@ -102,6 +102,7 @@ export default function KlantPortaal() {
   const [logoUrl, setLogoUrl] = useState("");
   const [wijzigingFormNawUrl, setWijzigingFormNawUrl] = useState("");
   const [wijzigingFormContactUrl, setWijzigingFormContactUrl] = useState("");
+  const [facturatiemodulePrijs, setFacturatiemodulePrijs] = useState(5);
 
   useEffect(() => {
     fetch("/.auth/me")
@@ -124,6 +125,7 @@ export default function KlantPortaal() {
         setLogoUrl(d.logoUrl || "");
         setWijzigingFormNawUrl(d.wijzigingFormNawUrl || "");
         setWijzigingFormContactUrl(d.wijzigingFormContactUrl || "");
+        setFacturatiemodulePrijs(d.facturatiemodulePrijs != null ? d.facturatiemodulePrijs : 5);
         zetBrowserFavicon(d.faviconUrl);
       })
       .catch(() => {}); // niet-kritisch
@@ -464,7 +466,7 @@ export default function KlantPortaal() {
           onEntiteitWijzigen={wijzigEntiteit}
         />
       )}
-      {tab === "facturen" && <FacturatieModule accounts={alleAccounts} />}
+      {tab === "facturen" && <FacturatieModule accounts={alleAccounts} prijs={facturatiemodulePrijs} />}
       {tab === "faq" && <TabFaq content={content} teamsChatUrl={teamsChatUrl} whatsappUrl={whatsappUrl} copilotEmbedUrl={copilotEmbedUrl} />}
       {tab === "review" && <TabReview onVerzenden={verstuurReview} />}
     </div>

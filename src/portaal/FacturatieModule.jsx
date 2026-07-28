@@ -1356,9 +1356,30 @@ function FacturatieAccountInhoud({ account, andereAccounts }) {
   );
 }
 
+/** Uitleg + prijs van de facturatiemodule — één keer bovenaan de sectie "Niet actief" bij
+ * meerdere klantaccounts, zodat een klant dit niet per account hoeft open te klikken. */
+function FacturatiemoduleUitlegBanner({ prijs }) {
+  return (
+    <div style={{
+      display: "flex", alignItems: "flex-start", gap: 10, padding: "14px 16px", marginBottom: 10,
+      background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 10,
+    }}>
+      <Lock size={15} color={KLEUR.mutedTekst} style={{ marginTop: 2, flexShrink: 0 }} />
+      <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>
+        <strong style={{ color: KLEUR.tekst }}>Facturatiemodule nog niet actief voor deze klantaccounts.</strong>{" "}
+        Hiermee kun je zelf facturen en offertes opstellen aan je eigen klanten, met een eigen productencatalogus,
+        eigen bedrijfsgegevens/logo en automatische doorlopende nummering. Deze module kost <strong>{geld(prijs)} per maand</strong> per
+        klantaccount.
+      </div>
+    </div>
+  );
+}
+
 /** Kaart voor een gekoppeld klantaccount waarvoor de facturatiemodule nog niet aan staat —
- * i.p.v. de tab helemaal te verbergen (dan zou een klant het nooit kunnen aanvragen). */
-function FacturatieNietActief({ account }) {
+ * i.p.v. de tab helemaal te verbergen (dan zou een klant het nooit kunnen aanvragen).
+ * toonUitleg=false laat de kop/uitleg/prijs weg — gebruikt binnen de sectie "Niet actief"
+ * (meerdere accounts), waar FacturatiemoduleUitlegBanner die uitleg al één keer toont. */
+function FacturatieNietActief({ account, prijs, toonUitleg = true }) {
   const [status, setStatus] = useState(account.facturatieAangevraagdOp ? "aangevraagd" : "idle"); // idle | bezig | aangevraagd | fout
 
   const vraagAan = async () => {
@@ -1377,15 +1398,19 @@ function FacturatieNietActief({ account }) {
 
   return (
     <div style={{ padding: "18px 20px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-        <Lock size={15} color={KLEUR.mutedTekst} />
-        <div style={{ fontSize: 14, fontWeight: 700 }}>Facturatiemodule nog niet actief voor dit klantaccount</div>
-      </div>
-      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 16, maxWidth: 560 }}>
-        Hiermee kun je zelf facturen en offertes opstellen aan je eigen klanten, met een eigen productencatalogus,
-        eigen bedrijfsgegevens/logo en automatische doorlopende nummering. Deze module kost <strong>€ 5,- per maand</strong> per
-        klantaccount.
-      </div>
+      {toonUitleg && (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <Lock size={15} color={KLEUR.mutedTekst} />
+            <div style={{ fontSize: 14, fontWeight: 700 }}>Facturatiemodule nog niet actief voor dit klantaccount</div>
+          </div>
+          <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 16, maxWidth: 560 }}>
+            Hiermee kun je zelf facturen en offertes opstellen aan je eigen klanten, met een eigen productencatalogus,
+            eigen bedrijfsgegevens/logo en automatische doorlopende nummering. Deze module kost <strong>{geld(prijs)} per maand</strong> per
+            klantaccount.
+          </div>
+        </>
+      )}
       {status === "aangevraagd" ? (
         <div style={{ fontSize: 12.5, color: KLEUR.blauw, display: "flex", alignItems: "center", gap: 6 }}>
           <Clock size={13} />
@@ -1406,7 +1431,7 @@ function FacturatieNietActief({ account }) {
 /* bij "Mijn gegevens"), met de volle module of een aanvraagkaart erin.    */
 /* ---------------------------------------------------------------------- */
 
-export default function FacturatieModule({ accounts }) {
+export default function FacturatieModule({ accounts, prijs = 5 }) {
   const [openAccountId, setOpenAccountId] = useState(accounts.length === 1 ? accounts[0].accountId : null);
   const [zoek, setZoek] = useState("");
 
@@ -1423,65 +1448,85 @@ export default function FacturatieModule({ accounts }) {
     !term || [a.klantnaam, String(a.klantnummer ?? "")].filter(Boolean).some((v) => v.toLowerCase().includes(term))
   );
 
+  // Eén klantaccount: geen lijst/sectie-indeling nodig — direct de volle module of de
+  // aanvraagkaart tonen, zoals voorheen.
+  if (accounts.length === 1) {
+    const acc = accounts[0];
+    return acc.facturatieIngeschakeld
+      ? <FacturatieAccountInhoud account={acc} andereAccounts={[]} />
+      : <FacturatieNietActief account={acc} prijs={prijs} />;
+  }
+
+  // Meerdere gekoppelde klantaccounts: opsplitsen in "Actief" en "Niet actief", met de
+  // uitleg/prijs één keer bovenaan de laatste sectie (zie FacturatiemoduleUitlegBanner)
+  // i.p.v. herhaald per account.
+  const renderAccountRij = (acc, i) => {
+    const open = openAccountId === acc.accountId;
+    const andereAccounts = accounts.filter((a) => a.accountId !== acc.accountId && a.facturatieIngeschakeld);
+    return (
+      <div key={acc.accountId} style={{ borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}` }}>
+        <button
+          onClick={() => setOpenAccountId(open ? null : acc.accountId)}
+          style={{
+            width: "100%", display: "flex", alignItems: "center", gap: 12,
+            padding: "12px 16px", background: open ? KLEUR.lichtblauw : "#fff",
+            border: "none", cursor: "pointer", textAlign: "left", color: KLEUR.tekst,
+          }}
+        >
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: KLEUR.blauw, minWidth: 52, flexShrink: 0 }}>
+            {acc.klantnummer || "—"}
+          </span>
+          <span style={{ fontSize: 14, fontWeight: 600, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {acc.klantnaam}
+          </span>
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ flexShrink: 0, transition: "transform .15s", transform: open ? "rotate(180deg)" : "none" }} />
+        </button>
+        {open && (
+          acc.facturatieIngeschakeld
+            ? <div style={{ padding: "16px" }}><FacturatieAccountInhoud account={acc} andereAccounts={andereAccounts} /></div>
+            : <FacturatieNietActief account={acc} prijs={prijs} toonUitleg={false} />
+        )}
+      </div>
+    );
+  };
+
+  const actieveAccounts = lijst.filter((a) => a.facturatieIngeschakeld);
+  const nietActieveAccounts = lijst.filter((a) => !a.facturatieIngeschakeld);
+
   return (
     <div>
-      {accounts.length > 1 && (
-        <div style={{ position: "relative", marginBottom: 14, maxWidth: 360 }}>
-          <Search size={16} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
-          <input
-            value={zoek}
-            onChange={(e) => setZoek(e.target.value)}
-            placeholder="Zoek op klantnummer of naam…"
-            style={{ ...inputStijl, padding: "10px 12px 10px 36px" }}
-          />
+      <div style={{ position: "relative", marginBottom: 14, maxWidth: 360 }}>
+        <Search size={16} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
+        <input
+          value={zoek}
+          onChange={(e) => setZoek(e.target.value)}
+          placeholder="Zoek op klantnummer of naam…"
+          style={{ ...inputStijl, padding: "10px 12px 10px 36px" }}
+        />
+      </div>
+
+      {lijst.length === 0 && (
+        <div style={{ padding: "18px 16px", fontSize: 13, color: KLEUR.mutedTekst }}>Geen klanten gevonden voor "{zoek}".</div>
+      )}
+
+      {actieveAccounts.length > 0 && (
+        <div style={{ marginBottom: nietActieveAccounts.length > 0 ? 24 : 0 }}>
+          <div style={sectieKopStijl}>Actief ({actieveAccounts.length})</div>
+          <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, overflow: "hidden", background: "#fff" }}>
+            {actieveAccounts.map(renderAccountRij)}
+          </div>
         </div>
       )}
 
-      <div style={accounts.length > 1 ? { border: `1px solid ${KLEUR.rand}`, borderRadius: 12, overflow: "hidden", background: "#fff" } : undefined}>
-        {lijst.length === 0 && (
-          <div style={{ padding: "18px 16px", fontSize: 13, color: KLEUR.mutedTekst }}>Geen klanten gevonden voor "{zoek}".</div>
-        )}
-        {lijst.map((acc, i) => {
-          const open = accounts.length === 1 ? true : openAccountId === acc.accountId;
-          const andereAccounts = accounts.filter((a) => a.accountId !== acc.accountId && a.facturatieIngeschakeld);
-          return (
-            <div key={acc.accountId} style={accounts.length > 1 ? { borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}` } : undefined}>
-              {accounts.length > 1 && (
-                <button
-                  onClick={() => setOpenAccountId(open ? null : acc.accountId)}
-                  style={{
-                    width: "100%", display: "flex", alignItems: "center", gap: 12,
-                    padding: "12px 16px", background: open ? KLEUR.lichtblauw : "#fff",
-                    border: "none", cursor: "pointer", textAlign: "left", color: KLEUR.tekst,
-                  }}
-                >
-                  <span style={{ fontSize: 12.5, fontWeight: 700, color: KLEUR.blauw, minWidth: 52, flexShrink: 0 }}>
-                    {acc.klantnummer || "—"}
-                  </span>
-                  <span style={{ fontSize: 14, fontWeight: 600, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {acc.klantnaam}
-                  </span>
-                  {!acc.facturatieIngeschakeld && (
-                    <span style={{
-                      display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 600,
-                      color: KLEUR.mutedTekst, background: "#F1F3EF", border: `1px solid ${KLEUR.rand}`,
-                      borderRadius: 999, padding: "3px 9px", flexShrink: 0,
-                    }}>
-                      <Lock size={11} /> Niet actief
-                    </span>
-                  )}
-                  <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ flexShrink: 0, transition: "transform .15s", transform: open ? "rotate(180deg)" : "none" }} />
-                </button>
-              )}
-              {open && (
-                acc.facturatieIngeschakeld
-                  ? <div style={{ padding: accounts.length > 1 ? "16px" : 0 }}><FacturatieAccountInhoud account={acc} andereAccounts={andereAccounts} /></div>
-                  : <FacturatieNietActief account={acc} />
-              )}
-            </div>
-          );
-        })}
-      </div>
+      {nietActieveAccounts.length > 0 && (
+        <div>
+          <div style={sectieKopStijl}>Niet actief ({nietActieveAccounts.length})</div>
+          <FacturatiemoduleUitlegBanner prijs={prijs} />
+          <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, overflow: "hidden", background: "#fff" }}>
+            {nietActieveAccounts.map(renderAccountRij)}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

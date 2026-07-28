@@ -176,6 +176,8 @@ export default function BeheerPortaal() {
   const [facturatieBezig, setFacturatieBezig] = useState({}); // accountId -> bool
   const [facturatieFout, setFacturatieFout] = useState("");
   const [facturatieToonAantal, setFacturatieToonAantal] = useState(50);
+  const [facturatiemodulePrijs, setFacturatiemodulePrijs] = useState("5");
+  const [prijsOpslaanStatus, setPrijsOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
 
   // BTW-tarieven met geldigheidsperiode (Facturatie → BTW-tarieven) — zelfde bewerk-per-rij
   // patroon als Standaardartikelen: "nieuw" voegt een tarief toe (sluit het vorige van die
@@ -243,6 +245,7 @@ export default function BeheerPortaal() {
         setReviewWebhookUrl(d.reviewWebhookUrl || "");
         setOfferteportaalUrl(d.offerteportaalUrl || "");
         setOfferteToolUrl(d.offerteToolUrl || "");
+        setFacturatiemodulePrijs(d.facturatiemodulePrijs != null ? String(d.facturatiemodulePrijs) : "5");
         setKoExtra((d.klantoverzicht && d.klantoverzicht.extraKolommen) || []);
         setKoVerborgen((d.klantoverzicht && d.klantoverzicht.standaardVerborgen) || []);
       })
@@ -515,6 +518,27 @@ export default function BeheerPortaal() {
       setLinksOpslaanStatus("fout");
     }
   }, [googleReviewUrl, teamsChatUrl, whatsappUrl, copilotEmbedUrl, offerteportaalUrl, offerteToolUrl]);
+
+  const slaFacturatiemodulePrijsOp = useCallback(async () => {
+    const bedrag = Number(String(facturatiemodulePrijs).replace(",", "."));
+    if (!Number.isFinite(bedrag) || bedrag < 0) {
+      setPrijsOpslaanStatus("fout");
+      return;
+    }
+    setPrijsOpslaanStatus("bezig");
+    try {
+      const res = await fetch("/api/beheer-instellingen", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ facturatiemodulePrijs: bedrag }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setFacturatiemodulePrijs(String(bedrag));
+      setPrijsOpslaanStatus("gelukt");
+    } catch {
+      setPrijsOpslaanStatus("fout");
+    }
+  }, [facturatiemodulePrijs]);
 
   // Facturatiemodule per klant aan/uit — direct opslaan (geen aparte "Opslaan"-knop), met
   // optimistische update en terugdraaien bij een fout.
@@ -1865,6 +1889,40 @@ export default function BeheerPortaal() {
         <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 14px" }}>
           Standaard staat de facturatiemodule <strong>uit</strong> voor elke klant. Zet 'm per klant aan zodra
           die klant hem mag gebruiken — de tab "Facturen" verschijnt dan meteen in het klantportaal van die klant.
+        </div>
+
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 10, flexWrap: "wrap", marginBottom: 18, padding: 14, background: KLEUR.lichtblauw, borderRadius: 8 }}>
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Prijs per maand, per klantaccount</div>
+            <div style={{ position: "relative", maxWidth: 160 }}>
+              <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: KLEUR.mutedTekst }}>€</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={facturatiemodulePrijs}
+                onChange={(e) => setFacturatiemodulePrijs(e.target.value)}
+                style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 24px", fontSize: 13, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}
+              />
+            </div>
+          </div>
+          <button
+            onClick={slaFacturatiemodulePrijsOp}
+            disabled={prijsOpslaanStatus === "bezig"}
+            style={{ padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+          >
+            {prijsOpslaanStatus === "bezig" ? "Opslaan..." : "Opslaan"}
+          </button>
+          {prijsOpslaanStatus === "gelukt" && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: KLEUR.blauw }}>
+              <CheckCircle2 size={14} /> Opgeslagen.
+            </span>
+          )}
+          {prijsOpslaanStatus === "fout" && (
+            <span style={{ fontSize: 12.5, color: KLEUR.rood }}>Ongeldig bedrag of opslaan mislukt.</span>
+          )}
+          <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, width: "100%" }}>
+            Deze prijs wordt getoond aan klanten bij wie de module nog niet actief is (klantportaal, tab "Facturen").
+          </div>
         </div>
 
         {facturatieFout && (

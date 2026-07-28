@@ -255,6 +255,49 @@ afgewerkt:
   deze sessie) — Wouter moet `git push` zelf nog eenmaal uitvoeren. Migratie 004 moet nog
   tegen de live database gedraaid worden.
 
+## Bedrijfsgegevens via CRM-prefill + wijzigingsverzoek, prijs instelbaar (28-07-2026, vervolgsessie)
+
+Twee opeenvolgende verzoeken van Wouter, beide over "Bedrijfsgegevens & logo":
+
+- **Voorinvullen vanuit Dynamics, wijzigen via goedkeuring.** Bedrijfsnaam, adres en
+  KvK-nummer worden nu voorgevuld vanuit Dynamics zodra het eigen veld nog leeg is (velden die
+  nergens bekend zijn — BTW-nummer, IBAN, tenaamstelling — blijven gewoon leeg). Een wijziging
+  door de klant gaat niet meer direct in de database, maar via een wijzigingsverzoek dat een
+  beheerder moet goedkeuren, net als bij de NAW-gegevens:
+  - Wijzigingsverzoeken (`api/_gedeeld/wijzigingen.js`) hebben nu een `type`-veld
+    (`"naw"` vs `"bedrijfsgegevens_facturatie"`, oude records vallen terug op `"naw"`) zodat
+    opslag/indienen/goedkeuren generiek werken voor beide soorten aanvragen.
+  - `/api/bedrijfsgegevens-klanten` staat geen directe PUT meer toe (405, alleen nog GET) —
+    wijzigen kan alleen via `POST /api/wijzigingsverzoek`. De goedkeuring
+    (`api/beheer-wijzigingen`) roept bij dit type `zetGegevens()` rechtstreeks aan i.p.v.
+    `verwerkInDynamics()`.
+  - `/api/bedrijfsgegevens-logo` uitgebreid met een `actie: "verwijderen"`-body, zodat logo
+    verwijderen zelf-service blijft (geen goedkeuring nodig) ondanks de geblokkeerde PUT
+    hierboven — dit was het enige stuk dat anders stilzwijgend zou breken.
+  - Medewerkersportaal (`WIJZIG_VELD_LABELS`, `WijzigingsverzoekBeheer`): veldlabels
+    uitgebreid met de nieuwe bedrijfsgegevens-velden, en de teksten die specifiek "Dynamics"
+    noemden zijn gegeneraliseerd (dit aanvraagtype schrijft naar de eigen SQL-tabel, niet naar
+    Dynamics).
+  - Klantportaal: de "openstaand verzoek"-check in "Mijn gegevens" is nu per `type`
+    gefilterd — anders zou een lopende facturatie-bedrijfsgegevens-aanvraag de losstaande
+    NAW-sectie onterecht blokkeren.
+- **Prijs van de facturatiemodule instelbaar.** Was hardcoded "€ 5,- per maand" in de
+  aanvraagkaart; staat nu in de algemene instellingen (`facturatiemodulePrijs`, blob
+  `instellingen.json`, default 5) en is aanpasbaar in Beheer → Facturatie (bovenaan de
+  rubriek "Facturatiemodule — per klant aan/uit"). Het klantportaal haalt de waarde op via
+  het publieke `/api/instellingen`-endpoint en toont hem met `Intl.NumberFormat` (bijv.
+  "€ 5,00").
+- **Facturatiemodule-tab in het klantportaal: Actief/Niet actief-secties.** Bij meerdere
+  gekoppelde klantaccounts (bijv. Alings-groep) toont de tab "Facturen" nu twee secties i.p.v.
+  één platte lijst — net als eerder al bij Klanten/Producten. De uitleg + prijs van de module
+  staat nu één keer bovenaan de sectie "Niet actief" (`FacturatiemoduleUitlegBanner`) i.p.v.
+  herhaald per account; het per-account aanvraagformulier (`FacturatieNietActief`) toont bij
+  meerdere accounts alleen nog de aanvraagknop/status (`toonUitleg={false}`), bij een enkel
+  account nog steeds de volledige uitleg zoals voorheen.
+- Alles geverifieerd met `npx vite build` en `npx oxlint` (geen nieuwe waarschuwingen).
+  Gecommit op de machine (bedrijfsgegevens-wijziging als `7fb23d3`); Wouter moet `git push`
+  zelf uitvoeren (netwerktoegang tot GitHub is vanuit deze sessie niet beschikbaar).
+
 ## Nog te doen (bewust nog niet gebouwd, om scope behapbaar te houden)
 
 1. ~~Committen + deployen~~ — **afgerond (28-07-2026)**. Commit `66cc80c` (standaardartikelen
