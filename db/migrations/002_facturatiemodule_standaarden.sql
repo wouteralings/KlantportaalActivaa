@@ -84,8 +84,12 @@ INSERT INTO dbo.artikelen_algemeen (omschrijving, eenheid, prijs, btw_code) VALU
 --    gekozen code (zie api/_gedeeld/artikelenKlanten.js) — zo blijft de kolom
 --    ook bruikbaar voor wie rechtstreeks op de database rapporteert.
 -- ---------------------------------------------------------------------------
+-- Let op: kolom + CHECK-constraint in ÉÉN statement. De Azure Portal Query
+-- Editor (preview) compileert een batch in zijn geheel voordat hij hem
+-- uitvoert; een los ALTER TABLE ... ADD CONSTRAINT CHECK in dezelfde batch
+-- die verwijst naar een kolom die pas eerder in diezelfde batch is
+-- toegevoegd, geeft dan "Invalid column name" en de hele batch draait niet.
 ALTER TABLE dbo.artikelen_klanten
-    ADD btw_code VARCHAR(20) NOT NULL CONSTRAINT DF_artikelen_klanten_btwcode DEFAULT 'hoog';
-
-ALTER TABLE dbo.artikelen_klanten
-    ADD CONSTRAINT CK_artikelen_klanten_btwcode CHECK (btw_code IN ('nul', 'laag', 'hoog', 'vrijgesteld'));
+    ADD btw_code VARCHAR(20) NOT NULL
+        CONSTRAINT DF_artikelen_klanten_btwcode DEFAULT 'hoog'
+        CONSTRAINT CK_artikelen_klanten_btwcode CHECK (btw_code IN ('nul', 'laag', 'hoog', 'vrijgesteld'));
