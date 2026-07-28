@@ -38,6 +38,9 @@ module.exports = async function (context, req) {
             land: account.address1_country || "",
           },
           bedrijfsadresBewerkbaar: !(account[process.env.DYNAMICS_KVK_VELD || "accountnumber"] || "").toString().trim(),
+          // Zelfde KvK-nummer, maar dan de waarde zelf — gebruikt om de eigen bedrijfsgegevens
+          // (Facturatiemodule → Bedrijfsgegevens & logo) mee voor te vullen.
+          kvkNummer: (account[process.env.DYNAMICS_KVK_VELD || "accountnumber"] || "").toString().trim(),
           // Volledige contactpersoon-gegevens (wijzigbaar via een verzoek, behalve functie rol).
           contactpersoon: contactpersoon || {},
           relatiebeheerder,

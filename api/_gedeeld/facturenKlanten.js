@@ -44,6 +44,10 @@ function berekenTotalen(regelsInvoer) {
       artikelId: r.artikelId || null,
       aantal,
       prijs,
+      // btwCode is puur informatief (welke BTW-categorie was gekozen in de keuzelijst) —
+      // de berekening zelf blijft op btwPercentage draaien, ook voor oudere regels die nog
+      // geen code hebben.
+      btwCode: r.btwCode || null,
       btwPercentage,
       bedrag,
     };
@@ -68,6 +72,9 @@ function naarBuiten(row) {
     referentieFactuurId: row.referentie_factuur_id || null,
     factuurdatum: row.factuurdatum,
     vervaldatum: row.vervaldatum,
+    // Wettelijk verplicht als deze afwijkt van de factuurdatum (Belastingdienst-factuurvereisten);
+    // leeg = gelijk aan de factuurdatum, dan hoeft er niets apart getoond te worden.
+    leverdatum: row.leverdatum || null,
     betalingstermijnDagen: row.betalingstermijn_dagen,
     regels: JSON.parse(row.regels_json || "[]"),
     subtotaal: Number(row.subtotaal),
@@ -143,6 +150,7 @@ async function maakFactuur(klantAccountId, data, email) {
   request.input("referentieFactuurId", sql.UniqueIdentifier, data.referentieFactuurId || null);
   request.input("factuurdatum", sql.Date, factuurdatum);
   request.input("vervaldatum", sql.Date, vervaldatum);
+  request.input("leverdatum", sql.Date, data.leverdatum ? new Date(data.leverdatum) : null);
   request.input("betalingstermijnDagen", sql.Int, betalingstermijnDagen);
   request.input("regelsJson", sql.NVarChar(sql.MAX), JSON.stringify(regels));
   request.input("subtotaal", sql.Decimal(12, 2), subtotaal);
@@ -154,12 +162,12 @@ async function maakFactuur(klantAccountId, data, email) {
   const result = await request.query(`
     INSERT INTO dbo.facturen_klanten
       (klant_account_id, klant_klant_id, documenttype, offerte_id, referentie_factuur_id,
-       factuurdatum, vervaldatum, betalingstermijn_dagen, regels_json, subtotaal, btw_bedrag,
+       factuurdatum, vervaldatum, leverdatum, betalingstermijn_dagen, regels_json, subtotaal, btw_bedrag,
        totaal, taal, opmerkingen, aangemaakt_door)
     OUTPUT INSERTED.*
     VALUES
       (@klantAccountId, @klantKlantId, @documenttype, @offerteId, @referentieFactuurId,
-       @factuurdatum, @vervaldatum, @betalingstermijnDagen, @regelsJson, @subtotaal, @btwBedrag,
+       @factuurdatum, @vervaldatum, @leverdatum, @betalingstermijnDagen, @regelsJson, @subtotaal, @btwBedrag,
        @totaal, @taal, @opmerkingen, @email)
   `);
   return naarBuiten(result.recordset[0]);
@@ -193,6 +201,9 @@ async function wijzigFactuur(klantAccountId, id, data, email) {
   request.input("klantKlantId", sql.UniqueIdentifier, data.klantKlantId || bestaand.klantKlantId);
   request.input("factuurdatum", sql.Date, factuurdatum);
   request.input("vervaldatum", sql.Date, vervaldatum);
+  request.input("leverdatum", sql.Date, data.leverdatum !== undefined
+    ? (data.leverdatum ? new Date(data.leverdatum) : null)
+    : (bestaand.leverdatum ? new Date(bestaand.leverdatum) : null));
   request.input("betalingstermijnDagen", sql.Int, betalingstermijnDagen);
   request.input("regelsJson", sql.NVarChar(sql.MAX), JSON.stringify(regels));
   request.input("subtotaal", sql.Decimal(12, 2), subtotaal);
@@ -204,7 +215,7 @@ async function wijzigFactuur(klantAccountId, id, data, email) {
   const result = await request.query(`
     UPDATE dbo.facturen_klanten SET
       klant_klant_id = @klantKlantId, factuurdatum = @factuurdatum, vervaldatum = @vervaldatum,
-      betalingstermijn_dagen = @betalingstermijnDagen, regels_json = @regelsJson,
+      leverdatum = @leverdatum, betalingstermijn_dagen = @betalingstermijnDagen, regels_json = @regelsJson,
       subtotaal = @subtotaal, btw_bedrag = @btwBedrag, totaal = @totaal, taal = @taal,
       opmerkingen = @opmerkingen, gewijzigd_op = SYSUTCDATETIME(), gewijzigd_door = @email
     OUTPUT INSERTED.*

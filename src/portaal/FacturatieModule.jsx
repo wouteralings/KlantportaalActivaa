@@ -20,6 +20,7 @@ const KLEUR = {
 const kaartStijl = { border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginBottom: 16, background: "#fff" };
 const labelStijl = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 4, marginTop: 10 };
 const inputStijl = { width: "100%", padding: "8px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 13.5, color: KLEUR.tekst, boxSizing: "border-box" };
+const sectieKopStijl = { fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase", letterSpacing: ".03em", margin: "0 0 8px" };
 
 const STATUS_LABEL = {
   concept: "Concept", verzonden: "Verzonden", geaccepteerd: "Geaccepteerd", afgewezen: "Afgewezen",
@@ -219,18 +220,49 @@ function useBedrijfsgegevens(accountId) {
 /* Facturen & Offertes — gedeelde lijst-/detailweergave                    */
 /* ---------------------------------------------------------------------- */
 
-const LEGE_REGEL = () => ({ omschrijving: "", artikelId: "", aantal: 1, prijs: 0, btwPercentage: 21 });
+const LEGE_REGEL = () => ({ omschrijving: "", artikelId: "", aantal: 1, prijs: 0, btwCode: "hoog", btwPercentage: 21 });
 const BETALINGSTERMIJN_OPTIES = [7, 14, 21, 30];
 
-/** Live voorbeeld van een factuur/offerte-in-opbouw — geen echt document, puur ter illustratie
- * tijdens het invullen (zie DocumentFormulier). Toont de eigen afzendergegevens + logo
- * (Facturatiemodule → Instellingen → Bedrijfsgegevens & logo) als "Van:". */
-function DocumentVoorbeeld({ bedrijfsgegevens, documenttype, klant, regels, betalingstermijnDagen, opmerkingen, subtotaal, btwBedrag }) {
+// Adres als losse regels (straat+nr / postcode plaats / land), voor op de factuur-weergave.
+function adresRegels(adres) {
+  const a = adres || {};
+  return [
+    [a.straat, a.huisnummer, a.toevoeging].filter(Boolean).join(" "),
+    [a.postcode, a.plaats].filter(Boolean).join(" "),
+    a.land && a.land !== "NL" ? a.land : "",
+  ].filter(Boolean);
+}
+
+// Groepeert de regels per BTW-percentage — de Belastingdienst-factuurvereisten schrijven voor
+// dat je bij meerdere tarieven op één factuur het bedrag én de btw per tarief apart toont.
+function groepeerBtw(regels) {
+  const groepen = new Map();
+  for (const r of regels) {
+    const percentage = Number(r.btwPercentage) || 0;
+    const basis = (Number(r.aantal) || 0) * (Number(r.prijs) || 0);
+    const huidig = groepen.get(percentage) || { percentage, basis: 0, btw: 0 };
+    huidig.basis += basis;
+    huidig.btw += basis * (percentage / 100);
+    groepen.set(percentage, huidig);
+  }
+  return [...groepen.values()].sort((a, b) => b.percentage - a.percentage);
+}
+
+/** Voorbeeld/weergave van een factuur of offerte — gebruikt zowel voor het live voorbeeld
+ * tijdens het invullen (DocumentFormulier, met een "in opbouw"-document) als voor een echt
+ * opgeslagen document (DocumentDetail). Toont, conform de factuurvereisten van de
+ * Belastingdienst: volledige naam/adres van leverancier én afnemer, KvK/BTW-id van de
+ * leverancier, factuurnummer, factuurdatum, leverdatum (alleen als afwijkend), en het
+ * btw-bedrag per toegepast tarief (apart getoond zodra een document meerdere tarieven mengt). */
+function DocumentVoorbeeld({ bedrijfsgegevens, documenttype, klant, document }) {
   const naam = documenttype === "offerte" ? "Offerte" : "Factuur";
-  const vandaag = new Date();
-  const vervaldatum = new Date(vandaag.getTime() + (Number(betalingstermijnDagen) || 30) * 24 * 60 * 60 * 1000);
-  const zichtbareRegels = regels.filter((r) => r.omschrijving.trim() || Number(r.prijs));
   const bg = bedrijfsgegevens || {};
+  const doc = document || {};
+  const zichtbareRegels = (doc.regels || []).filter((r) => (r.omschrijving || "").trim() || Number(r.prijs));
+  const btwGroepen = groepeerBtw(zichtbareRegels);
+  const eigenAdres = adresRegels(bg);
+  const klantAdres = adresRegels(klant?.adres);
+  const totaal = doc.totaal != null ? doc.totaal : (Number(doc.subtotaal) || 0) + (Number(doc.btwBedrag) || 0);
 
   return (
     <div style={{ background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: "22px 20px", fontSize: 12, color: KLEUR.tekst }}>
@@ -239,27 +271,34 @@ function DocumentVoorbeeld({ bedrijfsgegevens, documenttype, klant, regels, beta
           {bg.logoUrl && <img src={bg.logoUrl} alt="Logo" style={{ maxHeight: 40, maxWidth: 150, objectFit: "contain", marginBottom: 6, display: "block" }} />}
           <div style={{ fontSize: 13, fontWeight: 700 }}>{bg.bedrijfsnaam || "(bedrijfsnaam nog niet ingevuld)"}</div>
           <div style={{ fontSize: 10.5, color: KLEUR.subtekst, lineHeight: 1.6, marginTop: 3 }}>
-            {[bg.straat, bg.huisnummer].filter(Boolean).join(" ") || null}
-            {(bg.straat || bg.huisnummer) && <br />}
-            {[bg.postcode, bg.plaats].filter(Boolean).join(" ") || null}
-            {(bg.postcode || bg.plaats) && <br />}
-            {bg.kvkNummer && <>KvK {bg.kvkNummer}<br /></>}
-            {bg.btwNummer && <>BTW {bg.btwNummer}</>}
+            {eigenAdres.map((regel, i) => <div key={i}>{regel}</div>)}
+            {bg.kvkNummer && <div>KvK {bg.kvkNummer}</div>}
+            {bg.btwNummer && <div>BTW {bg.btwNummer}</div>}
           </div>
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: KLEUR.blauw }}>{naam}</div>
           <div style={{ fontSize: 10.5, color: KLEUR.subtekst, marginTop: 4, lineHeight: 1.6 }}>
-            Nummer: (concept)<br />
-            Datum: {vandaag.toLocaleDateString("nl-NL")}<br />
-            Vervaldatum: {vervaldatum.toLocaleDateString("nl-NL")}
+            Nummer: {doc.nummer || "(concept)"}<br />
+            Datum: {datum(doc.factuurdatum)}<br />
+            Vervaldatum: {datum(doc.vervaldatum)}<br />
+            {doc.leverdatum && <>Leverdatum: {datum(doc.leverdatum)}<br /></>}
           </div>
         </div>
       </div>
 
       <div style={{ fontSize: 10, color: KLEUR.mutedTekst, textTransform: "uppercase", fontWeight: 700, marginBottom: 3 }}>Aan</div>
       <div style={{ marginBottom: 18, fontSize: 12.5 }}>
-        {klant ? klant.naam : <span style={{ color: KLEUR.mutedTekst, fontStyle: "italic" }}>— nog geen klant gekozen —</span>}
+        {klant ? (
+          <>
+            <div style={{ fontWeight: 600 }}>{klant.naam}</div>
+            <div style={{ fontSize: 11, color: KLEUR.subtekst, lineHeight: 1.6 }}>
+              {klantAdres.map((regel, i) => <div key={i}>{regel}</div>)}
+              {klant.btwNummer && <div>BTW {klant.btwNummer}</div>}
+              {klant.kvkNummer && <div>KvK {klant.kvkNummer}</div>}
+            </div>
+          </>
+        ) : <span style={{ color: KLEUR.mutedTekst, fontStyle: "italic" }}>— nog geen klant gekozen —</span>}
       </div>
 
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 6, overflow: "hidden", marginBottom: 14 }}>
@@ -281,17 +320,20 @@ function DocumentVoorbeeld({ bedrijfsgegevens, documenttype, klant, regels, beta
 
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
         <div style={{ textAlign: "right", fontSize: 11.5, color: KLEUR.subtekst }}>
-          <div>Subtotaal: {geld(subtotaal)}</div>
-          <div>BTW: {geld(btwBedrag)}</div>
-          <div style={{ fontWeight: 700, fontSize: 13.5, color: KLEUR.tekst, marginTop: 2 }}>Totaal: {geld(subtotaal + btwBedrag)}</div>
+          <div>Subtotaal: {geld(doc.subtotaal)}</div>
+          {btwGroepen.length === 0 && <div>BTW: {geld(doc.btwBedrag)}</div>}
+          {btwGroepen.map((g) => (
+            <div key={g.percentage}>BTW {g.percentage}% over {geld(g.basis)}: {geld(g.btw)}</div>
+          ))}
+          <div style={{ fontWeight: 700, fontSize: 13.5, color: KLEUR.tekst, marginTop: 2 }}>Totaal: {geld(totaal)}</div>
         </div>
       </div>
 
-      {opmerkingen && <div style={{ fontSize: 11, color: KLEUR.subtekst, whiteSpace: "pre-wrap", marginBottom: 12 }}>{opmerkingen}</div>}
+      {doc.opmerkingen && <div style={{ fontSize: 11, color: KLEUR.subtekst, whiteSpace: "pre-wrap", marginBottom: 12 }}>{doc.opmerkingen}</div>}
 
       {(bg.iban || bg.ibanTenaamstelling) && (
         <div style={{ fontSize: 10, color: KLEUR.mutedTekst, borderTop: `1px solid ${KLEUR.rand}`, paddingTop: 8 }}>
-          Gelieve te betalen vóór {vervaldatum.toLocaleDateString("nl-NL")}
+          Gelieve te betalen vóór {datum(doc.vervaldatum)}
           {bg.iban ? ` op ${bg.iban}` : ""}{bg.ibanTenaamstelling ? ` t.n.v. ${bg.ibanTenaamstelling}` : ""}, o.v.v. het factuurnummer.
         </div>
       )}
@@ -299,12 +341,13 @@ function DocumentVoorbeeld({ bedrijfsgegevens, documenttype, klant, regels, beta
   );
 }
 
-function DocumentFormulier({ accountId, documenttype, klanten, artikelen, bedrijfsgegevens, bestaand, onKlaar, onOpgeslagen }) {
+function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tarieven, bedrijfsgegevens, bestaand, onKlaar, onOpgeslagen }) {
   const [klantKlantId, setKlantKlantId] = useState(bestaand?.klantKlantId || "");
   const [betalingstermijnDagen, setBetalingstermijnDagen] = useState(bestaand?.betalingstermijnDagen ?? 30);
+  const [leverdatum, setLeverdatum] = useState(bestaand?.leverdatum ? String(bestaand.leverdatum).slice(0, 10) : "");
   const [opmerkingen, setOpmerkingen] = useState(bestaand?.opmerkingen || "");
   const [regels, setRegels] = useState(
-    bestaand?.regels?.length ? bestaand.regels.map((r) => ({ ...r, artikelId: r.artikelId || "" })) : [LEGE_REGEL()]
+    bestaand?.regels?.length ? bestaand.regels.map((r) => ({ ...r, artikelId: r.artikelId || "", btwCode: r.btwCode || "hoog" })) : [LEGE_REGEL()]
   );
   const [status, setStatus] = useState("invoer"); // invoer | bezig | fout
   const [foutmelding, setFoutmelding] = useState("");
@@ -318,8 +361,13 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, bedrij
         if (artikel) {
           nieuw.omschrijving = artikel.omschrijving;
           nieuw.prijs = artikel.prijs;
+          nieuw.btwCode = artikel.btwCode || nieuw.btwCode;
           nieuw.btwPercentage = artikel.btwPercentage;
         }
+      }
+      if (veld === "btwCode") {
+        const tarief = (tarieven || []).find((t) => t.code === waarde);
+        if (tarief) nieuw.btwPercentage = tarief.percentage;
       }
       return nieuw;
     }));
@@ -346,6 +394,7 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, bedrij
         documenttype,
         klantKlantId,
         betalingstermijnDagen: Number(betalingstermijnDagen) || 30,
+        leverdatum: leverdatum || null,
         opmerkingen,
         regels: regels.map((r) => ({ ...r, artikelId: r.artikelId || null })),
       };
@@ -375,6 +424,21 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, bedrij
   const naam = documenttype === "offerte" ? "offerte" : "factuur";
   const gekozenKlant = klanten.find((k) => k.id === klantKlantId) || null;
 
+  const voorbeeldDocument = useMemo(() => {
+    const vandaag = new Date();
+    const vervaldatum = new Date(vandaag.getTime() + (Number(betalingstermijnDagen) || 30) * 24 * 60 * 60 * 1000);
+    return {
+      nummer: bestaand?.nummer || null,
+      factuurdatum: bestaand?.factuurdatum || vandaag.toISOString(),
+      vervaldatum: bestaand?.vervaldatum || vervaldatum.toISOString(),
+      leverdatum: leverdatum || null,
+      regels,
+      subtotaal,
+      btwBedrag,
+      opmerkingen,
+    };
+  }, [bestaand, betalingstermijnDagen, leverdatum, regels, subtotaal, btwBedrag, opmerkingen]);
+
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))", gap: 20, alignItems: "start" }}>
     <div style={kaartStijl}>
@@ -387,7 +451,7 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, bedrij
 
       <Melding tekst={foutmelding} />
 
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 16 }}>
         <div>
           <div style={labelStijl}>Klant</div>
           <select value={klantKlantId} onChange={(e) => setKlantKlantId(e.target.value)} style={inputStijl}>
@@ -410,15 +474,20 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, bedrij
               .map((d) => <option key={d} value={d}>{d} dagen</option>)}
           </select>
         </div>
+        <div>
+          <div style={labelStijl}>Leverdatum (optioneel)</div>
+          <input type="date" value={leverdatum} onChange={(e) => setLeverdatum(e.target.value)} style={inputStijl} />
+          <div style={{ fontSize: 10.5, color: KLEUR.mutedTekst, marginTop: 3 }}>Alleen invullen als afwijkend van de factuurdatum.</div>
+        </div>
       </div>
 
       <div style={labelStijl}>Regels</div>
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, overflow: "hidden" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr 70px 90px 70px 90px 32px", gap: 0, background: KLEUR.lichtblauw, padding: "7px 10px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
-          <div>Artikel</div><div>Omschrijving</div><div>Aantal</div><div>Prijs</div><div>BTW%</div><div>Bedrag</div><div />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.8fr 55px 85px 105px 85px 28px", gap: 0, background: KLEUR.lichtblauw, padding: "7px 10px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
+          <div>Artikel</div><div>Omschrijving</div><div>Aantal</div><div>Prijs</div><div>BTW</div><div>Bedrag</div><div />
         </div>
         {regels.map((r, i) => (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 2fr 70px 90px 70px 90px 32px", gap: 6, padding: "8px 10px", borderTop: `1px solid ${KLEUR.rand}`, alignItems: "center" }}>
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1.8fr 55px 85px 105px 85px 28px", gap: 6, padding: "8px 10px", borderTop: `1px solid ${KLEUR.rand}`, alignItems: "center" }}>
             <select value={r.artikelId} onChange={(e) => zetRegel(i, "artikelId", e.target.value)} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }}>
               <option value="">— vrije tekst —</option>
               {artikelen.filter((a) => a.actief).map((a) => <option key={a.id} value={a.id}>{a.omschrijving}</option>)}
@@ -426,7 +495,12 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, bedrij
             <input value={r.omschrijving} onChange={(e) => zetRegel(i, "omschrijving", e.target.value)} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }} placeholder="Omschrijving" />
             <input type="number" value={r.aantal} onChange={(e) => zetRegel(i, "aantal", e.target.value)} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }} />
             <input type="number" value={r.prijs} onChange={(e) => zetRegel(i, "prijs", e.target.value)} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }} />
-            <input type="number" value={r.btwPercentage} onChange={(e) => zetRegel(i, "btwPercentage", e.target.value)} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }} />
+            <select value={r.btwCode || "hoog"} onChange={(e) => zetRegel(i, "btwCode", e.target.value)} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }}>
+              {(tarieven || []).length === 0 && <option value={r.btwCode || "hoog"}>{r.btwPercentage}%</option>}
+              {(tarieven || []).map((t) => (
+                <option key={t.code} value={t.code}>{t.label} ({t.percentage}%)</option>
+              ))}
+            </select>
             <div style={{ fontSize: 12.5, fontWeight: 600, textAlign: "right" }}>{geld((Number(r.aantal) || 0) * (Number(r.prijs) || 0))}</div>
             <button onClick={() => verwijderRegel(i)} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.rood, display: "flex", justifyContent: "center" }}>
               <Trash2 size={14} />
@@ -466,19 +540,16 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, bedrij
         bedrijfsgegevens={bedrijfsgegevens}
         documenttype={documenttype}
         klant={gekozenKlant}
-        regels={regels}
-        betalingstermijnDagen={betalingstermijnDagen}
-        opmerkingen={opmerkingen}
-        subtotaal={subtotaal}
-        btwBedrag={btwBedrag}
+        document={voorbeeldDocument}
       />
     </div>
     </div>
   );
 }
 
-function DocumentDetail({ document, klantenMap, onTerug, onActie, gerelateerdeFactuur }) {
+function DocumentDetail({ document, klantenMap, bedrijfsgegevens, onTerug, onActie, gerelateerdeFactuur }) {
   const bezig = document._bezig;
+  const klant = klantenMap[document.klantKlantId] || null;
   return (
     <div style={kaartStijl}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
@@ -489,32 +560,14 @@ function DocumentDetail({ document, klantenMap, onTerug, onActie, gerelateerdeFa
         <StatusBadge status={document.status} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "4px 20px", marginBottom: 14, fontSize: 13 }}>
-        <div><span style={{ color: KLEUR.mutedTekst }}>Klant: </span>{klantenMap[document.klantKlantId] || "—"}</div>
-        <div><span style={{ color: KLEUR.mutedTekst }}>Factuurdatum: </span>{datum(document.factuurdatum)}</div>
-        <div><span style={{ color: KLEUR.mutedTekst }}>Vervaldatum: </span>{datum(document.vervaldatum)}</div>
-        {document.verzondenOp && <div><span style={{ color: KLEUR.mutedTekst }}>Verzonden op: </span>{datum(document.verzondenOp)}</div>}
-        {document.betaaldOp && <div><span style={{ color: KLEUR.mutedTekst }}>Betaald op: </span>{datum(document.betaaldOp)}</div>}
-      </div>
-
-      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, overflow: "hidden", marginBottom: 12 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 70px 90px 70px 90px", background: KLEUR.lichtblauw, padding: "7px 10px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
-          <div>Omschrijving</div><div>Aantal</div><div>Prijs</div><div>BTW%</div><div>Bedrag</div>
+      {(document.verzondenOp || document.betaaldOp) && (
+        <div style={{ display: "flex", gap: 20, marginBottom: 14, fontSize: 12.5, color: KLEUR.subtekst }}>
+          {document.verzondenOp && <div><span style={{ color: KLEUR.mutedTekst }}>Verzonden op: </span>{datum(document.verzondenOp)}</div>}
+          {document.betaaldOp && <div><span style={{ color: KLEUR.mutedTekst }}>Betaald op: </span>{datum(document.betaaldOp)}</div>}
         </div>
-        {(document.regels || []).map((r, i) => (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 70px 90px 70px 90px", padding: "8px 10px", borderTop: `1px solid ${KLEUR.rand}`, fontSize: 13 }}>
-            <div>{r.omschrijving}</div><div>{r.aantal}</div><div>{geld(r.prijs)}</div><div>{r.btwPercentage}%</div><div>{geld(r.bedrag)}</div>
-          </div>
-        ))}
-      </div>
+      )}
 
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
-        <div style={{ fontSize: 13, color: KLEUR.subtekst, textAlign: "right" }}>
-          <div>Subtotaal: {geld(document.subtotaal)}</div>
-          <div>BTW: {geld(document.btwBedrag)}</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: KLEUR.tekst }}>Totaal: {geld(document.totaal)}</div>
-        </div>
-      </div>
+      <DocumentVoorbeeld bedrijfsgegevens={bedrijfsgegevens} documenttype={document.documenttype} klant={klant} document={document} />
 
       {gerelateerdeFactuur && (
         <div style={{ background: KLEUR.lichtblauw, borderRadius: 8, padding: "9px 12px", marginBottom: 14, fontSize: 12.5 }}>
@@ -543,7 +596,7 @@ function DocumentDetail({ document, klantenMap, onTerug, onActie, gerelateerdeFa
   );
 }
 
-function DocumentenTab({ accountId, documenttype, klanten, artikelen, klantenMap, alleFacturen, bedrijfsgegevens }) {
+function DocumentenTab({ accountId, documenttype, klanten, artikelen, tarieven, klantenMap, alleFacturen, bedrijfsgegevens }) {
   const { status, items, foutmelding, verversen } = useDocumenten(accountId, documenttype);
   const [weergave, setWeergave] = useState("lijst"); // lijst | nieuw | bewerken | detail
   const [actief, setActief] = useState(null);
@@ -592,7 +645,7 @@ function DocumentenTab({ accountId, documenttype, klanten, artikelen, klantenMap
   if (weergave === "nieuw") {
     return (
       <DocumentFormulier
-        accountId={accountId} documenttype={documenttype} klanten={klanten} artikelen={artikelen} bedrijfsgegevens={bedrijfsgegevens}
+        accountId={accountId} documenttype={documenttype} klanten={klanten} artikelen={artikelen} tarieven={tarieven} bedrijfsgegevens={bedrijfsgegevens}
         onKlaar={() => setWeergave("lijst")}
         onOpgeslagen={() => verversen()}
       />
@@ -601,7 +654,7 @@ function DocumentenTab({ accountId, documenttype, klanten, artikelen, klantenMap
   if (weergave === "bewerken" && actief) {
     return (
       <DocumentFormulier
-        accountId={accountId} documenttype={documenttype} klanten={klanten} artikelen={artikelen} bedrijfsgegevens={bedrijfsgegevens} bestaand={actief}
+        accountId={accountId} documenttype={documenttype} klanten={klanten} artikelen={artikelen} tarieven={tarieven} bedrijfsgegevens={bedrijfsgegevens} bestaand={actief}
         onKlaar={() => setWeergave("lijst")}
         onOpgeslagen={() => verversen()}
       />
@@ -614,7 +667,7 @@ function DocumentenTab({ accountId, documenttype, klanten, artikelen, klantenMap
     return (
       <>
         <Melding tekst={actieFout} />
-        <DocumentDetail document={actief} klantenMap={klantenMap} onTerug={() => setWeergave("lijst")} onActie={voerActieUit} gerelateerdeFactuur={gerelateerdeFactuur} />
+        <DocumentDetail document={actief} klantenMap={klantenMap} bedrijfsgegevens={bedrijfsgegevens} onTerug={() => setWeergave("lijst")} onActie={voerActieUit} gerelateerdeFactuur={gerelateerdeFactuur} />
       </>
     );
   }
@@ -670,7 +723,7 @@ function DocumentenTab({ accountId, documenttype, klanten, artikelen, klantenMap
           {gefilterd.map((d) => (
             <div key={d.id} style={{ display: "grid", gridTemplateColumns: "110px 2fr 110px 110px 110px 110px 130px", padding: "10px 14px", borderTop: `1px solid ${KLEUR.rand}`, fontSize: 13, alignItems: "center" }}>
               <div style={{ fontWeight: 600 }}>{d.nummer || "—"}</div>
-              <div>{klantenMap[d.klantKlantId] || "—"}</div>
+              <div>{klantenMap[d.klantKlantId]?.naam || "—"}</div>
               <div>{datum(d.factuurdatum)}</div>
               <div>{datum(d.vervaldatum)}</div>
               <div>{geld(d.totaal)}</div>
@@ -784,6 +837,30 @@ function KlantenTab({ accountId, klanten, status, foutmelding, verversen }) {
   if (weergave === "nieuw") return <KlantFormulier accountId={accountId} onKlaar={() => setWeergave("lijst")} onOpgeslagen={verversen} />;
   if (weergave === "bewerken" && actief) return <KlantFormulier accountId={accountId} bestaand={actief} onKlaar={() => setWeergave("lijst")} onOpgeslagen={verversen} />;
 
+  const actieveKlanten = klanten.filter((k) => k.actief);
+  const nietActieveKlanten = klanten.filter((k) => !k.actief);
+
+  const KlantenTabel = ({ items }) => (
+    <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 1fr 100px", background: KLEUR.lichtblauw, padding: "9px 14px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
+        <div>Naam</div><div>E-mail / contact</div><div>Plaats</div><div>Acties</div>
+      </div>
+      {items.map((k) => (
+        <div key={k.id} style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 1fr 100px", padding: "10px 14px", borderTop: `1px solid ${KLEUR.rand}`, fontSize: 13, alignItems: "center" }}>
+          <div style={{ fontWeight: 600 }}>{k.naam}</div>
+          <div>{k.email || k.contactpersoon || "—"}</div>
+          <div>{k.adres?.plaats || "—"}</div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={() => { setActief(k); setWeergave("bewerken"); }} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.blauw, display: "flex" }} title="Bewerken"><Pencil size={14} /></button>
+            {k.actief && (
+              <button onClick={() => deactiveren(k)} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.rood, display: "flex" }} title="Deactiveren"><Trash2 size={14} /></button>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
@@ -792,25 +869,16 @@ function KlantenTab({ accountId, klanten, status, foutmelding, verversen }) {
       <Melding tekst={foutmelding} />
       {status === "laden" && <LegeStaat tekst="Laden…" />}
       {status === "klaar" && klanten.length === 0 && <LegeStaat tekst="Nog geen klanten toegevoegd." />}
-      {status === "klaar" && klanten.length > 0 && (
-        <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 1fr 80px 100px", background: KLEUR.lichtblauw, padding: "9px 14px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
-            <div>Naam</div><div>E-mail / contact</div><div>Plaats</div><div>Actief</div><div>Acties</div>
-          </div>
-          {klanten.map((k) => (
-            <div key={k.id} style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 1fr 80px 100px", padding: "10px 14px", borderTop: `1px solid ${KLEUR.rand}`, fontSize: 13, alignItems: "center", opacity: k.actief ? 1 : 0.55 }}>
-              <div style={{ fontWeight: 600 }}>{k.naam}</div>
-              <div>{k.email || k.contactpersoon || "—"}</div>
-              <div>{k.adres?.plaats || "—"}</div>
-              <div>{k.actief ? "Ja" : "Nee"}</div>
-              <div style={{ display: "flex", gap: 10 }}>
-                <button onClick={() => { setActief(k); setWeergave("bewerken"); }} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.blauw, display: "flex" }} title="Bewerken"><Pencil size={14} /></button>
-                {k.actief && (
-                  <button onClick={() => deactiveren(k)} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.rood, display: "flex" }} title="Deactiveren"><Trash2 size={14} /></button>
-                )}
-              </div>
-            </div>
-          ))}
+      {status === "klaar" && actieveKlanten.length > 0 && (
+        <div style={{ marginBottom: nietActieveKlanten.length > 0 ? 24 : 0 }}>
+          <div style={sectieKopStijl}>Actief ({actieveKlanten.length})</div>
+          <KlantenTabel items={actieveKlanten} />
+        </div>
+      )}
+      {status === "klaar" && nietActieveKlanten.length > 0 && (
+        <div>
+          <div style={sectieKopStijl}>Niet actief ({nietActieveKlanten.length})</div>
+          <KlantenTabel items={nietActieveKlanten} />
         </div>
       )}
     </div>
@@ -885,6 +953,29 @@ function ProductenTab({ accountId, artikelen, artikelenAlgemeen, tarieven, statu
   if (weergave === "nieuw") return <ArtikelFormulier accountId={accountId} tarieven={tarieven} onKlaar={() => setWeergave("lijst")} onOpgeslagen={verversen} />;
   if (weergave === "bewerken" && actief) return <ArtikelFormulier accountId={accountId} bestaand={actief} tarieven={tarieven} onKlaar={() => setWeergave("lijst")} onOpgeslagen={verversen} />;
 
+  const actieveArtikelen = artikelen.filter((a) => a.actief);
+  const nietActieveArtikelen = artikelen.filter((a) => !a.actief);
+
+  const ArtikelenTabel = ({ items }) => (
+    <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 100px", background: KLEUR.lichtblauw, padding: "9px 14px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
+        <div>Omschrijving</div><div>Eenheid</div><div>Prijs</div><div>BTW</div><div>Acties</div>
+      </div>
+      {items.map((a) => (
+        <div key={a.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 100px", padding: "10px 14px", borderTop: `1px solid ${KLEUR.rand}`, fontSize: 13, alignItems: "center" }}>
+          <div style={{ fontWeight: 600 }}>{a.omschrijving}</div>
+          <div>{a.eenheid || "—"}</div>
+          <div>{geld(a.prijs)}</div>
+          <div>{a.btwPercentage}%</div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={() => { setActief(a); setWeergave("bewerken"); }} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.blauw, display: "flex" }} title="Bewerken"><Pencil size={14} /></button>
+            {a.actief && <button onClick={() => deactiveren(a)} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.rood, display: "flex" }} title="Verwijderen"><Trash2 size={14} /></button>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
@@ -893,23 +984,16 @@ function ProductenTab({ accountId, artikelen, artikelenAlgemeen, tarieven, statu
       <Melding tekst={foutmelding} />
       {status === "laden" && <LegeStaat tekst="Laden…" />}
       {status === "klaar" && artikelen.length === 0 && <LegeStaat tekst="Nog geen producten/diensten toegevoegd." />}
-      {status === "klaar" && artikelen.length > 0 && (
-        <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 100px", background: KLEUR.lichtblauw, padding: "9px 14px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
-            <div>Omschrijving</div><div>Eenheid</div><div>Prijs</div><div>BTW</div><div>Acties</div>
-          </div>
-          {artikelen.map((a) => (
-            <div key={a.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 100px", padding: "10px 14px", borderTop: `1px solid ${KLEUR.rand}`, fontSize: 13, alignItems: "center", opacity: a.actief ? 1 : 0.55 }}>
-              <div style={{ fontWeight: 600 }}>{a.omschrijving}</div>
-              <div>{a.eenheid || "—"}</div>
-              <div>{geld(a.prijs)}</div>
-              <div>{a.btwPercentage}%</div>
-              <div style={{ display: "flex", gap: 10 }}>
-                <button onClick={() => { setActief(a); setWeergave("bewerken"); }} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.blauw, display: "flex" }} title="Bewerken"><Pencil size={14} /></button>
-                {a.actief && <button onClick={() => deactiveren(a)} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.rood, display: "flex" }} title="Verwijderen"><Trash2 size={14} /></button>}
-              </div>
-            </div>
-          ))}
+      {status === "klaar" && actieveArtikelen.length > 0 && (
+        <div style={{ marginBottom: nietActieveArtikelen.length > 0 ? 24 : 0 }}>
+          <div style={sectieKopStijl}>Actief ({actieveArtikelen.length})</div>
+          <ArtikelenTabel items={actieveArtikelen} />
+        </div>
+      )}
+      {status === "klaar" && nietActieveArtikelen.length > 0 && (
+        <div>
+          <div style={sectieKopStijl}>Niet actief ({nietActieveArtikelen.length})</div>
+          <ArtikelenTabel items={nietActieveArtikelen} />
         </div>
       )}
 
@@ -959,16 +1043,36 @@ function NogNietGebouwdKaart({ icon: Icon, titel, tekst }) {
  * geen goedkeuring door Activaa nodig (in tegenstelling tot bedrijfs-/contactgegevens uit
  * Dynamics bij "Mijn gegevens"). "Kopieer van" is alleen zichtbaar met >1 gekoppeld account
  * met de facturatiemodule aan, en neemt bewust het logo niet over (dat is echt per klant). */
-function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts }) {
+function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, account }) {
   const { status, data } = bedrijfsgegevens;
   const [f, setF] = useState(null);
   const [opslaanStatus, setOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
-  const [logoStatus, setLogoStatus] = useState("idle"); // idle | bezig | fout
+  const [logoStatus, setLogoStatus] = useState("idle"); // idle | bezig | fout | verwijderen
   const [kopieerVan, setKopieerVan] = useState("");
   const [kopieerBezig, setKopieerBezig] = useState(false);
 
   useEffect(() => {
-    if (data && !f) setF({ ...data });
+    if (!data || f) return;
+    // Nog niets opgeslagen (geen bedrijfsnaam, nooit gewijzigd) — vul het formulier dan vast
+    // in met wat we al uit Dynamics weten (bedrijfsnaam, adres, KvK-nummer), zodat de klant
+    // niet alles opnieuw hoeft te typen. Alleen als aanvulling, nooit als overschrijving.
+    const nogNietsOpgeslagen = !data.gewijzigdOp && !data.bedrijfsnaam;
+    if (nogNietsOpgeslagen && account) {
+      const a = account.klantadres || {};
+      setF({
+        ...data,
+        bedrijfsnaam: account.klantnaam || data.bedrijfsnaam,
+        straat: a.straat || data.straat,
+        huisnummer: a.huisnummer || data.huisnummer,
+        toevoeging: a.toevoeging || data.toevoeging,
+        postcode: a.postcode || data.postcode,
+        plaats: a.plaats || data.plaats,
+        land: a.land || data.land,
+        kvkNummer: account.kvkNummer || data.kvkNummer,
+      });
+    } else {
+      setF({ ...data });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
@@ -1021,6 +1125,23 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts }) 
       }
     };
     reader.readAsDataURL(bestand);
+  };
+
+  const verwijderLogo = async () => {
+    if (!window.confirm("Logo verwijderen?")) return;
+    setLogoStatus("verwijderen");
+    try {
+      const res = await fetch("/api/bedrijfsgegevens-klanten", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId, logoUrl: "" }),
+      });
+      const opgeslagen = await haalJson(res);
+      setF((h) => ({ ...h, logoUrl: opgeslagen.logoUrl }));
+      setLogoStatus("idle");
+    } catch {
+      setLogoStatus("fout");
+    }
   };
 
   const kopieer = async () => {
@@ -1086,8 +1207,17 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts }) 
               <input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => uploadLogo(e.target.files[0])} />
               {logoStatus === "bezig" ? "Bezig met uploaden…" : f.logoUrl ? "Ander logo kiezen" : "Logo uploaden"}
             </label>
+            {f.logoUrl && (
+              <button
+                onClick={verwijderLogo}
+                disabled={logoStatus === "verwijderen"}
+                style={{ background: "none", border: "none", cursor: logoStatus === "verwijderen" ? "default" : "pointer", color: KLEUR.rood, fontSize: 12.5, fontWeight: 600, padding: 0 }}
+              >
+                {logoStatus === "verwijderen" ? "Bezig…" : "Logo verwijderen"}
+              </button>
+            )}
           </div>
-          {logoStatus === "fout" && <div style={{ fontSize: 12, color: KLEUR.rood, marginTop: 4 }}>Uploaden mislukt, probeer een ander bestand.</div>}
+          {logoStatus === "fout" && <div style={{ fontSize: 12, color: KLEUR.rood, marginTop: 4 }}>Actie mislukt, probeer het nog eens.</div>}
         </div>
       </div>
 
@@ -1102,10 +1232,10 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts }) 
   );
 }
 
-function InstellingenTab({ accountId, bedrijfsgegevens, andereAccounts }) {
+function InstellingenTab({ accountId, bedrijfsgegevens, andereAccounts, account }) {
   return (
     <div>
-      <BedrijfsgegevensKaart accountId={accountId} bedrijfsgegevens={bedrijfsgegevens} andereAccounts={andereAccounts} />
+      <BedrijfsgegevensKaart accountId={accountId} bedrijfsgegevens={bedrijfsgegevens} andereAccounts={andereAccounts} account={account} />
       <NogNietGebouwdKaart icon={CreditCard} titel="Mollie & betalingen" tekst="Koppeling met Mollie zodat klanten van jouw klanten direct kunnen betalen vanaf de factuur." />
       <NogNietGebouwdKaart icon={Sliders} titel="Standaardwaarden" tekst="Standaard betalingstermijn, btw-percentage en factuurteksten instellen." />
       <NogNietGebouwdKaart icon={Bell} titel="Herinneringen & e-mailsjablonen" tekst="Automatische betalingsherinneringen; de teksten worden centraal beheerd door Activaa." />
@@ -1139,7 +1269,7 @@ function FacturatieAccountInhoud({ account, andereAccounts }) {
   const facturenVoorKoppeling = useDocumenten(accountId, "factuur");
 
   const klantenMap = useMemo(
-    () => Object.fromEntries(klantenData.items.map((k) => [k.id, k.naam])),
+    () => Object.fromEntries(klantenData.items.map((k) => [k.id, k])),
     [klantenData.items]
   );
 
@@ -1170,10 +1300,10 @@ function FacturatieAccountInhoud({ account, andereAccounts }) {
       </div>
 
       {subtab === "facturen" && (
-        <DocumentenTab accountId={accountId} documenttype="factuur" klanten={klantenData.items} artikelen={alleArtikelen} klantenMap={klantenMap} bedrijfsgegevens={bedrijfsgegevensData.data} />
+        <DocumentenTab accountId={accountId} documenttype="factuur" klanten={klantenData.items} artikelen={alleArtikelen} tarieven={btwTarievenData.items} klantenMap={klantenMap} bedrijfsgegevens={bedrijfsgegevensData.data} />
       )}
       {subtab === "offertes" && (
-        <DocumentenTab accountId={accountId} documenttype="offerte" klanten={klantenData.items} artikelen={alleArtikelen} klantenMap={klantenMap} alleFacturen={facturenVoorKoppeling.items} bedrijfsgegevens={bedrijfsgegevensData.data} />
+        <DocumentenTab accountId={accountId} documenttype="offerte" klanten={klantenData.items} artikelen={alleArtikelen} tarieven={btwTarievenData.items} klantenMap={klantenMap} alleFacturen={facturenVoorKoppeling.items} bedrijfsgegevens={bedrijfsgegevensData.data} />
       )}
       {subtab === "klanten" && (
         <KlantenTab accountId={accountId} klanten={klantenData.items} status={klantenData.status} foutmelding={klantenData.foutmelding} verversen={klantenData.verversen} />
@@ -1190,7 +1320,7 @@ function FacturatieAccountInhoud({ account, andereAccounts }) {
         />
       )}
       {subtab === "instellingen" && (
-        <InstellingenTab accountId={accountId} bedrijfsgegevens={bedrijfsgegevensData} andereAccounts={andereAccounts} />
+        <InstellingenTab accountId={accountId} bedrijfsgegevens={bedrijfsgegevensData} andereAccounts={andereAccounts} account={account} />
       )}
     </div>
   );

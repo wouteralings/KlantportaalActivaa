@@ -39,6 +39,32 @@ function zetBrowserFavicon(url) {
   link.href = url;
 }
 
+// Eén rij van de BTW-tarieven-tabel, als invoerformulier (voor zowel "nieuw tarief" als het
+// bewerken van een bestaand tarief). De code is alleen bij een nieuw tarief te kiezen — een
+// bestaand tarief corrigeren verandert nooit de categorie, alleen label/percentage/data's.
+function BtwTariefFormulierRij({ form, setForm, bezig, onOpslaan, onAnnuleren, borderTop, nieuw }) {
+  const zet = (k) => (e) => setForm((h) => ({ ...h, [k]: e.target.value }));
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.6fr 100px 120px 120px 90px", gap: 6, padding: "8px 12px", borderTop: borderTop ?? "none", alignItems: "center", background: KLEUR.lichtblauw }}>
+      {nieuw ? (
+        <select value={form.code} onChange={zet("code")} style={{ padding: "6px 8px", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 12.5, background: "#fff" }}>
+          {BTW_CODES.map(([code, label]) => <option key={code} value={code}>{label}</option>)}
+        </select>
+      ) : (
+        <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>{BTW_CODES.find(([c]) => c === form.code)?.[1] || form.code}</div>
+      )}
+      <input value={form.label} onChange={zet("label")} placeholder={BTW_CODES.find(([c]) => c === form.code)?.[1] || ""} style={{ padding: "6px 8px", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 12.5, boxSizing: "border-box" }} />
+      <input type="number" step="0.01" value={form.percentage} onChange={zet("percentage")} style={{ padding: "6px 8px", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 12.5, boxSizing: "border-box" }} />
+      <input type="date" value={form.geldigVanaf} onChange={zet("geldigVanaf")} style={{ padding: "6px 8px", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 12.5, boxSizing: "border-box" }} />
+      <input type="date" value={form.geldigTot} onChange={zet("geldigTot")} style={{ padding: "6px 8px", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 12.5, boxSizing: "border-box" }} />
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={onOpslaan} disabled={bezig} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.blauw, display: "flex" }} title="Opslaan"><Check size={15} /></button>
+        <button onClick={onAnnuleren} disabled={bezig} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.subtekst, display: "flex" }} title="Annuleren"><X size={15} /></button>
+      </div>
+    </div>
+  );
+}
+
 // Eén rij van de standaardartikelen-tabel, als invoerformulier (voor zowel "nieuw" als
 // "bewerken" — het onderliggende artikel/nieuw-status bepaalt de aanroeper).
 function StandaardartikelFormulierRij({ form, setForm, bezig, onOpslaan, onAnnuleren, borderTop }) {
@@ -68,7 +94,8 @@ export default function BeheerPortaal() {
   // undefined/true = open (standaard), false = ingeklapt. Eén gedeelde state i.p.v. een
   // aparte useState per rubriek.
   const [rubriekOpen, setRubriekOpen] = useState({});
-  const rubriekIsOpen = (key) => rubriekOpen[key] !== false;
+  // Standaard dichtgeklapt — pas open na een expliciete klik door de beheerder.
+  const rubriekIsOpen = (key) => rubriekOpen[key] === true;
   const toggleRubriek = (key) => setRubriekOpen((h) => ({ ...h, [key]: !rubriekIsOpen(key) }));
   const [logoUrl, setLogoUrl] = useState("");
   const [uploadStatus, setUploadStatus] = useState("idle"); // idle | bezig | gelukt | fout
@@ -148,12 +175,16 @@ export default function BeheerPortaal() {
   const [facturatieZoek, setFacturatieZoek] = useState("");
   const [facturatieBezig, setFacturatieBezig] = useState({}); // accountId -> bool
   const [facturatieFout, setFacturatieFout] = useState("");
+  const [facturatieToonAantal, setFacturatieToonAantal] = useState(50);
 
-  // BTW-tarieven met geldigheidsperiode (Facturatie → Standaardwaarden).
+  // BTW-tarieven met geldigheidsperiode (Facturatie → BTW-tarieven) — zelfde bewerk-per-rij
+  // patroon als Standaardartikelen: "nieuw" voegt een tarief toe (sluit het vorige van die
+  // code automatisch af), een bestaand tarief bewerken corrigeert dat ene tarief zelf.
   const [btwTarieven, setBtwTarieven] = useState(null); // null = laden; volledige historie (alle codes)
   const [btwFout, setBtwFout] = useState("");
-  const [btwOpslaanStatus, setBtwOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
-  const [btwNieuw, setBtwNieuw] = useState({ code: "hoog", label: "", percentage: "", geldigVanaf: "" });
+  const [btwBezig, setBtwBezig] = useState({}); // id (of "nieuw") -> bool
+  const [btwBewerken, setBtwBewerken] = useState(null); // id van tarief dat bewerkt wordt, "nieuw", of null
+  const [btwForm, setBtwForm] = useState({ code: "hoog", label: "", percentage: "", geldigVanaf: "", geldigTot: "" });
 
   // Centraal beheerde standaardartikelen (Facturatie → Standaardwaarden), voor elke klant beschikbaar.
   const [standaardartikelen, setStandaardartikelen] = useState(null); // null = laden
@@ -508,38 +539,71 @@ export default function BeheerPortaal() {
     }
   }, []);
 
-  // Nieuw BTW-tarief toevoegen — sluit op de server automatisch het vorige tarief van
-  // diezelfde code af (geldig_tot), dus hier alleen de nieuwe waarden versturen.
-  const voegBtwTariefToe = useCallback(async () => {
-    if (!btwNieuw.percentage || !btwNieuw.geldigVanaf) {
-      setBtwFout("Percentage en geldig-vanaf-datum zijn verplicht.");
+  // BTW-tarieven — "nieuw" voegt een tarief toe (de server sluit automatisch het vorige
+  // tarief van diezelfde code af); een bestaand tarief bewerken corrigeert dat ene tarief
+  // via PUT (bijv. typefout in percentage of datum), zonder iets anders af te sluiten.
+  const beginBtwTarief = useCallback((tarief) => {
+    setBtwFout("");
+    if (tarief) {
+      setBtwBewerken(tarief.id);
+      setBtwForm({
+        code: tarief.code, label: tarief.label || "", percentage: tarief.percentage,
+        geldigVanaf: tarief.geldigVanaf ? String(tarief.geldigVanaf).slice(0, 10) : "",
+        geldigTot: tarief.geldigTot ? String(tarief.geldigTot).slice(0, 10) : "",
+      });
+    } else {
+      setBtwBewerken("nieuw");
+      setBtwForm({ code: "hoog", label: "", percentage: "", geldigVanaf: "", geldigTot: "" });
+    }
+  }, []);
+
+  const slaBtwTariefOp = useCallback(async () => {
+    if (btwForm.percentage === "" || btwForm.percentage == null) {
+      setBtwFout("Percentage is verplicht.");
       return;
     }
-    setBtwOpslaanStatus("bezig");
+    if (btwBewerken === "nieuw" && !btwForm.geldigVanaf) {
+      setBtwFout("Geldig-vanaf-datum is verplicht voor een nieuw tarief.");
+      return;
+    }
+    const id = btwBewerken;
+    setBtwBezig((h) => ({ ...h, [id]: true }));
     setBtwFout("");
     try {
-      const res = await fetch("/api/beheer-btw-tarieven", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          code: btwNieuw.code,
-          label: btwNieuw.label.trim() || undefined,
-          percentage: Number(btwNieuw.percentage),
-          geldigVanaf: btwNieuw.geldigVanaf,
-        }),
-      });
+      const res = id === "nieuw"
+        ? await fetch("/api/beheer-btw-tarieven", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              code: btwForm.code,
+              label: btwForm.label.trim() || undefined,
+              percentage: Number(btwForm.percentage),
+              geldigVanaf: btwForm.geldigVanaf,
+            }),
+          })
+        : await fetch("/api/beheer-btw-tarieven", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id,
+              label: btwForm.label.trim() || undefined,
+              percentage: Number(btwForm.percentage),
+              geldigVanaf: btwForm.geldigVanaf || undefined,
+              geldigTot: btwForm.geldigTot || null,
+            }),
+          });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
         throw new Error(d.error || "Opslaan mislukt.");
       }
-      setBtwNieuw({ code: "hoog", label: "", percentage: "", geldigVanaf: "" });
-      setBtwOpslaanStatus("gelukt");
+      setBtwBewerken(null);
       laadBtwTarieven();
     } catch (e) {
       setBtwFout(e.message || String(e));
-      setBtwOpslaanStatus("fout");
+    } finally {
+      setBtwBezig((h) => ({ ...h, [id]: false }));
     }
-  }, [btwNieuw, laadBtwTarieven]);
+  }, [btwForm, btwBewerken, laadBtwTarieven]);
 
   // Standaardartikelen (artikelen_algemeen) — voor elke klant beschikbaar, alleen hier te wijzigen.
   const beginStandaardartikel = useCallback((artikel) => {
@@ -783,6 +847,10 @@ export default function BeheerPortaal() {
     );
   }
 
+  // Aantal openstaande facturatiemodule-aanvragen (module nog uit, wel aangevraagd) — voor het
+  // rode badge-rondje op de tab "Facturatie", zodat een beheerder dit niet over het hoofd ziet.
+  const facturatieAanvragenCount = Object.values(facturatieStatussen).filter((s) => s && !s.ingeschakeld && s.aangevraagdOp).length;
+
   return (
     <div style={{ maxWidth: "none", width: "100%", margin: "0 auto", padding: "24px 32px", boxSizing: "border-box", fontFamily: "system-ui, -apple-system, sans-serif", color: KLEUR.tekst }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28, paddingBottom: 16, borderBottom: `1px solid ${KLEUR.rand}` }}>
@@ -827,6 +895,15 @@ export default function BeheerPortaal() {
             }}
           >
             {label}
+            {k === "facturatie" && facturatieAanvragenCount > 0 && (
+              <span style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                minWidth: 16, height: 16, padding: "0 4px", borderRadius: 999,
+                background: KLEUR.rood, color: "#fff", fontSize: 10.5, fontWeight: 700, lineHeight: 1,
+              }}>
+                {facturatieAanvragenCount}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -1818,8 +1895,8 @@ export default function BeheerPortaal() {
                 return nAanvragen > 0 ? ` — ${nAanvragen} ${nAanvragen === 1 ? "aanvraag" : "aanvragen"} open` : "";
               })()}
             </div>
-            <div style={{ display: "flex", flexDirection: "column", maxHeight: 460, overflowY: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
-              {facturatieKlanten
+            {(() => {
+              const gefilterdFacturatie = facturatieKlanten
                 .filter((k) => {
                   const q = facturatieZoek.trim().toLowerCase();
                   return !q || (k.klantnaam || "").toLowerCase().includes(q) || String(k.klantnummer || "").toLowerCase().includes(q);
@@ -1831,61 +1908,102 @@ export default function BeheerPortaal() {
                   const aanvraag = (k) => !(facturatieStatussen[k.accountId] && facturatieStatussen[k.accountId].ingeschakeld)
                     && !!(facturatieStatussen[k.accountId] && facturatieStatussen[k.accountId].aangevraagdOp);
                   return (aanvraag(b) ? 1 : 0) - (aanvraag(a) ? 1 : 0);
-                })
-                .map((k, i) => {
-                  const status = facturatieStatussen[k.accountId] || {};
-                  const aan = !!status.ingeschakeld;
-                  const bezig = !!facturatieBezig[k.accountId];
-                  const aangevraagd = !aan && !!status.aangevraagdOp;
-                  return (
-                    <div key={k.accountId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, background: aangevraagd ? KLEUR.lichtblauw : "transparent" }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600 }}>{k.klantnaam || "(geen naam)"}</div>
-                        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>Cliëntnr {k.klantnummer || "—"}</div>
-                        {aangevraagd && (
-                          <div style={{ fontSize: 11, fontWeight: 600, color: KLEUR.blauw, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
-                            <Clock size={11} /> Aangevraagd op {new Date(status.aangevraagdOp).toLocaleDateString("nl-NL")}
-                            {status.aangevraagdDoor ? ` door ${status.aangevraagdDoor}` : ""}
+                });
+              const zichtbareFacturatie = gefilterdFacturatie.slice(0, facturatieToonAantal);
+              return (
+                <>
+                  <div style={{ display: "flex", flexDirection: "column", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
+                    {zichtbareFacturatie.map((k, i) => {
+                      const status = facturatieStatussen[k.accountId] || {};
+                      const aan = !!status.ingeschakeld;
+                      const bezig = !!facturatieBezig[k.accountId];
+                      const aangevraagd = !aan && !!status.aangevraagdOp;
+                      return (
+                        <div key={k.accountId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, background: aangevraagd ? KLEUR.lichtblauw : "transparent" }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>{k.klantnaam || "(geen naam)"}</div>
+                            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>Cliëntnr {k.klantnummer || "—"}</div>
+                            {aangevraagd && (
+                              <div style={{ fontSize: 11, fontWeight: 600, color: KLEUR.blauw, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                                <Clock size={11} /> Aangevraagd op {new Date(status.aangevraagdOp).toLocaleDateString("nl-NL")}
+                                {status.aangevraagdDoor ? ` door ${status.aangevraagdDoor}` : ""}
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => zetFacturatieStatus(k.accountId, !aan)}
-                        disabled={bezig}
-                        title={aan ? "Facturatiemodule uitzetten" : "Facturatiemodule aanzetten"}
-                        style={{
-                          position: "relative", width: 40, height: 22, borderRadius: 20, border: "none", cursor: bezig ? "default" : "pointer",
-                          background: aan ? KLEUR.blauw : KLEUR.rand, opacity: bezig ? 0.6 : 1, flexShrink: 0, transition: "background .15s",
-                        }}
-                      >
-                        <span style={{
-                          position: "absolute", top: 2, left: aan ? 20 : 2, width: 18, height: 18, borderRadius: "50%",
-                          background: "#fff", boxShadow: "0 1px 2px rgba(0,0,0,.25)", transition: "left .15s",
-                        }} />
-                      </button>
+                          <button
+                            onClick={() => zetFacturatieStatus(k.accountId, !aan)}
+                            disabled={bezig}
+                            title={aan ? "Facturatiemodule uitzetten" : "Facturatiemodule aanzetten"}
+                            style={{
+                              position: "relative", width: 40, height: 22, borderRadius: 20, border: "none", cursor: bezig ? "default" : "pointer",
+                              background: aan ? KLEUR.blauw : KLEUR.rand, opacity: bezig ? 0.6 : 1, flexShrink: 0, transition: "background .15s",
+                            }}
+                          >
+                            <span style={{
+                              position: "absolute", top: 2, left: aan ? 20 : 2, width: 18, height: 18, borderRadius: "50%",
+                              background: "#fff", boxShadow: "0 1px 2px rgba(0,0,0,.25)", transition: "left .15s",
+                            }} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+                    <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>
+                      {Math.min(facturatieToonAantal, gefilterdFacturatie.length)} van {gefilterdFacturatie.length} getoond
                     </div>
-                  );
-                })}
-            </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, flexWrap: "wrap" }}>
+                      <span style={{ color: KLEUR.mutedTekst }}>Toon:</span>
+                      {[[25, "25"], [50, "50"], [100, "100"], [250, "250"], [500, "500"], [Infinity, "Alle"]].map(([n, lbl]) => (
+                        <button
+                          key={lbl}
+                          onClick={() => setFacturatieToonAantal(n)}
+                          style={{
+                            padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                            border: `1px solid ${facturatieToonAantal === n ? KLEUR.blauw : KLEUR.rand}`,
+                            background: facturatieToonAantal === n ? KLEUR.blauw : "#fff",
+                            color: facturatieToonAantal === n ? "#fff" : KLEUR.subtekst,
+                          }}
+                        >
+                          {lbl}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
           </>
         )}
         </>)}
       </div>
 
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <button
-          onClick={() => toggleRubriek("btwTarieven")}
-          aria-expanded={rubriekIsOpen("btwTarieven")}
-          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
-        >
-          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("btwTarieven") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
-          <span style={{ fontSize: 15, fontWeight: 700 }}>BTW-tarieven</span>
-        </button>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+          <button
+            onClick={() => toggleRubriek("btwTarieven")}
+            aria-expanded={rubriekIsOpen("btwTarieven")}
+            style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+          >
+            <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("btwTarieven") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s", flexShrink: 0 }} />
+            <span style={{ fontSize: 15, fontWeight: 700 }}>BTW-tarieven</span>
+          </button>
+          {btwBewerken === null && (
+            <button
+              onClick={() => { setRubriekOpen((h) => ({ ...h, btwTarieven: true })); beginBtwTarief(null); }}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}
+            >
+              <Plus size={13} /> Nieuw tarief
+            </button>
+          )}
+        </div>
         {rubriekIsOpen("btwTarieven") && (<>
         <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 14px" }}>
           Elk tarief geldt vanaf een datum tot (optioneel) een einddatum. Voeg je een nieuw tarief toe voor een
-          bestaande categorie, dan sluit het vorige tarief van die categorie automatisch af op de dag ervoor —
-          al gemaakte facturen blijven ongewijzigd, want die bevriezen het percentage op het moment van opstellen.
+          bestaande categorie, dan sluit het vorige tarief van die categorie automatisch af op de dag ervoor.
+          Een bestaand tarief bewerken (bijv. een typefout) corrigeert alleen dat ene tarief — al gemaakte
+          facturen blijven ongewijzigd, want die bevriezen het percentage op het moment van opstellen.
         </div>
 
         {btwFout && <div style={{ marginBottom: 12, fontSize: 12.5, color: KLEUR.rood }}>{btwFout}</div>}
@@ -1895,74 +2013,51 @@ export default function BeheerPortaal() {
             <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Tarieven ophalen…
           </div>
         ) : (
-          <>
-            <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, overflow: "hidden", marginBottom: 16 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.6fr 100px 120px 120px", background: KLEUR.lichtblauw, padding: "7px 12px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
-                <div>Code</div><div>Label</div><div>Percentage</div><div>Geldig vanaf</div><div>Geldig tot</div>
-              </div>
-              {btwTarieven.length === 0 ? (
-                <div style={{ padding: "12px", fontSize: 12.5, color: KLEUR.mutedTekst }}>Nog geen tarieven.</div>
-              ) : (
-                btwTarieven.map((t, i) => (
-                  <div key={t.id} style={{ display: "grid", gridTemplateColumns: "1.2fr 1.6fr 100px 120px 120px", padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, fontSize: 13, alignItems: "center", opacity: t.geldigTot ? 0.6 : 1 }}>
-                    <div>{t.code}</div>
-                    <div>{t.label}</div>
-                    <div>{t.percentage}%</div>
-                    <div>{t.geldigVanaf ? new Date(t.geldigVanaf).toLocaleDateString("nl-NL") : "—"}</div>
-                    <div>{t.geldigTot ? new Date(t.geldigTot).toLocaleDateString("nl-NL") : "— (actief)"}</div>
-                  </div>
-                ))
-              )}
+          <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.6fr 100px 120px 120px 90px", background: KLEUR.lichtblauw, padding: "7px 12px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
+              <div>Code</div><div>Label</div><div>Percentage</div><div>Geldig vanaf</div><div>Geldig tot</div><div>Acties</div>
             </div>
 
-            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Nieuw tarief toevoegen</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr 100px 140px auto", gap: 8, alignItems: "end" }}>
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", marginBottom: 4 }}>Code</div>
-                <select
-                  value={btwNieuw.code}
-                  onChange={(e) => setBtwNieuw((h) => ({ ...h, code: e.target.value }))}
-                  style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5 }}
-                >
-                  {BTW_CODES.map(([code, label]) => <option key={code} value={code}>{label}</option>)}
-                </select>
-              </div>
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", marginBottom: 4 }}>Label (optioneel)</div>
-                <input
-                  value={btwNieuw.label}
-                  onChange={(e) => setBtwNieuw((h) => ({ ...h, label: e.target.value }))}
-                  placeholder={BTW_CODES.find(([c]) => c === btwNieuw.code)?.[1] || ""}
-                  style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5 }}
+            {btwBewerken === "nieuw" && (
+              <BtwTariefFormulierRij
+                form={btwForm}
+                setForm={setBtwForm}
+                bezig={!!btwBezig["nieuw"]}
+                onOpslaan={slaBtwTariefOp}
+                onAnnuleren={() => setBtwBewerken(null)}
+                nieuw
+              />
+            )}
+
+            {btwTarieven.length === 0 && btwBewerken !== "nieuw" && (
+              <div style={{ padding: "12px", fontSize: 12.5, color: KLEUR.mutedTekst }}>Nog geen tarieven.</div>
+            )}
+
+            {btwTarieven.map((t, i) => (
+              btwBewerken === t.id ? (
+                <BtwTariefFormulierRij
+                  key={t.id}
+                  form={btwForm}
+                  setForm={setBtwForm}
+                  bezig={!!btwBezig[t.id]}
+                  onOpslaan={slaBtwTariefOp}
+                  onAnnuleren={() => setBtwBewerken(null)}
+                  borderTop={i === 0 ? "none" : `1px solid ${KLEUR.rand}`}
                 />
-              </div>
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", marginBottom: 4 }}>%</div>
-                <input
-                  type="number" step="0.01"
-                  value={btwNieuw.percentage}
-                  onChange={(e) => setBtwNieuw((h) => ({ ...h, percentage: e.target.value }))}
-                  style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5 }}
-                />
-              </div>
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", marginBottom: 4 }}>Geldig vanaf</div>
-                <input
-                  type="date"
-                  value={btwNieuw.geldigVanaf}
-                  onChange={(e) => setBtwNieuw((h) => ({ ...h, geldigVanaf: e.target.value }))}
-                  style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5 }}
-                />
-              </div>
-              <button
-                onClick={voegBtwTariefToe}
-                disabled={btwOpslaanStatus === "bezig"}
-                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
-              >
-                <Plus size={13} /> Toevoegen
-              </button>
-            </div>
-          </>
+              ) : (
+                <div key={t.id} style={{ display: "grid", gridTemplateColumns: "1.2fr 1.6fr 100px 120px 120px 90px", padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, fontSize: 13, alignItems: "center", opacity: t.geldigTot ? 0.6 : 1 }}>
+                  <div>{t.code}</div>
+                  <div>{t.label}</div>
+                  <div>{t.percentage}%</div>
+                  <div>{t.geldigVanaf ? new Date(t.geldigVanaf).toLocaleDateString("nl-NL") : "—"}</div>
+                  <div>{t.geldigTot ? new Date(t.geldigTot).toLocaleDateString("nl-NL") : "— (actief)"}</div>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button onClick={() => beginBtwTarief(t)} disabled={!!btwBezig[t.id]} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.blauw, display: "flex" }} title="Bewerken"><Pencil size={14} /></button>
+                  </div>
+                </div>
+              )
+            ))}
+          </div>
         )}
         </>)}
       </div>
