@@ -29,6 +29,9 @@ module.exports = async function (context, req) {
   const url = (req.query.url || "").trim();
   const driveId = (req.query.driveId || "").trim();
   const itemId = (req.query.itemId || "").trim();
+  // Optioneel: laat Graph het bestand converteren (bv. Word/Excel/PowerPoint → 'pdf'),
+  // zodat het inline te previewen is in de browser.
+  const formaat = (req.query.formaat || "").trim().toLowerCase();
   if (!url && !(driveId && itemId)) {
     context.res = { status: 400, body: { error: "Geef 'url' of 'driveId'+'itemId' mee." } };
     return;
@@ -37,9 +40,10 @@ module.exports = async function (context, req) {
   try {
     const graphToken = await wisselVoorGraphToken(gebruikersToken);
 
-    const graphUrl = url
+    let graphUrl = url
       ? `https://graph.microsoft.com/v1.0/shares/${encodeShareUrl(url)}/driveItem/content`
       : `https://graph.microsoft.com/v1.0/drives/${encodeURIComponent(driveId)}/items/${encodeURIComponent(itemId)}/content`;
+    if (formaat) graphUrl += `?format=${encodeURIComponent(formaat)}`;
 
     const res = await fetch(graphUrl, { headers: { Authorization: `Bearer ${graphToken}` } });
     if (!res.ok) {

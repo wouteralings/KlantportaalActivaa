@@ -5,6 +5,7 @@ import {
   FileText,
   Folder,
   ChevronRight,
+  Eye,
   CheckCircle2,
   XCircle,
   Circle,
@@ -1275,7 +1276,7 @@ function TabGegevens({ data, verzoeken, onWijzigen }) {
 // SharePoint via 'frame-ancestors', en een login binnen een iframe kan niet). In plaats daarvan
 // halen we de bytes server-side via Microsoft Graph op (on-behalf-of, met de échte permissies
 // van de ingelogde klant) en tonen die als blob. Geen anonieme deellink nodig.
-function DocumentViewer({ url, titel }) {
+function DocumentViewer({ url, driveId, itemId, formaat, titel }) {
   const [status, setStatus] = useState("laden"); // laden | klaar | fout
   const [blobUrl, setBlobUrl] = useState("");
 
@@ -1287,7 +1288,12 @@ function DocumentViewer({ url, titel }) {
     (async () => {
       try {
         const token = await haalApiToken();
-        const res = await fetch(`/api/document-inhoud?url=${encodeURIComponent(url)}`, {
+        const params = new URLSearchParams();
+        if (url) params.set("url", url);
+        if (driveId) params.set("driveId", driveId);
+        if (itemId) params.set("itemId", itemId);
+        if (formaat) params.set("formaat", formaat);
+        const res = await fetch(`/api/document-inhoud?${params.toString()}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) throw new Error(await res.text().catch(() => ""));
@@ -1304,7 +1310,7 @@ function DocumentViewer({ url, titel }) {
       actief = false;
       if (gemaakteUrl) URL.revokeObjectURL(gemaakteUrl);
     };
-  }, [url]);
+  }, [url, driveId, itemId, formaat]);
 
   if (status === "laden") {
     return (
@@ -1660,7 +1666,23 @@ function TabTaken({ data, gebruiker, onAkkoord, onNietAkkoord, onOndertekenen })
   );
 }
 
+// Bestandstypen: direct te tonen (pdf/afbeelding) of eerst door Graph naar PDF laten omzetten (Office).
+const NATIEF_PREVIEW = ["pdf", "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "txt"];
+const OFFICE_PREVIEW = ["doc", "docx", "dot", "dotx", "ppt", "pptx", "pot", "potx", "xls", "xlsx", "xlsm", "rtf", "odt", "odp", "ods"];
+function bestandsExtensie(naam) {
+  const punt = (naam || "").lastIndexOf(".");
+  return punt > -1 ? naam.slice(punt + 1).toLowerCase() : "";
+}
+function isPreviewbaar(naam) {
+  const ext = bestandsExtensie(naam);
+  return NATIEF_PREVIEW.includes(ext) || OFFICE_PREVIEW.includes(ext);
+}
+function previewFormaat(naam) {
+  return OFFICE_PREVIEW.includes(bestandsExtensie(naam)) ? "pdf" : "";
+}
+
 function TabDocumenten({ status, data, foutmelding, pad = [], onOphalen, onOpenMap, onNavigeer, onLabelWijzigen, onEntiteitWijzigen }) {
+  const [previewId, setPreviewId] = useState(null); // id van het bestand waarvan de preview openstaat
   if (status === "nietOpgehaald") {
     return (
       <div style={{ ...kaartStijl, textAlign: "center", padding: 36 }}>
@@ -1738,8 +1760,11 @@ function TabDocumenten({ status, data, foutmelding, pad = [], onOphalen, onOpenM
         <div style={{ display: "flex", flexDirection: "column" }}>
           {items.map((item) => {
             const isMap = item.type === "map";
+            const kanPreview = !isMap && isPreviewbaar(item.naam) && item.driveId && item.itemId;
+            const previewOpen = previewId === item.id;
             return (
-              <div key={item.id} className="kp-doc-row" style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderTop: `1px solid ${KLEUR.rand}` }}>
+              <React.Fragment key={item.id}>
+              <div className="kp-doc-row" style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderTop: `1px solid ${KLEUR.rand}` }}>
                 {isMap ? <Folder size={16} color={KLEUR.goud} style={{ flexShrink: 0 }} /> : <FileText size={16} color={KLEUR.mutedTekst} style={{ flexShrink: 0 }} />}
                 <div className="kp-doc-name" style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1779,6 +1804,11 @@ function TabDocumenten({ status, data, foutmelding, pad = [], onOphalen, onOpenM
                   </button>
                 ) : (
                   <>
+                    {kanPreview && (
+                      <button onClick={() => setPreviewId(previewOpen ? null : item.id)} title={previewOpen ? "Preview sluiten" : "Bekijken"} style={{ ...iconKnopStijl, color: previewOpen ? KLEUR.blauw : iconKnopStijl.color }}>
+                        <Eye size={14} />
+                      </button>
+                    )}
                     <button onClick={() => onEntiteitWijzigen(item.id, item.entiteit)} title="Aan klant koppelen" style={iconKnopStijl}>
                       <Building2 size={14} />
                     </button>
@@ -1793,6 +1823,12 @@ function TabDocumenten({ status, data, foutmelding, pad = [], onOphalen, onOpenM
                   </>
                 )}
               </div>
+              {previewOpen && kanPreview && (
+                <div style={{ padding: "0 0 12px" }}>
+                  <DocumentViewer driveId={item.driveId} itemId={item.itemId} formaat={previewFormaat(item.naam)} titel={item.label || item.naam} />
+                </div>
+              )}
+              </React.Fragment>
             );
           })}
         </div>
