@@ -69,6 +69,10 @@
       "allowedRoles": ["beheerder", "medewerker"]
     },
     {
+      "route": "/api/medewerker-bulk-wijzigen",
+      "allowedRoles": ["beheerder", "medewerker"]
+    },
+    {
       "route": "/api/medewerker-weergaven",
       "allowedRoles": ["beheerder", "medewerker"]
     },

@@ -770,6 +770,118 @@ const CHOICE_VELD = { clienttype: "businesstypecode", status: "cr283_clienttype"
 const TEAM_ROLLEN = [["manager", "Manager"], ["accountant", "Accountant"], ["assistent", "Assistent"], ["backup", "Back-up"], ["fiscaal", "Fiscaal medewerker"], ["loon", "Loonadministratie"]];
 const TEAM_BRON = { manager: "manager", accountant: "accountantPersoon", assistent: "assistent", backup: "backup", fiscaal: "fiscaalMedewerker", loon: "loonadministratie" };
 
+// Velden die in bulk (op meerdere klanten tegelijk) aangepast kunnen worden.
+// soort "team" → koppelt een medewerker (systemuser); soort "keuze" → zet een keuzelijst-waarde.
+const BULK_VELDEN = [
+  { key: "manager", label: "Manager", soort: "team", bron: "manager" },
+  { key: "accountant", label: "Accountant", soort: "team", bron: "accountantPersoon" },
+  { key: "assistent", label: "Assistent", soort: "team", bron: "assistent" },
+  { key: "backup", label: "Back-up", soort: "team", bron: "backup" },
+  { key: "fiscaal", label: "Fiscaal medewerker", soort: "team", bron: "fiscaalMedewerker" },
+  { key: "loon", label: "Loonadministratie", soort: "team", bron: "loonadministratie" },
+  { key: "team", label: "Team", soort: "keuze", lijst: "team" },
+  { key: "kantoor", label: "Kantoor", soort: "keuze", lijst: "kantoor" },
+  { key: "clienttype", label: "Cliënttype", soort: "keuze", lijst: "clienttype" },
+  { key: "status", label: "Status", soort: "keuze", lijst: "status" },
+];
+
+// Bulk-bewerkpaneel: kies één veld en één waarde, pas toe op alle geselecteerde klanten.
+function BulkBewerken({ aantal, keuzes, medewerkers, onKlaar, onToepassen }) {
+  const [veldKey, setVeldKey] = useState("");
+  const [teamSel, setTeamSel] = useState({ waarde: "", naam: "", gekozen: false });
+  const [keuzeVal, setKeuzeVal] = useState("__none__");
+  const [status, setStatus] = useState("invoer"); // invoer | bezig | fout
+  const [resultaat, setResultaat] = useState(null); // { gelukt, mislukt }
+  const veld = BULK_VELDEN.find((v) => v.key === veldKey) || null;
+  const alleMedewerkers = medewerkers || [];
+  const zoekMedewerker = (term) => {
+    const q = term.trim().toLowerCase();
+    return alleMedewerkers
+      .filter((m) => !q || m.naam.toLowerCase().includes(q) || (m.functie || "").toLowerCase().includes(q))
+      .slice(0, 30)
+      .map((m) => ({ id: m.id, naam: m.naam, sub: m.functie }));
+  };
+  const kiesVeld = (k) => { setVeldKey(k); setTeamSel({ waarde: "", naam: "", gekozen: false }); setKeuzeVal("__none__"); setResultaat(null); setStatus("invoer"); };
+
+  const klaarOmToe = veld && (veld.soort === "team" ? teamSel.gekozen : keuzeVal !== "__none__");
+  const label = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3, marginTop: 4 };
+
+  const toepassen = async () => {
+    if (!klaarOmToe) return;
+    let waarde, naam;
+    if (veld.soort === "team") {
+      waarde = teamSel.waarde; // "" = loskoppelen
+      naam = teamSel.naam;
+    } else {
+      waarde = keuzeVal === "__leeg__" ? "" : keuzeVal;
+      const o = (keuzes[veld.lijst] || []).find((x) => String(x.value) === String(keuzeVal));
+      naam = o ? o.label : "";
+    }
+    const omschrijving = waarde === "" ? "leegmaken" : `"${naam}"`;
+    if (!window.confirm(`Weet je zeker dat je "${veld.label}" bij ${aantal} klant${aantal === 1 ? "" : "en"} wilt ${waarde === "" ? "leegmaken" : `wijzigen naar ${omschrijving}`}?`)) return;
+    setStatus("bezig");
+    try {
+      const d = await onToepassen(veld, waarde, naam);
+      setResultaat(d);
+      setStatus("invoer");
+    } catch {
+      setStatus("fout");
+    }
+  };
+
+  return (
+    <>
+      <div onClick={onKlaar} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 70 }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 71, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.2)", padding: 22, width: 420, maxWidth: "92vw", maxHeight: "88vh", overflowY: "auto" }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Bulk-aanpassing</div>
+        <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 14 }}>
+          De gekozen waarde wordt toegepast op <strong>{aantal}</strong> geselecteerde klant{aantal === 1 ? "" : "en"}.
+        </div>
+
+        <div style={label}>Veld</div>
+        <select value={veldKey} onChange={(e) => kiesVeld(e.target.value)} style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 9px", fontSize: 13, marginBottom: 10, background: "#fff" }}>
+          <option value="">— kies een veld —</option>
+          {BULK_VELDEN.map((v) => <option key={v.key} value={v.key}>{v.label}</option>)}
+        </select>
+
+        {veld && veld.soort === "team" && (
+          <ZoekKiezer
+            label={`Nieuwe ${veld.label.toLowerCase()}`}
+            huidigeNaam={teamSel.gekozen ? (teamSel.naam || "(leegmaken)") : ""}
+            zoek={zoekMedewerker}
+            onKies={(id, naam) => setTeamSel({ waarde: id, naam, gekozen: true })}
+            onWis={() => setTeamSel({ waarde: "", naam: "", gekozen: true })}
+          />
+        )}
+        {veld && veld.soort === "keuze" && (
+          <div>
+            <div style={label}>Nieuwe waarde</div>
+            <select value={keuzeVal} onChange={(e) => setKeuzeVal(e.target.value)} style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 9px", fontSize: 13, marginBottom: 8, background: "#fff" }}>
+              <option value="__none__" disabled>— kies waarde —</option>
+              {(keuzes[veld.lijst] || []).map((o) => <option key={o.value} value={String(o.value)}>{o.label}</option>)}
+              <option value="__leeg__">— leegmaken —</option>
+            </select>
+          </div>
+        )}
+
+        {resultaat && (
+          <div style={{ fontSize: 12.5, marginTop: 6, marginBottom: 4, color: resultaat.mislukt && resultaat.mislukt.length ? KLEUR.rood : "#2E7D46" }}>
+            {resultaat.gelukt} gewijzigd{resultaat.mislukt && resultaat.mislukt.length ? ` · ${resultaat.mislukt.length} mislukt (mogelijk onvoldoende schrijfrechten in Dynamics)` : ""}.
+          </div>
+        )}
+        {status === "fout" && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginTop: 6 }}>Bulk-aanpassing mislukt, probeer het nog eens.</div>}
+
+        <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+          <button onClick={toepassen} disabled={!klaarOmToe || status === "bezig"} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: klaarOmToe ? "#2E7D46" : "#9DB4A5", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: klaarOmToe ? "pointer" : "default" }}>
+            <CheckCircle2 size={14} /> {status === "bezig" ? "Bezig…" : "Toepassen"}
+          </button>
+          <button onClick={onKlaar} style={{ padding: "9px 14px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Sluiten</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 function KlantBewerken({ klant, keuzes, medewerkers, onKlaar, onOpgeslagen }) {
   const kz = keuzes || { clienttype: [], status: [], team: [], kantoor: [] };
   const alleMedewerkers = medewerkers || [];
@@ -1219,6 +1331,9 @@ function KlantOverzicht() {
   const [detailGroep, setDetailGroep] = useState(null);
   const [detailMedewerker, setDetailMedewerker] = useState(null); // { persoon, rol, klantnaam }
   const [magWijzigen, setMagWijzigen] = useState(false);
+  const [magBulk, setMagBulk] = useState(false);
+  const [selectie, setSelectie] = useState(() => new Set()); // geselecteerde accountId's voor bulk
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   useEffect(() => {
     fetch("/api/beheer-klanten")
@@ -1227,8 +1342,8 @@ function KlantOverzicht() {
       .catch(() => { setKlanten([]); setFout(true); });
     fetch("/api/medewerker-rechten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => setMagWijzigen(!!d.magWijzigen))
-      .catch(() => setMagWijzigen(false));
+      .then((d) => { setMagWijzigen(!!d.magWijzigen); setMagBulk(!!d.magBulk); })
+      .catch(() => { setMagWijzigen(false); setMagBulk(false); });
     fetch("/api/instellingen")
       .then((r) => r.json())
       .then((d) => setConfig(d.klantoverzicht && typeof d.klantoverzicht === "object" ? { extraKolommen: d.klantoverzicht.extraKolommen || [], standaardVerborgen: d.klantoverzicht.standaardVerborgen || [] } : { extraKolommen: [], standaardVerborgen: [] }))
@@ -1336,6 +1451,30 @@ function KlantOverzicht() {
     setMenu((m) => (m && m.key === key ? null : { key, x: r.left, y: r.bottom }));
   };
   const wisAllesFilters = () => { setKolomFilters({}); setZoek(""); };
+
+  // Bulk-selectie: op basis van accountId. "Alles" werkt op de gefilterde lijst.
+  const gefilterdeIds = gefilterd.map((k) => k.accountId);
+  const allesGeselecteerd = gefilterdeIds.length > 0 && gefilterdeIds.every((id) => selectie.has(id));
+  const toggleSelectie = (id) => setSelectie((h) => { const n = new Set(h); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggleAlles = () => setSelectie(() => (allesGeselecteerd ? new Set() : new Set(gefilterdeIds)));
+  const bulkToepassen = async (veld, waarde, naam) => {
+    const ids = [...selectie];
+    const res = await fetch("/api/medewerker-bulk-wijzigen", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accountIds: ids, veld: veld.key, waarde }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const d = await res.json();
+    const mislukteIds = new Set((d.mislukt || []).map((m) => m.accountId));
+    const geluktIds = new Set(ids.filter((id) => !mislukteIds.has(id)));
+    setKlanten((huidig) => huidig.map((k) => {
+      if (!geluktIds.has(k.accountId)) return k;
+      if (veld.soort === "team") return { ...k, [veld.bron]: waarde ? { ...(k[veld.bron] || {}), id: waarde, naam } : null };
+      return { ...k, [veld.key]: waarde === "" ? "" : naam };
+    }));
+    return d;
+  };
 
   // Opgeslagen weergaven (persoonlijk): kolommen + filters + sortering + aantal regels.
   const huidigeConfig = () => ({ kolommen: [...zichtbareSet], filters: kolomFilters, sortKey, sortDir, toonAantal });
@@ -1462,10 +1601,23 @@ function KlantOverzicht() {
         {afgekapt ? " · lijst afgekapt, verfijn je zoekopdracht" : ""}
       </div>
 
+      {magBulk && selectie.size > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 10, padding: "10px 14px", background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.blauw}`, borderRadius: 10 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: KLEUR.blauw }}>{selectie.size} geselecteerd</span>
+          <button onClick={() => setBulkOpen(true)} style={{ padding: "7px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Bulk bewerken</button>
+          <button onClick={() => setSelectie(new Set())} style={{ padding: "7px 12px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Selectie wissen</button>
+        </div>
+      )}
+
       <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10 }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: Math.max(600, zichtKols.length * 95) }}>
           <thead>
             <tr>
+              {magBulk && (
+                <th style={{ ...th, width: 1, cursor: "pointer" }} title="Alles op deze gefilterde lijst selecteren">
+                  <input type="checkbox" checked={allesGeselecteerd} onChange={toggleAlles} />
+                </th>
+              )}
               {zichtKols.map((kol) => {
                 const actief = sortKey === kol.key || kolomFilters[kol.key];
                 return (
@@ -1483,7 +1635,12 @@ function KlantOverzicht() {
           </thead>
           <tbody>
             {zichtbaar.map((k) => (
-              <tr key={k.accountId}>
+              <tr key={k.accountId} style={selectie.has(k.accountId) ? { background: KLEUR.lichtblauw } : undefined}>
+                {magBulk && (
+                  <td style={td}>
+                    <input type="checkbox" checked={selectie.has(k.accountId)} onChange={() => toggleSelectie(k.accountId)} />
+                  </td>
+                )}
                 {zichtKols.map((kol) => (
                   <td key={kol.key} style={td}>{renderCel(kol, k)}</td>
                 ))}
@@ -1564,6 +1721,16 @@ function KlantOverzicht() {
           </>
         );
       })()}
+
+      {bulkOpen && magBulk && (
+        <BulkBewerken
+          aantal={selectie.size}
+          keuzes={keuzes}
+          medewerkers={medewerkers}
+          onToepassen={bulkToepassen}
+          onKlaar={() => setBulkOpen(false)}
+        />
+      )}
     </div>
   );
 }

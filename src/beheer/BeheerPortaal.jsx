@@ -79,6 +79,8 @@ export default function BeheerPortaal() {
 
   // Rechtenniveau per medewerker (e-mail → 'manager'|'beheerder'; standaard = medewerker).
   const [niveaus, setNiveaus] = useState({});
+  // Bulk-recht: lijst met e-mailadressen die bulk-aanpassingen mogen doen.
+  const [bulk, setBulk] = useState([]);
   const [wijzigrechtenStatus, setWijzigrechtenStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [medewerkers, setMedewerkers] = useState(null); // null = laden; alle Activaa-medewerkers
   const [medewerkerZoek, setMedewerkerZoek] = useState("");
@@ -152,7 +154,7 @@ export default function BeheerPortaal() {
       .catch(() => setCategorieen([]));
     fetch("/api/beheer-wijzigrechten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => setNiveaus(d.niveaus || {}))
+      .then((d) => { setNiveaus(d.niveaus || {}); setBulk(Array.isArray(d.bulk) ? d.bulk : []); })
       .catch(() => {});
     fetch("/api/beheer-medewerkers")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
@@ -409,22 +411,29 @@ export default function BeheerPortaal() {
     setWijzigrechtenStatus("idle");
   }, []);
 
+  const zetBulk = useCallback((email, aan) => {
+    const laag = String(email).toLowerCase();
+    setBulk((h) => (aan ? [...new Set([...h, laag])] : h.filter((e) => e !== laag)));
+    setWijzigrechtenStatus("idle");
+  }, []);
+
   const slaWijzigrechtenOp = useCallback(async () => {
     setWijzigrechtenStatus("bezig");
     try {
       const res = await fetch("/api/beheer-wijzigrechten", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ niveaus }),
+        body: JSON.stringify({ niveaus, bulk }),
       });
       if (!res.ok) throw new Error(await res.text());
       const d = await res.json();
       setNiveaus(d.niveaus || {});
+      setBulk(Array.isArray(d.bulk) ? d.bulk : []);
       setWijzigrechtenStatus("gelukt");
     } catch {
       setWijzigrechtenStatus("fout");
     }
-  }, [niveaus]);
+  }, [niveaus, bulk]);
 
   const slaKlantoverzichtOp = useCallback(async () => {
     setKoStatus("bezig");
@@ -1403,8 +1412,9 @@ export default function BeheerPortaal() {
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Medewerkers — wijzig-rechten</div>
         <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 14 }}>
-          Standaard mag een medewerker in het medewerkersportaal alleen lezen. Vink hieronder aan wie
-          klantgegevens mag <strong>wijzigen</strong>. Beheerders mogen sowieso altijd wijzigen.
+          Standaard mag een medewerker in het medewerkersportaal alleen lezen. Kies per medewerker het
+          <strong> niveau</strong> (wijzigen van klantgegevens) en vink aan wie <strong>bulk-aanpassingen</strong>
+          {" "}op meerdere klanten tegelijk mag doen. Beheerders mogen sowieso altijd wijzigen én bulk-aanpassingen doen.
         </div>
 
         {medewerkers === null ? (
@@ -1425,7 +1435,7 @@ export default function BeheerPortaal() {
               />
             </div>
             <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 8 }}>
-              {Object.values(niveaus).filter((n) => n === "manager" || n === "beheerder").length} met wijzig-recht · {medewerkers.length} medewerkers
+              {Object.values(niveaus).filter((n) => n === "manager" || n === "beheerder").length} met wijzig-recht · {bulk.length} met bulk-recht · {medewerkers.length} medewerkers
             </div>
             <div style={{ display: "flex", flexDirection: "column", maxHeight: 460, overflowY: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
               {medewerkers
@@ -1436,6 +1446,14 @@ export default function BeheerPortaal() {
                       <div style={{ fontSize: 13, fontWeight: 600 }}>{m.naam || m.email}</div>
                       <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{m.functie ? m.functie + " · " : ""}{m.email}</div>
                     </div>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: KLEUR.subtekst, cursor: "pointer", whiteSpace: "nowrap" }} title="Mag bulk-aanpassingen op meerdere klanten tegelijk doen">
+                      <input
+                        type="checkbox"
+                        checked={bulk.includes(String(m.email).toLowerCase())}
+                        onChange={(e) => zetBulk(m.email, e.target.checked)}
+                      />
+                      Bulk
+                    </label>
                     <select
                       value={niveaus[m.email] || "medewerker"}
                       onChange={(e) => zetNiveau(m.email, e.target.value)}

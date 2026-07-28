@@ -1,12 +1,17 @@
 /**
- * Rechtenniveau per medewerker (op e-mailadres) voor het medewerkersportaal:
- *   - "medewerker" (standaard, niet opgeslagen) → alleen lezen
- *   - "manager"                                  → mag klantgegevens wijzigen
- *   - "beheerder"                                → mag wijzigen (en is bedoeld als beheerder)
+ * Rechten per medewerker (op e-mailadres) voor het medewerkersportaal.
  *
- * De Azure-rol 'beheerder' geeft sowieso altijd wijzig-rechten, los van deze lijst.
+ * Twee onafhankelijke instellingen, beide beheerd in het beheerdersportaal:
+ *   1) Wijzig-niveau (klantgegevens per klant wijzigen):
+ *        - "medewerker" (standaard, niet opgeslagen) → alleen lezen
+ *        - "manager"                                  → mag klantgegevens wijzigen
+ *        - "beheerder"                                → mag wijzigen
+ *      De Azure-rol 'beheerder' geeft sowieso altijd wijzig-rechten, los van deze lijst.
+ *   2) Bulk-recht (meerdere klanten tegelijk aanpassen): een aparte lijst met e-mailadressen.
+ *      De Azure-rol 'beheerder' mag sowieso altijd bulk-aanpassingen doen.
+ *
  * Opslag in Azure Blob Storage (container portaalcontent, blob wijzigrechten.json).
- * Structuur: { "niveaus": { "naam@activaa.nl": "manager" } }
+ * Structuur: { "niveaus": { "naam@activaa.nl": "manager" }, "bulk": ["naam@activaa.nl"] }
  */
 const { BlobServiceClient } = require("@azure/storage-blob");
 
@@ -34,40 +39,65 @@ async function streamNaarTekst(readableStream) {
   return Buffer.concat(stukken).toString("utf-8");
 }
 
-/** Geeft de niveaus terug: { "<email>": "manager"|"beheerder" }. Alleen niet-standaard niveaus. */
-async function haalNiveaus() {
+/**
+ * Leest het volledige rechtendocument: { niveaus: {email:niveau}, bulk: [email] }.
+ * Verwerkt ook de oude structuur { wijzigers: [emails] } (→ die golden als 'manager').
+ */
+async function haalRechten() {
   const containerClient = await haalContainerClient();
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
-  if (!(await blobClient.exists())) return {};
+  if (!(await blobClient.exists())) return { niveaus: {}, bulk: [] };
   const tekst = await streamNaarTekst((await blobClient.download()).readableStreamBody);
   try {
     const data = JSON.parse(tekst);
-    if (data && data.niveaus && typeof data.niveaus === "object") return data.niveaus;
-    // Backward-compat: oude structuur { wijzigers: [emails] } → die golden als 'manager'.
-    if (data && Array.isArray(data.wijzigers)) {
-      const n = {};
-      for (const e of data.wijzigers) n[String(e).toLowerCase()] = "manager";
-      return n;
+    let niveaus = {};
+    if (data && data.niveaus && typeof data.niveaus === "object" && !Array.isArray(data.niveaus)) {
+      niveaus = data.niveaus;
+    } else if (data && Array.isArray(data.wijzigers)) {
+      // Backward-compat: oude structuur { wijzigers: [emails] }.
+      for (const e of data.wijzigers) niveaus[String(e).toLowerCase()] = "manager";
     }
-    return {};
+    const bulk = Array.isArray(data && data.bulk)
+      ? data.bulk.map((e) => String(e || "").trim().toLowerCase()).filter(Boolean)
+      : [];
+    return { niveaus, bulk };
   } catch {
-    return {};
+    return { niveaus: {}, bulk: [] };
   }
 }
 
-/** Overschrijft de niveaus. Normaliseert e-mail naar kleine letters; 'medewerker' wordt niet bewaard. */
-async function zetNiveaus(niveaus) {
-  const schoon = {};
+/** Geeft alleen de niveaus terug: { "<email>": "manager"|"beheerder" }. */
+async function haalNiveaus() {
+  return (await haalRechten()).niveaus;
+}
+
+/** Geeft de bulk-lijst terug: [ "<email>" ] (kleine letters). */
+async function haalBulk() {
+  return (await haalRechten()).bulk;
+}
+
+/** Overschrijft het volledige rechtendocument. Normaliseert e-mail; 'medewerker' wordt niet bewaard. */
+async function zetRechten({ niveaus, bulk }) {
+  const schoonNiveaus = {};
   for (const [email, niveau] of Object.entries(niveaus || {})) {
     const laag = String(email || "").trim().toLowerCase();
     if (!laag) continue;
-    if (niveau === "manager" || niveau === "beheerder") schoon[laag] = niveau;
+    if (niveau === "manager" || niveau === "beheerder") schoonNiveaus[laag] = niveau;
   }
+  const schoonBulk = [...new Set(
+    (Array.isArray(bulk) ? bulk : []).map((e) => String(e || "").trim().toLowerCase()).filter(Boolean)
+  )];
   const containerClient = await haalContainerClient();
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
-  const buffer = Buffer.from(JSON.stringify({ niveaus: schoon }, null, 2), "utf-8");
+  const buffer = Buffer.from(JSON.stringify({ niveaus: schoonNiveaus, bulk: schoonBulk }, null, 2), "utf-8");
   await blobClient.upload(buffer, buffer.length, { overwrite: true });
-  return schoon;
+  return { niveaus: schoonNiveaus, bulk: schoonBulk };
+}
+
+/** Overschrijft alleen de niveaus; behoudt de bestaande bulk-lijst. */
+async function zetNiveaus(niveaus) {
+  const { bulk } = await haalRechten();
+  return (await zetRechten({ niveaus, bulk })).niveaus;
 }
 
 /** Bepaalt of deze gebruiker mag wijzigen: beheerder (Azure) mag altijd; anders niveau manager/beheerder. */
@@ -79,4 +109,12 @@ async function magWijzigen(email, isBeheerder) {
   return niveaus[laag] === "manager" || niveaus[laag] === "beheerder";
 }
 
-module.exports = { haalNiveaus, zetNiveaus, magWijzigen, GELDIGE_NIVEAUS };
+/** Bepaalt of deze gebruiker bulk-aanpassingen mag doen: beheerder (Azure) mag altijd; anders in de bulk-lijst. */
+async function magBulk(email, isBeheerder) {
+  if (isBeheerder) return true;
+  const laag = String(email || "").trim().toLowerCase();
+  if (!laag) return false;
+  return (await haalBulk()).includes(laag);
+}
+
+module.exports = { haalRechten, haalNiveaus, haalBulk, zetRechten, zetNiveaus, magWijzigen, magBulk, GELDIGE_NIVEAUS };
