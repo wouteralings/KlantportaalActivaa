@@ -1,4 +1,5 @@
 const { haalDynamicsToken, herleidAccounts } = require("../_gedeeld/identiteit");
+const { isIngeschakeld } = require("../_gedeeld/facturatieInstellingen");
 
 module.exports = async function (context, req) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
@@ -12,11 +13,17 @@ module.exports = async function (context, req) {
     const token = await haalDynamicsToken();
     const { email, accounts } = await herleidAccounts(req, token);
 
+    // Per account: staat de facturatiemodule aan? (beheerd in het beheerdersportaal, tab
+    // "Facturatie"). Best-effort: als de opslag nog niet geconfigureerd is, gewoon uit.
+    const facturatieStatussen = await Promise.all(
+      accounts.map((a) => isIngeschakeld(a.accountId).catch(() => false))
+    );
+
     context.res = {
       headers: { "Content-Type": "application/json" },
       body: {
         email,
-        accounts: accounts.map(({ accountId, klantnummer, klantnaam, groepsnaam, contactpersoon, relatiebeheerder, accountant, account }) => ({
+        accounts: accounts.map(({ accountId, klantnummer, klantnaam, groepsnaam, contactpersoon, relatiebeheerder, accountant, account }, i) => ({
           accountId,
           klantnummer,
           klantnaam: klantnaam || account.name || "",
@@ -36,6 +43,7 @@ module.exports = async function (context, req) {
           contactpersoon: contactpersoon || {},
           relatiebeheerder,
           accountant,
+          facturatieIngeschakeld: facturatieStatussen[i],
         })),
       },
     };

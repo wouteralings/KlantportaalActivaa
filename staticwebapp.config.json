@@ -53,6 +53,10 @@
       "allowedRoles": ["beheerder"]
     },
     {
+      "route": "/api/beheer-facturatie-klanten",
+      "allowedRoles": ["beheerder"]
+    },
+    {
       "route": "/api/beheer-medewerkers",
       "allowedRoles": ["beheerder", "medewerker"]
     },

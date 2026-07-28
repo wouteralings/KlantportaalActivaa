@@ -107,6 +107,13 @@ export default function BeheerPortaal() {
   const [reviewWebhookUrl, setReviewWebhookUrl] = useState("");
   const [webhookOpslaanStatus, setWebhookOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
 
+  // Facturatiemodule: per klant-account aan/uit (tab "Facturatie").
+  const [facturatieKlanten, setFacturatieKlanten] = useState(null); // null = laden; [{accountId, klantnaam, klantnummer}]
+  const [facturatieStatussen, setFacturatieStatussen] = useState({}); // accountId -> { ingeschakeld, gewijzigdOp, gewijzigdDoor }
+  const [facturatieZoek, setFacturatieZoek] = useState("");
+  const [facturatieBezig, setFacturatieBezig] = useState({}); // accountId -> bool
+  const [facturatieFout, setFacturatieFout] = useState("");
+
 
   useEffect(() => {
     fetch("/.auth/me")
@@ -160,6 +167,16 @@ export default function BeheerPortaal() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setMedewerkers(d.medewerkers || []))
       .catch(() => setMedewerkers([]));
+    fetch("/api/beheer-klanten")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setFacturatieKlanten(
+        (d.klanten || []).map((k) => ({ accountId: k.accountId, klantnaam: k.klantnaam, klantnummer: k.klantnummer }))
+      ))
+      .catch(() => setFacturatieKlanten([]));
+    fetch("/api/beheer-facturatie-klanten")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setFacturatieStatussen(d.statussen || {}))
+      .catch(() => setFacturatieStatussen({}));
     fetch("/api/beheer-taaksoorten")
       .then((r) => r.json())
       .then((d) => {
@@ -435,6 +452,29 @@ export default function BeheerPortaal() {
     }
   }, [niveaus, bulk]);
 
+  // Facturatiemodule per klant aan/uit — direct opslaan (geen aparte "Opslaan"-knop), met
+  // optimistische update en terugdraaien bij een fout.
+  const zetFacturatieStatus = useCallback(async (accountId, ingeschakeld) => {
+    setFacturatieFout("");
+    setFacturatieBezig((h) => ({ ...h, [accountId]: true }));
+    setFacturatieStatussen((h) => ({ ...h, [accountId]: { ...(h[accountId] || {}), ingeschakeld } }));
+    try {
+      const res = await fetch("/api/beheer-facturatie-klanten", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId, ingeschakeld }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const d = await res.json();
+      setFacturatieStatussen((h) => ({ ...h, [accountId]: d }));
+    } catch {
+      setFacturatieStatussen((h) => ({ ...h, [accountId]: { ...(h[accountId] || {}), ingeschakeld: !ingeschakeld } }));
+      setFacturatieFout("Opslaan is niet gelukt, probeer het nog eens.");
+    } finally {
+      setFacturatieBezig((h) => ({ ...h, [accountId]: false }));
+    }
+  }, []);
+
   const slaKlantoverzichtOp = useCallback(async () => {
     setKoStatus("bezig");
     try {
@@ -618,6 +658,7 @@ export default function BeheerPortaal() {
           ["faq", "FAQ"],
           ["taken", "Taken"],
           ["medewerkers", "Medewerkers"],
+          ["facturatie", "Facturatie"],
           ["instellingen", "Instellingen"],
         ].map(([k, label]) => (
           <button
@@ -1483,6 +1524,76 @@ export default function BeheerPortaal() {
               {wijzigrechtenStatus === "fout" && (
                 <span style={{ marginLeft: 12, fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
               )}
+            </div>
+          </>
+        )}
+      </div>
+      )}
+
+      {tab === "facturatie" && (
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Facturatiemodule — per klant aan/uit</div>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 14 }}>
+          Standaard staat de facturatiemodule <strong>uit</strong> voor elke klant. Zet 'm per klant aan zodra
+          die klant hem mag gebruiken — de tab "Facturen" verschijnt dan meteen in het klantportaal van die klant.
+        </div>
+
+        {facturatieFout && (
+          <div style={{ marginBottom: 12, fontSize: 12.5, color: KLEUR.rood }}>{facturatieFout}</div>
+        )}
+
+        {facturatieKlanten === null ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst }}>
+            <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Klanten ophalen…
+          </div>
+        ) : facturatieKlanten.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: KLEUR.rood }}>Geen klanten gevonden (controleer de Dynamics-koppeling).</div>
+        ) : (
+          <>
+            <div style={{ position: "relative", marginBottom: 12, maxWidth: 320 }}>
+              <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+              <input
+                value={facturatieZoek}
+                onChange={(e) => setFacturatieZoek(e.target.value)}
+                placeholder="Zoek klant…"
+                style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 32px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}
+              />
+            </div>
+            <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 8 }}>
+              {Object.values(facturatieStatussen).filter((s) => s && s.ingeschakeld).length} van {facturatieKlanten.length} klanten ingeschakeld
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", maxHeight: 460, overflowY: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
+              {facturatieKlanten
+                .filter((k) => {
+                  const q = facturatieZoek.trim().toLowerCase();
+                  return !q || (k.klantnaam || "").toLowerCase().includes(q) || String(k.klantnummer || "").toLowerCase().includes(q);
+                })
+                .map((k, i) => {
+                  const aan = !!(facturatieStatussen[k.accountId] && facturatieStatussen[k.accountId].ingeschakeld);
+                  const bezig = !!facturatieBezig[k.accountId];
+                  return (
+                    <div key={k.accountId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}` }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{k.klantnaam || "(geen naam)"}</div>
+                        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>Cliëntnr {k.klantnummer || "—"}</div>
+                      </div>
+                      <button
+                        onClick={() => zetFacturatieStatus(k.accountId, !aan)}
+                        disabled={bezig}
+                        title={aan ? "Facturatiemodule uitzetten" : "Facturatiemodule aanzetten"}
+                        style={{
+                          position: "relative", width: 40, height: 22, borderRadius: 20, border: "none", cursor: bezig ? "default" : "pointer",
+                          background: aan ? KLEUR.blauw : KLEUR.rand, opacity: bezig ? 0.6 : 1, flexShrink: 0, transition: "background .15s",
+                        }}
+                      >
+                        <span style={{
+                          position: "absolute", top: 2, left: aan ? 20 : 2, width: 18, height: 18, borderRadius: "50%",
+                          background: "#fff", boxShadow: "0 1px 2px rgba(0,0,0,.25)", transition: "left .15s",
+                        }} />
+                      </button>
+                    </div>
+                  );
+                })}
             </div>
           </>
         )}

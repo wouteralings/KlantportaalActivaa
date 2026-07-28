@@ -33,6 +33,7 @@ import {
   Clock,
 } from "lucide-react";
 import { haalApiToken } from "./msal";
+import FacturatieModule from "./FacturatieModule";
 
 const KLEUR = {
   blauw: "#1C5D8C",
@@ -74,6 +75,9 @@ const TABS = [
   { key: "faq", label: "Veelgestelde vragen", icon: HelpCircle },
   { key: "review", label: "Review geven", icon: Star },
 ];
+// Alleen zichtbaar zodra een beheerder de facturatiemodule voor minstens één van de
+// gekoppelde klant-accounts heeft aangezet (beheerdersportaal, tab "Facturatie").
+const FACTUREN_TAB = { key: "facturen", label: "Facturen", icon: FileText, nieuw: true };
 
 export default function KlantPortaal() {
   const [ingelogd, setIngelogd] = useState(null); // null = nog aan het checken
@@ -386,13 +390,25 @@ export default function KlantPortaal() {
     return res.json();
   }, []);
 
+  // Facturatiemodule: alleen tonen voor accounts waar een beheerder 'm heeft aangezet.
+  const facturatieAccounts = (mijnGegevens?.accounts || []).filter((a) => a.facturatieIngeschakeld);
+  const zichtbareTabs = facturatieAccounts.length > 0
+    ? [...TABS.slice(0, 3), FACTUREN_TAB, ...TABS.slice(3)]
+    : TABS;
+
+  // Als de actieve tab niet (meer) zichtbaar is (bijv. Facturen weer uitgezet), terug naar Home.
+  useEffect(() => {
+    if (!zichtbareTabs.some((t) => t.key === tab) && tab !== "home") setTab("home");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [facturatieAccounts.length, tab]);
+
   if (ingelogd === null) return <Laadscherm />;
   if (!ingelogd) return <Inlogscherm logoUrl={logoUrl} />;
 
   return (
     <div className="kp-container" style={{ maxWidth: "none", width: "100%", margin: "0 auto", fontFamily: "system-ui, -apple-system, sans-serif", color: KLEUR.tekst }}>
       <Header gebruiker={gebruiker} logoUrl={logoUrl} />
-      <Tabs tab={tab} setTab={setTab} />
+      <Tabs tab={tab} setTab={setTab} tabs={zichtbareTabs} />
 
       {fout && <Foutmelding tekst={fout} onSluiten={() => setFout("")} />}
 
@@ -444,6 +460,7 @@ export default function KlantPortaal() {
           onEntiteitWijzigen={wijzigEntiteit}
         />
       )}
+      {tab === "facturen" && <FacturatieModule accounts={facturatieAccounts} />}
       {tab === "faq" && <TabFaq content={content} teamsChatUrl={teamsChatUrl} whatsappUrl={whatsappUrl} copilotEmbedUrl={copilotEmbedUrl} />}
       {tab === "review" && <TabReview onVerzenden={verstuurReview} />}
     </div>
@@ -508,11 +525,11 @@ function Header({ gebruiker, logoUrl }) {
   );
 }
 
-function Tabs({ tab, setTab }) {
+function Tabs({ tab, setTab, tabs }) {
   return (
     <div className="kp-tabs-wrap">
       <div className="kp-tabs" style={{ display: "flex", gap: 6, marginBottom: 24, borderBottom: `1px solid ${KLEUR.rand}` }}>
-        {TABS.map(({ key, label, icon: Icon }) => (
+        {(tabs || TABS).map(({ key, label, icon: Icon, nieuw }) => (
           <button
             key={key}
             className="kp-tab-btn"
@@ -526,6 +543,11 @@ function Tabs({ tab, setTab }) {
             }}
           >
             <Icon size={15} /> {label}
+            {nieuw && (
+              <span style={{ fontSize: 9.5, fontWeight: 700, color: KLEUR.goud, border: `1px solid ${KLEUR.goud}55`, borderRadius: 20, padding: "1px 6px", textTransform: "uppercase", letterSpacing: ".02em" }}>
+                Nieuw
+              </span>
+            )}
           </button>
         ))}
       </div>
