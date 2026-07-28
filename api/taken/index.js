@@ -269,7 +269,7 @@ module.exports = async function (context, req) {
           const instellingen = await haalInstellingen().catch(() => ({}));
           const webhookUrl = instellingen.taakAfwijzingWebhookUrl || process.env.TAAK_AFWIJZING_WEBHOOK_URL || "";
           if (webhookUrl) {
-            await fetch(webhookMetId(webhookUrl, account.klantnummer), {
+            await fetch(webhookMetId(webhookUrl, account.clientnrAuto), {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({

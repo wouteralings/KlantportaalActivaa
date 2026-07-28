@@ -158,6 +158,9 @@ const ACCOUNTANT_NAV = process.env.DYNAMICS_ACCOUNTANT_NAV || "sk_Accountant";
 
 // Het echte cliëntnummer staat op Account in het veld sk_clientnummer (NIET accountnumber).
 const CLIENTNUMMER_VELD = process.env.DYNAMICS_CLIENTNUMMER_VELD || "sk_clientnummer";
+// Het automatische cliëntnummer (sk_clientnrauto) — hetzelfde nummer als in het klantoverzicht.
+// Wordt op de achtergrond meegestuurd (o.a. als &ID in de webhooks), los van wat de klant ziet.
+const CLIENTNRAUTO_VELD = process.env.DYNAMICS_KLANT_NUMMER_VELD || "sk_clientnrauto";
 // Het KvK-nummer staat op het Account in 'accountnumber'. Is dit gevuld, dan wordt het
 // bedrijfsadres automatisch met de KvK gesynchroniseerd (en is het in het portaal read-only).
 const KVK_VELD = process.env.DYNAMICS_KVK_VELD || "accountnumber";
@@ -183,7 +186,7 @@ async function herleidAccounts(req, token) {
   // pas ze dan aan via de Application Settings DYNAMICS_RELATIEBEHEERDER_NAV / DYNAMICS_ACCOUNTANT_NAV.
   const query =
     `${resource}/api/data/v9.2/accounts` +
-    `?$select=accountid,${CLIENTNUMMER_VELD},${KVK_VELD},name,address1_line1,cr283_huisnummer,` +
+    `?$select=accountid,${CLIENTNUMMER_VELD},${CLIENTNRAUTO_VELD},${KVK_VELD},name,address1_line1,cr283_huisnummer,` +
     `cr283_huisnummertoevoeging,address1_postalcode,address1_city,address1_country,` +
     `emailaddress1,telephone1${KLANTCATEGORIE_VELD ? "," + KLANTCATEGORIE_VELD : ""}` +
     `&$filter=primarycontactid/emailaddress1 eq '${veilig}' and statecode eq 0` +
@@ -277,6 +280,7 @@ async function herleidAccounts(req, token) {
       };
       const groep = account[GROEPSNAAM_NAV];
       const clientnr = account[CLIENTNUMMER_VELD];
+      const clientnrAuto = account[CLIENTNRAUTO_VELD];
 
       return {
         contactId: contact.contactid || null,
@@ -284,6 +288,8 @@ async function herleidAccounts(req, token) {
         contactpersoon,
         accountId: account.accountid,
         klantnummer: clientnr != null && clientnr !== "" ? clientnr : "",
+        // Alleen voor de achtergrond (o.a. webhook-ID); niet wat de klant in het portaal ziet.
+        clientnrAuto: clientnrAuto != null && clientnrAuto !== "" ? clientnrAuto : "",
         klantnaam: account.name,
         groepsnaam: groep ? groep[GROEPSNAAM_NAAMVELD] || "" : "",
         klantcategorieen,

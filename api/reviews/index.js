@@ -50,7 +50,7 @@ async function stuurReviewMelding(account, sterren, opmerking, reviewerEmail) {
  * zodat de afhandeling daar kan lopen (bijv. taak aanmaken, Teams-bericht, ticket). Best-effort.
  */
 async function stuurReviewWebhook(webhookUrl, account, sterren, opmerking, reviewerEmail) {
-  await fetch(webhookMetId(webhookUrl, account?.klantnummer), {
+  await fetch(webhookMetId(webhookUrl, account?.clientnrAuto), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
