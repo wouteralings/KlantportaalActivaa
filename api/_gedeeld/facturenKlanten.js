@@ -24,8 +24,12 @@
 const { sql, haalPool } = require("./facturatieDb");
 const { volgendNummer } = require("./nummering");
 const { haalKlant } = require("./klantenKlanten");
+const { haalGegevens: haalBedrijfsgegevens } = require("./bedrijfsgegevensKlanten");
+const { genereerFactuurPdf } = require("./facturenPdf");
+const { verstuurMailMetBijlage } = require("./mail");
 
 const GELDIGE_DOCUMENTTYPES = ["factuur", "offerte", "creditnota"];
+const NAAM_PER_TYPE = { factuur: "factuur", offerte: "offerte", creditnota: "creditnota" };
 
 function rond(bedrag) {
   return Math.round((Number(bedrag) + Number.EPSILON) * 100) / 100;
@@ -50,6 +54,10 @@ function berekenTotalen(regelsInvoer) {
       btwCode: r.btwCode || null,
       btwPercentage,
       bedrag,
+      // Optionele afwijkende leveringsperiode voor déze regel (bijv. één maandtermijn binnen
+      // een jaarfactuur met meerdere regels) — leeg = geldt de leveringsperiode van het document.
+      leveringsperiodeStart: r.leveringsperiodeStart || null,
+      leveringsperiodeEind: r.leveringsperiodeEind || null,
     };
   });
   if (regels.length === 0) throw new Error("VALIDATIE: minimaal één factuurregel is verplicht.");
@@ -72,9 +80,12 @@ function naarBuiten(row) {
     referentieFactuurId: row.referentie_factuur_id || null,
     factuurdatum: row.factuurdatum,
     vervaldatum: row.vervaldatum,
-    // Wettelijk verplicht als deze afwijkt van de factuurdatum (Belastingdienst-factuurvereisten);
-    // leeg = gelijk aan de factuurdatum, dan hoeft er niets apart getoond te worden.
-    leverdatum: row.leverdatum || null,
+    // Wettelijk verplichte "periode van levering" (Belastingdienst-factuurvereisten) — een
+    // periode i.p.v. één datum, bijv. "1 t/m 31 juli 2026" bij een maandelijkse dienst. De oude
+    // kolom `leverdatum` (migratie 004) bestaat nog in de database maar wordt hier bewust niet
+    // meer gelezen/geschreven (zie migratie 005).
+    leveringsperiodeStart: row.leveringsperiode_start || null,
+    leveringsperiodeEind: row.leveringsperiode_eind || null,
     betalingstermijnDagen: row.betalingstermijn_dagen,
     regels: JSON.parse(row.regels_json || "[]"),
     subtotaal: Number(row.subtotaal),
@@ -150,7 +161,9 @@ async function maakFactuur(klantAccountId, data, email) {
   request.input("referentieFactuurId", sql.UniqueIdentifier, data.referentieFactuurId || null);
   request.input("factuurdatum", sql.Date, factuurdatum);
   request.input("vervaldatum", sql.Date, vervaldatum);
-  request.input("leverdatum", sql.Date, data.leverdatum ? new Date(data.leverdatum) : null);
+  request.input("leveringsperiodeStart", sql.Date, data.leveringsperiodeStart ? new Date(data.leveringsperiodeStart) : null);
+  request.input("leveringsperiodeEind", sql.Date, data.leveringsperiodeEind ? new Date(data.leveringsperiodeEind) : null);
+  request.input("terugkerendId", sql.UniqueIdentifier, data.terugkerendId || null);
   request.input("betalingstermijnDagen", sql.Int, betalingstermijnDagen);
   request.input("regelsJson", sql.NVarChar(sql.MAX), JSON.stringify(regels));
   request.input("subtotaal", sql.Decimal(12, 2), subtotaal);
@@ -162,13 +175,13 @@ async function maakFactuur(klantAccountId, data, email) {
   const result = await request.query(`
     INSERT INTO dbo.facturen_klanten
       (klant_account_id, klant_klant_id, documenttype, offerte_id, referentie_factuur_id,
-       factuurdatum, vervaldatum, leverdatum, betalingstermijn_dagen, regels_json, subtotaal, btw_bedrag,
-       totaal, taal, opmerkingen, aangemaakt_door)
+       factuurdatum, vervaldatum, leveringsperiode_start, leveringsperiode_eind, terugkerend_id,
+       betalingstermijn_dagen, regels_json, subtotaal, btw_bedrag, totaal, taal, opmerkingen, aangemaakt_door)
     OUTPUT INSERTED.*
     VALUES
       (@klantAccountId, @klantKlantId, @documenttype, @offerteId, @referentieFactuurId,
-       @factuurdatum, @vervaldatum, @leverdatum, @betalingstermijnDagen, @regelsJson, @subtotaal, @btwBedrag,
-       @totaal, @taal, @opmerkingen, @email)
+       @factuurdatum, @vervaldatum, @leveringsperiodeStart, @leveringsperiodeEind, @terugkerendId,
+       @betalingstermijnDagen, @regelsJson, @subtotaal, @btwBedrag, @totaal, @taal, @opmerkingen, @email)
   `);
   return naarBuiten(result.recordset[0]);
 }
@@ -201,9 +214,12 @@ async function wijzigFactuur(klantAccountId, id, data, email) {
   request.input("klantKlantId", sql.UniqueIdentifier, data.klantKlantId || bestaand.klantKlantId);
   request.input("factuurdatum", sql.Date, factuurdatum);
   request.input("vervaldatum", sql.Date, vervaldatum);
-  request.input("leverdatum", sql.Date, data.leverdatum !== undefined
-    ? (data.leverdatum ? new Date(data.leverdatum) : null)
-    : (bestaand.leverdatum ? new Date(bestaand.leverdatum) : null));
+  request.input("leveringsperiodeStart", sql.Date, data.leveringsperiodeStart !== undefined
+    ? (data.leveringsperiodeStart ? new Date(data.leveringsperiodeStart) : null)
+    : (bestaand.leveringsperiodeStart ? new Date(bestaand.leveringsperiodeStart) : null));
+  request.input("leveringsperiodeEind", sql.Date, data.leveringsperiodeEind !== undefined
+    ? (data.leveringsperiodeEind ? new Date(data.leveringsperiodeEind) : null)
+    : (bestaand.leveringsperiodeEind ? new Date(bestaand.leveringsperiodeEind) : null));
   request.input("betalingstermijnDagen", sql.Int, betalingstermijnDagen);
   request.input("regelsJson", sql.NVarChar(sql.MAX), JSON.stringify(regels));
   request.input("subtotaal", sql.Decimal(12, 2), subtotaal);
@@ -215,7 +231,8 @@ async function wijzigFactuur(klantAccountId, id, data, email) {
   const result = await request.query(`
     UPDATE dbo.facturen_klanten SET
       klant_klant_id = @klantKlantId, factuurdatum = @factuurdatum, vervaldatum = @vervaldatum,
-      leverdatum = @leverdatum, betalingstermijn_dagen = @betalingstermijnDagen, regels_json = @regelsJson,
+      leveringsperiode_start = @leveringsperiodeStart, leveringsperiode_eind = @leveringsperiodeEind,
+      betalingstermijn_dagen = @betalingstermijnDagen, regels_json = @regelsJson,
       subtotaal = @subtotaal, btw_bedrag = @btwBedrag, totaal = @totaal, taal = @taal,
       opmerkingen = @opmerkingen, gewijzigd_op = SYSUTCDATETIME(), gewijzigd_door = @email
     OUTPUT INSERTED.*
@@ -225,8 +242,15 @@ async function wijzigFactuur(klantAccountId, id, data, email) {
 }
 
 /** Concept → verzonden. Kent hier pas het volgende nummer uit de reeks van dit documenttype
- * toe (zie nummering.js) — zo blijft de reeks aaneengesloten voor wat écht verstuurd is. */
-async function verstuurFactuur(klantAccountId, id, email) {
+ * toe (zie nummering.js) — zo blijft de reeks aaneengesloten voor wat écht verstuurd is.
+ *
+ * Verstuurt daarna best-effort ook een échte e-mail (met de factuur/offerte/creditnota als
+ * PDF-bijlage) naar het e-mailadres van de klant_klant. Dit mag het "versturen" zelf nooit
+ * blokkeren: ontbreekt er een e-mailadres, of mislukt het genereren/versturen, dan blijft het
+ * document gewoon 'verzonden' (het nummer is al toegekend) — de aanroeper kan `emailVerzonden`/
+ * `emailFout` in het resultaat gebruiken om dit aan de gebruiker te tonen. `context` is optioneel,
+ * puur om een mislukte e-mail te loggen (Azure Functions context.log). */
+async function verstuurFactuur(klantAccountId, id, email, context) {
   const bestaand = await haalFactuur(klantAccountId, id);
   if (!bestaand) return null;
   if (bestaand.status !== "concept") {
@@ -247,7 +271,67 @@ async function verstuurFactuur(klantAccountId, id, email) {
     OUTPUT INSERTED.*
     WHERE klant_account_id = @klantAccountId AND id = @id
   `);
-  return result.recordset[0] ? naarBuiten(result.recordset[0]) : null;
+  if (!result.recordset[0]) return null;
+  const document = naarBuiten(result.recordset[0]);
+
+  const { emailVerzonden, emailFout } = await verstuurDocumentPerEmail(klantAccountId, document, context);
+  return { ...document, emailVerzonden, emailFout };
+}
+
+/** Bouwt de PDF en verstuurt 'm als bijlage naar het e-mailadres van de klant_klant. Geeft
+ * altijd een resultaat terug (nooit een throw) — de aanroeper beslist zelf wat 'best-effort'
+ * betekent voor de rest van de statusflow. */
+async function verstuurDocumentPerEmail(klantAccountId, document, context) {
+  try {
+    const [klant, bedrijfsgegevens] = await Promise.all([
+      haalKlant(klantAccountId, document.klantKlantId),
+      haalBedrijfsgegevens(klantAccountId),
+    ]);
+    if (!klant || !klant.email) {
+      return { emailVerzonden: false, emailFout: "Geen e-mailadres bekend bij deze klant." };
+    }
+
+    const pdfBuffer = await genereerFactuurPdf({
+      document, klant, bedrijfsgegevens, documenttype: document.documenttype,
+    });
+    const naamType = NAAM_PER_TYPE[document.documenttype] || "document";
+    const onderwerp = `${bedrijfsgegevens.bedrijfsnaam || "Uw leverancier"} — ${naamType} ${document.nummer}`;
+    const html = `
+      <div style="color:#1C2321; background-color:#ffffff; font-family:Arial, Helvetica, sans-serif; font-size:14px;">
+        <p>Beste ${escapeHtml(klant.contactpersoon || klant.naam || "")},</p>
+        <p>Hierbij ontvangt u ${naamType} <strong>${escapeHtml(document.nummer)}</strong> van
+          ${escapeHtml(bedrijfsgegevens.bedrijfsnaam || "")}, ter waarde van
+          <strong>€ ${Number(document.totaal).toFixed(2)}</strong>${document.vervaldatum
+            ? ` (te voldoen vóór ${new Date(document.vervaldatum).toLocaleDateString("nl-NL")})`
+            : ""}.
+        </p>
+        <p>Deze is als PDF-bijlage bij deze e-mail toegevoegd.</p>
+        <p>Met vriendelijke groet,<br/>${escapeHtml(bedrijfsgegevens.bedrijfsnaam || "")}</p>
+      </div>`;
+
+    await verstuurMailMetBijlage({
+      naar: klant.email,
+      onderwerp,
+      html,
+      bijlagen: [{
+        naam: `${naamType[0].toUpperCase()}${naamType.slice(1)} ${document.nummer}.pdf`,
+        contentType: "application/pdf",
+        inhoud: pdfBuffer,
+      }],
+    });
+    return { emailVerzonden: true, emailFout: null };
+  } catch (err) {
+    if (context && context.log) context.log.error("verstuurFactuur: e-mail versturen mislukt:", err);
+    return { emailVerzonden: false, emailFout: String(err.message || err) };
+  }
+}
+
+function escapeHtml(tekst) {
+  return String(tekst || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 /** Offerte → geaccepteerd, en maakt automatisch een nieuwe factuur (concept) aan met dezelfde
@@ -391,6 +475,7 @@ module.exports = {
   maakFactuur,
   wijzigFactuur,
   verstuurFactuur,
+  verstuurDocumentPerEmail,
   accepteerOfferte,
   wijsOfferteAf,
   markeerBetaald,

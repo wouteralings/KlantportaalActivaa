@@ -298,6 +298,100 @@ Twee opeenvolgende verzoeken van Wouter, beide over "Bedrijfsgegevens & logo":
   Gecommit op de machine (bedrijfsgegevens-wijziging als `7fb23d3`); Wouter moet `git push`
   zelf uitvoeren (netwerktoegang tot GitHub is vanuit deze sessie niet beschikbaar).
 
+## Leveringsperiode, terugkerende facturen (abonnementen), echte PDF + e-mail (28-07-2026, vervolgsessie)
+
+Verzoek van Wouter (met 3 screenshots als voorbeeld): *"Tevens wil ik bij een factuur opnemen
+van en tot en met datum zoals plaatje en ik zou een abonnement willen instellen op de factuur,
+frequentie opties: Wekelijks, Maandelijks, Per kwartaal, Jaarlijks. En ik wil factuur zo zien
+als voorbeeld."* Dit is de grootste uitbreiding van de facturatiemodule tot nu toe en raakt
+vrijwel elke laag (database, backend-modules, twee nieuwe endpoints, groot deel van
+`FacturatieModule.jsx`). Architectuurkeuzes zijn expliciet met Wouter afgestemd (zie hieronder)
+in plaats van zelf ingevuld.
+
+- **Leveringsperiode i.p.v. één leverdatum** — `dbo.facturen_klanten.leverdatum` (migratie 004)
+  is vervangen door een echte periode: `leveringsperiode_start`/`leveringsperiode_eind`
+  (migratie `005_leveringsperiode_en_terugkerend.sql`). De oude `leverdatum`-kolom blijft
+  ongebruikt in de database staan (bewust geen destructieve wijziging) — API en UI lezen/
+  schrijven 'm gewoon niet meer. Ook per factuurregel is een optionele afwijkende
+  leveringsperiode mogelijk (bijv. één maandtermijn binnen een jaarfactuur met meerdere
+  regels) — dit zit gewoon in het bestaande vrije `regels_json`-veld, dus geen aparte kolom
+  nodig.
+- **Terugkerende facturen (abonnementen)** — nieuwe tabel `dbo.facturen_terugkerend` (zelfde
+  migratie 005): een "sjabloon" per klant met frequentie (`wekelijks`/`maandelijks`/`kwartaal`/
+  `jaarlijks`), start-/einddatum, `volgende_factuurdatum`, een eigen leveringsperiode die elke
+  cyclus meeschuift, `automatisch_verzenden`, en de factuurregels. CRUD + datumlogica in
+  `api/_gedeeld/facturenTerugkerend.js` (`voegFrequentieToe()` rekent UTC-veilig, om
+  tijdzone-drift op DATE-only-kolommen te voorkomen).
+  - **Aanmaken gaat via het factuurformulier**: bij een nieuwe factuur is er een "Dit is een
+    terugkerende factuur (abonnement)"-schakelaar met Frequentie/Startdatum/Einddatum/
+    Automatisch verzenden — aanzetten maakt in plaats van een eenmalige conceptfactuur een
+    sjabloon aan.
+  - **Beheren gaat via de nieuwe sub-tab "Abonnementen"** in het klantportaal: overzicht met
+    klant, frequentie, volgende factuurdatum, aantal al gegenereerd, en pauzeren/hervatten/
+    verwijderen.
+  - **Genereren gebeurt door een nieuw, extern getriggerd endpoint**: `POST
+    /api/verwerk-terugkerende-facturen`. **Azure Static Web Apps' managed functions ondersteunen
+    geen tijdklok-/timer-trigger** — dit is expliciet met Wouter besproken (vraag: "Hoe werkt een
+    Extern schema? Of moeten we dat met power automate triggeren?", antwoord/akkoord: "laten we
+    dat zo bouwen dan"). Het endpoint moet dus periodiek (bijv. dagelijks) aangeroepen worden
+    door een **externe scheduler — een Power Automate "geplande cloudflow"** (Recurrence-trigger
+    → HTTP-actie, POST, geen body nodig). Beveiliging: het endpoint staat in
+    `staticwebapp.config.json` op `allowedRoles: ["anonymous"]` (Power Automate logt niet in bij
+    deze tenant), en controleert zelf een geheime sleutel — header `x-verwerk-sleutel` of
+    querystring `?sleutel=` — tegen de **nieuwe Application Setting `TERUGKEREND_TRIGGER_SECRET`**
+    (nog in te stellen op de Static Web App in Azure; zonder deze setting weigert het endpoint
+    altijd met 501, geen "open" fallback).
+- **Echte factuur-PDF** — `api/_gedeeld/facturenPdf.js` (`genereerFactuurPdf()`), gebouwd met
+  **pdf-lib** (was al dependency, bewezen patroon via `api/taken-ondertekenen/index.js` en de
+  offertetool) — dus geen headless-browser nodig, prima geschikt voor het huidige
+  Consumption-hostingplan. Layout volgt het aangeleverde voorbeeld: afzender linksboven,
+  documenttitel + metagegevens rechtsboven, "[Type] AAN"-blok, betaalbanner, regeltabel (met
+  per-regel leveringsperiode-vermelding), subtotaal/btw-per-tarief/totaal, en onderaan
+  betaalinstructies + een echte scanbare **SEPA-betaal-QR-code** (EPC069-12-standaard, zie
+  `api/_gedeeld/qrBetaling.js`, nieuwe dependency `qrcode`). Downloaden kan via **"Download PDF"**
+  op elk document (`GET /api/facturen-klanten?...&formaat=pdf`, binaire PDF-response). Het
+  scherm-voorbeeld (`DocumentVoorbeeld`) is bewust een *benadering* (geen echte QR-afbeelding
+  client-side) — de PDF is het canonieke, exacte eindresultaat.
+- **Echte e-mailverzending met PDF-bijlage** — nieuwe `verstuurMailMetBijlage()` in
+  `api/_gedeeld/mail.js` (losse functie náást de bestaande `verstuurMail`, om niets te breken
+  voor de huidige aanroepers zoals reviews/wijzigingsverzoeken), zelfde Graph-`sendMail`-met-
+  HTML-en-bijlage-patroon als de offertetool. Bij **"Versturen"** van een factuur/offerte/
+  creditnota wordt nu, best-effort, ook echt een e-mail met de PDF als bijlage verstuurd naar
+  het e-mailadres van de `klant_klant` — mislukt dat (geen e-mailadres bekend, Graph-fout), dan
+  blijft het document gewoon 'verzonden' (het nummer is al toegekend); de klant-facing
+  detailweergave toont expliciet of de e-mail gelukt is.
+- **Herontworpen factuurweergave** (`DocumentVoorbeeld`) — dynamisch "AAN"-label per
+  documenttype, betaalbanner ("€ X te betalen op datum", alleen bij factuur/creditnota, niet bij
+  offerte), leveringsperiode zowel op documentniveau als (indien afwijkend) per regel, en een
+  duidelijkere betaalinstructie-sectie onderaan.
+- **Nieuwe/gewijzigde bestanden**: migratie `005_leveringsperiode_en_terugkerend.sql`;
+  `api/_gedeeld/facturenTerugkerend.js`, `qrBetaling.js`, `facturenPdf.js` (nieuw);
+  `api/_gedeeld/facturenKlanten.js`, `mail.js` (uitgebreid); `api/facturen-klanten/index.js`
+  (uitgebreid: `?formaat=pdf`, echte e-mail bij versturen); `api/facturen-terugkerend/index.js`,
+  `api/verwerk-terugkerende-facturen/index.js` (nieuw); `api/package.json` (`qrcode`-dependency
+  toegevoegd); `staticwebapp.config.json` (route voor het nieuwe trigger-endpoint);
+  `src/portaal/FacturatieModule.jsx` (grootste wijziging: `DocumentVoorbeeld` herontworpen,
+  `DocumentFormulier` uitgebreid met leveringsperiode + terugkerend-sectie, nieuwe
+  `AbonnementenTab`/`useTerugkerend`, `DocumentDetail` met "Download PDF" + e-mailstatus).
+- Alles geverifieerd: `node --check` op alle nieuwe/gewijzigde backend-bestanden, de PDF-
+  generator is ook echt uitgevoerd (met test-data) en visueel gecontroleerd (inclusief een
+  laag-in-de-code gevonden en gefixte opmaakbug: de documenttitel overlapte de metaregels), en
+  `npx vite build` + `npx oxlint` op de volledige frontend (geen nieuwe waarschuwingen).
+
+### Nog te doen vóór dit werkend is op klantportaalactivaa zelf
+
+1. **Migratie 005 tegen de live database draaien** (Azure Portal Query-editor, zelfde
+   werkwijze als voorheen — geen `GO`, statements los aanleveren).
+2. **`TERUGKEREND_TRIGGER_SECRET` instellen** als Application Setting op de Static Web App —
+   verzin een lange willekeurige waarde, zonder deze setting blijft het trigger-endpoint uit.
+3. **De Power Automate "geplande cloudflow" inrichten**: Recurrence-trigger (bijv. dagelijks
+   's nachts) → HTTP-actie, POST naar `https://<domein>/api/verwerk-terugkerende-facturen`, met
+   header `x-verwerk-sleutel: <dezelfde waarde als TERUGKEREND_TRIGGER_SECRET>`.
+4. **`npm install` in `api/`** — nieuwe `qrcode`-dependency moet meegenomen worden (gebeurt
+   automatisch via de GitHub Actions-build, maar check dat 'm ook echt meekomt).
+5. `git add`/`git commit`/`git push` — zie onderaan dit document voor de status van eerdere,
+   nog niet gepushte commits.
+
 ## Nog te doen (bewust nog niet gebouwd, om scope behapbaar te houden)
 
 1. ~~Committen + deployen~~ — **afgerond (28-07-2026)**. Commit `66cc80c` (standaardartikelen
@@ -320,9 +414,10 @@ Twee opeenvolgende verzoeken van Wouter, beide over "Bedrijfsgegevens & logo":
    in `facturen_klanten` de rij wegschrijft/bijwerkt in die tabel (vult dan
    `dynamics_record_id`/`dynamics_sync_status`). De code-kant (een `syncNaarDynamics()`-functie
    aanroepen vanuit `facturenKlanten.js`) is nog niet gebouwd.
-3. **Terugkerende facturen** — patroon (frequentie, volgende generatiedatum) + een
-   tijdgestuurde Azure Function (timer trigger) die op basis daarvan automatisch nieuwe
-   facturen aanmaakt. Nog geen tabel/code voor.
+3. ~~Terugkerende facturen~~ — **afgerond (28-07-2026)**. Zie "Leveringsperiode, terugkerende
+   facturen (abonnementen), echte PDF + e-mail" hierboven. Anders dan hier oorspronkelijk
+   geschetst geen Azure Function timer-trigger (bestaat niet voor managed functions op Static
+   Web Apps), maar een extern getriggerd, sleutel-beveiligd endpoint.
 4. **Herinneringen** — de e-mailsjablonen bestaan al (Beheer → Instellingen →
    E-mailsjablonen, zie screenshot "Eerste herinnering"/"Laatste aanmaning"); er is nog geen
    job die verlopen facturen signaleert en op basis daarvan automatisch een herinnering
@@ -334,6 +429,7 @@ Twee opeenvolgende verzoeken van Wouter, beide over "Bedrijfsgegevens & logo":
 6. **Mollie-koppeling** — nog steeds een "nog niet gebouwd"-kaart in de Instellingen-sub-tab
    (BTW-tarieven, standaardartikelen én bedrijfsgegevens/logo zijn inmiddels wél gebouwd — zie
    hierboven).
-7. **PDF-generatie** — `pdf-lib` staat al als dependency in `api/package.json` (waarschijnlijk
-   vanuit de vroegere offertetool); nog geen factuur-PDF-layout gebouwd op basis van
-   `facturen_klanten`.
+7. ~~PDF-generatie~~ — **afgerond (28-07-2026)**. Zie "Leveringsperiode, terugkerende facturen
+   (abonnementen), echte PDF + e-mail" hierboven — `api/_gedeeld/facturenPdf.js`, downloadbaar
+   via "Download PDF" en meegestuurd als bijlage bij het versturen van een factuur/offerte/
+   creditnota.

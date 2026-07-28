@@ -93,4 +93,67 @@ async function verstuurMail({ ontvangers, onderwerp, tekst }) {
   return { ontvangers: lijst };
 }
 
-module.exports = { verstuurMail, haalGraphToken };
+/**
+ * Verstuurt een HTML-e-mail met eventuele bijlagen (bijv. een factuur-PDF) naar één ontvanger,
+ * met optioneel een cc-lijst. Losse functie naast `verstuurMail` (in plaats van 'm uit te
+ * breiden) zodat bestaande aanroepen van `verstuurMail` (platte tekst, geen bijlage) ongewijzigd
+ * blijven werken.
+ *
+ * bijlagen: array van { naam, contentType, inhoud } — `inhoud` is een Buffer (bijv. het
+ * resultaat van `genereerFactuurPdf`).
+ */
+async function verstuurMailMetBijlage({ naar, cc, onderwerp, html, bijlagen }) {
+  const afzender = process.env.GRAPH_MAIL_SENDER;
+  if (!afzender) throw new Error("MISSING_MAIL_SENDER");
+
+  const ontvanger = String(naar || "").trim();
+  if (!ontvanger) throw new Error("GEEN_ONTVANGERS");
+
+  const ccLijst = (Array.isArray(cc) ? cc : [])
+    .map((e) => String(e || "").trim())
+    .filter((e) => e && e.toLowerCase() !== ontvanger.toLowerCase());
+
+  const token = await haalGraphToken();
+
+  const bericht = {
+    message: {
+      subject: onderwerp,
+      body: { contentType: "HTML", content: html },
+      toRecipients: [{ emailAddress: { address: ontvanger } }],
+    },
+    saveToSentItems: true,
+  };
+
+  if (ccLijst.length > 0) {
+    bericht.message.ccRecipients = ccLijst.map((adres) => ({ emailAddress: { address: adres } }));
+  }
+
+  if (Array.isArray(bijlagen) && bijlagen.length > 0) {
+    bericht.message.attachments = bijlagen.map((b) => ({
+      "@odata.type": "#microsoft.graph.fileAttachment",
+      name: b.naam,
+      contentType: b.contentType || "application/octet-stream",
+      contentBytes: Buffer.from(b.inhoud).toString("base64"),
+    }));
+  }
+
+  const res = await fetch(
+    `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(afzender)}/sendMail`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(bericht),
+    }
+  );
+
+  if (!res.ok) {
+    throw new Error(`Versturen e-mail mislukt (${res.status}): ${await res.text()}`);
+  }
+
+  return { verzonden: true, van: afzender };
+}
+
+module.exports = { verstuurMail, verstuurMailMetBijlage, haalGraphToken };

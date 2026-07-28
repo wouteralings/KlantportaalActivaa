@@ -97,6 +97,10 @@
       "allowedRoles": ["anonymous"]
     },
     {
+      "route": "/api/verwerk-terugkerende-facturen",
+      "allowedRoles": ["anonymous"]
+    },
+    {
       "route": "/api/media/*",
       "allowedRoles": ["anonymous"]
     },

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   FileText, FileSpreadsheet, Package, Users, Settings, Plus, Send, Check, X,
   Trash2, Pencil, CreditCard, Bell, Sliders, ArrowLeft, ChevronDown, Search,
-  Lock, Clock, Copy,
+  Lock, Clock, Copy, Repeat, Download, Pause, Play, Mail,
 } from "lucide-react";
 
 const KLEUR = {
@@ -123,6 +123,25 @@ function useDocumenten(accountId, documenttype) {
   return { status, items, foutmelding, verversen };
 }
 
+/** Terugkerende-facturen-sjablonen ("abonnementen") van dit klant-account (dbo.facturen_terugkerend). */
+function useTerugkerend(accountId) {
+  const [status, setStatus] = useState("laden");
+  const [items, setItems] = useState([]);
+  const [foutmelding, setFoutmelding] = useState("");
+
+  const verversen = useCallback(() => {
+    if (!accountId) return;
+    setStatus("laden");
+    fetch(`/api/facturen-terugkerend?accountId=${encodeURIComponent(accountId)}`)
+      .then(haalJson)
+      .then((d) => { setItems(d.terugkerend || []); setStatus("klaar"); })
+      .catch((e) => { setFoutmelding(e.message || String(e)); setStatus("fout"); });
+  }, [accountId]);
+
+  useEffect(() => { verversen(); }, [verversen]);
+  return { status, items, foutmelding, verversen };
+}
+
 function useKlanten(accountId) {
   const [status, setStatus] = useState("laden");
   const [items, setItems] = useState([]);
@@ -220,8 +239,21 @@ function useBedrijfsgegevens(accountId) {
 /* Facturen & Offertes — gedeelde lijst-/detailweergave                    */
 /* ---------------------------------------------------------------------- */
 
-const LEGE_REGEL = () => ({ omschrijving: "", artikelId: "", aantal: 1, prijs: 0, btwCode: "hoog", btwPercentage: 21 });
+const LEGE_REGEL = () => ({
+  omschrijving: "", artikelId: "", aantal: 1, prijs: 0, btwCode: "hoog", btwPercentage: 21,
+  // Optionele afwijkende leveringsperiode voor déze regel — leeg = geldt de leveringsperiode
+  // van het hele document (zie "Leveringsperiode" hieronder in DocumentFormulier).
+  leveringsperiodeStart: "", leveringsperiodeEind: "",
+});
 const BETALINGSTERMIJN_OPTIES = [7, 14, 21, 30];
+
+const FREQUENTIE_OPTIES = [
+  { code: "wekelijks", label: "Wekelijks" },
+  { code: "maandelijks", label: "Maandelijks" },
+  { code: "kwartaal", label: "Per kwartaal" },
+  { code: "jaarlijks", label: "Jaarlijks" },
+];
+const FREQUENTIE_LABEL = Object.fromEntries(FREQUENTIE_OPTIES.map((f) => [f.code, f.label]));
 
 // Adres als losse regels (straat+nr / postcode plaats / land), voor op de factuur-weergave.
 function adresRegels(adres) {
@@ -231,6 +263,19 @@ function adresRegels(adres) {
     [a.postcode, a.plaats].filter(Boolean).join(" "),
     a.land && a.land !== "NL" ? a.land : "",
   ].filter(Boolean);
+}
+
+// "1 jul 2026" i.p.v. de volledige datum() — compacter voor de leveringsperiode-weergave.
+function kortDatum(d) {
+  if (!d) return "";
+  const dt = new Date(d);
+  return isNaN(dt.getTime()) ? "" : dt.toLocaleDateString("nl-NL", { day: "numeric", month: "short", year: "numeric" });
+}
+function leveringsperiodeTekst(start, eind) {
+  const s = kortDatum(start);
+  const e = kortDatum(eind);
+  if (s && e && s !== e) return `${s} t/m ${e}`;
+  return s || e || "";
 }
 
 // Groepeert de regels per BTW-percentage — de Belastingdienst-factuurvereisten schrijven voor
@@ -248,14 +293,16 @@ function groepeerBtw(regels) {
   return [...groepen.values()].sort((a, b) => b.percentage - a.percentage);
 }
 
-/** Voorbeeld/weergave van een factuur of offerte — gebruikt zowel voor het live voorbeeld
- * tijdens het invullen (DocumentFormulier, met een "in opbouw"-document) als voor een echt
- * opgeslagen document (DocumentDetail). Toont, conform de factuurvereisten van de
+/** Voorbeeld/weergave van een factuur, offerte of creditnota — gebruikt zowel voor het live
+ * voorbeeld tijdens het invullen (DocumentFormulier, met een "in opbouw"-document) als voor een
+ * echt opgeslagen document (DocumentDetail). Toont, conform de factuurvereisten van de
  * Belastingdienst: volledige naam/adres van leverancier én afnemer, KvK/BTW-id van de
- * leverancier, factuurnummer, factuurdatum, leverdatum (alleen als afwijkend), en het
- * btw-bedrag per toegepast tarief (apart getoond zodra een document meerdere tarieven mengt). */
+ * leverancier, nummer, datum, leveringsperiode (alleen als ingevuld — een periode i.p.v. één
+ * datum, bijv. bij een maandelijkse dienst), en het btw-bedrag per toegepast tarief (apart
+ * getoond zodra een document meerdere tarieven mengt). De echte PDF (zie "Download PDF" in
+ * DocumentDetail) volgt dezelfde opzet, mét een echte SEPA-betaal-QR-code. */
 function DocumentVoorbeeld({ bedrijfsgegevens, documenttype, klant, document }) {
-  const naam = documenttype === "offerte" ? "Offerte" : "Factuur";
+  const naam = documenttype === "offerte" ? "Offerte" : documenttype === "creditnota" ? "Creditnota" : "Factuur";
   const bg = bedrijfsgegevens || {};
   const doc = document || {};
   const zichtbareRegels = (doc.regels || []).filter((r) => (r.omschrijving || "").trim() || Number(r.prijs));
@@ -263,6 +310,8 @@ function DocumentVoorbeeld({ bedrijfsgegevens, documenttype, klant, document }) 
   const eigenAdres = adresRegels(bg);
   const klantAdres = adresRegels(klant?.adres);
   const totaal = doc.totaal != null ? doc.totaal : (Number(doc.subtotaal) || 0) + (Number(doc.btwBedrag) || 0);
+  const leveringDocument = leveringsperiodeTekst(doc.leveringsperiodeStart, doc.leveringsperiodeEind);
+  const heeftBankgegevens = !!(bg.iban || bg.ibanTenaamstelling);
 
   return (
     <div style={{ background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: "22px 20px", fontSize: 12, color: KLEUR.tekst }}>
@@ -277,17 +326,17 @@ function DocumentVoorbeeld({ bedrijfsgegevens, documenttype, klant, document }) 
           </div>
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: KLEUR.blauw }}>{naam}</div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: KLEUR.blauw }}>{naam}</div>
           <div style={{ fontSize: 10.5, color: KLEUR.subtekst, marginTop: 4, lineHeight: 1.6 }}>
             Nummer: {doc.nummer || "(concept)"}<br />
             Datum: {datum(doc.factuurdatum)}<br />
-            Vervaldatum: {datum(doc.vervaldatum)}<br />
-            {doc.leverdatum && <>Leverdatum: {datum(doc.leverdatum)}<br /></>}
+            {documenttype !== "offerte" && <>Vervaldatum: {datum(doc.vervaldatum)}<br /></>}
+            {leveringDocument && <>Leveringsperiode: {leveringDocument}<br /></>}
           </div>
         </div>
       </div>
 
-      <div style={{ fontSize: 10, color: KLEUR.mutedTekst, textTransform: "uppercase", fontWeight: 700, marginBottom: 3 }}>Aan</div>
+      <div style={{ fontSize: 10, color: KLEUR.mutedTekst, textTransform: "uppercase", fontWeight: 700, marginBottom: 3 }}>{naam} aan</div>
       <div style={{ marginBottom: 18, fontSize: 12.5 }}>
         {klant ? (
           <>
@@ -301,21 +350,35 @@ function DocumentVoorbeeld({ bedrijfsgegevens, documenttype, klant, document }) 
         ) : <span style={{ color: KLEUR.mutedTekst, fontStyle: "italic" }}>— nog geen klant gekozen —</span>}
       </div>
 
+      {documenttype !== "offerte" && doc.vervaldatum && (
+        <div style={{ background: KLEUR.lichtblauw, borderRadius: 7, padding: "9px 12px", marginBottom: 16, fontSize: 13, fontWeight: 700, color: KLEUR.blauw }}>
+          {geld(totaal)} te betalen op {datum(doc.vervaldatum)}
+        </div>
+      )}
+
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 6, overflow: "hidden", marginBottom: 14 }}>
         <div style={{ display: "grid", gridTemplateColumns: "2fr 50px 70px 50px 70px", background: KLEUR.lichtblauw, padding: "6px 9px", fontSize: 10, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
           <div>Omschrijving</div><div>Aantal</div><div>Prijs</div><div>BTW%</div><div>Bedrag</div>
         </div>
         {zichtbareRegels.length === 0 ? (
           <div style={{ padding: "12px 9px", color: KLEUR.mutedTekst, fontStyle: "italic", fontSize: 11.5 }}>Nog geen regels ingevuld.</div>
-        ) : zichtbareRegels.map((r, i) => (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 50px 70px 50px 70px", padding: "6px 9px", borderTop: `1px solid ${KLEUR.rand}`, fontSize: 11.5 }}>
-            <div style={{ overflowWrap: "anywhere" }}>{r.omschrijving || "—"}</div>
-            <div>{r.aantal}</div>
-            <div>{geld(r.prijs)}</div>
-            <div>{r.btwPercentage}%</div>
-            <div style={{ textAlign: "right" }}>{geld((Number(r.aantal) || 0) * (Number(r.prijs) || 0))}</div>
-          </div>
-        ))}
+        ) : zichtbareRegels.map((r, i) => {
+          const leveringRegel = leveringsperiodeTekst(r.leveringsperiodeStart, r.leveringsperiodeEind);
+          return (
+            <div key={i} style={{ padding: "6px 9px", borderTop: `1px solid ${KLEUR.rand}`, fontSize: 11.5 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 50px 70px 50px 70px" }}>
+                <div style={{ overflowWrap: "anywhere" }}>{r.omschrijving || "—"}</div>
+                <div>{r.aantal}</div>
+                <div>{geld(r.prijs)}</div>
+                <div>{r.btwPercentage}%</div>
+                <div style={{ textAlign: "right" }}>{geld((Number(r.aantal) || 0) * (Number(r.prijs) || 0))}</div>
+              </div>
+              {leveringRegel && (
+                <div style={{ fontSize: 10, color: KLEUR.mutedTekst, marginTop: 2 }}>Leveringsperiode: {leveringRegel}</div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
@@ -331,10 +394,19 @@ function DocumentVoorbeeld({ bedrijfsgegevens, documenttype, klant, document }) 
 
       {doc.opmerkingen && <div style={{ fontSize: 11, color: KLEUR.subtekst, whiteSpace: "pre-wrap", marginBottom: 12 }}>{doc.opmerkingen}</div>}
 
-      {(bg.iban || bg.ibanTenaamstelling) && (
-        <div style={{ fontSize: 10, color: KLEUR.mutedTekst, borderTop: `1px solid ${KLEUR.rand}`, paddingTop: 8 }}>
-          Gelieve te betalen vóór {datum(doc.vervaldatum)}
-          {bg.iban ? ` op ${bg.iban}` : ""}{bg.ibanTenaamstelling ? ` t.n.v. ${bg.ibanTenaamstelling}` : ""}, o.v.v. het factuurnummer.
+      {heeftBankgegevens && documenttype !== "offerte" && (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 10, color: KLEUR.mutedTekst, borderTop: `1px solid ${KLEUR.rand}`, paddingTop: 10 }}>
+          <div style={{
+            width: 46, height: 46, borderRadius: 4, border: `1px dashed ${KLEUR.rand}`, flexShrink: 0,
+            display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, textAlign: "center", color: KLEUR.mutedTekst, lineHeight: 1.2,
+          }}>
+            QR op PDF
+          </div>
+          <div>
+            Wij verzoeken u het bedrag van {geld(totaal)} uiterlijk {datum(doc.vervaldatum)} over te maken naar
+            {bg.iban ? ` rekeningnummer ${bg.iban}` : ""}{bg.ibanTenaamstelling ? ` ten name van ${bg.ibanTenaamstelling}` : ""},
+            onder vermelding van het {naam.toLowerCase()}nummer. Download de PDF voor een scanbare betaal-QR-code.
+          </div>
         </div>
       )}
     </div>
@@ -344,13 +416,33 @@ function DocumentVoorbeeld({ bedrijfsgegevens, documenttype, klant, document }) 
 function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tarieven, bedrijfsgegevens, bestaand, onKlaar, onOpgeslagen }) {
   const [klantKlantId, setKlantKlantId] = useState(bestaand?.klantKlantId || "");
   const [betalingstermijnDagen, setBetalingstermijnDagen] = useState(bestaand?.betalingstermijnDagen ?? 30);
-  const [leverdatum, setLeverdatum] = useState(bestaand?.leverdatum ? String(bestaand.leverdatum).slice(0, 10) : "");
+  const [leveringsperiodeStart, setLeveringsperiodeStart] = useState(bestaand?.leveringsperiodeStart ? String(bestaand.leveringsperiodeStart).slice(0, 10) : "");
+  const [leveringsperiodeEind, setLeveringsperiodeEind] = useState(bestaand?.leveringsperiodeEind ? String(bestaand.leveringsperiodeEind).slice(0, 10) : "");
   const [opmerkingen, setOpmerkingen] = useState(bestaand?.opmerkingen || "");
   const [regels, setRegels] = useState(
-    bestaand?.regels?.length ? bestaand.regels.map((r) => ({ ...r, artikelId: r.artikelId || "", btwCode: r.btwCode || "hoog" })) : [LEGE_REGEL()]
+    bestaand?.regels?.length
+      ? bestaand.regels.map((r) => ({
+          ...r,
+          artikelId: r.artikelId || "",
+          btwCode: r.btwCode || "hoog",
+          leveringsperiodeStart: r.leveringsperiodeStart ? String(r.leveringsperiodeStart).slice(0, 10) : "",
+          leveringsperiodeEind: r.leveringsperiodeEind ? String(r.leveringsperiodeEind).slice(0, 10) : "",
+        }))
+      : [LEGE_REGEL()]
   );
   const [status, setStatus] = useState("invoer"); // invoer | bezig | fout
   const [foutmelding, setFoutmelding] = useState("");
+
+  // Terugkerend (abonnement) — alleen relevant bij het aanmaken van een NIEUWE factuur; een
+  // bestaand concept bewerk je gewoon als eenmalige factuur (het sjabloon zelf wijzig je via
+  // de tab "Abonnementen").
+  const kanTerugkerend = documenttype === "factuur" && !bestaand;
+  const [terugkerend, setTerugkerend] = useState(false);
+  const [frequentie, setFrequentie] = useState("maandelijks");
+  const [terugkerendStart, setTerugkerendStart] = useState(new Date().toISOString().slice(0, 10));
+  const [terugkerendEind, setTerugkerendEind] = useState("");
+  const [automatischVerzenden, setAutomatischVerzenden] = useState(false);
+  const [terugkerendOpgeslagen, setTerugkerendOpgeslagen] = useState(false);
 
   const zetRegel = (i, veld, waarde) => {
     setRegels((h) => h.map((r, idx) => {
@@ -386,17 +478,50 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
 
   const opslaan = async () => {
     if (!klantKlantId) { setFoutmelding("Kies een klant."); setStatus("fout"); return; }
+    if (terugkerend && !terugkerendStart) { setFoutmelding("Kies een startdatum voor het abonnement."); setStatus("fout"); return; }
     setStatus("bezig");
     setFoutmelding("");
     try {
+      const regelsVoorVerzending = regels.map((r) => ({
+        ...r,
+        artikelId: r.artikelId || null,
+        leveringsperiodeStart: r.leveringsperiodeStart || null,
+        leveringsperiodeEind: r.leveringsperiodeEind || null,
+      }));
+
+      if (terugkerend) {
+        const payload = {
+          accountId,
+          klantKlantId,
+          frequentie,
+          startdatum: terugkerendStart,
+          einddatum: terugkerendEind || null,
+          leveringsperiodeStart: leveringsperiodeStart || null,
+          leveringsperiodeEind: leveringsperiodeEind || null,
+          automatischVerzenden,
+          betalingstermijnDagen: Number(betalingstermijnDagen) || 30,
+          opmerkingen,
+          regels: regelsVoorVerzending,
+        };
+        await haalJson(await fetch("/api/facturen-terugkerend", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }));
+        setStatus("invoer");
+        setTerugkerendOpgeslagen(true);
+        return;
+      }
+
       const payload = {
         accountId,
         documenttype,
         klantKlantId,
         betalingstermijnDagen: Number(betalingstermijnDagen) || 30,
-        leverdatum: leverdatum || null,
+        leveringsperiodeStart: leveringsperiodeStart || null,
+        leveringsperiodeEind: leveringsperiodeEind || null,
         opmerkingen,
-        regels: regels.map((r) => ({ ...r, artikelId: r.artikelId || null })),
+        regels: regelsVoorVerzending,
       };
       let res;
       if (bestaand) {
@@ -431,13 +556,31 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
       nummer: bestaand?.nummer || null,
       factuurdatum: bestaand?.factuurdatum || vandaag.toISOString(),
       vervaldatum: bestaand?.vervaldatum || vervaldatum.toISOString(),
-      leverdatum: leverdatum || null,
+      leveringsperiodeStart: leveringsperiodeStart || null,
+      leveringsperiodeEind: leveringsperiodeEind || null,
       regels,
       subtotaal,
       btwBedrag,
       opmerkingen,
     };
-  }, [bestaand, betalingstermijnDagen, leverdatum, regels, subtotaal, btwBedrag, opmerkingen]);
+  }, [bestaand, betalingstermijnDagen, leveringsperiodeStart, leveringsperiodeEind, regels, subtotaal, btwBedrag, opmerkingen]);
+
+  if (terugkerendOpgeslagen) {
+    return (
+      <div style={kaartStijl}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          <Repeat size={16} color={KLEUR.groen} />
+          <div style={{ fontSize: 15, fontWeight: 700 }}>Abonnement aangemaakt</div>
+        </div>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 16 }}>
+          Er wordt vanaf {datum(terugkerendStart)} automatisch elke {(FREQUENTIE_LABEL[frequentie] || "").toLowerCase()} een nieuwe conceptfactuur
+          aangemaakt met deze regels{automatischVerzenden ? " en direct verstuurd" : ""}. Je beheert dit abonnement (pauzeren, bewerken, verwijderen)
+          via de tab "Abonnementen".
+        </div>
+        <Knop variant="primair" onClick={onKlaar}>Terug naar overzicht</Knop>
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))", gap: 20, alignItems: "start" }}>
@@ -446,12 +589,14 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
         <button onClick={onKlaar} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.subtekst, display: "flex" }}>
           <ArrowLeft size={16} />
         </button>
-        <div style={{ fontSize: 15, fontWeight: 700 }}>{bestaand ? `Concept-${naam} bewerken` : `Nieuwe ${naam}`}</div>
+        <div style={{ fontSize: 15, fontWeight: 700 }}>
+          {bestaand ? `Concept-${naam} bewerken` : terugkerend ? "Nieuw abonnement" : `Nieuwe ${naam}`}
+        </div>
       </div>
 
       <Melding tekst={foutmelding} />
 
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1.6fr", gap: 16 }}>
         <div>
           <div style={labelStijl}>Klant</div>
           <select value={klantKlantId} onChange={(e) => setKlantKlantId(e.target.value)} style={inputStijl}>
@@ -475,9 +620,13 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
           </select>
         </div>
         <div>
-          <div style={labelStijl}>Leverdatum (optioneel)</div>
-          <input type="date" value={leverdatum} onChange={(e) => setLeverdatum(e.target.value)} style={inputStijl} />
-          <div style={{ fontSize: 10.5, color: KLEUR.mutedTekst, marginTop: 3 }}>Alleen invullen als afwijkend van de factuurdatum.</div>
+          <div style={labelStijl}>Leveringsperiode (optioneel)</div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <input type="date" value={leveringsperiodeStart} onChange={(e) => setLeveringsperiodeStart(e.target.value)} style={{ ...inputStijl, minWidth: 0, flex: 1 }} />
+            <span style={{ fontSize: 11, color: KLEUR.mutedTekst, flexShrink: 0 }}>t/m</span>
+            <input type="date" value={leveringsperiodeEind} onChange={(e) => setLeveringsperiodeEind(e.target.value)} style={{ ...inputStijl, minWidth: 0, flex: 1 }} />
+          </div>
+          <div style={{ fontSize: 10.5, color: KLEUR.mutedTekst, marginTop: 3 }}>Alleen invullen als deze afwijkt van de {naam}datum (bijv. bij een maandelijkse dienst).</div>
         </div>
       </div>
 
@@ -487,24 +636,35 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
           <div>Artikel</div><div>Omschrijving</div><div>Aantal</div><div>Prijs</div><div>BTW</div><div>Bedrag</div><div />
         </div>
         {regels.map((r, i) => (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1.8fr 55px 85px 105px 85px 28px", gap: 6, padding: "8px 10px", borderTop: `1px solid ${KLEUR.rand}`, alignItems: "center" }}>
-            <select value={r.artikelId} onChange={(e) => zetRegel(i, "artikelId", e.target.value)} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }}>
-              <option value="">— vrije tekst —</option>
-              {artikelen.filter((a) => a.actief).map((a) => <option key={a.id} value={a.id}>{a.omschrijving}</option>)}
-            </select>
-            <input value={r.omschrijving} onChange={(e) => zetRegel(i, "omschrijving", e.target.value)} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }} placeholder="Omschrijving" />
-            <input type="number" value={r.aantal} onChange={(e) => zetRegel(i, "aantal", e.target.value)} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }} />
-            <input type="number" value={r.prijs} onChange={(e) => zetRegel(i, "prijs", e.target.value)} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }} />
-            <select value={r.btwCode || "hoog"} onChange={(e) => zetRegel(i, "btwCode", e.target.value)} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }}>
-              {(tarieven || []).length === 0 && <option value={r.btwCode || "hoog"}>{r.btwPercentage}%</option>}
-              {(tarieven || []).map((t) => (
-                <option key={t.code} value={t.code}>{t.label} ({t.percentage}%)</option>
-              ))}
-            </select>
-            <div style={{ fontSize: 12.5, fontWeight: 600, textAlign: "right" }}>{geld((Number(r.aantal) || 0) * (Number(r.prijs) || 0))}</div>
-            <button onClick={() => verwijderRegel(i)} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.rood, display: "flex", justifyContent: "center" }}>
-              <Trash2 size={14} />
-            </button>
+          <div key={i} style={{ borderTop: `1px solid ${KLEUR.rand}` }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1.8fr 55px 85px 105px 85px 28px", gap: 6, padding: "8px 10px 4px", alignItems: "center" }}>
+              <select value={r.artikelId} onChange={(e) => zetRegel(i, "artikelId", e.target.value)} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }}>
+                <option value="">— vrije tekst —</option>
+                {artikelen.filter((a) => a.actief).map((a) => <option key={a.id} value={a.id}>{a.omschrijving}</option>)}
+              </select>
+              <input value={r.omschrijving} onChange={(e) => zetRegel(i, "omschrijving", e.target.value)} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }} placeholder="Omschrijving" />
+              <input type="number" value={r.aantal} onChange={(e) => zetRegel(i, "aantal", e.target.value)} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }} />
+              <input type="number" value={r.prijs} onChange={(e) => zetRegel(i, "prijs", e.target.value)} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }} />
+              <select value={r.btwCode || "hoog"} onChange={(e) => zetRegel(i, "btwCode", e.target.value)} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }}>
+                {(tarieven || []).length === 0 && <option value={r.btwCode || "hoog"}>{r.btwPercentage}%</option>}
+                {(tarieven || []).map((t) => (
+                  <option key={t.code} value={t.code}>{t.label} ({t.percentage}%)</option>
+                ))}
+              </select>
+              <div style={{ fontSize: 12.5, fontWeight: 600, textAlign: "right" }}>{geld((Number(r.aantal) || 0) * (Number(r.prijs) || 0))}</div>
+              <button onClick={() => verwijderRegel(i)} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.rood, display: "flex", justifyContent: "center" }}>
+                <Trash2 size={14} />
+              </button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1.8fr 55px 85px 105px 85px 28px", gap: 6, padding: "0 10px 8px" }}>
+              <div />
+              <div style={{ gridColumn: "2 / 6", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 10, color: KLEUR.mutedTekst, whiteSpace: "nowrap" }}>Leveringsperiode voor deze regel:</span>
+                <input type="date" value={r.leveringsperiodeStart || ""} onChange={(e) => zetRegel(i, "leveringsperiodeStart", e.target.value)} style={{ ...inputStijl, padding: "3px 6px", fontSize: 11, width: 128 }} />
+                <span style={{ fontSize: 10, color: KLEUR.mutedTekst }}>t/m</span>
+                <input type="date" value={r.leveringsperiodeEind || ""} onChange={(e) => zetRegel(i, "leveringsperiodeEind", e.target.value)} style={{ ...inputStijl, padding: "3px 6px", fontSize: 11, width: 128 }} />
+              </div>
+            </div>
           </div>
         ))}
       </div>
@@ -523,15 +683,54 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
       <div style={labelStijl}>Opmerkingen (optioneel)</div>
       <textarea value={opmerkingen} onChange={(e) => setOpmerkingen(e.target.value)} rows={2} style={{ ...inputStijl, resize: "vertical" }} />
 
+      {kanTerugkerend && (
+        <div style={{ marginTop: 18, padding: 14, background: KLEUR.lichtblauw, borderRadius: 8 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+            <input type="checkbox" checked={terugkerend} onChange={(e) => setTerugkerend(e.target.checked)} />
+            <Repeat size={14} /> Dit is een terugkerende factuur (abonnement)
+          </label>
+          {terugkerend && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 16, marginTop: 12 }}>
+              <div>
+                <div style={labelStijl}>Frequentie</div>
+                <select value={frequentie} onChange={(e) => setFrequentie(e.target.value)} style={inputStijl}>
+                  {FREQUENTIE_OPTIES.map((f) => <option key={f.code} value={f.code}>{f.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={labelStijl}>Startdatum</div>
+                <input type="date" value={terugkerendStart} onChange={(e) => setTerugkerendStart(e.target.value)} style={inputStijl} />
+              </div>
+              <div>
+                <div style={labelStijl}>Einddatum (optioneel)</div>
+                <input type="date" value={terugkerendEind} onChange={(e) => setTerugkerendEind(e.target.value)} style={inputStijl} />
+              </div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, marginTop: 4, cursor: "pointer" }}>
+                  <input type="checkbox" checked={automatischVerzenden} onChange={(e) => setAutomatischVerzenden(e.target.checked)} />
+                  Automatisch verzenden (anders blijft elke gegenereerde factuur een concept totdat je 'm zelf verstuurt)
+                </label>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
         <Knop variant="primair" onClick={opslaan} disabled={status === "bezig"} icon={Check}>
-          {status === "bezig" ? "Opslaan…" : "Opslaan als concept"}
+          {status === "bezig" ? "Bezig…" : terugkerend ? "Abonnement aanmaken" : "Opslaan als concept"}
         </Knop>
         <Knop onClick={onKlaar}>Annuleren</Knop>
       </div>
-      <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8 }}>
-        Een nummer wordt pas toegekend zodra je de {naam} verstuurt — hier sla je alleen het concept op.
-      </div>
+      {terugkerend ? (
+        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8 }}>
+          Er wordt vanaf de startdatum automatisch periodiek een nieuwe conceptfactuur aangemaakt met deze regels — te beheren via de tab "Abonnementen".
+        </div>
+      ) : (
+        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8 }}>
+          Een nummer wordt pas toegekend zodra je de {naam} verstuurt — hier sla je alleen het concept op.
+        </div>
+      )}
     </div>
 
     <div>
@@ -547,9 +746,33 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
   );
 }
 
-function DocumentDetail({ document, klantenMap, bedrijfsgegevens, onTerug, onActie, gerelateerdeFactuur }) {
+function DocumentDetail({ accountId, document, klantenMap, bedrijfsgegevens, onTerug, onActie, gerelateerdeFactuur }) {
   const bezig = document._bezig;
   const klant = klantenMap[document.klantKlantId] || null;
+  const [pdfStatus, setPdfStatus] = useState("idle"); // idle | bezig | fout
+
+  const downloadPdf = async () => {
+    setPdfStatus("bezig");
+    try {
+      const res = await fetch(`/api/facturen-klanten?accountId=${encodeURIComponent(accountId)}&id=${document.id}&formaat=pdf`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      // Let op: bewust window.document (niet het bare `document`) — die naam is hier al de
+      // factuur/offerte-prop van deze component, niet het globale DOM-document.
+      const a = window.document.createElement("a");
+      a.href = url;
+      a.download = `${document.documenttype}-${document.nummer || "concept"}.pdf`;
+      window.document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setPdfStatus("idle");
+    } catch {
+      setPdfStatus("fout");
+    }
+  };
+
   return (
     <div style={kaartStijl}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
@@ -567,6 +790,15 @@ function DocumentDetail({ document, klantenMap, bedrijfsgegevens, onTerug, onAct
         </div>
       )}
 
+      {document.emailVerzonden != null && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14, fontSize: 12.5, color: document.emailVerzonden ? KLEUR.groen : KLEUR.mutedTekst }}>
+          <Mail size={13} />
+          {document.emailVerzonden
+            ? "E-mail met PDF-bijlage is verzonden naar de klant."
+            : `E-mail is niet verzonden${document.emailFout ? ` (${document.emailFout})` : "."}`}
+        </div>
+      )}
+
       <DocumentVoorbeeld bedrijfsgegevens={bedrijfsgegevens} documenttype={document.documenttype} klant={klant} document={document} />
 
       {gerelateerdeFactuur && (
@@ -576,6 +808,9 @@ function DocumentDetail({ document, klantenMap, bedrijfsgegevens, onTerug, onAct
       )}
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <Knop icon={Download} disabled={pdfStatus === "bezig"} onClick={downloadPdf}>
+          {pdfStatus === "bezig" ? "PDF downloaden…" : "Download PDF"}
+        </Knop>
         {document.status === "concept" && (
           <Knop variant="primair" icon={Send} disabled={bezig} onClick={() => onActie(document, "versturen")}>Versturen</Knop>
         )}
@@ -592,6 +827,7 @@ function DocumentDetail({ document, klantenMap, bedrijfsgegevens, onTerug, onAct
           </>
         )}
       </div>
+      {pdfStatus === "fout" && <div style={{ marginTop: 10 }}><Melding tekst="PDF downloaden is niet gelukt, probeer het nog eens." /></div>}
     </div>
   );
 }
@@ -667,7 +903,7 @@ function DocumentenTab({ accountId, documenttype, klanten, artikelen, tarieven, 
     return (
       <>
         <Melding tekst={actieFout} />
-        <DocumentDetail document={actief} klantenMap={klantenMap} bedrijfsgegevens={bedrijfsgegevens} onTerug={() => setWeergave("lijst")} onActie={voerActieUit} gerelateerdeFactuur={gerelateerdeFactuur} />
+        <DocumentDetail accountId={accountId} document={actief} klantenMap={klantenMap} bedrijfsgegevens={bedrijfsgegevens} onTerug={() => setWeergave("lijst")} onActie={voerActieUit} gerelateerdeFactuur={gerelateerdeFactuur} />
       </>
     );
   }
@@ -738,6 +974,91 @@ function DocumentenTab({ accountId, documenttype, klanten, artikelen, tarieven, 
                     Bekijken
                   </button>
                 )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* Abonnementen (facturen_terugkerend) — sjablonen voor terugkerende        */
+/* facturen; het aanmaken zelf gebeurt via "Nieuwe factuur" → "Terugkerend" */
+/* (zie DocumentFormulier). Hier alleen beheren: pauzeren/hervatten/verwijderen. */
+/* ---------------------------------------------------------------------- */
+
+function AbonnementenTab({ accountId, klantenMap }) {
+  const { status, items, foutmelding, verversen } = useTerugkerend(accountId);
+  const [actieBezigId, setActieBezigId] = useState(null);
+  const [actieFout, setActieFout] = useState("");
+
+  const wijzigActief = async (item, actief) => {
+    setActieBezigId(item.id);
+    setActieFout("");
+    try {
+      await haalJson(await fetch("/api/facturen-terugkerend", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId, id: item.id, actief }),
+      }));
+      verversen();
+    } catch (e) {
+      setActieFout(e.message || String(e));
+    }
+    setActieBezigId(null);
+  };
+
+  const verwijderen = async (item) => {
+    const klantnaam = klantenMap[item.klantKlantId]?.naam || "deze klant";
+    if (!window.confirm(`Abonnement voor "${klantnaam}" verwijderen? Al eerder gegenereerde facturen blijven bewaard.`)) return;
+    setActieBezigId(item.id);
+    setActieFout("");
+    try {
+      await haalJson(await fetch(`/api/facturen-terugkerend?accountId=${encodeURIComponent(accountId)}&id=${item.id}`, { method: "DELETE" }));
+      verversen();
+    } catch (e) {
+      setActieFout(e.message || String(e));
+    }
+    setActieBezigId(null);
+  };
+
+  return (
+    <div>
+      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 16, maxWidth: 640 }}>
+        Terugkerende facturen (abonnementen) stel je in vanaf "Nieuwe factuur" — schakel daar "Dit is een terugkerende factuur" in.
+        Hier beheer je bestaande abonnementen: pauzeren, hervatten of verwijderen.
+      </div>
+      <Melding tekst={foutmelding || actieFout} />
+      {status === "laden" && <LegeStaat tekst="Laden…" />}
+      {status === "klaar" && items.length === 0 && <LegeStaat tekst="Nog geen abonnementen ingesteld." />}
+      {status === "klaar" && items.length > 0 && (
+        <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 90px 90px", background: KLEUR.lichtblauw, padding: "9px 14px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
+            <div>Klant</div><div>Frequentie</div><div>Volgende factuur</div><div>Aantal verstuurd</div><div>Status</div><div>Acties</div>
+          </div>
+          {items.map((item) => (
+            <div key={item.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 90px 90px", padding: "10px 14px", borderTop: `1px solid ${KLEUR.rand}`, fontSize: 13, alignItems: "center" }}>
+              <div style={{ fontWeight: 600 }}>{klantenMap[item.klantKlantId]?.naam || "—"}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                {FREQUENTIE_LABEL[item.frequentie] || item.frequentie}
+                {item.automatischVerzenden && <Mail size={11} color={KLEUR.mutedTekst} title="Automatisch verzenden staat aan" />}
+              </div>
+              <div>{datum(item.volgendeFactuurdatum)}</div>
+              <div>{item.aantalGegenereerd}</div>
+              <div>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: item.actief ? KLEUR.groen : KLEUR.mutedTekst }}>
+                  {item.actief ? "Actief" : "Gepauzeerd"}
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                {item.actief ? (
+                  <button onClick={() => wijzigActief(item, false)} disabled={actieBezigId === item.id} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.subtekst, display: "flex" }} title="Pauzeren"><Pause size={14} /></button>
+                ) : (
+                  <button onClick={() => wijzigActief(item, true)} disabled={actieBezigId === item.id} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.blauw, display: "flex" }} title="Hervatten"><Play size={14} /></button>
+                )}
+                <button onClick={() => verwijderen(item)} disabled={actieBezigId === item.id} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.rood, display: "flex" }} title="Verwijderen"><Trash2 size={14} /></button>
               </div>
             </div>
           ))}
@@ -1281,6 +1602,7 @@ function InstellingenTab({ accountId, bedrijfsgegevens, andereAccounts, account 
 const SUBTABS = [
   { key: "facturen", label: "Facturen", icon: FileText },
   { key: "offertes", label: "Offertes", icon: FileSpreadsheet },
+  { key: "abonnementen", label: "Abonnementen", icon: Repeat },
   { key: "klanten", label: "Klanten", icon: Users },
   { key: "producten", label: "Producten", icon: Package },
   { key: "instellingen", label: "Instellingen", icon: Settings },
@@ -1334,6 +1656,9 @@ function FacturatieAccountInhoud({ account, andereAccounts }) {
       )}
       {subtab === "offertes" && (
         <DocumentenTab accountId={accountId} documenttype="offerte" klanten={klantenData.items} artikelen={alleArtikelen} tarieven={btwTarievenData.items} klantenMap={klantenMap} alleFacturen={facturenVoorKoppeling.items} bedrijfsgegevens={bedrijfsgegevensData.data} />
+      )}
+      {subtab === "abonnementen" && (
+        <AbonnementenTab accountId={accountId} klantenMap={klantenMap} />
       )}
       {subtab === "klanten" && (
         <KlantenTab accountId={accountId} klanten={klantenData.items} status={klantenData.status} foutmelding={klantenData.foutmelding} verversen={klantenData.verversen} />

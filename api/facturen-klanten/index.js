@@ -5,13 +5,16 @@
  *
  *   GET    ?accountId=...&documenttype=factuur&status=concept&zoek=...   → { facturen: [...] }
  *   GET    ?accountId=...&id=...                                        → één document
+ *   GET    ?accountId=...&id=...&formaat=pdf                            → PDF-download van dat document
  *   POST   body { accountId, documenttype, klantKlantId, regels: [...], ... }  → nieuw concept
  *   PUT    body { accountId, id, regels: [...], ... }                   → concept bijwerken
  *   PATCH  body { accountId, id, actie }                                → statusovergang, zie hieronder
  *   DELETE ?accountId=...&id=...                                        → concept verwijderen
  *
  * PATCH-acties (body.actie):
- *   "versturen"   concept → verzonden (kent het volgende nummer toe, alle documenttypes)
+ *   "versturen"   concept → verzonden (kent het volgende nummer toe, alle documenttypes, en
+ *                 verstuurt best-effort een échte e-mail met de PDF als bijlage — zie
+ *                 verstuurFactuur/verstuurDocumentPerEmail in facturenKlanten.js)
  *   "accepteren"  offerte: verzonden → geaccepteerd; maakt automatisch een nieuwe factuur (concept) aan
  *   "afwijzen"    offerte: verzonden → afgewezen
  *   "betaald"     factuur: → betaald
@@ -30,6 +33,9 @@ const {
   annuleerFactuur,
   verwijderFactuur,
 } = require("../_gedeeld/facturenKlanten");
+const { haalKlant } = require("../_gedeeld/klantenKlanten");
+const { haalGegevens: haalBedrijfsgegevens } = require("../_gedeeld/bedrijfsgegevensKlanten");
+const { genereerFactuurPdf } = require("../_gedeeld/facturenPdf");
 
 module.exports = async function (context, req) {
   try {
@@ -40,6 +46,27 @@ module.exports = async function (context, req) {
         const factuur = await haalFactuur(accountId, req.query.id);
         if (!factuur) {
           context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Niet gevonden." } };
+          return;
+        }
+        if ((req.query.formaat || "").toLowerCase() === "pdf") {
+          const [klant, bedrijfsgegevens] = await Promise.all([
+            haalKlant(accountId, factuur.klantKlantId),
+            haalBedrijfsgegevens(accountId),
+          ]);
+          const pdfBuffer = await genereerFactuurPdf({
+            document: factuur, klant, bedrijfsgegevens, documenttype: factuur.documenttype,
+          });
+          const bestandsnaam = `${factuur.documenttype}-${factuur.nummer || "concept"}.pdf`.replace(/[\\/:*?"<>|]/g, "-");
+          context.res = {
+            status: 200,
+            headers: {
+              "Content-Type": "application/pdf",
+              "Content-Disposition": `attachment; filename="${bestandsnaam}"`,
+              "Cache-Control": "private, no-store",
+            },
+            body: pdfBuffer,
+            isRaw: true,
+          };
           return;
         }
         context.res = { headers: { "Content-Type": "application/json" }, body: factuur };
@@ -83,7 +110,7 @@ module.exports = async function (context, req) {
         return;
       }
       let resultaat;
-      if (actie === "versturen") resultaat = await verstuurFactuur(accountId, id, email);
+      if (actie === "versturen") resultaat = await verstuurFactuur(accountId, id, email, context);
       else if (actie === "accepteren") resultaat = await accepteerOfferte(accountId, id, email);
       else if (actie === "afwijzen") resultaat = await wijsOfferteAf(accountId, id, email);
       else if (actie === "betaald") resultaat = await markeerBetaald(accountId, id, email);
