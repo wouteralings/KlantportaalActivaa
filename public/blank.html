@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="robots" content="noindex" />
+    <title>Bezig met inloggen…</title>
+  </head>
+  <body>
+    <!--
+      Lege redirect-pagina voor de MSAL-popup-login (SharePoint-documenten).
+      De popup landt hier na de Microsoft-login; MSAL leest de auth-response uit de URL
+      en sluit de popup. Deze pagina laadt bewust NIET de React-app, zodat de auth-hash
+      niet gewist wordt (voorkomt hash_empty_error).
+    -->
+  </body>
+</html>

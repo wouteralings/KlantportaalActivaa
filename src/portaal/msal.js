@@ -12,7 +12,10 @@ const msalConfig = {
   auth: {
     clientId: AAD_CLIENT_ID,
     authority: `https://login.microsoftonline.com/${AAD_TENANT_ID}`,
-    redirectUri: window.location.origin,
+    // Lege redirect-pagina i.p.v. de app-root: voorkomt dat de React-app in de popup
+    // opnieuw laadt en de auth-hash wist (hash_empty_error). Registreer deze URL ook
+    // als SPA-redirect-URI in de App Registration (bijv. https://mijn.activaa.nl/blank.html).
+    redirectUri: `${window.location.origin}/blank.html`,
   },
   cache: { cacheLocation: "sessionStorage" },
 };

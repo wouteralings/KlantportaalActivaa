@@ -93,9 +93,12 @@
       "allowedRoles": ["authenticated"]
     }
   ],
+  "globalHeaders": {
+    "Cross-Origin-Opener-Policy": "same-origin-allow-popups"
+  },
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/api/*", "/assets/*"]
+    "exclude": ["/api/*", "/assets/*", "/blank.html"]
   },
   "responseOverrides": {
     "401": {
