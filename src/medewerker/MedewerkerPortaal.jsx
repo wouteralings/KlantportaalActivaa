@@ -1866,6 +1866,7 @@ export default function MedewerkerPortaal() {
   const [tellingen, setTellingen] = useState({ openWijzigingen: 0, nieuweReviews: 0 });
   const [offerteUrl, setOfferteUrl] = useState("");
   const [offerteToolUrl, setOfferteToolUrl] = useState("");
+  const [logoUrl, setLogoUrl] = useState("");
 
   const laadTellingen = useCallback(() => {
     fetch("/api/beheer-tellingen")
@@ -1896,7 +1897,7 @@ export default function MedewerkerPortaal() {
     if (status !== "klaar") return;
     fetch("/api/instellingen")
       .then((r) => r.json())
-      .then((d) => { zetBrowserFavicon(d.faviconUrl); setOfferteUrl(d.offerteportaalUrl || ""); setOfferteToolUrl(d.offerteToolUrl || ""); })
+      .then((d) => { zetBrowserFavicon(d.faviconUrl); setOfferteUrl(d.offerteportaalUrl || ""); setOfferteToolUrl(d.offerteToolUrl || ""); setLogoUrl(d.logoUrl || ""); })
       .catch(() => {});
   }, [status]);
 
@@ -1968,6 +1969,7 @@ export default function MedewerkerPortaal() {
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Users size={20} color={KLEUR.blauw} />
           <div style={{ fontSize: 17, fontWeight: 600 }}>Medewerkersportaal</div>
+          {logoUrl && <img src={logoUrl} alt="Logo" style={{ maxHeight: 34, maxWidth: 160, objectFit: "contain", marginLeft: 6 }} />}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <span style={{ fontSize: 12.5, color: KLEUR.subtekst }}>{gebruiker?.userDetails}</span>

@@ -488,14 +488,9 @@ function Header({ gebruiker, logoUrl }) {
   return (
     <div className="kp-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, paddingBottom: 16, borderBottom: `1px solid ${KLEUR.rand}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        {logoUrl ? (
-          <img src={logoUrl} alt="Logo" style={{ maxHeight: 36, maxWidth: 160, objectFit: "contain" }} />
-        ) : (
-          <>
-            <Building2 size={22} color={KLEUR.blauw} />
-            <div style={{ fontSize: 19, fontWeight: 600 }}>Klantportaal</div>
-          </>
-        )}
+        <Building2 size={22} color={KLEUR.blauw} />
+        <div style={{ fontSize: 19, fontWeight: 600 }}>Klantportaal</div>
+        {logoUrl && <img src={logoUrl} alt="Logo" style={{ maxHeight: 36, maxWidth: 160, objectFit: "contain", marginLeft: 6 }} />}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <span className="kp-header-email" style={{ fontSize: 13, color: KLEUR.subtekst }}>{gebruiker?.userDetails}</span>
