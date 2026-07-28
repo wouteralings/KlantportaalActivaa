@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Search, ArrowUp, ArrowDown, HelpCircle, ChevronDown } from "lucide-react";
+import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Search, ArrowUp, ArrowDown, HelpCircle, ChevronDown, Plus, Pencil, Check, X } from "lucide-react";
 
 const KLEUR = {
   blauw: "#1C5D8C",
@@ -10,6 +10,14 @@ const KLEUR = {
   lichtblauw: "#EAF2F8",
   rood: "#B23B3B",
 };
+
+// De vier vaste BTW-categorieën (moet overeenkomen met de CHECK-constraint in de database).
+const BTW_CODES = [
+  ["nul", "Nultarief"],
+  ["laag", "Laag tarief"],
+  ["hoog", "Hoog tarief"],
+  ["vrijgesteld", "Vrijgesteld van btw"],
+];
 
 // Basis-kolommen van het klantoverzicht (moet overeenkomen met BASIS_KOLOMMEN in het medewerkersportaal).
 const KLANTOVERZICHT_BASIS = [
@@ -29,6 +37,27 @@ function zetBrowserFavicon(url) {
     document.head.appendChild(link);
   }
   link.href = url;
+}
+
+// Eén rij van de standaardartikelen-tabel, als invoerformulier (voor zowel "nieuw" als
+// "bewerken" — het onderliggende artikel/nieuw-status bepaalt de aanroeper).
+function StandaardartikelFormulierRij({ form, setForm, bezig, onOpslaan, onAnnuleren, borderTop }) {
+  const zet = (k) => (e) => setForm((h) => ({ ...h, [k]: e.target.value }));
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 90px 90px", gap: 6, padding: "8px 12px", borderTop: borderTop ?? "none", alignItems: "center", background: KLEUR.lichtblauw }}>
+      <input value={form.omschrijving} onChange={zet("omschrijving")} placeholder="Omschrijving" style={{ padding: "6px 8px", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 12.5, boxSizing: "border-box" }} />
+      <input value={form.eenheid} onChange={zet("eenheid")} placeholder="uur, maand, ..." style={{ padding: "6px 8px", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 12.5, boxSizing: "border-box" }} />
+      <input type="number" step="0.01" value={form.prijs} onChange={zet("prijs")} style={{ padding: "6px 8px", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 12.5, boxSizing: "border-box" }} />
+      <select value={form.btwCode} onChange={zet("btwCode")} style={{ padding: "6px 8px", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 12.5, background: "#fff" }}>
+        {BTW_CODES.map(([code, label]) => <option key={code} value={code}>{label}</option>)}
+      </select>
+      <div />
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={onOpslaan} disabled={bezig} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.blauw, display: "flex" }} title="Opslaan"><Check size={15} /></button>
+        <button onClick={onAnnuleren} disabled={bezig} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.subtekst, display: "flex" }} title="Annuleren"><X size={15} /></button>
+      </div>
+    </div>
+  );
 }
 
 export default function BeheerPortaal() {
@@ -114,6 +143,32 @@ export default function BeheerPortaal() {
   const [facturatieBezig, setFacturatieBezig] = useState({}); // accountId -> bool
   const [facturatieFout, setFacturatieFout] = useState("");
 
+  // BTW-tarieven met geldigheidsperiode (Facturatie → Standaardwaarden).
+  const [btwTarieven, setBtwTarieven] = useState(null); // null = laden; volledige historie (alle codes)
+  const [btwFout, setBtwFout] = useState("");
+  const [btwOpslaanStatus, setBtwOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
+  const [btwNieuw, setBtwNieuw] = useState({ code: "hoog", label: "", percentage: "", geldigVanaf: "" });
+
+  // Centraal beheerde standaardartikelen (Facturatie → Standaardwaarden), voor elke klant beschikbaar.
+  const [standaardartikelen, setStandaardartikelen] = useState(null); // null = laden
+  const [standaardartikelenFout, setStandaardartikelenFout] = useState("");
+  const [standaardartikelBezig, setStandaardartikelBezig] = useState({}); // id -> bool
+  const [standaardartikelBewerken, setStandaardartikelBewerken] = useState(null); // id van artikel dat bewerkt wordt, of "nieuw"
+  const [standaardartikelForm, setStandaardartikelForm] = useState({ omschrijving: "", eenheid: "", prijs: "", btwCode: "hoog" });
+
+  const laadBtwTarieven = useCallback(() => {
+    fetch("/api/beheer-btw-tarieven")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setBtwTarieven(d.tarieven || []))
+      .catch(() => { setBtwTarieven([]); setBtwFout("Kon de BTW-tarieven niet ophalen."); });
+  }, []);
+
+  const laadStandaardartikelen = useCallback(() => {
+    fetch("/api/beheer-artikelen-algemeen")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setStandaardartikelen(d.artikelen || []))
+      .catch(() => { setStandaardartikelen([]); setStandaardartikelenFout("Kon de standaardartikelen niet ophalen."); });
+  }, []);
 
   useEffect(() => {
     fetch("/.auth/me")
@@ -167,6 +222,15 @@ export default function BeheerPortaal() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setMedewerkers(d.medewerkers || []))
       .catch(() => setMedewerkers([]));
+    fetch("/api/beheer-taaksoorten")
+      .then((r) => r.json())
+      .then((d) => {
+        setTaaksoortenOpties(d.opties || []);
+        setTaaksoortenConfig(d.config || {});
+        setTaaksoortenConfiguratieNodig(!!d.configuratieNodig);
+        if (d.error) setTaaksoortenFout(d.error);
+      })
+      .catch(() => { setTaaksoortenOpties([]); setTaaksoortenFout("Kon de taaksoorten niet ophalen."); });
     fetch("/api/beheer-klanten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setFacturatieKlanten(
@@ -177,15 +241,8 @@ export default function BeheerPortaal() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setFacturatieStatussen(d.statussen || {}))
       .catch(() => setFacturatieStatussen({}));
-    fetch("/api/beheer-taaksoorten")
-      .then((r) => r.json())
-      .then((d) => {
-        setTaaksoortenOpties(d.opties || []);
-        setTaaksoortenConfig(d.config || {});
-        setTaaksoortenConfiguratieNodig(!!d.configuratieNodig);
-        if (d.error) setTaaksoortenFout(d.error);
-      })
-      .catch(() => { setTaaksoortenOpties([]); setTaaksoortenFout("Kon de taaksoorten niet ophalen."); });
+    laadBtwTarieven();
+    laadStandaardartikelen();
     haalMededelingen();
     haalSnellinks();
     haalFaqs();
@@ -422,6 +479,120 @@ export default function BeheerPortaal() {
     }
   }, [googleReviewUrl, teamsChatUrl, whatsappUrl, copilotEmbedUrl, offerteportaalUrl, offerteToolUrl]);
 
+  // Facturatiemodule per klant aan/uit — direct opslaan (geen aparte "Opslaan"-knop), met
+  // optimistische update en terugdraaien bij een fout.
+  const zetFacturatieStatus = useCallback(async (accountId, ingeschakeld) => {
+    setFacturatieFout("");
+    setFacturatieBezig((h) => ({ ...h, [accountId]: true }));
+    setFacturatieStatussen((h) => ({ ...h, [accountId]: { ...(h[accountId] || {}), ingeschakeld } }));
+    try {
+      const res = await fetch("/api/beheer-facturatie-klanten", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId, ingeschakeld }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const d = await res.json();
+      setFacturatieStatussen((h) => ({ ...h, [accountId]: d }));
+    } catch {
+      setFacturatieStatussen((h) => ({ ...h, [accountId]: { ...(h[accountId] || {}), ingeschakeld: !ingeschakeld } }));
+      setFacturatieFout("Opslaan is niet gelukt, probeer het nog eens.");
+    } finally {
+      setFacturatieBezig((h) => ({ ...h, [accountId]: false }));
+    }
+  }, []);
+
+  // Nieuw BTW-tarief toevoegen — sluit op de server automatisch het vorige tarief van
+  // diezelfde code af (geldig_tot), dus hier alleen de nieuwe waarden versturen.
+  const voegBtwTariefToe = useCallback(async () => {
+    if (!btwNieuw.percentage || !btwNieuw.geldigVanaf) {
+      setBtwFout("Percentage en geldig-vanaf-datum zijn verplicht.");
+      return;
+    }
+    setBtwOpslaanStatus("bezig");
+    setBtwFout("");
+    try {
+      const res = await fetch("/api/beheer-btw-tarieven", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: btwNieuw.code,
+          label: btwNieuw.label.trim() || undefined,
+          percentage: Number(btwNieuw.percentage),
+          geldigVanaf: btwNieuw.geldigVanaf,
+        }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || "Opslaan mislukt.");
+      }
+      setBtwNieuw({ code: "hoog", label: "", percentage: "", geldigVanaf: "" });
+      setBtwOpslaanStatus("gelukt");
+      laadBtwTarieven();
+    } catch (e) {
+      setBtwFout(e.message || String(e));
+      setBtwOpslaanStatus("fout");
+    }
+  }, [btwNieuw, laadBtwTarieven]);
+
+  // Standaardartikelen (artikelen_algemeen) — voor elke klant beschikbaar, alleen hier te wijzigen.
+  const beginStandaardartikel = useCallback((artikel) => {
+    setStandaardartikelenFout("");
+    if (artikel) {
+      setStandaardartikelBewerken(artikel.id);
+      setStandaardartikelForm({
+        omschrijving: artikel.omschrijving, eenheid: artikel.eenheid || "",
+        prijs: artikel.prijs, btwCode: artikel.btwCode || "hoog",
+      });
+    } else {
+      setStandaardartikelBewerken("nieuw");
+      setStandaardartikelForm({ omschrijving: "", eenheid: "", prijs: "", btwCode: "hoog" });
+    }
+  }, []);
+
+  const slaStandaardartikelOp = useCallback(async () => {
+    if (!standaardartikelForm.omschrijving.trim()) {
+      setStandaardartikelenFout("Omschrijving is verplicht.");
+      return;
+    }
+    const id = standaardartikelBewerken;
+    setStandaardartikelBezig((h) => ({ ...h, [id]: true }));
+    setStandaardartikelenFout("");
+    try {
+      const payload = {
+        omschrijving: standaardartikelForm.omschrijving,
+        eenheid: standaardartikelForm.eenheid,
+        prijs: Number(standaardartikelForm.prijs) || 0,
+        btwCode: standaardartikelForm.btwCode,
+      };
+      const res = id === "nieuw"
+        ? await fetch("/api/beheer-artikelen-algemeen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
+        : await fetch("/api/beheer-artikelen-algemeen", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, id }) });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || "Opslaan mislukt.");
+      }
+      setStandaardartikelBewerken(null);
+      laadStandaardartikelen();
+    } catch (e) {
+      setStandaardartikelenFout(e.message || String(e));
+    } finally {
+      setStandaardartikelBezig((h) => ({ ...h, [id]: false }));
+    }
+  }, [standaardartikelForm, standaardartikelBewerken, laadStandaardartikelen]);
+
+  const verwijderStandaardartikel = useCallback(async (artikel) => {
+    if (!window.confirm(`"${artikel.omschrijving}" verwijderen? Dit artikel verdwijnt uit de keuzelijst van alle klanten.`)) return;
+    setStandaardartikelBezig((h) => ({ ...h, [artikel.id]: true }));
+    try {
+      await fetch(`/api/beheer-artikelen-algemeen?id=${artikel.id}`, { method: "DELETE" });
+      laadStandaardartikelen();
+    } catch {
+      setStandaardartikelenFout("Verwijderen is niet gelukt, probeer het nog eens.");
+      setStandaardartikelBezig((h) => ({ ...h, [artikel.id]: false }));
+    }
+  }, [laadStandaardartikelen]);
+
   const zetNiveau = useCallback((email, niveau) => {
     const laag = String(email).toLowerCase();
     setNiveaus((h) => { const n = { ...h }; if (niveau === "medewerker") delete n[laag]; else n[laag] = niveau; return n; });
@@ -451,29 +622,6 @@ export default function BeheerPortaal() {
       setWijzigrechtenStatus("fout");
     }
   }, [niveaus, bulk]);
-
-  // Facturatiemodule per klant aan/uit — direct opslaan (geen aparte "Opslaan"-knop), met
-  // optimistische update en terugdraaien bij een fout.
-  const zetFacturatieStatus = useCallback(async (accountId, ingeschakeld) => {
-    setFacturatieFout("");
-    setFacturatieBezig((h) => ({ ...h, [accountId]: true }));
-    setFacturatieStatussen((h) => ({ ...h, [accountId]: { ...(h[accountId] || {}), ingeschakeld } }));
-    try {
-      const res = await fetch("/api/beheer-facturatie-klanten", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accountId, ingeschakeld }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const d = await res.json();
-      setFacturatieStatussen((h) => ({ ...h, [accountId]: d }));
-    } catch {
-      setFacturatieStatussen((h) => ({ ...h, [accountId]: { ...(h[accountId] || {}), ingeschakeld: !ingeschakeld } }));
-      setFacturatieFout("Opslaan is niet gelukt, probeer het nog eens.");
-    } finally {
-      setFacturatieBezig((h) => ({ ...h, [accountId]: false }));
-    }
-  }, []);
 
   const slaKlantoverzichtOp = useCallback(async () => {
     setKoStatus("bezig");
@@ -1530,7 +1678,7 @@ export default function BeheerPortaal() {
       </div>
       )}
 
-      {tab === "facturatie" && (
+      {tab === "facturatie" && (<>
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Facturatiemodule — per klant aan/uit</div>
         <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 14 }}>
@@ -1598,7 +1746,166 @@ export default function BeheerPortaal() {
           </>
         )}
       </div>
-      )}
+
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>BTW-tarieven</div>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 14 }}>
+          Elk tarief geldt vanaf een datum tot (optioneel) een einddatum. Voeg je een nieuw tarief toe voor een
+          bestaande categorie, dan sluit het vorige tarief van die categorie automatisch af op de dag ervoor —
+          al gemaakte facturen blijven ongewijzigd, want die bevriezen het percentage op het moment van opstellen.
+        </div>
+
+        {btwFout && <div style={{ marginBottom: 12, fontSize: 12.5, color: KLEUR.rood }}>{btwFout}</div>}
+
+        {btwTarieven === null ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst }}>
+            <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Tarieven ophalen…
+          </div>
+        ) : (
+          <>
+            <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, overflow: "hidden", marginBottom: 16 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.6fr 100px 120px 120px", background: KLEUR.lichtblauw, padding: "7px 12px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
+                <div>Code</div><div>Label</div><div>Percentage</div><div>Geldig vanaf</div><div>Geldig tot</div>
+              </div>
+              {btwTarieven.length === 0 ? (
+                <div style={{ padding: "12px", fontSize: 12.5, color: KLEUR.mutedTekst }}>Nog geen tarieven.</div>
+              ) : (
+                btwTarieven.map((t, i) => (
+                  <div key={t.id} style={{ display: "grid", gridTemplateColumns: "1.2fr 1.6fr 100px 120px 120px", padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, fontSize: 13, alignItems: "center", opacity: t.geldigTot ? 0.6 : 1 }}>
+                    <div>{t.code}</div>
+                    <div>{t.label}</div>
+                    <div>{t.percentage}%</div>
+                    <div>{t.geldigVanaf ? new Date(t.geldigVanaf).toLocaleDateString("nl-NL") : "—"}</div>
+                    <div>{t.geldigTot ? new Date(t.geldigTot).toLocaleDateString("nl-NL") : "— (actief)"}</div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Nieuw tarief toevoegen</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr 100px 140px auto", gap: 8, alignItems: "end" }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", marginBottom: 4 }}>Code</div>
+                <select
+                  value={btwNieuw.code}
+                  onChange={(e) => setBtwNieuw((h) => ({ ...h, code: e.target.value }))}
+                  style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5 }}
+                >
+                  {BTW_CODES.map(([code, label]) => <option key={code} value={code}>{label}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", marginBottom: 4 }}>Label (optioneel)</div>
+                <input
+                  value={btwNieuw.label}
+                  onChange={(e) => setBtwNieuw((h) => ({ ...h, label: e.target.value }))}
+                  placeholder={BTW_CODES.find(([c]) => c === btwNieuw.code)?.[1] || ""}
+                  style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5 }}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", marginBottom: 4 }}>%</div>
+                <input
+                  type="number" step="0.01"
+                  value={btwNieuw.percentage}
+                  onChange={(e) => setBtwNieuw((h) => ({ ...h, percentage: e.target.value }))}
+                  style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5 }}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", marginBottom: 4 }}>Geldig vanaf</div>
+                <input
+                  type="date"
+                  value={btwNieuw.geldigVanaf}
+                  onChange={(e) => setBtwNieuw((h) => ({ ...h, geldigVanaf: e.target.value }))}
+                  style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5 }}
+                />
+              </div>
+              <button
+                onClick={voegBtwTariefToe}
+                disabled={btwOpslaanStatus === "bezig"}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
+              >
+                <Plus size={13} /> Toevoegen
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>Standaardartikelen</div>
+          {standaardartikelBewerken === null && (
+            <button
+              onClick={() => beginStandaardartikel(null)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+            >
+              <Plus size={13} /> Nieuw artikel
+            </button>
+          )}
+        </div>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 14 }}>
+          Deze artikelen staan voor elke klant beschikbaar bij het opstellen van een factuur of offerte
+          (bijvoorbeeld Managementvergoeding, Huur, Diensten). Wijzig je hier de prijs, dan geldt dat voor
+          alle klanten tegelijk — al opgestelde facturen blijven ongewijzigd.
+        </div>
+
+        {standaardartikelenFout && <div style={{ marginBottom: 12, fontSize: 12.5, color: KLEUR.rood }}>{standaardartikelenFout}</div>}
+
+        {standaardartikelen === null ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst }}>
+            <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Artikelen ophalen…
+          </div>
+        ) : (
+          <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 90px 90px", background: KLEUR.lichtblauw, padding: "7px 12px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
+              <div>Omschrijving</div><div>Eenheid</div><div>Prijs</div><div>BTW</div><div>Actief</div><div>Acties</div>
+            </div>
+
+            {standaardartikelBewerken === "nieuw" && (
+              <StandaardartikelFormulierRij
+                form={standaardartikelForm}
+                setForm={setStandaardartikelForm}
+                bezig={!!standaardartikelBezig["nieuw"]}
+                onOpslaan={slaStandaardartikelOp}
+                onAnnuleren={() => setStandaardartikelBewerken(null)}
+              />
+            )}
+
+            {standaardartikelen.length === 0 && standaardartikelBewerken !== "nieuw" && (
+              <div style={{ padding: "12px", fontSize: 12.5, color: KLEUR.mutedTekst }}>Nog geen standaardartikelen.</div>
+            )}
+
+            {standaardartikelen.map((a, i) => (
+              standaardartikelBewerken === a.id ? (
+                <StandaardartikelFormulierRij
+                  key={a.id}
+                  form={standaardartikelForm}
+                  setForm={setStandaardartikelForm}
+                  bezig={!!standaardartikelBezig[a.id]}
+                  onOpslaan={slaStandaardartikelOp}
+                  onAnnuleren={() => setStandaardartikelBewerken(null)}
+                  borderTop={i === 0 ? "none" : `1px solid ${KLEUR.rand}`}
+                />
+              ) : (
+                <div key={a.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 90px 90px", padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, fontSize: 13, alignItems: "center", opacity: a.actief ? 1 : 0.55 }}>
+                  <div style={{ fontWeight: 600 }}>{a.omschrijving}</div>
+                  <div>{a.eenheid || "—"}</div>
+                  <div>{new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(Number(a.prijs) || 0)}</div>
+                  <div>{a.btwPercentage}%</div>
+                  <div>{a.actief ? "Ja" : "Nee"}</div>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button onClick={() => beginStandaardartikel(a)} disabled={!!standaardartikelBezig[a.id]} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.blauw, display: "flex" }} title="Bewerken"><Pencil size={14} /></button>
+                    <button onClick={() => verwijderStandaardartikel(a)} disabled={!!standaardartikelBezig[a.id]} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.rood, display: "flex" }} title="Verwijderen"><Trash2 size={14} /></button>
+                  </div>
+                </div>
+              )
+            ))}
+          </div>
+        )}
+      </div>
+      </>)}
 
       {tab === "taken" && (<>
         <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>

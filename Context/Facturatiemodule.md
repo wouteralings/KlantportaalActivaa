@@ -112,36 +112,104 @@ App (die draait op wat er bij de laatste push stond). Vóór dit werkend wordt o
 klantportaalactivaa zelf, moet er dus nog: `npm install` in `api/` (voor de nieuwe `mssql`-
 dependency), `git add` + `git commit` + `git push` (triggert de GitHub Actions-deploy).
 
+## Azure SQL Database + productie-config (28-07-2026, vervolgsessie)
+
+De database is inmiddels geprovisioneerd (was nog niet gedaan toen bovenstaande sectie
+geschreven werd): server `sql-klantportaal-activaa` (West-Europa, geo-redundante back-ups),
+database `facturatie` (Basic-tier, ~€4,90/mnd), alle vier tabellen uit
+`db/migrations/001_facturatiemodule.sql` succesvol aangemaakt via de Portal Query-editor (let
+op: die ondersteunt geen `GO`-batchscheiding, statements los aanleveren). Verbinding loopt via
+Microsoft Entra Service Principal-authenticatie (hergebruik van de bestaande Dataverse
+app-registratie `DYNAMICS_CLIENT_ID`/`DYNAMICS_CLIENT_SECRET`/`DYNAMICS_TENANT_ID`, expliciet
+gekozen boven een los SQL-wachtwoord — "lijkt mij veiliger"), met `db_datareader`/
+`db_datawriter`-rechten toegekend via `CREATE USER ... FROM EXTERNAL PROVIDER`. De
+connection string staat als Application Setting `FACTURATIE_SQL_CONNECTIONSTRING` op
+`klantportaal-activaa`. **Twee productie-blockerende bugs zijn bij deze gelegenheid gevonden
+en gefixt**: `mssql` ontbrak als dependency in `api/package.json` (elke facturatie-DB-call zou
+"Cannot find module 'mssql'" gooien), en `staticwebapp.config.json` had geen route-restrictie
+op `/api/beheer-facturatie-klanten` (elke ingelogde klant — niet alleen een beheerder — kon
+'m aanroepen). Beide zijn gecorrigeerd.
+
+**Nog belangrijker: de complete frontend-koppeling uit de vorige sectie ("Aan/uit per klant +
+werkend klantportaal-scherm") stond alleen in een lokale werkmap en was nog nooit gecommit** —
+`KlantPortaal.jsx` had geen "Facturen"-tab, `BeheerPortaal.jsx` geen "Facturatie"-tab, en
+`facturatieToegang.js`/`mijn-gegevens/index.js` misten de `MODULE_UITGESCHAKELD`-check
+respectievelijk `facturatieIngeschakeld`-flag. Die volledige koppeling is nu opnieuw
+doorgevoerd (en ditmaal wél klaar om gecommit te worden — zie "Nog te doen" hieronder).
+
+## Standaardartikelen + BTW-tarieven met geldigheidsperiode (28-07-2026, zelfde sessie)
+
+Op verzoek ("kunnen we ook een paar artikelen maken die bij iedereen beschikbaar zijn... en
+BTW-percentages die we met begin- en einddatum kunnen onderhouden") zijn twee dingen
+toegevoegd, met als expliciete keuzes: één centraal beheerde artikellijst (niet per klant
+instelbaar) en een direct werkend BTW-beheerscherm (niet uitgesteld):
+
+- **`dbo.btw_tarieven`** (migratie `002_facturatiemodule_standaarden.sql`) — vier vaste
+  categorieën (`nul`, `laag`, `hoog`, `vrijgesteld`), elk met `percentage` + `geldig_vanaf` +
+  (optioneel) `geldig_tot`. Een nieuw tarief voor een code sluit automatisch het vorige tarief
+  van diezelfde code af (`geldig_tot` = dag vóór de nieuwe `geldig_vanaf`) — zie
+  `api/_gedeeld/btwTarieven.js`. Voorgevuld met de actuele Nederlandse tarieven (0% / 9% sinds
+  2019 / 21% sinds 2012 / vrijgesteld). Al gemaakte facturen bevriezen het percentage op het
+  moment van opstellen (`regels_json`), dus een latere tariefswijziging verandert nooit een
+  bestaande factuur.
+- **`dbo.artikelen_algemeen`** (zelfde migratie) — centraal (alleen via Beheer) beheerde
+  artikelen, voor elke klant beschikbaar als keuze bij het opstellen van een factuur/offerte,
+  zonder `klant_account_id`. Voorgevuld met Managementvergoeding / Huur (per maand) / Diensten
+  (per uur), prijs bewust op € 0,00 — invullen via Beheer → Facturatie → Standaardartikelen.
+  BTW-percentage wordt hier **niet opgeslagen maar live opgezocht** via `btw_code` bij elke
+  ophaal-aanroep (`api/_gedeeld/artikelenAlgemeen.js`), dus volgt automatisch een latere
+  tariefswijziging.
+- **`dbo.artikelen_klanten`** (uitgebreid, zelfde migratie) — kreeg een `btw_code`-kolom erbij.
+  `artikelenKlanten.js` accepteert nu `btwCode` i.p.v. een los percentage, zoekt het actuele
+  percentage op en slaat beide op (**write-through**, dus wél bevroren totdat het artikel zelf
+  opnieuw wordt opgeslagen) — dit is bewust anders dan `artikelen_algemeen` (dat altijd live
+  opzoekt), omdat een klant zijn eigen artikel-percentage niet ongevraagd wil zien veranderen.
+- **Nieuwe API-endpoints**: `/api/btw-tarieven` (klant-facing, GET, actuele tarieven),
+  `/api/beheer-btw-tarieven` (beheerder-only, GET volledige historie + POST nieuw tarief),
+  `/api/artikelen-algemeen` (klant-facing, GET), `/api/beheer-artikelen-algemeen`
+  (beheerder-only, volledige CRUD) — alle vier met bijbehorende route-restrictie in
+  `staticwebapp.config.json`.
+- **`FacturatieModule.jsx`**: `ArtikelFormulier` heeft nu een BTW-keuzelijst (i.p.v. een los
+  percentage-veld) gevuld vanuit `/api/btw-tarieven`; betalingstermijn is een keuzelijst
+  geworden (7/14/21/30 dagen, met terugval op de bestaande waarde bij het bewerken van een
+  ouder concept); de tab "Producten" toont naast de eigen catalogus ook een read-only sectie
+  "Standaardartikelen van Activaa"; deze artikelen verschijnen ook gewoon als keuze bij het
+  samenstellen van een factuur/offerte-regel.
+- **`BeheerPortaal.jsx`**, tab "Facturatie": naast de bestaande klant-aan/uit-lijst nu ook twee
+  nieuwe secties — "BTW-tarieven" (volledige historie + formulier om een nieuw tarief toe te
+  voegen) en "Standaardartikelen" (lijst met inline bewerken/toevoegen/verwijderen).
+- De "Standaardwaarden"-kaart in de klant-facing Instellingen-sub-tab blijft bewust op "nog
+  niet gebouwd" staan — dat gaat over een klant die zíjn eigen standaardwaarden instelt, iets
+  anders dan deze door Activaa centraal beheerde tarieven/artikelen.
+
 ## Nog te doen (bewust nog niet gebouwd, om scope behapbaar te houden)
 
-1. **Committen + deployen** — zie hierboven: `npm install` in `api/`, dan committen en pushen.
-2. **Azure SQL Database provisioneren** — er bestaat nog geen database. Server + database
-   aanmaken (regio, pricing tier, firewall/Managed Identity), dan
-   `db/migrations/001_facturatiemodule.sql` er één keer tegen uitvoeren, en de
-   connection string in `FACTURATIE_SQL_CONNECTIONSTRING` zetten (lokaal én als Application
-   Setting op de Static Web App in Azure). Er is in deze sessie Azure CLI-toegang aangetroffen
-   tot de subscription "OfferteTool" — dit zou dus ook direct uitgevoerd kunnen worden, maar is
-   bewust niet gedaan zonder expliciet akkoord (het is een nieuwe, betalende Azure-resource).
-3. **Dynamics-koppeling voor facturen** — bewust uitgesteld (zie hierboven). Als dit alsnog
+1. **Committen + deployen** — code staat klaar (zie hierboven), inclusief de eerder nog
+   ontbrekende frontend-koppeling. Na push: migratie `002_facturatiemodule_standaarden.sql`
+   nog tegen de live database uitvoeren (Portal Query-editor, geen `GO`), en controleren dat
+   `npm install` in `api/` de nieuwe `mssql`-dependency oppikt (gebeurt normaliter automatisch
+   via de GitHub Actions-build van Static Web Apps).
+2. **Dynamics-koppeling voor facturen** — bewust uitgesteld (zie hierboven). Als dit alsnog
    gebouwd wordt: een custom tabel in Dataverse aanmaken (bijv. `cr283_factuur`) via de maker-
    portal (niet via SQL — dat kan niet), met een relatie naar Account, schrijfrechten voor
    `DYNAMICS_CLIENT_ID` op die tabel, en dan een sync-stap die na elke aanmaak/statuswijziging
    in `facturen_klanten` de rij wegschrijft/bijwerkt in die tabel (vult dan
    `dynamics_record_id`/`dynamics_sync_status`). De code-kant (een `syncNaarDynamics()`-functie
    aanroepen vanuit `facturenKlanten.js`) is nog niet gebouwd.
-4. **Terugkerende facturen** — patroon (frequentie, volgende generatiedatum) + een
+3. **Terugkerende facturen** — patroon (frequentie, volgende generatiedatum) + een
    tijdgestuurde Azure Function (timer trigger) die op basis daarvan automatisch nieuwe
    facturen aanmaakt. Nog geen tabel/code voor.
-5. **Herinneringen** — de e-mailsjablonen bestaan al (Beheer → Instellingen →
+4. **Herinneringen** — de e-mailsjablonen bestaan al (Beheer → Instellingen →
    E-mailsjablonen, zie screenshot "Eerste herinnering"/"Laatste aanmaning"); er is nog geen
    job die verlopen facturen signaleert en op basis daarvan automatisch een herinnering
    verstuurt via die sjablonen.
-6. **Logo + eigen factuurgegevens** — moet volgens de eis via het bestaande
+5. **Logo + eigen factuurgegevens** — moet volgens de eis via het bestaande
    wijzigingsverzoek-mechanisme (`api/_gedeeld/wijzigingen.js`) lopen; nog niet aangesloten
    op facturatie-specifieke velden (bedrijfsnaam op de factuur, IBAN, BIC, logo-URL, enz.).
    Staat als "nog niet gebouwd"-kaart in de Instellingen-sub-tab.
-7. **Mollie-koppeling & standaardwaarden** — eveneens nog "nog niet gebouwd"-kaarten in de
-   Instellingen-sub-tab.
-8. **PDF-generatie** — `pdf-lib` staat al als dependency in `api/package.json` (waarschijnlijk
+6. **Mollie-koppeling & klant-eigen standaardwaarden** — eveneens nog "nog niet gebouwd"-
+   kaarten in de Instellingen-sub-tab (BTW-tarieven en standaardartikelen zelf zijn inmiddels
+   wél gebouwd, maar dan centraal door Activaa beheerd — zie hierboven).
+7. **PDF-generatie** — `pdf-lib` staat al als dependency in `api/package.json` (waarschijnlijk
    vanuit de vroegere offertetool); nog geen factuur-PDF-layout gebouwd op basis van
    `facturen_klanten`.

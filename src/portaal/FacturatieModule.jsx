@@ -157,11 +157,50 @@ function useArtikelen(accountId) {
   return { status, items, foutmelding, verversen };
 }
 
+/** Door Activaa centraal beheerde artikelen (dbo.artikelen_algemeen) — voor elke klant
+ * hetzelfde, alleen leesbaar via het portaal (beheer gebeurt in Beheer). */
+function useArtikelenAlgemeen(accountId) {
+  const [status, setStatus] = useState("laden");
+  const [items, setItems] = useState([]);
+  const [foutmelding, setFoutmelding] = useState("");
+
+  const verversen = useCallback(() => {
+    if (!accountId) return;
+    setStatus("laden");
+    fetch(`/api/artikelen-algemeen?accountId=${encodeURIComponent(accountId)}`)
+      .then(haalJson)
+      .then((d) => { setItems(d.artikelen || []); setStatus("klaar"); })
+      .catch((e) => { setFoutmelding(e.message || String(e)); setStatus("fout"); });
+  }, [accountId]);
+
+  useEffect(() => { verversen(); }, [verversen]);
+  return { status, items, foutmelding, verversen };
+}
+
+/** De op dit moment geldige BTW-tarieven — voor de BTW-keuzelijst bij een eigen artikel. */
+function useBtwTarieven(accountId) {
+  const [status, setStatus] = useState("laden");
+  const [items, setItems] = useState([]);
+
+  const verversen = useCallback(() => {
+    if (!accountId) return;
+    setStatus("laden");
+    fetch(`/api/btw-tarieven?accountId=${encodeURIComponent(accountId)}`)
+      .then(haalJson)
+      .then((d) => { setItems(d.tarieven || []); setStatus("klaar"); })
+      .catch(() => setStatus("fout"));
+  }, [accountId]);
+
+  useEffect(() => { verversen(); }, [verversen]);
+  return { status, items, verversen };
+}
+
 /* ---------------------------------------------------------------------- */
 /* Facturen & Offertes — gedeelde lijst-/detailweergave                    */
 /* ---------------------------------------------------------------------- */
 
 const LEGE_REGEL = () => ({ omschrijving: "", artikelId: "", aantal: 1, prijs: 0, btwPercentage: 21 });
+const BETALINGSTERMIJN_OPTIES = [7, 14, 21, 30];
 
 function DocumentFormulier({ accountId, documenttype, klanten, artikelen, bestaand, onKlaar, onOpgeslagen }) {
   const [klantKlantId, setKlantKlantId] = useState(bestaand?.klantKlantId || "");
@@ -266,7 +305,11 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, bestaa
         </div>
         <div>
           <div style={labelStijl}>Betalingstermijn (dagen)</div>
-          <input type="number" value={betalingstermijnDagen} onChange={(e) => setBetalingstermijnDagen(e.target.value)} style={inputStijl} />
+          <select value={betalingstermijnDagen} onChange={(e) => setBetalingstermijnDagen(Number(e.target.value))} style={inputStijl}>
+            {[...new Set([...BETALINGSTERMIJN_OPTIES, Number(betalingstermijnDagen) || 30])]
+              .sort((a, b) => a - b)
+              .map((d) => <option key={d} value={d}>{d} dagen</option>)}
+          </select>
         </div>
       </div>
 
@@ -660,10 +703,10 @@ function KlantenTab({ accountId, klanten, status, foutmelding, verversen }) {
   );
 }
 
-function ArtikelFormulier({ accountId, bestaand, onKlaar, onOpgeslagen }) {
+function ArtikelFormulier({ accountId, bestaand, tarieven, onKlaar, onOpgeslagen }) {
   const [f, setF] = useState({
     omschrijving: bestaand?.omschrijving || "", eenheid: bestaand?.eenheid || "uur",
-    prijs: bestaand?.prijs ?? 0, btwPercentage: bestaand?.btwPercentage ?? 21,
+    prijs: bestaand?.prijs ?? 0, btwCode: bestaand?.btwCode || "hoog",
   });
   const [status, setStatus] = useState("invoer");
   const [foutmelding, setFoutmelding] = useState("");
@@ -673,7 +716,7 @@ function ArtikelFormulier({ accountId, bestaand, onKlaar, onOpgeslagen }) {
     if (!f.omschrijving.trim()) { setFoutmelding("Omschrijving is verplicht."); setStatus("fout"); return; }
     setStatus("bezig");
     try {
-      const payload = { accountId, omschrijving: f.omschrijving, eenheid: f.eenheid, prijs: Number(f.prijs) || 0, btwPercentage: Number(f.btwPercentage) };
+      const payload = { accountId, omschrijving: f.omschrijving, eenheid: f.eenheid, prijs: Number(f.prijs) || 0, btwCode: f.btwCode };
       const res = bestaand
         ? await fetch("/api/artikelen-klanten", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, id: bestaand.id }) })
         : await fetch("/api/artikelen-klanten", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -697,7 +740,15 @@ function ArtikelFormulier({ accountId, bestaand, onKlaar, onOpgeslagen }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
         <div><div style={labelStijl}>Eenheid</div><input value={f.eenheid} onChange={zet("eenheid")} style={inputStijl} placeholder="uur, stuk, ..." /></div>
         <div><div style={labelStijl}>Prijs (excl. btw)</div><input type="number" value={f.prijs} onChange={zet("prijs")} style={inputStijl} /></div>
-        <div><div style={labelStijl}>BTW %</div><input type="number" value={f.btwPercentage} onChange={zet("btwPercentage")} style={inputStijl} /></div>
+        <div>
+          <div style={labelStijl}>BTW</div>
+          <select value={f.btwCode} onChange={zet("btwCode")} style={inputStijl}>
+            {(tarieven || []).length === 0 && <option value={f.btwCode}>Laden…</option>}
+            {(tarieven || []).map((t) => (
+              <option key={t.code} value={t.code}>{t.label} ({t.percentage}%)</option>
+            ))}
+          </select>
+        </div>
       </div>
       <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
         <Knop variant="primair" icon={Check} disabled={status === "bezig"} onClick={opslaan}>{status === "bezig" ? "Opslaan…" : "Opslaan"}</Knop>
@@ -707,7 +758,7 @@ function ArtikelFormulier({ accountId, bestaand, onKlaar, onOpgeslagen }) {
   );
 }
 
-function ProductenTab({ accountId, artikelen, status, foutmelding, verversen }) {
+function ProductenTab({ accountId, artikelen, artikelenAlgemeen, tarieven, status, foutmelding, verversen }) {
   const [weergave, setWeergave] = useState("lijst");
   const [actief, setActief] = useState(null);
 
@@ -717,8 +768,8 @@ function ProductenTab({ accountId, artikelen, status, foutmelding, verversen }) 
     verversen();
   };
 
-  if (weergave === "nieuw") return <ArtikelFormulier accountId={accountId} onKlaar={() => setWeergave("lijst")} onOpgeslagen={verversen} />;
-  if (weergave === "bewerken" && actief) return <ArtikelFormulier accountId={accountId} bestaand={actief} onKlaar={() => setWeergave("lijst")} onOpgeslagen={verversen} />;
+  if (weergave === "nieuw") return <ArtikelFormulier accountId={accountId} tarieven={tarieven} onKlaar={() => setWeergave("lijst")} onOpgeslagen={verversen} />;
+  if (weergave === "bewerken" && actief) return <ArtikelFormulier accountId={accountId} bestaand={actief} tarieven={tarieven} onKlaar={() => setWeergave("lijst")} onOpgeslagen={verversen} />;
 
   return (
     <div>
@@ -745,6 +796,28 @@ function ProductenTab({ accountId, artikelen, status, foutmelding, verversen }) 
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {(artikelenAlgemeen || []).length > 0 && (
+        <div style={{ marginTop: 28 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Standaardartikelen van Activaa</div>
+          <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, marginBottom: 10 }}>
+            Deze artikelen zijn door Activaa ingesteld en gelden voor alle klanten in het portaal — je kunt ze gebruiken bij het opstellen van een factuur of offerte, maar hier niet zelf wijzigen.
+          </div>
+          <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", background: KLEUR.lichtblauw, padding: "9px 14px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
+              <div>Omschrijving</div><div>Eenheid</div><div>Prijs</div><div>BTW</div>
+            </div>
+            {artikelenAlgemeen.map((a) => (
+              <div key={a.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", padding: "10px 14px", borderTop: `1px solid ${KLEUR.rand}`, fontSize: 13, alignItems: "center" }}>
+                <div style={{ fontWeight: 600 }}>{a.omschrijving}</div>
+                <div>{a.eenheid || "—"}</div>
+                <div>{geld(a.prijs)}</div>
+                <div>{a.btwPercentage}%</div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -804,12 +877,21 @@ export default function FacturatieModule({ accounts }) {
 
   const klantenData = useKlanten(accountId);
   const artikelenData = useArtikelen(accountId);
+  const artikelenAlgemeenData = useArtikelenAlgemeen(accountId);
+  const btwTarievenData = useBtwTarieven(accountId);
   // Voor de "omgezet naar factuur"-link bij geaccepteerde offertes hebben we ook de facturenlijst nodig.
   const facturenVoorKoppeling = useDocumenten(accountId, "factuur");
 
   const klantenMap = useMemo(
     () => Object.fromEntries(klantenData.items.map((k) => [k.id, k.naam])),
     [klantenData.items]
+  );
+
+  // Bij het opstellen van een factuur/offerte mag zowel uit de eigen catalogus als uit de
+  // door Activaa centraal beheerde standaardartikelen gekozen worden.
+  const alleArtikelen = useMemo(
+    () => [...artikelenData.items, ...artikelenAlgemeenData.items],
+    [artikelenData.items, artikelenAlgemeenData.items]
   );
 
   if (!accountId) return <LegeStaat tekst="Geen klantaccount beschikbaar." />;
@@ -843,16 +925,24 @@ export default function FacturatieModule({ accounts }) {
       </div>
 
       {subtab === "facturen" && (
-        <DocumentenTab accountId={accountId} documenttype="factuur" klanten={klantenData.items} artikelen={artikelenData.items} klantenMap={klantenMap} />
+        <DocumentenTab accountId={accountId} documenttype="factuur" klanten={klantenData.items} artikelen={alleArtikelen} klantenMap={klantenMap} />
       )}
       {subtab === "offertes" && (
-        <DocumentenTab accountId={accountId} documenttype="offerte" klanten={klantenData.items} artikelen={artikelenData.items} klantenMap={klantenMap} alleFacturen={facturenVoorKoppeling.items} />
+        <DocumentenTab accountId={accountId} documenttype="offerte" klanten={klantenData.items} artikelen={alleArtikelen} klantenMap={klantenMap} alleFacturen={facturenVoorKoppeling.items} />
       )}
       {subtab === "klanten" && (
         <KlantenTab accountId={accountId} klanten={klantenData.items} status={klantenData.status} foutmelding={klantenData.foutmelding} verversen={klantenData.verversen} />
       )}
       {subtab === "producten" && (
-        <ProductenTab accountId={accountId} artikelen={artikelenData.items} status={artikelenData.status} foutmelding={artikelenData.foutmelding} verversen={artikelenData.verversen} />
+        <ProductenTab
+          accountId={accountId}
+          artikelen={artikelenData.items}
+          artikelenAlgemeen={artikelenAlgemeenData.items}
+          tarieven={btwTarievenData.items}
+          status={artikelenData.status}
+          foutmelding={artikelenData.foutmelding}
+          verversen={artikelenData.verversen}
+        />
       )}
       {subtab === "instellingen" && <InstellingenTab />}
     </div>

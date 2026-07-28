@@ -57,6 +57,14 @@
       "allowedRoles": ["beheerder"]
     },
     {
+      "route": "/api/beheer-btw-tarieven",
+      "allowedRoles": ["beheerder"]
+    },
+    {
+      "route": "/api/beheer-artikelen-algemeen",
+      "allowedRoles": ["beheerder"]
+    },
+    {
       "route": "/api/beheer-medewerkers",
       "allowedRoles": ["beheerder", "medewerker"]
     },
