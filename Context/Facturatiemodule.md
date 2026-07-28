@@ -184,11 +184,19 @@ instelbaar) en een direct werkend BTW-beheerscherm (niet uitgesteld):
 
 ## Nog te doen (bewust nog niet gebouwd, om scope behapbaar te houden)
 
-1. **Committen + deployen** — code staat klaar (zie hierboven), inclusief de eerder nog
-   ontbrekende frontend-koppeling. Na push: migratie `002_facturatiemodule_standaarden.sql`
-   nog tegen de live database uitvoeren (Portal Query-editor, geen `GO`), en controleren dat
-   `npm install` in `api/` de nieuwe `mssql`-dependency oppikt (gebeurt normaliter automatisch
-   via de GitHub Actions-build van Static Web Apps).
+1. ~~Committen + deployen~~ — **afgerond (28-07-2026)**. Commit `66cc80c` (standaardartikelen
+   + BTW-tarieven) en `71e2bdb` (migratiebestand-fix, zie hieronder) zijn gecommit en gepusht.
+   Migratie `002_facturatiemodule_standaarden.sql` is tegen de live database uitgevoerd:
+   `dbo.btw_tarieven` (4 rijen), `dbo.artikelen_algemeen` (3 rijen) en de `btw_code`-kolom op
+   `dbo.artikelen_klanten` staan er allemaal op (gecontroleerd via COUNT-query: 4 / 3 / 1).
+   Let op: de Azure Portal Query-editor (preview) compileert een meerdere-statements-batch in
+   zijn geheel — een los `ALTER TABLE ... ADD CONSTRAINT CHECK` op een kolom die eerder in
+   dezelfde batch is toegevoegd faalt dan met "Invalid column name" vóórdat er iets uitvoert.
+   Het migratiebestand is aangepast zodat kolom + CHECK-constraint in één statement staan
+   (voorkomt dit bij een volgende run tegen een nieuwe/andere database).
+   Nog open: prijzen van de drie standaardartikelen staan nog op €0,00 — invullen via
+   **Beheer → Facturatie → Standaardartikelen**. En controleren dat `npm install` in `api/`
+   de `mssql`-dependency heeft opgepikt (gebeurt automatisch via de GitHub Actions-build).
 2. **Dynamics-koppeling voor facturen** — bewust uitgesteld (zie hierboven). Als dit alsnog
    gebouwd wordt: een custom tabel in Dataverse aanmaken (bijv. `cr283_factuur`) via de maker-
    portal (niet via SQL — dat kan niet), met een relatie naar Account, schrijfrechten voor
