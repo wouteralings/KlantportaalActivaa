@@ -380,8 +380,9 @@ in plaats van zelf ingevuld.
 
 ### Nog te doen vóór dit werkend is op klantportaalactivaa zelf
 
-1. **Migratie 005 tegen de live database draaien** (Azure Portal Query-editor, zelfde
-   werkwijze als voorheen — geen `GO`, statements los aanleveren).
+1. ~~Migratie 005 tegen de live database draaien~~ — **afgerond**: door Wouter uitgevoerd
+   (bevestigd: "005 met succes doorgevoerd"). `leveringsperiode_start`/`_eind` staan op
+   `dbo.facturen_klanten`, en `dbo.facturen_terugkerend` bestaat.
 2. **`TERUGKEREND_TRIGGER_SECRET` instellen** als Application Setting op de Static Web App —
    verzin een lange willekeurige waarde, zonder deze setting blijft het trigger-endpoint uit.
 3. **De Power Automate "geplande cloudflow" inrichten**: Recurrence-trigger (bijv. dagelijks
