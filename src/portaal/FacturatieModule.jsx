@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   FileText, FileSpreadsheet, Package, Users, Settings, Plus, Send, Check, X,
-  Trash2, Pencil, CreditCard, Image, Bell, Sliders, ArrowLeft,
+  Trash2, Pencil, CreditCard, Bell, Sliders, ArrowLeft, ChevronDown, Search,
+  Lock, Clock, Copy,
 } from "lucide-react";
 
 const KLEUR = {
@@ -195,6 +196,25 @@ function useBtwTarieven(accountId) {
   return { status, items, verversen };
 }
 
+/** Eigen afzendergegevens + logo van dit klant-account (dbo.bedrijfsgegevens_klanten). */
+function useBedrijfsgegevens(accountId) {
+  const [status, setStatus] = useState("laden");
+  const [data, setData] = useState(null);
+  const [foutmelding, setFoutmelding] = useState("");
+
+  const verversen = useCallback(() => {
+    if (!accountId) return;
+    setStatus("laden");
+    fetch(`/api/bedrijfsgegevens-klanten?accountId=${encodeURIComponent(accountId)}`)
+      .then(haalJson)
+      .then((d) => { setData(d); setStatus("klaar"); })
+      .catch((e) => { setFoutmelding(e.message || String(e)); setStatus("fout"); });
+  }, [accountId]);
+
+  useEffect(() => { verversen(); }, [verversen]);
+  return { status, data, foutmelding, verversen };
+}
+
 /* ---------------------------------------------------------------------- */
 /* Facturen & Offertes — gedeelde lijst-/detailweergave                    */
 /* ---------------------------------------------------------------------- */
@@ -202,7 +222,84 @@ function useBtwTarieven(accountId) {
 const LEGE_REGEL = () => ({ omschrijving: "", artikelId: "", aantal: 1, prijs: 0, btwPercentage: 21 });
 const BETALINGSTERMIJN_OPTIES = [7, 14, 21, 30];
 
-function DocumentFormulier({ accountId, documenttype, klanten, artikelen, bestaand, onKlaar, onOpgeslagen }) {
+/** Live voorbeeld van een factuur/offerte-in-opbouw — geen echt document, puur ter illustratie
+ * tijdens het invullen (zie DocumentFormulier). Toont de eigen afzendergegevens + logo
+ * (Facturatiemodule → Instellingen → Bedrijfsgegevens & logo) als "Van:". */
+function DocumentVoorbeeld({ bedrijfsgegevens, documenttype, klant, regels, betalingstermijnDagen, opmerkingen, subtotaal, btwBedrag }) {
+  const naam = documenttype === "offerte" ? "Offerte" : "Factuur";
+  const vandaag = new Date();
+  const vervaldatum = new Date(vandaag.getTime() + (Number(betalingstermijnDagen) || 30) * 24 * 60 * 60 * 1000);
+  const zichtbareRegels = regels.filter((r) => r.omschrijving.trim() || Number(r.prijs));
+  const bg = bedrijfsgegevens || {};
+
+  return (
+    <div style={{ background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: "22px 20px", fontSize: 12, color: KLEUR.tekst }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 22 }}>
+        <div style={{ minWidth: 0 }}>
+          {bg.logoUrl && <img src={bg.logoUrl} alt="Logo" style={{ maxHeight: 40, maxWidth: 150, objectFit: "contain", marginBottom: 6, display: "block" }} />}
+          <div style={{ fontSize: 13, fontWeight: 700 }}>{bg.bedrijfsnaam || "(bedrijfsnaam nog niet ingevuld)"}</div>
+          <div style={{ fontSize: 10.5, color: KLEUR.subtekst, lineHeight: 1.6, marginTop: 3 }}>
+            {[bg.straat, bg.huisnummer].filter(Boolean).join(" ") || null}
+            {(bg.straat || bg.huisnummer) && <br />}
+            {[bg.postcode, bg.plaats].filter(Boolean).join(" ") || null}
+            {(bg.postcode || bg.plaats) && <br />}
+            {bg.kvkNummer && <>KvK {bg.kvkNummer}<br /></>}
+            {bg.btwNummer && <>BTW {bg.btwNummer}</>}
+          </div>
+        </div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: KLEUR.blauw }}>{naam}</div>
+          <div style={{ fontSize: 10.5, color: KLEUR.subtekst, marginTop: 4, lineHeight: 1.6 }}>
+            Nummer: (concept)<br />
+            Datum: {vandaag.toLocaleDateString("nl-NL")}<br />
+            Vervaldatum: {vervaldatum.toLocaleDateString("nl-NL")}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ fontSize: 10, color: KLEUR.mutedTekst, textTransform: "uppercase", fontWeight: 700, marginBottom: 3 }}>Aan</div>
+      <div style={{ marginBottom: 18, fontSize: 12.5 }}>
+        {klant ? klant.naam : <span style={{ color: KLEUR.mutedTekst, fontStyle: "italic" }}>— nog geen klant gekozen —</span>}
+      </div>
+
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 6, overflow: "hidden", marginBottom: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 50px 70px 50px 70px", background: KLEUR.lichtblauw, padding: "6px 9px", fontSize: 10, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
+          <div>Omschrijving</div><div>Aantal</div><div>Prijs</div><div>BTW%</div><div>Bedrag</div>
+        </div>
+        {zichtbareRegels.length === 0 ? (
+          <div style={{ padding: "12px 9px", color: KLEUR.mutedTekst, fontStyle: "italic", fontSize: 11.5 }}>Nog geen regels ingevuld.</div>
+        ) : zichtbareRegels.map((r, i) => (
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 50px 70px 50px 70px", padding: "6px 9px", borderTop: `1px solid ${KLEUR.rand}`, fontSize: 11.5 }}>
+            <div style={{ overflowWrap: "anywhere" }}>{r.omschrijving || "—"}</div>
+            <div>{r.aantal}</div>
+            <div>{geld(r.prijs)}</div>
+            <div>{r.btwPercentage}%</div>
+            <div style={{ textAlign: "right" }}>{geld((Number(r.aantal) || 0) * (Number(r.prijs) || 0))}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+        <div style={{ textAlign: "right", fontSize: 11.5, color: KLEUR.subtekst }}>
+          <div>Subtotaal: {geld(subtotaal)}</div>
+          <div>BTW: {geld(btwBedrag)}</div>
+          <div style={{ fontWeight: 700, fontSize: 13.5, color: KLEUR.tekst, marginTop: 2 }}>Totaal: {geld(subtotaal + btwBedrag)}</div>
+        </div>
+      </div>
+
+      {opmerkingen && <div style={{ fontSize: 11, color: KLEUR.subtekst, whiteSpace: "pre-wrap", marginBottom: 12 }}>{opmerkingen}</div>}
+
+      {(bg.iban || bg.ibanTenaamstelling) && (
+        <div style={{ fontSize: 10, color: KLEUR.mutedTekst, borderTop: `1px solid ${KLEUR.rand}`, paddingTop: 8 }}>
+          Gelieve te betalen vóór {vervaldatum.toLocaleDateString("nl-NL")}
+          {bg.iban ? ` op ${bg.iban}` : ""}{bg.ibanTenaamstelling ? ` t.n.v. ${bg.ibanTenaamstelling}` : ""}, o.v.v. het factuurnummer.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DocumentFormulier({ accountId, documenttype, klanten, artikelen, bedrijfsgegevens, bestaand, onKlaar, onOpgeslagen }) {
   const [klantKlantId, setKlantKlantId] = useState(bestaand?.klantKlantId || "");
   const [betalingstermijnDagen, setBetalingstermijnDagen] = useState(bestaand?.betalingstermijnDagen ?? 30);
   const [opmerkingen, setOpmerkingen] = useState(bestaand?.opmerkingen || "");
@@ -276,8 +373,10 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, bestaa
   };
 
   const naam = documenttype === "offerte" ? "offerte" : "factuur";
+  const gekozenKlant = klanten.find((k) => k.id === klantKlantId) || null;
 
   return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))", gap: 20, alignItems: "start" }}>
     <div style={kaartStijl}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
         <button onClick={onKlaar} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.subtekst, display: "flex" }}>
@@ -360,6 +459,21 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, bestaa
         Een nummer wordt pas toegekend zodra je de {naam} verstuurt — hier sla je alleen het concept op.
       </div>
     </div>
+
+    <div>
+      <div style={{ ...labelStijl, marginTop: 0 }}>Voorbeeld</div>
+      <DocumentVoorbeeld
+        bedrijfsgegevens={bedrijfsgegevens}
+        documenttype={documenttype}
+        klant={gekozenKlant}
+        regels={regels}
+        betalingstermijnDagen={betalingstermijnDagen}
+        opmerkingen={opmerkingen}
+        subtotaal={subtotaal}
+        btwBedrag={btwBedrag}
+      />
+    </div>
+    </div>
   );
 }
 
@@ -429,7 +543,7 @@ function DocumentDetail({ document, klantenMap, onTerug, onActie, gerelateerdeFa
   );
 }
 
-function DocumentenTab({ accountId, documenttype, klanten, artikelen, klantenMap, alleFacturen }) {
+function DocumentenTab({ accountId, documenttype, klanten, artikelen, klantenMap, alleFacturen, bedrijfsgegevens }) {
   const { status, items, foutmelding, verversen } = useDocumenten(accountId, documenttype);
   const [weergave, setWeergave] = useState("lijst"); // lijst | nieuw | bewerken | detail
   const [actief, setActief] = useState(null);
@@ -478,7 +592,7 @@ function DocumentenTab({ accountId, documenttype, klanten, artikelen, klantenMap
   if (weergave === "nieuw") {
     return (
       <DocumentFormulier
-        accountId={accountId} documenttype={documenttype} klanten={klanten} artikelen={artikelen}
+        accountId={accountId} documenttype={documenttype} klanten={klanten} artikelen={artikelen} bedrijfsgegevens={bedrijfsgegevens}
         onKlaar={() => setWeergave("lijst")}
         onOpgeslagen={() => verversen()}
       />
@@ -487,7 +601,7 @@ function DocumentenTab({ accountId, documenttype, klanten, artikelen, klantenMap
   if (weergave === "bewerken" && actief) {
     return (
       <DocumentFormulier
-        accountId={accountId} documenttype={documenttype} klanten={klanten} artikelen={artikelen} bestaand={actief}
+        accountId={accountId} documenttype={documenttype} klanten={klanten} artikelen={artikelen} bedrijfsgegevens={bedrijfsgegevens} bestaand={actief}
         onKlaar={() => setWeergave("lijst")}
         onOpgeslagen={() => verversen()}
       />
@@ -841,10 +955,157 @@ function NogNietGebouwdKaart({ icon: Icon, titel, tekst }) {
   );
 }
 
-function InstellingenTab() {
+/** Eigen afzendergegevens + logo (dbo.bedrijfsgegevens_klanten) — direct zelf te wijzigen,
+ * geen goedkeuring door Activaa nodig (in tegenstelling tot bedrijfs-/contactgegevens uit
+ * Dynamics bij "Mijn gegevens"). "Kopieer van" is alleen zichtbaar met >1 gekoppeld account
+ * met de facturatiemodule aan, en neemt bewust het logo niet over (dat is echt per klant). */
+function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts }) {
+  const { status, data } = bedrijfsgegevens;
+  const [f, setF] = useState(null);
+  const [opslaanStatus, setOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
+  const [logoStatus, setLogoStatus] = useState("idle"); // idle | bezig | fout
+  const [kopieerVan, setKopieerVan] = useState("");
+  const [kopieerBezig, setKopieerBezig] = useState(false);
+
+  useEffect(() => {
+    if (data && !f) setF({ ...data });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  if (status === "laden" || !f) {
+    return (
+      <div style={kaartStijl}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Bedrijfsgegevens & logo</div>
+        <LegeStaat tekst="Laden…" />
+      </div>
+    );
+  }
+
+  const zet = (k) => (e) => setF((h) => ({ ...h, [k]: e.target.value }));
+
+  const opslaan = async () => {
+    setOpslaanStatus("bezig");
+    try {
+      // logo gaat via een eigen upload-endpoint (niet mee in dit formulier); gewijzigdOp is
+      // read-only metadata die de server zelf teruggeeft.
+      const { logoUrl: _logoUrl, gewijzigdOp: _gewijzigdOp, ...velden } = f;
+      const res = await fetch("/api/bedrijfsgegevens-klanten", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId, ...velden }),
+      });
+      const opgeslagen = await haalJson(res);
+      setF(opgeslagen);
+      setOpslaanStatus("gelukt");
+    } catch {
+      setOpslaanStatus("fout");
+    }
+  };
+
+  const uploadLogo = (bestand) => {
+    if (!bestand) return;
+    setLogoStatus("bezig");
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const res = await fetch("/api/bedrijfsgegevens-logo", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accountId, dataUrl: reader.result }),
+        });
+        const d = await haalJson(res);
+        setF((h) => ({ ...h, logoUrl: d.logoUrl }));
+        setLogoStatus("idle");
+      } catch {
+        setLogoStatus("fout");
+      }
+    };
+    reader.readAsDataURL(bestand);
+  };
+
+  const kopieer = async () => {
+    if (!kopieerVan) return;
+    setKopieerBezig(true);
+    try {
+      const d = await haalJson(await fetch(`/api/bedrijfsgegevens-klanten?accountId=${encodeURIComponent(kopieerVan)}`));
+      setF((h) => ({ ...d, logoUrl: h.logoUrl }));
+    } catch { /* gebruiker kan het gewoon opnieuw proberen */ }
+    setKopieerBezig(false);
+  };
+
+  return (
+    <div style={kaartStijl}>
+      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Bedrijfsgegevens & logo</div>
+      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 16 }}>
+        Deze gegevens en dit logo komen als afzender ("Van:") bovenaan je facturen en offertes te staan.
+      </div>
+
+      {andereAccounts.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
+          <select value={kopieerVan} onChange={(e) => setKopieerVan(e.target.value)} style={{ ...inputStijl, maxWidth: 260 }}>
+            <option value="">Kopieer van andere klant…</option>
+            {andereAccounts.map((a) => <option key={a.accountId} value={a.accountId}>{a.klantnaam}</option>)}
+          </select>
+          <Knop onClick={kopieer} disabled={!kopieerVan || kopieerBezig} icon={Copy}>{kopieerBezig ? "Bezig…" : "Kopieer"}</Knop>
+          <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>(logo wordt niet overgenomen)</span>
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "0 20px" }}>
+        <div>
+          <div style={labelStijl}>Bedrijfsnaam</div>
+          <input value={f.bedrijfsnaam} onChange={zet("bedrijfsnaam")} style={inputStijl} />
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 8 }}>
+            <div><div style={labelStijl}>Straat</div><input value={f.straat} onChange={zet("straat")} style={inputStijl} /></div>
+            <div><div style={labelStijl}>Huisnr.</div><input value={f.huisnummer} onChange={zet("huisnummer")} style={inputStijl} /></div>
+            <div><div style={labelStijl}>Toev.</div><input value={f.toevoeging} onChange={zet("toevoeging")} style={inputStijl} /></div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 8 }}>
+            <div><div style={labelStijl}>Postcode</div><input value={f.postcode} onChange={zet("postcode")} style={inputStijl} /></div>
+            <div><div style={labelStijl}>Plaats</div><input value={f.plaats} onChange={zet("plaats")} style={inputStijl} /></div>
+          </div>
+          <div style={labelStijl}>Land</div>
+          <input value={f.land} onChange={zet("land")} style={inputStijl} />
+        </div>
+        <div>
+          <div style={labelStijl}>KvK-nummer</div>
+          <input value={f.kvkNummer} onChange={zet("kvkNummer")} style={inputStijl} />
+          <div style={labelStijl}>BTW-nummer</div>
+          <input value={f.btwNummer} onChange={zet("btwNummer")} style={inputStijl} />
+          <div style={labelStijl}>IBAN</div>
+          <input value={f.iban} onChange={zet("iban")} style={inputStijl} />
+          <div style={labelStijl}>Tenaamstelling IBAN</div>
+          <input value={f.ibanTenaamstelling} onChange={zet("ibanTenaamstelling")} style={inputStijl} />
+
+          <div style={labelStijl}>Logo</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            {f.logoUrl && (
+              <img src={f.logoUrl} alt="Logo" style={{ maxHeight: 46, maxWidth: 150, objectFit: "contain", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: 4 }} />
+            )}
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, color: KLEUR.blauw, cursor: "pointer" }}>
+              <input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => uploadLogo(e.target.files[0])} />
+              {logoStatus === "bezig" ? "Bezig met uploaden…" : f.logoUrl ? "Ander logo kiezen" : "Logo uploaden"}
+            </label>
+          </div>
+          {logoStatus === "fout" && <div style={{ fontSize: 12, color: KLEUR.rood, marginTop: 4 }}>Uploaden mislukt, probeer een ander bestand.</div>}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 18 }}>
+        <Knop variant="primair" icon={Check} onClick={opslaan} disabled={opslaanStatus === "bezig"}>
+          {opslaanStatus === "bezig" ? "Opslaan…" : "Opslaan"}
+        </Knop>
+        {opslaanStatus === "gelukt" && <span style={{ fontSize: 12.5, color: KLEUR.groen }}>Opgeslagen.</span>}
+        {opslaanStatus === "fout" && <span style={{ fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>}
+      </div>
+    </div>
+  );
+}
+
+function InstellingenTab({ accountId, bedrijfsgegevens, andereAccounts }) {
   return (
     <div>
-      <NogNietGebouwdKaart icon={Image} titel="Bedrijfsgegevens & logo" tekst="Eigen logo uploaden en factuurgegevens aanvullen — loopt straks via een wijzigingsverzoek aan Activaa, net als bij Mijn gegevens." />
+      <BedrijfsgegevensKaart accountId={accountId} bedrijfsgegevens={bedrijfsgegevens} andereAccounts={andereAccounts} />
       <NogNietGebouwdKaart icon={CreditCard} titel="Mollie & betalingen" tekst="Koppeling met Mollie zodat klanten van jouw klanten direct kunnen betalen vanaf de factuur." />
       <NogNietGebouwdKaart icon={Sliders} titel="Standaardwaarden" tekst="Standaard betalingstermijn, btw-percentage en factuurteksten instellen." />
       <NogNietGebouwdKaart icon={Bell} titel="Herinneringen & e-mailsjablonen" tekst="Automatische betalingsherinneringen; de teksten worden centraal beheerd door Activaa." />
@@ -853,7 +1114,8 @@ function InstellingenTab() {
 }
 
 /* ---------------------------------------------------------------------- */
-/* Module-root                                                             */
+/* Eén klant-account: ofwel de volle module (ingeschakeld), ofwel een       */
+/* "niet actief"-kaart met prijsinfo en een aanvraagknop (uitgeschakeld).   */
 /* ---------------------------------------------------------------------- */
 
 const SUBTABS = [
@@ -864,21 +1126,15 @@ const SUBTABS = [
   { key: "instellingen", label: "Instellingen", icon: Settings },
 ];
 
-export default function FacturatieModule({ accounts }) {
-  const [accountId, setAccountId] = useState(accounts[0]?.accountId || "");
+function FacturatieAccountInhoud({ account, andereAccounts }) {
+  const accountId = account.accountId;
   const [subtab, setSubtab] = useState("facturen");
-
-  useEffect(() => {
-    if (!accounts.some((a) => a.accountId === accountId)) {
-      setAccountId(accounts[0]?.accountId || "");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accounts]);
 
   const klantenData = useKlanten(accountId);
   const artikelenData = useArtikelen(accountId);
   const artikelenAlgemeenData = useArtikelenAlgemeen(accountId);
   const btwTarievenData = useBtwTarieven(accountId);
+  const bedrijfsgegevensData = useBedrijfsgegevens(accountId);
   // Voor de "omgezet naar factuur"-link bij geaccepteerde offertes hebben we ook de facturenlijst nodig.
   const facturenVoorKoppeling = useDocumenten(accountId, "factuur");
 
@@ -894,19 +1150,8 @@ export default function FacturatieModule({ accounts }) {
     [artikelenData.items, artikelenAlgemeenData.items]
   );
 
-  if (!accountId) return <LegeStaat tekst="Geen klantaccount beschikbaar." />;
-
   return (
     <div>
-      {accounts.length > 1 && (
-        <div style={{ marginBottom: 16 }}>
-          <div style={labelStijl}>Klantaccount</div>
-          <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ ...inputStijl, maxWidth: 320 }}>
-            {accounts.map((a) => <option key={a.accountId} value={a.accountId}>{a.klantnaam}</option>)}
-          </select>
-        </div>
-      )}
-
       <div style={{ display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap" }}>
         {SUBTABS.map(({ key, label, icon: Icon }) => (
           <button
@@ -925,10 +1170,10 @@ export default function FacturatieModule({ accounts }) {
       </div>
 
       {subtab === "facturen" && (
-        <DocumentenTab accountId={accountId} documenttype="factuur" klanten={klantenData.items} artikelen={alleArtikelen} klantenMap={klantenMap} />
+        <DocumentenTab accountId={accountId} documenttype="factuur" klanten={klantenData.items} artikelen={alleArtikelen} klantenMap={klantenMap} bedrijfsgegevens={bedrijfsgegevensData.data} />
       )}
       {subtab === "offertes" && (
-        <DocumentenTab accountId={accountId} documenttype="offerte" klanten={klantenData.items} artikelen={alleArtikelen} klantenMap={klantenMap} alleFacturen={facturenVoorKoppeling.items} />
+        <DocumentenTab accountId={accountId} documenttype="offerte" klanten={klantenData.items} artikelen={alleArtikelen} klantenMap={klantenMap} alleFacturen={facturenVoorKoppeling.items} bedrijfsgegevens={bedrijfsgegevensData.data} />
       )}
       {subtab === "klanten" && (
         <KlantenTab accountId={accountId} klanten={klantenData.items} status={klantenData.status} foutmelding={klantenData.foutmelding} verversen={klantenData.verversen} />
@@ -944,7 +1189,139 @@ export default function FacturatieModule({ accounts }) {
           verversen={artikelenData.verversen}
         />
       )}
-      {subtab === "instellingen" && <InstellingenTab />}
+      {subtab === "instellingen" && (
+        <InstellingenTab accountId={accountId} bedrijfsgegevens={bedrijfsgegevensData} andereAccounts={andereAccounts} />
+      )}
+    </div>
+  );
+}
+
+/** Kaart voor een gekoppeld klantaccount waarvoor de facturatiemodule nog niet aan staat —
+ * i.p.v. de tab helemaal te verbergen (dan zou een klant het nooit kunnen aanvragen). */
+function FacturatieNietActief({ account }) {
+  const [status, setStatus] = useState(account.facturatieAangevraagdOp ? "aangevraagd" : "idle"); // idle | bezig | aangevraagd | fout
+
+  const vraagAan = async () => {
+    setStatus("bezig");
+    try {
+      await haalJson(await fetch("/api/facturatie-aanvraag", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId: account.accountId }),
+      }));
+      setStatus("aangevraagd");
+    } catch {
+      setStatus("fout");
+    }
+  };
+
+  return (
+    <div style={{ padding: "18px 20px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <Lock size={15} color={KLEUR.mutedTekst} />
+        <div style={{ fontSize: 14, fontWeight: 700 }}>Facturatiemodule nog niet actief voor dit klantaccount</div>
+      </div>
+      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 16, maxWidth: 560 }}>
+        Hiermee kun je zelf facturen en offertes opstellen aan je eigen klanten, met een eigen productencatalogus,
+        eigen bedrijfsgegevens/logo en automatische doorlopende nummering. Deze module kost <strong>€ 5,- per maand</strong> per
+        klantaccount.
+      </div>
+      {status === "aangevraagd" ? (
+        <div style={{ fontSize: 12.5, color: KLEUR.blauw, display: "flex", alignItems: "center", gap: 6 }}>
+          <Clock size={13} />
+          Aangevraagd{account.facturatieAangevraagdOp ? ` op ${datum(account.facturatieAangevraagdOp)}` : ""} — we nemen contact met je op.
+        </div>
+      ) : (
+        <Knop variant="primair" onClick={vraagAan} disabled={status === "bezig"}>
+          {status === "bezig" ? "Bezig…" : "Vraag facturatiemodule aan"}
+        </Knop>
+      )}
+      {status === "fout" && <div style={{ marginTop: 10 }}><Melding tekst="Aanvragen is niet gelukt, probeer het nog eens." /></div>}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* Module-root — per gekoppeld klantaccount een inklapbare kaart (net als  */
+/* bij "Mijn gegevens"), met de volle module of een aanvraagkaart erin.    */
+/* ---------------------------------------------------------------------- */
+
+export default function FacturatieModule({ accounts }) {
+  const [openAccountId, setOpenAccountId] = useState(accounts.length === 1 ? accounts[0].accountId : null);
+  const [zoek, setZoek] = useState("");
+
+  useEffect(() => {
+    if (accounts.length === 1) setOpenAccountId(accounts[0].accountId);
+    else if (!accounts.some((a) => a.accountId === openAccountId)) setOpenAccountId(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accounts]);
+
+  if (accounts.length === 0) return <LegeStaat tekst="Geen klantaccount beschikbaar." />;
+
+  const term = zoek.trim().toLowerCase();
+  const lijst = accounts.filter((a) =>
+    !term || [a.klantnaam, String(a.klantnummer ?? "")].filter(Boolean).some((v) => v.toLowerCase().includes(term))
+  );
+
+  return (
+    <div>
+      {accounts.length > 1 && (
+        <div style={{ position: "relative", marginBottom: 14, maxWidth: 360 }}>
+          <Search size={16} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
+          <input
+            value={zoek}
+            onChange={(e) => setZoek(e.target.value)}
+            placeholder="Zoek op klantnummer of naam…"
+            style={{ ...inputStijl, padding: "10px 12px 10px 36px" }}
+          />
+        </div>
+      )}
+
+      <div style={accounts.length > 1 ? { border: `1px solid ${KLEUR.rand}`, borderRadius: 12, overflow: "hidden", background: "#fff" } : undefined}>
+        {lijst.length === 0 && (
+          <div style={{ padding: "18px 16px", fontSize: 13, color: KLEUR.mutedTekst }}>Geen klanten gevonden voor "{zoek}".</div>
+        )}
+        {lijst.map((acc, i) => {
+          const open = accounts.length === 1 ? true : openAccountId === acc.accountId;
+          const andereAccounts = accounts.filter((a) => a.accountId !== acc.accountId && a.facturatieIngeschakeld);
+          return (
+            <div key={acc.accountId} style={accounts.length > 1 ? { borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}` } : undefined}>
+              {accounts.length > 1 && (
+                <button
+                  onClick={() => setOpenAccountId(open ? null : acc.accountId)}
+                  style={{
+                    width: "100%", display: "flex", alignItems: "center", gap: 12,
+                    padding: "12px 16px", background: open ? KLEUR.lichtblauw : "#fff",
+                    border: "none", cursor: "pointer", textAlign: "left", color: KLEUR.tekst,
+                  }}
+                >
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: KLEUR.blauw, minWidth: 52, flexShrink: 0 }}>
+                    {acc.klantnummer || "—"}
+                  </span>
+                  <span style={{ fontSize: 14, fontWeight: 600, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {acc.klantnaam}
+                  </span>
+                  {!acc.facturatieIngeschakeld && (
+                    <span style={{
+                      display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 600,
+                      color: KLEUR.mutedTekst, background: "#F1F3EF", border: `1px solid ${KLEUR.rand}`,
+                      borderRadius: 999, padding: "3px 9px", flexShrink: 0,
+                    }}>
+                      <Lock size={11} /> Niet actief
+                    </span>
+                  )}
+                  <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ flexShrink: 0, transition: "transform .15s", transform: open ? "rotate(180deg)" : "none" }} />
+                </button>
+              )}
+              {open && (
+                acc.facturatieIngeschakeld
+                  ? <div style={{ padding: accounts.length > 1 ? "16px" : 0 }}><FacturatieAccountInhoud account={acc} andereAccounts={andereAccounts} /></div>
+                  : <FacturatieNietActief account={acc} />
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

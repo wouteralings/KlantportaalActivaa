@@ -7,7 +7,11 @@
  * dezelfde manier als wijzigrechten.js dat al doet voor medewerkerrechten.
  *
  * Opslag in Azure Blob Storage (container portaalcontent, blob facturatie-klanten.json):
- *   { "<accountId>": { ingeschakeld: bool, gewijzigdOp: ISO-datum, gewijzigdDoor: e-mail } }
+ *   { "<accountId>": { ingeschakeld: bool, gewijzigdOp: ISO-datum, gewijzigdDoor: e-mail,
+ *                       aangevraagdOp?: ISO-datum, aangevraagdDoor?: e-mail } }
+ * aangevraagdOp/aangevraagdDoor: klant heeft op "Vraag facturatiemodule aan" geklikt terwijl
+ * ingeschakeld nog false was (zie zetAanvraag). Wordt automatisch weer leeggemaakt zodra de
+ * beheerder de module voor dat account aanzet (zie zetIngeschakeld).
  */
 const { BlobServiceClient } = require("@azure/storage-blob");
 
@@ -59,16 +63,44 @@ async function isIngeschakeld(accountId) {
 async function zetIngeschakeld(accountId, ingeschakeld, gewijzigdDoor) {
   if (!accountId) throw new Error("VALIDATIE: accountId is verplicht.");
   const statussen = await haalStatussen();
+  const huidig = statussen[accountId] || {};
   statussen[accountId] = {
+    ...huidig,
     ingeschakeld: !!ingeschakeld,
     gewijzigdOp: new Date().toISOString(),
     gewijzigdDoor: gewijzigdDoor || "",
+    // Een aanzetten door de beheerder handelt een eventuele openstaande aanvraag af — die
+    // hoeft dan niet meer apart getoond te worden in het beheerscherm.
+    ...(ingeschakeld ? { aangevraagdOp: null, aangevraagdDoor: null } : {}),
   };
+  await bewaarStatussen(statussen);
+  return statussen[accountId];
+}
+
+/**
+ * Legt vast dat een klant heeft gevraagd om de facturatiemodule voor zijn account aan te
+ * laten zetten (klantportaal, "vraag facturatiemodule aan"-knop bij een uitgeschakeld
+ * account). Zet de module zelf niet aan — dat blijft een bewuste actie van de beheerder
+ * in Beheer → Facturatie, die daar de aanvraag als badge terugziet.
+ */
+async function zetAanvraag(accountId, aangevraagdDoor) {
+  if (!accountId) throw new Error("VALIDATIE: accountId is verplicht.");
+  const statussen = await haalStatussen();
+  const huidig = statussen[accountId] || { ingeschakeld: false };
+  statussen[accountId] = {
+    ...huidig,
+    aangevraagdOp: new Date().toISOString(),
+    aangevraagdDoor: aangevraagdDoor || "",
+  };
+  await bewaarStatussen(statussen);
+  return statussen[accountId];
+}
+
+async function bewaarStatussen(statussen) {
   const containerClient = await haalContainerClient();
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
   const buffer = Buffer.from(JSON.stringify(statussen, null, 2), "utf-8");
   await blobClient.upload(buffer, buffer.length, { overwrite: true });
-  return statussen[accountId];
 }
 
-module.exports = { haalStatussen, isIngeschakeld, zetIngeschakeld };
+module.exports = { haalStatussen, isIngeschakeld, zetIngeschakeld, zetAanvraag };

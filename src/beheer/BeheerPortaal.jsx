@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Search, ArrowUp, ArrowDown, HelpCircle, ChevronDown, Plus, Pencil, Check, X } from "lucide-react";
+import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Search, ArrowUp, ArrowDown, HelpCircle, ChevronDown, Plus, Pencil, Check, X, Clock } from "lucide-react";
 
 const KLEUR = {
   blauw: "#1C5D8C",
@@ -1813,6 +1813,10 @@ export default function BeheerPortaal() {
             </div>
             <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 8 }}>
               {Object.values(facturatieStatussen).filter((s) => s && s.ingeschakeld).length} van {facturatieKlanten.length} klanten ingeschakeld
+              {(() => {
+                const nAanvragen = Object.values(facturatieStatussen).filter((s) => s && !s.ingeschakeld && s.aangevraagdOp).length;
+                return nAanvragen > 0 ? ` — ${nAanvragen} ${nAanvragen === 1 ? "aanvraag" : "aanvragen"} open` : "";
+              })()}
             </div>
             <div style={{ display: "flex", flexDirection: "column", maxHeight: 460, overflowY: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
               {facturatieKlanten
@@ -1820,14 +1824,30 @@ export default function BeheerPortaal() {
                   const q = facturatieZoek.trim().toLowerCase();
                   return !q || (k.klantnaam || "").toLowerCase().includes(q) || String(k.klantnummer || "").toLowerCase().includes(q);
                 })
+                .slice()
+                .sort((a, b) => {
+                  // Klanten met een openstaande aanvraag (module nog uit, wel aangevraagd) bovenaan,
+                  // zodat een beheerder die niet over het hoofd ziet tussen alle andere klanten.
+                  const aanvraag = (k) => !(facturatieStatussen[k.accountId] && facturatieStatussen[k.accountId].ingeschakeld)
+                    && !!(facturatieStatussen[k.accountId] && facturatieStatussen[k.accountId].aangevraagdOp);
+                  return (aanvraag(b) ? 1 : 0) - (aanvraag(a) ? 1 : 0);
+                })
                 .map((k, i) => {
-                  const aan = !!(facturatieStatussen[k.accountId] && facturatieStatussen[k.accountId].ingeschakeld);
+                  const status = facturatieStatussen[k.accountId] || {};
+                  const aan = !!status.ingeschakeld;
                   const bezig = !!facturatieBezig[k.accountId];
+                  const aangevraagd = !aan && !!status.aangevraagdOp;
                   return (
-                    <div key={k.accountId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}` }}>
+                    <div key={k.accountId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, background: aangevraagd ? KLEUR.lichtblauw : "transparent" }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 600 }}>{k.klantnaam || "(geen naam)"}</div>
                         <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>Cliëntnr {k.klantnummer || "—"}</div>
+                        {aangevraagd && (
+                          <div style={{ fontSize: 11, fontWeight: 600, color: KLEUR.blauw, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                            <Clock size={11} /> Aangevraagd op {new Date(status.aangevraagdOp).toLocaleDateString("nl-NL")}
+                            {status.aangevraagdDoor ? ` door ${status.aangevraagdDoor}` : ""}
+                          </div>
+                        )}
                       </div>
                       <button
                         onClick={() => zetFacturatieStatus(k.accountId, !aan)}

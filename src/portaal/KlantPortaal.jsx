@@ -390,17 +390,21 @@ export default function KlantPortaal() {
     return res.json();
   }, []);
 
-  // Facturatiemodule: alleen tonen voor accounts waar een beheerder 'm heeft aangezet.
-  const facturatieAccounts = (mijnGegevens?.accounts || []).filter((a) => a.facturatieIngeschakeld);
-  const zichtbareTabs = facturatieAccounts.length > 0
+  // Facturatiemodule: de tab is zichtbaar zodra er linked klant-accounts zijn, ook als de
+  // module voor nog geen van die accounts aan staat — dan toont FacturatieModule zelf per
+  // account een "niet actief"-kaart met prijsinfo en een aanvraagknop, in plaats van de
+  // hele tab te verbergen (anders kan een klant het nooit aanvragen). Welke accounts
+  // daadwerkelijk mogen werken met facturen bepaalt de module verderop zelf.
+  const alleAccounts = mijnGegevens?.accounts || [];
+  const zichtbareTabs = alleAccounts.length > 0
     ? [...TABS.slice(0, 3), FACTUREN_TAB, ...TABS.slice(3)]
     : TABS;
 
-  // Als de actieve tab niet (meer) zichtbaar is (bijv. Facturen weer uitgezet), terug naar Home.
+  // Als de actieve tab niet (meer) zichtbaar is (bijv. geen accounts meer), terug naar Home.
   useEffect(() => {
     if (!zichtbareTabs.some((t) => t.key === tab) && tab !== "home") setTab("home");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [facturatieAccounts.length, tab]);
+  }, [alleAccounts.length, tab]);
 
   if (ingelogd === null) return <Laadscherm />;
   if (!ingelogd) return <Inlogscherm logoUrl={logoUrl} />;
@@ -460,7 +464,7 @@ export default function KlantPortaal() {
           onEntiteitWijzigen={wijzigEntiteit}
         />
       )}
-      {tab === "facturen" && <FacturatieModule accounts={facturatieAccounts} />}
+      {tab === "facturen" && <FacturatieModule accounts={alleAccounts} />}
       {tab === "faq" && <TabFaq content={content} teamsChatUrl={teamsChatUrl} whatsappUrl={whatsappUrl} copilotEmbedUrl={copilotEmbedUrl} />}
       {tab === "review" && <TabReview onVerzenden={verstuurReview} />}
     </div>

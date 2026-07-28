@@ -67,4 +67,9 @@ async function haalAfbeelding(basisnaam) {
 const slaLogoOp = (dataUrl) => slaAfbeeldingOp(dataUrl, "logo");
 const slaFaviconOp = (dataUrl) => slaAfbeeldingOp(dataUrl, "favicon");
 
-module.exports = { slaLogoOp, slaFaviconOp, haalAfbeelding };
+// Eigen logo van een portaalklant (Facturatiemodule → Bedrijfsgegevens & logo), voor op de
+// eigen facturen/offertes. Eén blob per klant-account; accountId is een GUID (hex + '-'),
+// dus altijd al een veilige blobnaam — geen aparte sanitatie nodig zoals bij haalAfbeelding.
+const slaKlantLogoOp = (dataUrl, klantAccountId) => slaAfbeeldingOp(dataUrl, `klantlogo-${klantAccountId}`);
+
+module.exports = { slaLogoOp, slaFaviconOp, slaKlantLogoOp, haalAfbeelding };
