@@ -1271,12 +1271,58 @@ function TabGegevens({ data, verzoeken, onWijzigen }) {
   );
 }
 
-// Maakt van een SharePoint-/Office-documentlink een insluitbare weergave-URL. De "Openen"-link
-// blijft altijd de volledige originele URL, zodat de klant er sowieso bij kan als insluiten
-// door SharePoint-instellingen wordt geblokkeerd.
-function documentEmbedUrl(url) {
-  if (!url) return url;
-  return url + (url.includes("?") ? "&" : "?") + "action=embedview";
+// Toont een SharePoint-document zonder het in een SharePoint-iframe te laden (dat blokkeert
+// SharePoint via 'frame-ancestors', en een login binnen een iframe kan niet). In plaats daarvan
+// halen we de bytes server-side via Microsoft Graph op (on-behalf-of, met de échte permissies
+// van de ingelogde klant) en tonen die als blob. Geen anonieme deellink nodig.
+function DocumentViewer({ url, titel }) {
+  const [status, setStatus] = useState("laden"); // laden | klaar | fout
+  const [blobUrl, setBlobUrl] = useState("");
+
+  useEffect(() => {
+    let actief = true;
+    let gemaakteUrl = "";
+    setStatus("laden");
+    setBlobUrl("");
+    (async () => {
+      try {
+        const token = await haalApiToken();
+        const res = await fetch(`/api/document-inhoud?url=${encodeURIComponent(url)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error(await res.text().catch(() => ""));
+        const blob = await res.blob();
+        if (!actief) return;
+        gemaakteUrl = URL.createObjectURL(blob);
+        setBlobUrl(gemaakteUrl);
+        setStatus("klaar");
+      } catch {
+        if (actief) setStatus("fout");
+      }
+    })();
+    return () => {
+      actief = false;
+      if (gemaakteUrl) URL.revokeObjectURL(gemaakteUrl);
+    };
+  }, [url]);
+
+  if (status === "laden") {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst, padding: "16px 4px" }}>
+        <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Document ophalen…
+      </div>
+    );
+  }
+  if (status === "fout") {
+    return (
+      <div style={{ fontSize: 12.5, color: KLEUR.rood, padding: "8px 0" }}>
+        Het document kon niet worden geladen. Gebruik de knop “Openen” hierboven om het in een nieuw tabblad te bekijken.
+      </div>
+    );
+  }
+  return (
+    <iframe title={titel} src={blobUrl} style={{ width: "100%", height: 460, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, background: "#fff" }} />
+  );
 }
 
 // DocuSign-achtig onderteken-paneel: naam, e-mail, toelichting en een getekende handtekening.
@@ -1507,7 +1553,7 @@ function TabTaken({ data, gebruiker, onAkkoord, onNietAkkoord, onOndertekenen })
                           <ExternalLink size={12} /> Openen
                         </a>
                       </div>
-                      <iframe title={taak.titel} src={documentEmbedUrl(taak.documentUrl)} style={{ width: "100%", height: 460, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, background: "#fff" }} />
+                      <DocumentViewer url={taak.documentUrl} titel={taak.titel} />
                     </div>
                   )}
 
