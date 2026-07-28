@@ -1118,7 +1118,8 @@ function KlantDetail({ acc, verzoekStatus, onWijzigen }) {
           <span>
             {[ka.straat, ka.huisnummer, ka.toevoeging].filter(Boolean).join(" ") || "—"}
             <br />
-            {ka.postcode} {ka.plaats}{ka.land ? `, ${ka.land}` : ""}
+            {[ka.postcode, ka.plaats].filter(Boolean).join(" ")}
+            {ka.land ? <><br />{ka.land}</> : null}
           </span>
         </div>
         {!acc.bedrijfsadresBewerkbaar && (
@@ -1152,7 +1153,8 @@ function KlantDetail({ acc, verzoekStatus, onWijzigen }) {
             <span>
               {[a.straat, a.huisnummer, a.toevoeging].filter(Boolean).join(" ")}
               <br />
-              {a.postcode} {a.plaats}{a.provincie ? `, ${a.provincie}` : ""}{a.land ? `, ${a.land}` : ""}
+              {[a.postcode, a.plaats].filter(Boolean).join(" ")}
+              {a.land ? <><br />{a.land}</> : null}
             </span>
           </div>
         )}

@@ -706,6 +706,28 @@ function Veld({ label, waarde, link }) {
   );
 }
 
+// Bouwt een adres op als losse regels: straat+nr / postcode plaats / land.
+function adresRegels(adres) {
+  const a = adres || {};
+  return [
+    [a.straat, a.huisnummer, a.toevoeging].filter(Boolean).join(" "),
+    [a.postcode, a.plaats].filter(Boolean).join(" "),
+    a.land || "",
+  ].filter(Boolean);
+}
+
+// Toont een adres onder een label, elke regel onder elkaar.
+function AdresVeld({ label, adres }) {
+  const regels = adresRegels(adres);
+  if (regels.length === 0) return null;
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 2 }}>{label}</div>
+      {regels.map((r, i) => <div key={i} style={{ fontSize: 13, color: KLEUR.tekst }}>{r}</div>)}
+    </div>
+  );
+}
+
 function TerugKnop({ onClick }) {
   return (
     <button
@@ -1097,12 +1119,6 @@ function KlantBewerken({ klant, keuzes, medewerkers, onKlaar, onOpgeslagen }) {
 
 function KlantDetail({ klant, magWijzigen, keuzes, medewerkers, onTerug, onContact, onMedewerker, onOpgeslagen }) {
   const [bewerken, setBewerken] = useState(false);
-  const a = klant.adres || {};
-  const adresRegel = [
-    [a.straat, a.huisnummer, a.toevoeging].filter(Boolean).join(" "),
-    [a.postcode, a.plaats].filter(Boolean).join("  "),
-    a.land,
-  ].filter(Boolean).join(", ");
   if (bewerken) {
     return <KlantBewerken klant={klant} keuzes={keuzes} medewerkers={medewerkers} onKlaar={() => setBewerken(false)} onOpgeslagen={onOpgeslagen} />;
   }
@@ -1146,7 +1162,7 @@ function KlantDetail({ klant, magWijzigen, keuzes, medewerkers, onTerug, onConta
             <Veld label="Kantoor" waarde={klant.kantoor} />
             <Veld label="Belastingkantoor" waarde={klant.belastingkantoor} />
             <Veld label="KvK" waarde={klant.kvk} />
-            <Veld label="Adres" waarde={adresRegel} />
+            <AdresVeld label="Adres" adres={klant.adres} />
             <Veld label="SharePoint" waarde={klant.sharepointUrl ? "Map openen" : ""} link={klant.sharepointUrl} />
           </div>
           <div>
@@ -1188,8 +1204,7 @@ function KlantDetail({ klant, magWijzigen, keuzes, medewerkers, onTerug, onConta
 
         {klant.secundairContact?.naam && (() => {
           const s = klant.secundairContact;
-          const sa = s.adres || {};
-          const sAdres = [[sa.straat, sa.huisnummer, sa.toevoeging].filter(Boolean).join(" "), [sa.postcode, sa.plaats].filter(Boolean).join("  "), sa.land].filter(Boolean).join(", ");
+          const sRegels = adresRegels(s.adres);
           return (
             <div style={{ marginTop: 12, paddingTop: 14, borderTop: `1px solid ${KLEUR.rand}` }}>
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Secundaire contactpersoon</div>
@@ -1197,8 +1212,13 @@ function KlantDetail({ klant, magWijzigen, keuzes, medewerkers, onTerug, onConta
               <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 18px", marginTop: 4 }}>
                 {s.email && <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>E-mail: <a href={`mailto:${s.email}`} style={{ color: KLEUR.blauw, textDecoration: "none" }}>{s.email}</a></div>}
                 {s.telefoon && <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>Telefoon: {s.telefoon}</div>}
-                {sAdres && <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>Adres: {sAdres}</div>}
               </div>
+              {sRegels.length > 0 && (
+                <div style={{ marginTop: 4 }}>
+                  <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>Adres:</div>
+                  {sRegels.map((r, i) => <div key={i} style={{ fontSize: 12.5, color: KLEUR.subtekst }}>{r}</div>)}
+                </div>
+              )}
             </div>
           );
         })()}
@@ -1207,28 +1227,129 @@ function KlantDetail({ klant, magWijzigen, keuzes, medewerkers, onTerug, onConta
   );
 }
 
-function ContactDetail({ klant, onTerug }) {
+// Bewerkt alleen de (primaire) contactpersoon-gegevens + diens adres.
+function ContactBewerken({ klant, onKlaar, onOpgeslagen }) {
   const c = klant.contact || {};
   const ca = c.adres || {};
-  const contactAdres = [
-    [ca.straat, ca.huisnummer, ca.toevoeging].filter(Boolean).join(" "),
-    [ca.postcode, ca.plaats].filter(Boolean).join("  "),
-    ca.land,
-  ].filter(Boolean).join(", ");
+  const [f, setF] = useState({
+    voornaam: c.voornaam || "", tussenvoegsel: c.tussenvoegsel || "", achternaam: c.achternaam || "",
+    functietitel: c.functietitel || "", email: c.email || "", telefoon: c.telefoon || "",
+    straat: ca.straat || "", huisnummer: ca.huisnummer || "", toevoeging: ca.toevoeging || "",
+    postcode: ca.postcode || "", plaats: ca.plaats || "", land: ca.land || "",
+  });
+  const [status, setStatus] = useState("invoer"); // invoer | bezig | fout
+  const zet = (k) => (v) => setF((h) => ({ ...h, [k]: v }));
+  const label = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3, marginTop: 4 };
+
+  const opslaan = async () => {
+    setStatus("bezig");
+    try {
+      const contact = {
+        firstname: f.voornaam, middlename: f.tussenvoegsel, lastname: f.achternaam,
+        jobtitle: f.functietitel, emailaddress1: f.email, mobilephone: f.telefoon,
+        address1_line1: f.straat, cr283_huisnummer: f.huisnummer, cr283_huisnummertoevoeging: f.toevoeging,
+        address1_postalcode: f.postcode, address1_city: f.plaats, address1_country: f.land,
+      };
+      const res = await fetch("/api/medewerker-klant-wijzigen", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId: klant.accountId, contactId: c.contactId, account: {}, contact }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const naam = [f.voornaam, f.tussenvoegsel, f.achternaam].filter(Boolean).join(" ").trim();
+      onOpgeslagen(klant.accountId, {
+        contact: {
+          ...klant.contact,
+          voornaam: f.voornaam, tussenvoegsel: f.tussenvoegsel, achternaam: f.achternaam,
+          naam: naam || klant.contact?.naam, functietitel: f.functietitel, email: f.email, telefoon: f.telefoon,
+          adres: { straat: f.straat, huisnummer: f.huisnummer, toevoeging: f.toevoeging, postcode: f.postcode, plaats: f.plaats, land: f.land },
+        },
+      });
+      onKlaar();
+    } catch {
+      setStatus("fout");
+    }
+  };
+
+  return (
+    <div>
+      <TerugKnop onClick={onKlaar} />
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Contactpersoon wijzigen</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "0 24px" }}>
+          <div>
+            <div style={label}>Voornaam</div>
+            {veldInput(f.voornaam, zet("voornaam"))}
+            <div style={label}>Tussenvoegsel</div>
+            {veldInput(f.tussenvoegsel, zet("tussenvoegsel"))}
+            <div style={label}>Achternaam</div>
+            {veldInput(f.achternaam, zet("achternaam"))}
+            <div style={label}>Functietitel</div>
+            {veldInput(f.functietitel, zet("functietitel"))}
+            <div style={label}>E-mail</div>
+            {veldInput(f.email, zet("email"))}
+            <div style={label}>Telefoon</div>
+            {veldInput(f.telefoon, zet("telefoon"))}
+          </div>
+          <div>
+            <div style={label}>Straat</div>
+            {veldInput(f.straat, zet("straat"))}
+            <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ flex: 1 }}><div style={label}>Huisnr</div>{veldInput(f.huisnummer, zet("huisnummer"))}</div>
+              <div style={{ flex: 1 }}><div style={label}>Toevoeging</div>{veldInput(f.toevoeging, zet("toevoeging"))}</div>
+            </div>
+            <div style={label}>Postcode</div>
+            {veldInput(f.postcode, zet("postcode"))}
+            <div style={label}>Plaats</div>
+            {veldInput(f.plaats, zet("plaats"))}
+            <div style={label}>Land</div>
+            {veldInput(f.land, zet("land"))}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
+          <button onClick={opslaan} disabled={status === "bezig"} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: "#2E7D46", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            <CheckCircle2 size={14} /> {status === "bezig" ? "Opslaan…" : "Opslaan"}
+          </button>
+          <button onClick={onKlaar} style={{ padding: "9px 14px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Annuleren</button>
+          {status === "fout" && <span style={{ fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt (mogelijk onvoldoende schrijfrechten in Dynamics).</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ContactDetail({ klant, magWijzigen, onTerug, onOpgeslagen }) {
+  const [bewerken, setBewerken] = useState(false);
+  const c = klant.contact || {};
+  if (bewerken) {
+    return <ContactBewerken klant={klant} onKlaar={() => setBewerken(false)} onOpgeslagen={onOpgeslagen} />;
+  }
   return (
     <div>
       <TerugKnop onClick={onTerug} />
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
-        <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 2 }}>{c.naam || "Contactpersoon"}</div>
-        <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, marginBottom: 16 }}>
-          Primair contactpersoon van {klant.klantnaam}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 2 }}>{c.naam || "Contactpersoon"}</div>
+            <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, marginBottom: 16 }}>
+              Primair contactpersoon van {klant.klantnaam}
+            </div>
+          </div>
+          {magWijzigen && (
+            <button
+              onClick={() => setBewerken(true)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 7, flexShrink: 0, padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+            >
+              Bewerken
+            </button>
+          )}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0 24px" }}>
           <div>
             <Veld label="Functietitel" waarde={c.functietitel} />
             <Veld label="E-mail" waarde={c.email} link={c.email ? `mailto:${c.email}` : ""} />
             <Veld label="Telefoon" waarde={c.telefoon} />
-            <Veld label="Adres" waarde={contactAdres} />
+            <AdresVeld label="Adres" adres={c.adres} />
           </div>
           <div>
             <Veld label="Klant" waarde={klant.klantnaam} />
@@ -1383,6 +1504,7 @@ function KlantOverzicht() {
   const verwerkKlantWijziging = (accountId, patch) => {
     setKlanten((huidig) => huidig.map((k) => (k.accountId === accountId ? { ...k, ...patch } : k)));
     setDetailKlant((huidig) => (huidig && huidig.accountId === accountId ? { ...huidig, ...patch } : huidig));
+    setDetailContact((huidig) => (huidig && huidig.accountId === accountId ? { ...huidig, ...patch } : huidig));
   };
 
   if (klanten === null) {
@@ -1402,7 +1524,7 @@ function KlantOverzicht() {
     return <KlantDetail klant={detailKlant} magWijzigen={magWijzigen} keuzes={keuzes} medewerkers={medewerkers} onTerug={() => setDetailKlant(null)} onContact={(k) => { setDetailKlant(null); setDetailContact(k); }} onMedewerker={openMedewerker} onOpgeslagen={verwerkKlantWijziging} />;
   }
   if (detailContact) {
-    return <ContactDetail klant={detailContact} onTerug={() => setDetailContact(null)} />;
+    return <ContactDetail klant={detailContact} magWijzigen={magWijzigen} onTerug={() => setDetailContact(null)} onOpgeslagen={verwerkKlantWijziging} />;
   }
   if (detailGroep) {
     return <GroepDetail groepsnaam={detailGroep} klanten={klanten} onTerug={() => setDetailGroep(null)} onKlant={(k) => { setDetailGroep(null); setDetailKlant(k); }} />;
