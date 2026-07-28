@@ -4,7 +4,9 @@ const { haalInstellingen } = require("../_gedeeld/instellingen");
 
 // Veld-/navigatienamen (overschrijfbaar via Application Settings). Defaults = de velden zoals ze
 // in de Dynamics-view "1. Klantoverzicht" bij Activaa staan.
-const CLIENTNUMMER_VELD = process.env.DYNAMICS_CLIENTNUMMER_VELD || "sk_clientnummer";
+// Voor het klantoverzicht gebruiken we het automatische cliëntnummer (sk_clientnrauto), zoals in de
+// Dynamics-view. Overschrijf via DYNAMICS_KLANT_NUMMER_VELD indien nodig.
+const CLIENTNUMMER_VELD = process.env.DYNAMICS_KLANT_NUMMER_VELD || "sk_clientnrauto";
 const GROEPSNAAM_NAV = process.env.DYNAMICS_GROEPSNAAM_NAV || "sk_Groepsnaam";
 const GROEPSNAAM_NAAMVELD = process.env.DYNAMICS_GROEPSNAAM_NAAMVELD || "sk_name";
 const RELATIEBEHEERDER_NAV = process.env.DYNAMICS_RELATIEBEHEERDER_NAV || "cr283_Manager";

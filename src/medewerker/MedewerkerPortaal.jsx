@@ -428,6 +428,7 @@ function ReviewBeheer() {
   const [sel, setSel] = useState(() => new Set());
   const [uitnodigStatus, setUitnodigStatus] = useState("idle"); // idle | bezig | klaar | fout
   const [resultaat, setResultaat] = useState(null);
+  const [toonAantal, setToonAantal] = useState(50);
 
   const laadKlanten = useCallback(() => {
     fetch("/api/beheer-klanten")
@@ -467,8 +468,7 @@ function ReviewBeheer() {
     return true;
   });
 
-  const MAX_TOON = 400;
-  const zichtbaar = gefilterd.slice(0, MAX_TOON);
+  const zichtbaar = gefilterd.slice(0, toonAantal);
   const selecteerbaar = gefilterd.filter((k) => k.contactEmail);
   const allesGeselecteerd = selecteerbaar.length > 0 && selecteerbaar.every((k) => sel.has(k.accountId));
 
@@ -663,12 +663,28 @@ function ReviewBeheer() {
             </table>
           </div>
 
-          {gefilterd.length > MAX_TOON && (
-            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 10 }}>
-              Eerste {MAX_TOON} van {gefilterd.length} getoond — verfijn je zoekopdracht of filters
-              om de rest te zien. "Alles selecteren" pakt wél de volledige gefilterde lijst.
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>
+              {Math.min(toonAantal, gefilterd.length)} van {gefilterd.length} getoond
             </div>
-          )}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, flexWrap: "wrap" }}>
+              <span style={{ color: KLEUR.mutedTekst }}>Toon:</span>
+              {[[25, "25"], [50, "50"], [100, "100"], [250, "250"], [500, "500"], [Infinity, "Alle"]].map(([n, lbl]) => (
+                <button
+                  key={lbl}
+                  onClick={() => setToonAantal(n)}
+                  style={{
+                    padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                    border: `1px solid ${toonAantal === n ? KLEUR.blauw : KLEUR.rand}`,
+                    background: toonAantal === n ? KLEUR.blauw : "#fff",
+                    color: toonAantal === n ? "#fff" : KLEUR.subtekst,
+                  }}
+                >
+                  {lbl}
+                </button>
+              ))}
+            </div>
+          </div>
         </>
       )}
     </div>
@@ -712,10 +728,75 @@ function veldInput(waarde, onChange, placeholder) {
   );
 }
 
-const CHOICE_VELD = { clienttype: "businesstypecode", status: "cr283_clienttype", team: "cr283_team", kantoor: "cr283_kantoor" };
+// Zoek-en-kies veld voor een medewerker of contactpersoon. zoek(term) → [{id, naam, sub}] (sync of async).
+function ZoekKiezer({ label, huidigeNaam, zoek, onKies, onWis }) {
+  const [open, setOpen] = useState(false);
+  const [term, setTerm] = useState("");
+  const [res, setRes] = useState([]);
+  useEffect(() => {
+    if (!open) return;
+    let actief = true;
+    Promise.resolve(zoek(term)).then((r) => { if (actief) setRes(r || []); }).catch(() => { if (actief) setRes([]); });
+    return () => { actief = false; };
+  }, [term, open]); // eslint-disable-line react-hooks/exhaustive-deps
+  const lblStijl = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3, marginTop: 4 };
+  const itemStijl = { display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: "6px 8px", cursor: "pointer", fontSize: 12.5, color: KLEUR.tekst };
+  return (
+    <div style={{ position: "relative", marginBottom: 8 }}>
+      <div style={lblStijl}>{label}</div>
+      <button onClick={() => setOpen((o) => !o)} style={{ width: "100%", textAlign: "left", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 13, background: "#fff", cursor: "pointer" }}>
+        {huidigeNaam || <span style={{ color: KLEUR.mutedTekst }}>— kies —</span>}
+      </button>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 60 }} />
+          <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 61, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, boxShadow: "0 6px 24px rgba(0,0,0,0.14)", padding: 6, maxHeight: 260, overflowY: "auto" }}>
+            <input autoFocus value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Zoek…" style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "6px 8px", fontSize: 12.5, marginBottom: 4 }} />
+            <button onClick={() => { onWis(); setOpen(false); setTerm(""); }} style={{ ...itemStijl, color: KLEUR.mutedTekst }}>— geen —</button>
+            {res.map((r) => (
+              <button key={r.id} onClick={() => { onKies(r.id, r.naam); setOpen(false); setTerm(""); }} style={itemStijl}>
+                {r.naam}{r.sub ? <span style={{ color: KLEUR.mutedTekst }}>{" · " + r.sub}</span> : null}
+              </button>
+            ))}
+            {res.length === 0 && <div style={{ fontSize: 12, color: KLEUR.mutedTekst, padding: "4px 8px" }}>Typ om te zoeken…</div>}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
-function KlantBewerken({ klant, keuzes, onKlaar, onOpgeslagen }) {
+const CHOICE_VELD = { clienttype: "businesstypecode", status: "cr283_clienttype", team: "cr283_team", kantoor: "cr283_kantoor" };
+const TEAM_ROLLEN = [["manager", "Manager"], ["accountant", "Accountant"], ["assistent", "Assistent"], ["backup", "Back-up"], ["fiscaal", "Fiscaal medewerker"], ["loon", "Loonadministratie"]];
+const TEAM_BRON = { manager: "manager", accountant: "accountantPersoon", assistent: "assistent", backup: "backup", fiscaal: "fiscaalMedewerker", loon: "loonadministratie" };
+
+function KlantBewerken({ klant, keuzes, medewerkers, onKlaar, onOpgeslagen }) {
   const kz = keuzes || { clienttype: [], status: [], team: [], kantoor: [] };
+  const alleMedewerkers = medewerkers || [];
+  // Beginselectie voor team en contacten (id + naam), om alleen wijzigingen door te sturen.
+  const teamInit = {};
+  for (const [key] of TEAM_ROLLEN) { const p = klant[TEAM_BRON[key]] || {}; teamInit[key] = { id: p.id || "", naam: p.naam || "" }; }
+  const [teamSel, setTeamSel] = useState(teamInit);
+  const [contactSel, setContactSel] = useState({
+    primair: { id: klant.contact?.contactId || "", naam: klant.contact?.naam || "" },
+    secundair: { id: klant.secundairContact?.contactId || "", naam: klant.secundairContact?.naam || "" },
+  });
+  const zoekMedewerker = (term) => {
+    const q = term.trim().toLowerCase();
+    return alleMedewerkers
+      .filter((m) => !q || m.naam.toLowerCase().includes(q) || (m.functie || "").toLowerCase().includes(q))
+      .slice(0, 30)
+      .map((m) => ({ id: m.id, naam: m.naam, sub: m.functie }));
+  };
+  const zoekContact = async (term) => {
+    if (term.trim().length < 2) return [];
+    try {
+      const r = await fetch("/api/klant-contacten?zoek=" + encodeURIComponent(term.trim()));
+      if (!r.ok) return [];
+      const d = await r.json();
+      return (d.contacten || []).map((c) => ({ id: c.id, naam: c.naam, sub: c.email }));
+    } catch { return []; }
+  };
   const initKeuze = (lijstKey, huidigeLabel) => {
     const opt = (kz[lijstKey] || []).find((o) => o.label === huidigeLabel);
     return opt ? String(opt.value) : "";
@@ -758,10 +839,17 @@ function KlantBewerken({ klant, keuzes, onKlaar, onOpgeslagen }) {
         address1_line1: f.cStraat, cr283_huisnummer: f.cHuisnummer, cr283_huisnummertoevoeging: f.cToevoeging,
         address1_postalcode: f.cPostcode, address1_city: f.cPlaats, address1_country: f.cLand,
       };
+      // Team en contacten: alleen gewijzigde koppelingen meesturen (GUID = koppelen, "" = loskoppelen).
+      const team = {};
+      for (const [key] of TEAM_ROLLEN) if ((teamSel[key].id || "") !== (teamInit[key].id || "")) team[key] = teamSel[key].id || "";
+      const contacten = {};
+      if ((contactSel.primair.id || "") !== (klant.contact?.contactId || "")) contacten.primair = contactSel.primair.id || "";
+      if ((contactSel.secundair.id || "") !== (klant.secundairContact?.contactId || "")) contacten.secundair = contactSel.secundair.id || "";
+
       const res = await fetch("/api/medewerker-klant-wijzigen", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accountId: klant.accountId, contactId: klant.contact?.contactId, account, contact }),
+        body: JSON.stringify({ accountId: klant.accountId, contactId: klant.contact?.contactId, account, contact, team, contacten }),
       });
       if (!res.ok) throw new Error(await res.text());
       const naam = [f.voornaam, f.tussenvoegsel, f.achternaam].filter(Boolean).join(" ").trim();
@@ -774,7 +862,14 @@ function KlantBewerken({ klant, keuzes, onKlaar, onOpgeslagen }) {
         status: f.statusVal !== "" ? labelVan("status", f.statusVal) : klant.status,
         team: f.teamVal !== "" ? labelVan("team", f.teamVal) : klant.team,
         kantoor: f.kantoorVal !== "" ? labelVan("kantoor", f.kantoorVal) : klant.kantoor,
-        contact: { ...klant.contact, voornaam: f.voornaam, tussenvoegsel: f.tussenvoegsel, achternaam: f.achternaam, functietitel: f.functietitel, email: f.cEmail, telefoon: f.cTelefoon, naam: naam || klant.contact?.naam, adres: { straat: f.cStraat, huisnummer: f.cHuisnummer, toevoeging: f.cToevoeging, postcode: f.cPostcode, plaats: f.cPlaats, land: f.cLand } },
+        contact: { ...klant.contact, voornaam: f.voornaam, tussenvoegsel: f.tussenvoegsel, achternaam: f.achternaam, functietitel: f.functietitel, email: f.cEmail, telefoon: f.cTelefoon, naam: naam || klant.contact?.naam, contactId: contactSel.primair.id, adres: { straat: f.cStraat, huisnummer: f.cHuisnummer, toevoeging: f.cToevoeging, postcode: f.cPostcode, plaats: f.cPlaats, land: f.cLand } },
+        manager: { ...(klant.manager || {}), id: teamSel.manager.id, naam: teamSel.manager.naam },
+        accountantPersoon: { ...(klant.accountantPersoon || {}), id: teamSel.accountant.id, naam: teamSel.accountant.naam },
+        assistent: { ...(klant.assistent || {}), id: teamSel.assistent.id, naam: teamSel.assistent.naam },
+        backup: { ...(klant.backup || {}), id: teamSel.backup.id, naam: teamSel.backup.naam },
+        fiscaalMedewerker: { ...(klant.fiscaalMedewerker || {}), id: teamSel.fiscaal.id, naam: teamSel.fiscaal.naam },
+        loonadministratie: { ...(klant.loonadministratie || {}), id: teamSel.loon.id, naam: teamSel.loon.naam },
+        secundairContact: contactSel.secundair.id ? { ...(klant.secundairContact || {}), contactId: contactSel.secundair.id, naam: contactSel.secundair.naam } : null,
       });
       onKlaar();
     } catch {
@@ -851,6 +946,31 @@ function KlantBewerken({ klant, keuzes, onKlaar, onOpgeslagen }) {
             {veldInput(f.cLand, zet("cLand"))}
           </div>
         </div>
+
+        <div style={{ marginTop: 8, paddingTop: 14, borderTop: `1px solid ${KLEUR.rand}` }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Team</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "0 24px" }}>
+            {TEAM_ROLLEN.map(([key, lbl]) => (
+              <ZoekKiezer
+                key={key}
+                label={lbl}
+                huidigeNaam={teamSel[key].naam}
+                zoek={zoekMedewerker}
+                onKies={(id, naam) => setTeamSel((s) => ({ ...s, [key]: { id, naam } }))}
+                onWis={() => setTeamSel((s) => ({ ...s, [key]: { id: "", naam: "" } }))}
+              />
+            ))}
+          </div>
+
+          <div style={{ fontSize: 13, fontWeight: 700, margin: "12px 0 8px" }}>Contactpersonen (koppelen)</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "0 24px" }}>
+            <ZoekKiezer label="Primair contactpersoon" huidigeNaam={contactSel.primair.naam} zoek={zoekContact}
+              onKies={(id, naam) => setContactSel((s) => ({ ...s, primair: { id, naam } }))} onWis={() => setContactSel((s) => ({ ...s, primair: { id: "", naam: "" } }))} />
+            <ZoekKiezer label="Secundair contactpersoon" huidigeNaam={contactSel.secundair.naam} zoek={zoekContact}
+              onKies={(id, naam) => setContactSel((s) => ({ ...s, secundair: { id, naam } }))} onWis={() => setContactSel((s) => ({ ...s, secundair: { id: "", naam: "" } }))} />
+          </div>
+        </div>
+
         <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
           <button onClick={opslaan} disabled={status === "bezig"} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: "#2E7D46", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
             <CheckCircle2 size={14} /> {status === "bezig" ? "Opslaan…" : "Opslaan"}
@@ -863,7 +983,7 @@ function KlantBewerken({ klant, keuzes, onKlaar, onOpgeslagen }) {
   );
 }
 
-function KlantDetail({ klant, magWijzigen, keuzes, onTerug, onContact, onMedewerker, onOpgeslagen }) {
+function KlantDetail({ klant, magWijzigen, keuzes, medewerkers, onTerug, onContact, onMedewerker, onOpgeslagen }) {
   const [bewerken, setBewerken] = useState(false);
   const a = klant.adres || {};
   const adresRegel = [
@@ -872,7 +992,7 @@ function KlantDetail({ klant, magWijzigen, keuzes, onTerug, onContact, onMedewer
     a.land,
   ].filter(Boolean).join(", ");
   if (bewerken) {
-    return <KlantBewerken klant={klant} keuzes={keuzes} onKlaar={() => setBewerken(false)} onOpgeslagen={onOpgeslagen} />;
+    return <KlantBewerken klant={klant} keuzes={keuzes} medewerkers={medewerkers} onKlaar={() => setBewerken(false)} onOpgeslagen={onOpgeslagen} />;
   }
   const MedewerkerRegel = ({ label, persoon, rol }) => {
     if (!persoon || !persoon.naam) return null;
@@ -1090,6 +1210,7 @@ function KlantOverzicht() {
   const [weergaven, setWeergaven] = useState([]); // [{ naam, config }]
   const [actieveWeergave, setActieveWeergave] = useState("");
   const [keuzes, setKeuzes] = useState({ clienttype: [], status: [], team: [], kantoor: [] });
+  const [medewerkers, setMedewerkers] = useState([]); // voor de team-zoekvelden
   const [menu, setMenu] = useState(null); // { key, x, y } — geopend kolomkop-menu
   const [menuZoek, setMenuZoek] = useState("");
   const [kolomKiezerOpen, setKolomKiezerOpen] = useState(false);
@@ -1119,6 +1240,10 @@ function KlantOverzicht() {
     fetch("/api/klant-keuzelijsten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setKeuzes({ clienttype: d.clienttype || [], status: d.status || [], team: d.team || [], kantoor: d.kantoor || [] }))
+      .catch(() => {});
+    fetch("/api/beheer-medewerkers")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setMedewerkers(d.medewerkers || []))
       .catch(() => {});
   }, []);
 
@@ -1159,7 +1284,7 @@ function KlantOverzicht() {
     return <MedewerkerDetail persoon={detailMedewerker.persoon} rol={detailMedewerker.rol} klantnaam={detailMedewerker.klantnaam} onTerug={() => setDetailMedewerker(null)} />;
   }
   if (detailKlant) {
-    return <KlantDetail klant={detailKlant} magWijzigen={magWijzigen} keuzes={keuzes} onTerug={() => setDetailKlant(null)} onContact={(k) => { setDetailKlant(null); setDetailContact(k); }} onMedewerker={openMedewerker} onOpgeslagen={verwerkKlantWijziging} />;
+    return <KlantDetail klant={detailKlant} magWijzigen={magWijzigen} keuzes={keuzes} medewerkers={medewerkers} onTerug={() => setDetailKlant(null)} onContact={(k) => { setDetailKlant(null); setDetailContact(k); }} onMedewerker={openMedewerker} onOpgeslagen={verwerkKlantWijziging} />;
   }
   if (detailContact) {
     return <ContactDetail klant={detailContact} onTerug={() => setDetailContact(null)} />;
@@ -1373,11 +1498,11 @@ function KlantOverzicht() {
           {Math.min(toonAantal, gefilterd.length)} van {gefilterd.length} getoond
           {afgekapt ? " · lijst afgekapt in Dynamics" : ""}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, flexWrap: "wrap" }}>
           <span style={{ color: KLEUR.mutedTekst }}>Toon:</span>
-          {[50, 100, 250, 500].map((n) => (
+          {[[25, "25"], [50, "50"], [100, "100"], [250, "250"], [500, "500"], [Infinity, "Alle"]].map(([n, lbl]) => (
             <button
-              key={n}
+              key={lbl}
               onClick={() => setToonAantal(n)}
               style={{
                 padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
@@ -1386,7 +1511,7 @@ function KlantOverzicht() {
                 color: toonAantal === n ? "#fff" : KLEUR.subtekst,
               }}
             >
-              {n}
+              {lbl}
             </button>
           ))}
         </div>

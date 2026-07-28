@@ -54,7 +54,11 @@
     },
     {
       "route": "/api/beheer-medewerkers",
-      "allowedRoles": ["beheerder"]
+      "allowedRoles": ["beheerder", "medewerker"]
+    },
+    {
+      "route": "/api/klant-contacten",
+      "allowedRoles": ["beheerder", "medewerker"]
     },
     {
       "route": "/api/medewerker-rechten",
