@@ -2,6 +2,7 @@ const { haalDynamicsToken, herleidAccounts, haalEmailUitPrincipal } = require(".
 const { haalInstellingen } = require("../_gedeeld/instellingen");
 const { verstuurMail } = require("../_gedeeld/mail");
 const { voegReviewToe } = require("../_gedeeld/reviewopslag");
+const { webhookMetId } = require("../_gedeeld/webhook");
 
 /**
  * LET OP — Google's richtlijnen voor bedrijfsprofielen verbieden "review gating": het
@@ -49,7 +50,7 @@ async function stuurReviewMelding(account, sterren, opmerking, reviewerEmail) {
  * zodat de afhandeling daar kan lopen (bijv. taak aanmaken, Teams-bericht, ticket). Best-effort.
  */
 async function stuurReviewWebhook(webhookUrl, account, sterren, opmerking, reviewerEmail) {
-  await fetch(webhookUrl, {
+  await fetch(webhookMetId(webhookUrl, account?.klantnummer), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

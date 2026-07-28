@@ -1,6 +1,7 @@
 const { haalDynamicsToken, herleidAccounts, haalNaamUitPrincipal } = require("../_gedeeld/identiteit");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
 const { voegAkkoordToe, haalAkkoordenVoorEmail } = require("../_gedeeld/taakakkoorden");
+const { webhookMetId } = require("../_gedeeld/webhook");
 
 /**
  * Optionele eigen velden op Task; leeg laten als ze bij jullie niet bestaan (dan worden ze
@@ -268,7 +269,7 @@ module.exports = async function (context, req) {
           const instellingen = await haalInstellingen().catch(() => ({}));
           const webhookUrl = instellingen.taakAfwijzingWebhookUrl || process.env.TAAK_AFWIJZING_WEBHOOK_URL || "";
           if (webhookUrl) {
-            await fetch(webhookUrl, {
+            await fetch(webhookMetId(webhookUrl, account.klantnummer), {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
