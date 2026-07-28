@@ -490,7 +490,7 @@ function Header({ gebruiker, logoUrl }) {
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <Building2 size={22} color={KLEUR.blauw} />
         <div style={{ fontSize: 19, fontWeight: 600 }}>Klantportaal</div>
-        {logoUrl && <img src={logoUrl} alt="Logo" style={{ maxHeight: 36, maxWidth: 160, objectFit: "contain", marginLeft: 6 }} />}
+        {logoUrl && <img src={logoUrl} alt="Logo" style={{ maxHeight: 30, maxWidth: 160, objectFit: "contain", display: "block", alignSelf: "center", marginLeft: 8 }} />}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <span className="kp-header-email" style={{ fontSize: 13, color: KLEUR.subtekst }}>{gebruiker?.userDetails}</span>

@@ -595,7 +595,7 @@ export default function BeheerPortaal() {
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Building2 size={20} color={KLEUR.blauw} />
           <div style={{ fontSize: 17, fontWeight: 600 }}>Beheerdersportaal</div>
-          {logoUrl && <img src={logoUrl} alt="Logo" style={{ maxHeight: 34, maxWidth: 160, objectFit: "contain", marginLeft: 6 }} />}
+          {logoUrl && <img src={logoUrl} alt="Logo" style={{ maxHeight: 30, maxWidth: 160, objectFit: "contain", display: "block", alignSelf: "center", marginLeft: 8 }} />}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <span style={{ fontSize: 12.5, color: KLEUR.subtekst }}>{gebruiker?.userDetails}</span>
