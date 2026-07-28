@@ -182,6 +182,79 @@ instelbaar) en een direct werkend BTW-beheerscherm (niet uitgesteld):
   niet gebouwd" staan — dat gaat over een klant die zíjn eigen standaardwaarden instelt, iets
   anders dan deze door Activaa centraal beheerde tarieven/artikelen.
 
+## Bedrijfsgegevens & logo + aanvraagflow (28-07-2026, vervolgsessie)
+
+Op verzoek ("Bedrijfsgegevens & Logo inclusief factuurgegevens... als ik meerdere klanten actief
+heb als gebruiker moet het net als in beheersportaal zichtbaar zijn per clientnummer/naam en
+dan dat je het dicht en open kan klappen") is de eigen-afzendergegevens-kaart gebouwd, plus de
+mogelijkheid voor een klant om de facturatiemodule zelf aan te vragen als hij hem nog niet heeft:
+
+- **`dbo.bedrijfsgegevens_klanten`** (migratie `003_bedrijfsgegevens_klanten.sql`) — één rij per
+  `klant_account_id` (upsert): bedrijfsnaam, adres, KvK-/BTW-nummer, IBAN + tenaamstelling,
+  logo-URL. Direct zelf te wijzigen door de klant, **geen goedkeuring nodig** (in tegenstelling
+  tot bedrijfs-/contactgegevens uit Dynamics bij "Mijn gegevens", die wél via het
+  wijzigingsverzoek-mechanisme lopen).
+- **Nieuwe endpoints**: `/api/bedrijfsgegevens-klanten` (GET/PUT), `/api/bedrijfsgegevens-logo`
+  (POST, los upload-endpoint dat naar blob-container `portaalmedia` wegschrijft als
+  `klantlogo-{accountId}`), `/api/facturatie-aanvraag` (POST — een klant zonder de module kan
+  hiermee een aanvraag indienen; valideert het account los van `controleerToegang()`, want de
+  module staat per definitie nog uit).
+- **`facturatieInstellingen.js`** uitgebreid: de bestaande aan/uit-blob (`facturatie-
+  klanten.json`) bevat nu ook `aangevraagdOp`/`aangevraagdDoor` per account, gezet door
+  `zetAanvraag()` en automatisch weer gewist zodra een beheerder de module aanzet.
+- **`FacturatieModule.jsx`** volledig herbouwd van "één module voor het eerste account" naar
+  een **per-klant inklapbare lijst** (zelfde patroon als "Mijn gegevens"): elk gekoppeld account
+  krijgt een eigen kaart met cliëntnummer/naam, open/dicht te klappen. Staat de module voor dat
+  account nog uit, dan toont de kaart een locked/pricing-kaart (€ 5,-/maand) met een
+  "Vraag aan"-knop i.p.v. de volle module.
+- **Beheerdersportaal**, tab "Facturatie": de klant-aan/uit-lijst sorteert accounts met een
+  openstaande aanvraag automatisch bovenaan, met een blauw label "Aangevraagd op … door …".
+- Commit `29b6fb1` (door Wouter zelf gepusht), migratie 003 tegen de live database gedraaid en
+  bevestigd ("De query is uitgevoerd").
+
+## BTW-codes, factuurvereisten Belastingdienst en admin-verfijningen (28-07-2026, vervolgsessie)
+
+Op basis van een aantal opeenvolgende verzoeken, waaronder de letterlijke checklist van de
+Belastingdienst voor de minimaal verplichte factuurgegevens ("Naam en adres van de leverancier
+[...] Het btw-bedrag"), is de factuur/offerte-weergave en een aantal beheerschermen verder
+afgewerkt:
+
+- **BTW-code i.p.v. los percentage op factuurregels** — de klant kiest nu bij elke regel een
+  BTW-code (nul/laag/hoog/vrijgesteld) uit een keuzelijst i.p.v. zelf een percentage te typen
+  (bron van typefouten). `facturen_klanten.regels_json` bevat per regel nu ook `btwCode`
+  (puur informatief — de berekening zelf blijft op het bevroren `btwPercentage` draaien).
+- **`dbo.facturen_klanten.leverdatum`** (migratie `004_facturen_leverdatum.sql`, nullable) — de
+  wettelijk verplichte "datum van levering, als deze afwijkt van de factuurdatum"; optioneel
+  invulveld, alleen getoond op de factuur als hij ook echt gezet is.
+- **`DocumentVoorbeeld` (in `FacturatieModule.jsx`) is geünificeerd** — zowel het live voorbeeld
+  tijdens het invullen als de weergave van een al opgeslagen document gebruiken nu hetzelfde
+  component, en tonen: het volledige adres van de afnemer (niet meer alleen de naam), de
+  leverdatum (indien gezet), en het btw-bedrag **per toegepast tarief apart** zodra een document
+  meerdere tarieven mengt (via een nieuwe `groepeerBtw()`-helper). Dit dekt de door Wouter
+  aangeleverde Belastingdienst-checklist.
+- **Bedrijfsgegevens & logo**: als er voor een account nog niets is opgeslagen (geen
+  bedrijfsnaam, nooit gewijzigd), wordt het formulier voor-ingevuld met bedrijfsnaam, adres en
+  KvK-nummer uit Dynamics (`kvkNummer` is hiervoor nu ook opgenomen in de `/api/mijn-gegevens`-
+  response) — alleen als aanvulling, nooit als overschrijving van al opgeslagen gegevens. Plus
+  een "Logo verwijderen"-knop (stuurt `logoUrl: ""` naar de bestaande PUT, wat de kolom leegt).
+- **Klanten/Producten-tabs**: gesplitst in een "Actief"- en "Niet actief"-sectie i.p.v. één
+  gedimde lijst, zodat het overzicht rustiger blijft.
+- **Beheerdersportaal**: alle rubrieken (Huisstijl t/m Instellingen) staan nu standaard
+  dichtgeklapt i.p.v. open.
+- **BTW-tarieven-beheer herbouwd** als bewerkbare lijst, zelfde patroon als Standaardartikelen:
+  elke bestaande rij is direct te bewerken (via `wijzigTarief`/PUT, die server-side al bestond
+  maar nog geen UI had) i.p.v. alleen een nieuw tarief kunnen toevoegen; duidelijke
+  "+ Nieuw tarief"-knop in de koptekst.
+- **Facturatiemodule-klantenlijst in Beheer**: dezelfde 25/50/100/250/500/Alle-paginering als
+  het Medewerkersportaal, i.p.v. een intern scrollend lijstje.
+- **Rood badge met aantal**: de tab "Facturatie" in Beheer toont nu een rood rondje met het
+  aantal openstaande aanvragen, zodat een beheerder dit niet over het hoofd ziet.
+- Alles geverifieerd met `npx vite build` (production-bundle, 1913 modules) en `npx oxlint`
+  (geen nieuwe waarschuwingen t.o.v. de bestaande). Gecommit op de machine als `945ac91`; de
+  push liep tegen een tijdelijke proxy-403-foutmelding aan (bekend, intermitterend probleem
+  deze sessie) — Wouter moet `git push` zelf nog eenmaal uitvoeren. Migratie 004 moet nog
+  tegen de live database gedraaid worden.
+
 ## Nog te doen (bewust nog niet gebouwd, om scope behapbaar te houden)
 
 1. ~~Committen + deployen~~ — **afgerond (28-07-2026)**. Commit `66cc80c` (standaardartikelen
@@ -211,13 +284,13 @@ instelbaar) en een direct werkend BTW-beheerscherm (niet uitgesteld):
    E-mailsjablonen, zie screenshot "Eerste herinnering"/"Laatste aanmaning"); er is nog geen
    job die verlopen facturen signaleert en op basis daarvan automatisch een herinnering
    verstuurt via die sjablonen.
-5. **Logo + eigen factuurgegevens** — moet volgens de eis via het bestaande
-   wijzigingsverzoek-mechanisme (`api/_gedeeld/wijzigingen.js`) lopen; nog niet aangesloten
-   op facturatie-specifieke velden (bedrijfsnaam op de factuur, IBAN, BIC, logo-URL, enz.).
-   Staat als "nog niet gebouwd"-kaart in de Instellingen-sub-tab.
-6. **Mollie-koppeling & klant-eigen standaardwaarden** — eveneens nog "nog niet gebouwd"-
-   kaarten in de Instellingen-sub-tab (BTW-tarieven en standaardartikelen zelf zijn inmiddels
-   wél gebouwd, maar dan centraal door Activaa beheerd — zie hierboven).
+5. ~~Logo + eigen factuurgegevens~~ — **afgerond (28-07-2026)**. Anders dan het oorspronkelijke
+   plan loopt dit niet via het wijzigingsverzoek-mechanisme, maar via een eigen tabel
+   (`dbo.bedrijfsgegevens_klanten`) die de klant direct zelf mag bewerken — zie "Bedrijfsgegevens
+   & logo + aanvraagflow" hierboven. Inclusief Dynamics-prefill en een "Logo verwijderen"-knop.
+6. **Mollie-koppeling** — nog steeds een "nog niet gebouwd"-kaart in de Instellingen-sub-tab
+   (BTW-tarieven, standaardartikelen én bedrijfsgegevens/logo zijn inmiddels wél gebouwd — zie
+   hierboven).
 7. **PDF-generatie** — `pdf-lib` staat al als dependency in `api/package.json` (waarschijnlijk
    vanuit de vroegere offertetool); nog geen factuur-PDF-layout gebouwd op basis van
    `facturen_klanten`.
