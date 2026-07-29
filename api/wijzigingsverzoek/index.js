@@ -1,4 +1,4 @@
-const { haalDynamicsToken, herleidAccounts, haalEmailUitPrincipal } = require("../_gedeeld/identiteit");
+const { haalDynamicsToken, herleidAccounts, haalEmailUitPrincipal, IBAN_VELD, IBAN_TENAAMSTELLING_VELD } = require("../_gedeeld/identiteit");
 const { voegVerzoekToe, haalVerzoekenVoorEmail } = require("../_gedeeld/wijzigingen");
 const { verstuurMail } = require("../_gedeeld/mail");
 const { isIngeschakeld } = require("../_gedeeld/facturatieInstellingen");
@@ -123,8 +123,10 @@ module.exports = async function (context, req) {
         land: opgeslagen.land || raw.address1_country || "NL",
         kvkNummer: opgeslagen.kvkNummer || (raw[kvkVeldNaam] || "").toString().trim(),
         btwNummer: opgeslagen.btwNummer || (raw[btwVeldNaam] || "").toString().trim(),
-        iban: opgeslagen.iban || "",
-        ibanTenaamstelling: opgeslagen.ibanTenaamstelling || "",
+        // IBAN + tenaamstelling: sinds 29-07-2026 ook uit Dataverse bekend (sk_iban /
+        // cr283_ibannaamstelling), zelfde val-terug-patroon als KvK/BTW hierboven.
+        iban: opgeslagen.iban || (raw[IBAN_VELD] || "").toString().trim(),
+        ibanTenaamstelling: opgeslagen.ibanTenaamstelling || (raw[IBAN_TENAAMSTELLING_VELD] || "").toString().trim(),
       };
 
       const voorstel = schoonVoorstel(req.body?.voorstel, BEDRIJFSGEGEVENS_VELDEN);

@@ -611,3 +611,63 @@ op het gewijzigde backend-bestand. Gecommit als `e2fc3df`. Nog niet gepusht.
 **Waar keur je een wijzigingsverzoek goed/af?** Beheer → Wijzigingsverzoeken (voor zowel de
 gewone NAW-verzoeken als de facturatiemodule-bedrijfsgegevens — beide staan in dezelfde lijst,
 te herkennen aan het type).
+
+## IBAN/tenaamstelling via Dynamics (sk_iban / cr283_ibannaamstelling), 29-07-2026, vervolgsessie
+
+Na het goedkeuren van een echt gewijzigd IBAN-wijzigingsverzoek (JOWO Holding B.V., nr 1023)
+gaf het scherm: *"Goedgekeurd, maar automatisch verwerken in de database lukte niet
+(waarschijnlijk onvoldoende schrijfrechten/verbinding)."* — het IBAN kwam dus niet bij de klant
+terecht. Onderzoek van de Azure-infrastructuur (firewall, App Insights, app settings) leverde
+geen concrete oorzaak op voor de onderliggende SQL-schrijffout naar `dbo.bedrijfsgegevens_klanten`
+(nog steeds niet opgelost — zie "Nog open" hieronder). Wouter gaf vervolgens aan dat Dataverse
+hier al langer eigen velden voor heeft: **`sk_iban`** en **`cr283_ibannaamstelling`** op Account
+— dus is de voorvul- én wegschrijf-koppeling die al voor KvK/BTW bestond, nu ook naar deze twee
+velden uitgebreid, met als concreet doel: *"dus wegschrijven en ophalen zou moeten lukken"*.
+
+- **Lezen/voorvullen** — zelfde patroon als KvK/BTW:
+  - `api/_gedeeld/identiteit.js`: nieuwe constanten `IBAN_VELD`
+    (`DYNAMICS_IBAN_VELD || "sk_iban"`) en `IBAN_TENAAMSTELLING_VELD`
+    (`DYNAMICS_IBAN_TENAAMSTELLING_VELD || "cr283_ibannaamstelling"`), geëxporteerd voor
+    hergebruik elders. De defensieve val-terug-logica (was: één `metBtw`-boolean) is
+    gegeneraliseerd naar een lijst `OPTIONELE_VELDEN` (nu BTW + IBAN + tenaamstelling) met een
+    retry-lus: gaat de Dynamics-query mis op een veldnaam die niet blijkt te bestaan, dan wordt
+    precies dát veld verwijderd en de query opnieuw geprobeerd — tot alle optionele velden zijn
+    uitgeput. Zo breekt een verkeerde/ontbrekende schemanaam nooit de hele koppeling.
+  - `api/mijn-gegevens/index.js`: response per account heeft nu ook `iban`/`ibanTenaamstelling`
+    (uit `account[IBAN_VELD]`/`account[IBAN_TENAAMSTELLING_VELD]`).
+  - `FacturatieModule.jsx` (`BedrijfsgegevensKaart`): de voorvul-`useEffect` vult nu ook
+    `iban`/`ibanTenaamstelling` aan vanuit `account?.iban`/`account?.ibanTenaamstelling` zodra
+    het eigen veld nog leeg is (nooit een al opgeslagen waarde overschrijven — zelfde regel als
+    KvK/BTW). Uitlegtekst bijgewerkt ("... KvK-nummer, BTW-nummer en IBAN zijn al ingevuld...").
+  - `api/wijzigingsverzoek/index.js`: de `huidig`-berekening (zie de bugfix hierboven) heeft nu
+    ook een Dynamics-terugval voor `iban`/`ibanTenaamstelling`, zodat een IBAN dat alleen uit
+    Dataverse komt niet langer als "gewijzigd" wordt gezien als de klant niets zelf aanpast.
+- **Wegschrijven na goedkeuring** — `api/beheer-wijzigingen/index.js`: nieuwe functie
+  `verwerkIbanInDynamics()` schrijft bij een goedgekeurd `bedrijfsgegevens_facturatie`-verzoek
+  de gewijzigde IBAN/tenaamstelling ook naar het Account in Dynamics (PATCH, zelfde
+  `DYN_HEADERS`/patroon als de bestaande NAW-verwerking). Dit gebeurt **naast** (niet in plaats
+  van) de bestaande `zetGegevens()`-SQL-schrijfactie:
+  - Beide lukken → niets aan de hand, verzoek is verwerkt.
+  - SQL mislukt, maar IBAN is gewijzigd én de Dynamics-schrijfactie lukt → verzoek wordt tóch als
+    "verwerkt" beschouwd (geen `verwerkingsfout`): de koppeling haalt het IBAN er via
+    `mijn-gegevens`/het formulier vanzelf weer bij, net als bij KvK/BTW. De SQL-fout wordt wel
+    gelogd, voor als het onderliggende databaseprobleem ooit opgelost wordt.
+  - SQL mislukt én de Dynamics-schrijfactie mislukt ook (of er was geen IBAN-wijziging in dit
+    verzoek, dus geen Dynamics-vangnet) → verzoek blijft op `verwerkingsfout` staan zoals
+    voorheen, met een gecombineerde foutmelding (database + Dynamics) als beide faalden.
+  - SQL lukt, maar de (best-effort) Dynamics-schrijfactie mislukt → geen harde fout: de klant
+    ziet de waarde toch al via de succesvolle SQL-opslag, dus dit wordt alleen gelogd.
+  - Praktisch gevolg: het openstaande JOWO Holding-verzoek (nr 1023) kan na deze deploy gewoon
+    via de bestaande "Opnieuw verwerken"-knop (Beheer → Wijzigingsverzoeken) opnieuw goedgekeurd
+    worden — dat roept dezelfde `PATCH /api/beheer-wijzigingen`-code aan, dus zou dit keer via
+    het Dynamics-pad moeten slagen ook al blijft de onderliggende SQL-fout (nog) bestaan.
+- **Nog open, mogelijk nog relevant**: de eigenlijke oorzaak van de `zetGegevens()`/
+  `dbo.bedrijfsgegevens_klanten`-SQL-schrijffout is niet gevonden (Azure-infrastructuur leek in
+  orde: firewall correct, geen Application Insights gevonden in de bereikbare subscription — wat
+  Wouter tegensprak, dus mogelijk een andere subscription/tenant). Dit raakt in principe ook
+  andere bedrijfsgegevens-velden (bedrijfsnaam/adres/KvK/BTW) die nog wél alleen naar de SQL-tabel
+  schrijven — voor die velden bestaat vooralsnog geen Dynamics-vangnet zoals nu voor IBAN. Zodra
+  er tijd/aanleiding is: verder uitzoeken waarom de SQL-verbinding vanuit de Function faalt
+  (schrijfrechten? connection string? firewall voor een ander IP-bereik?).
+- Geverifieerd met `npx vite build` (1913 modules, geen nieuwe fouten) en `node --check` op alle
+  vier gewijzigde backend-bestanden.

@@ -1569,9 +1569,8 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
   useEffect(() => {
     if (!data || f) return;
     // Voor ieder veld dat bij Activaa al bekend is uit Dynamics (bedrijfsnaam, adres,
-    // KvK-nummer, BTW-nummer) vullen we het aan zodra het nog leeg is — nooit een al
-    // opgeslagen/goedgekeurde eigen waarde overschrijven. Staat iets niet in Dynamics
-    // (IBAN, tenaamstelling), dan blijft het gewoon leeg totdat de klant het zelf invult.
+    // KvK-nummer, BTW-nummer, sinds 29-07-2026 ook IBAN + tenaamstelling) vullen we het aan
+    // zodra het nog leeg is — nooit een al opgeslagen/goedgekeurde eigen waarde overschrijven.
     const a = account?.klantadres || {};
     setF({
       ...data,
@@ -1583,6 +1582,8 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
       plaats: data.plaats || a.plaats || "",
       kvkNummer: data.kvkNummer || account?.kvkNummer || "",
       btwNummer: data.btwNummer || account?.btwNummer || "",
+      iban: data.iban || account?.iban || "",
+      ibanTenaamstelling: data.ibanTenaamstelling || account?.ibanTenaamstelling || "",
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
@@ -1680,8 +1681,8 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Bedrijfsgegevens</div>
         <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 16 }}>
           Deze gegevens komen als afzender ("Van:") bovenaan je facturen en offertes te staan.
-          Bedrijfsnaam, adres, KvK-nummer en BTW-nummer zijn al ingevuld met wat bij Activaa bekend
-          is; een wijziging hier wordt eerst door Activaa beoordeeld voordat hij ingaat.
+          Bedrijfsnaam, adres, KvK-nummer, BTW-nummer en IBAN zijn al ingevuld met wat bij Activaa
+          bekend is; een wijziging hier wordt eerst door Activaa beoordeeld voordat hij ingaat.
         </div>
 
         {andereAccounts.length > 0 && !inBehandeling && (

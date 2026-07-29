@@ -1,4 +1,4 @@
-const { haalDynamicsToken, herleidAccounts } = require("../_gedeeld/identiteit");
+const { haalDynamicsToken, herleidAccounts, IBAN_VELD, IBAN_TENAAMSTELLING_VELD } = require("../_gedeeld/identiteit");
 const { haalStatussen } = require("../_gedeeld/facturatieInstellingen");
 
 module.exports = async function (context, req) {
@@ -44,6 +44,10 @@ module.exports = async function (context, req) {
           // BTW-nummer, zelfde voorvul-doel als kvkNummer hierboven. Leeg als het veld (nog)
           // niet in Dataverse staat onder deze naam — zie identiteit.js / DYNAMICS_BTW_VELD.
           btwNummer: (account[process.env.DYNAMICS_BTW_VELD || "sk_btwnummer"] || "").toString().trim(),
+          // IBAN + tenaamstelling, zelfde voorvul-doel — sinds 29-07-2026 uit Dataverse
+          // (sk_iban / cr283_ibannaamstelling). Leeg als het veld niet is meegekomen.
+          iban: (account[IBAN_VELD] || "").toString().trim(),
+          ibanTenaamstelling: (account[IBAN_TENAAMSTELLING_VELD] || "").toString().trim(),
           // Volledige contactpersoon-gegevens (wijzigbaar via een verzoek, behalve functie rol).
           contactpersoon: contactpersoon || {},
           relatiebeheerder,

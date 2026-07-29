@@ -170,6 +170,16 @@ const KVK_VELD = process.env.DYNAMICS_KVK_VELD || "accountnumber";
 // Bestaat het veld (nog) niet onder die naam, dan valt herleidAccounts() er automatisch op terug
 // om het gewoon niet mee te selecteren, zodat de rest van de koppeling blijft werken.
 const BTW_VELD = process.env.DYNAMICS_BTW_VELD || "sk_btwnummer";
+// IBAN en de tenaamstelling daarvan staan op het Account in sk_iban / cr283_ibannaamstelling —
+// zelfde voorvul-doel als kvkNummer/btwNummer. Overschrijf via de Application Settings
+// DYNAMICS_IBAN_VELD / DYNAMICS_IBAN_TENAAMSTELLING_VELD als de schemanaam bij jullie anders is.
+const IBAN_VELD = process.env.DYNAMICS_IBAN_VELD || "sk_iban";
+const IBAN_TENAAMSTELLING_VELD = process.env.DYNAMICS_IBAN_TENAAMSTELLING_VELD || "cr283_ibannaamstelling";
+// Optionele velden die (nog) niet gegarandeerd onder deze naam in Dataverse bestaan — bij een
+// foutmelding die zo'n veldnaam noemt, laten we precies dát veld weg en proberen het opnieuw
+// (zie de retry-lus in herleidAccounts hieronder), zodat één verkeerde/ontbrekende schemanaam
+// niet de hele koppeling breekt.
+const OPTIONELE_VELDEN = [BTW_VELD, IBAN_VELD, IBAN_TENAAMSTELLING_VELD].filter(Boolean);
 // De groepsnaam ("cliëntgroep", bv. ACTIVAA/JOWO) is een lookup op Account naar de entiteit
 // sk_groepen; de leesbare naam staat daar in het veld sk_name.
 const GROEPSNAAM_NAV = process.env.DYNAMICS_GROEPSNAAM_NAV || "sk_Groepsnaam";
@@ -190,9 +200,9 @@ async function herleidAccounts(req, token) {
   // De relatiebeheerder (veld "Manager") en de accountant zijn eigen lookup-velden op Account
   // naar de systemuser; die halen we mee via $expand. Kloppen de schemanamen bij jullie niet,
   // pas ze dan aan via de Application Settings DYNAMICS_RELATIEBEHEERDER_NAV / DYNAMICS_ACCOUNTANT_NAV.
-  const maakQuery = (metBtw) =>
+  const maakQuery = (extraVelden) =>
     `${resource}/api/data/v9.2/accounts` +
-    `?$select=accountid,${CLIENTNUMMER_VELD},${CLIENTNRAUTO_VELD},${KVK_VELD}${metBtw && BTW_VELD ? "," + BTW_VELD : ""},name,address1_line1,cr283_huisnummer,` +
+    `?$select=accountid,${CLIENTNUMMER_VELD},${CLIENTNRAUTO_VELD},${KVK_VELD}${extraVelden.length ? "," + extraVelden.join(",") : ""},name,address1_line1,cr283_huisnummer,` +
     `cr283_huisnummertoevoeging,address1_postalcode,address1_city,address1_country,` +
     `emailaddress1,telephone1${KLANTCATEGORIE_VELD ? "," + KLANTCATEGORIE_VELD : ""}` +
     `&$filter=primarycontactid/emailaddress1 eq '${veilig}' and statecode eq 0` +
@@ -214,16 +224,21 @@ async function herleidAccounts(req, token) {
     Prefer: 'odata.include-annotations="OData.Community.Display.V1.FormattedValue"',
   };
 
-  let res = await fetch(maakQuery(true), { headers: HEADERS });
+  // Begin met alle optionele velden (BTW, IBAN, IBAN-tenaamstelling) erbij. Faalt de query
+  // omdat Dataverse een van die veldnamen niet kent, haal dan precies dát veld eruit en
+  // probeer opnieuw — tot alle optionele velden zijn uitgeput, zodat de rest van de
+  // koppeling (KvK, adres, contactpersoon, ...) altijd blijft werken.
+  let actieveOptioneleVelden = [...OPTIONELE_VELDEN];
+  let res = await fetch(maakQuery(actieveOptioneleVelden), { headers: HEADERS });
   let tekstBijFout = "";
-  if (!res.ok) {
+  let pogingen = 0;
+  while (!res.ok && pogingen < OPTIONELE_VELDEN.length) {
     tekstBijFout = await res.text();
-    // Staat het BTW-veld (nog) niet onder deze naam in Dataverse, val dan terug op de query
-    // zonder dat veld — zo blijft de rest van de koppeling gewoon werken totdat de juiste
-    // schemanaam is ingesteld via de Application Setting DYNAMICS_BTW_VELD.
-    if (BTW_VELD && tekstBijFout.includes(BTW_VELD)) {
-      res = await fetch(maakQuery(false), { headers: HEADERS });
-    }
+    const foutVeld = actieveOptioneleVelden.find((v) => tekstBijFout.includes(v));
+    if (!foutVeld) break;
+    actieveOptioneleVelden = actieveOptioneleVelden.filter((v) => v !== foutVeld);
+    res = await fetch(maakQuery(actieveOptioneleVelden), { headers: HEADERS });
+    pogingen++;
   }
 
   if (!res.ok) {
@@ -319,4 +334,7 @@ async function herleidAccounts(req, token) {
   };
 }
 
-module.exports = { haalDynamicsToken, herleidAccounts, haalEmailUitPrincipal, haalNaamUitPrincipal, haalRollenUitPrincipal, KLANTCATEGORIE_VELD };
+module.exports = {
+  haalDynamicsToken, herleidAccounts, haalEmailUitPrincipal, haalNaamUitPrincipal, haalRollenUitPrincipal,
+  KLANTCATEGORIE_VELD, IBAN_VELD, IBAN_TENAAMSTELLING_VELD,
+};

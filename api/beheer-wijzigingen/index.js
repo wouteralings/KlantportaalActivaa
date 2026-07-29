@@ -1,4 +1,4 @@
-const { haalDynamicsToken, haalEmailUitPrincipal } = require("../_gedeeld/identiteit");
+const { haalDynamicsToken, haalEmailUitPrincipal, IBAN_VELD, IBAN_TENAAMSTELLING_VELD } = require("../_gedeeld/identiteit");
 const { haalAlleVerzoeken, werkVerzoekBij } = require("../_gedeeld/wijzigingen");
 const { zetGegevens: zetBedrijfsgegevens } = require("../_gedeeld/bedrijfsgegevensKlanten");
 
@@ -88,6 +88,35 @@ async function verwerkInDynamics(resource, token, verzoek) {
   }
 }
 
+/**
+ * Schrijft IBAN + tenaamstelling van een goedgekeurd bedrijfsgegevens_facturatie-verzoek weg
+ * naar het Account in Dynamics (sk_iban / cr283_ibannaamstelling) — sinds 29-07-2026, nadat
+ * bleek dat deze velden daar al bestaan. Zo komt de waarde via dezelfde koppeling als KvK/BTW
+ * altijd weer terug, ook als het wegschrijven naar onze eigen SQL-tabel (het primaire pad,
+ * hieronder nog steeds geprobeerd) een keer mislukt. Alleen daadwerkelijk gewijzigde velden
+ * worden meegestuurd; doet geen request als er niets IBAN-gerelateerds is gewijzigd.
+ */
+async function verwerkIbanInDynamics(resource, token, verzoek) {
+  const { huidig = {}, voorstel = {} } = verzoek;
+  if (!verzoek.accountId) throw new Error("Geen account-id bij dit verzoek; kan IBAN niet naar Dynamics wegschrijven.");
+
+  const accountVelden = {};
+  if ((voorstel.iban ?? "") !== (huidig.iban ?? "")) {
+    accountVelden[IBAN_VELD] = voorstel.iban || null;
+  }
+  if ((voorstel.ibanTenaamstelling ?? "") !== (huidig.ibanTenaamstelling ?? "")) {
+    accountVelden[IBAN_TENAAMSTELLING_VELD] = voorstel.ibanTenaamstelling || null;
+  }
+  if (Object.keys(accountVelden).length === 0) return;
+
+  const res = await fetch(`${resource}/api/data/v9.2/accounts(${verzoek.accountId})`, {
+    method: "PATCH",
+    headers: DYN_HEADERS(token),
+    body: JSON.stringify(accountVelden),
+  });
+  if (!res.ok) throw new Error(`IBAN bijwerken in Dynamics mislukt (${res.status}): ${await res.text()}`);
+}
+
 module.exports = async function (context, req) {
   try {
     if (req.method === "GET") {
@@ -128,11 +157,48 @@ module.exports = async function (context, req) {
 
       // Goedkeuren → verwerken. Het type van het verzoek bepaalt het doelsysteem: NAW-
       // verzoeken (of oudere verzoeken zonder type) gaan naar Dynamics; de facturatiemodule-
-      // bedrijfsgegevens gaan naar onze eigen SQL-tabel (geen Dynamics bij betrokken).
+      // bedrijfsgegevens gaan primair naar onze eigen SQL-tabel. Sinds 29-07-2026 schrijven we
+      // IBAN + tenaamstelling daarnaast ook naar Dynamics (sk_iban / cr283_ibannaamstelling) —
+      // dat kanaal is bewezen betrouwbaar (zelfde als KvK/BTW), dus als het SQL-schrijven een
+      // keer misgaat maar IBAN via Dynamics wél lukt, komt de waarde alsnog bij de klant terecht.
       let verwerkingsfout = null;
       try {
         if (verzoek.type === "bedrijfsgegevens_facturatie") {
-          await zetBedrijfsgegevens(verzoek.accountId, verzoek.voorstel, beheerder);
+          const sqlFout = await zetBedrijfsgegevens(verzoek.accountId, verzoek.voorstel, beheerder)
+            .then(() => null)
+            .catch((fout) => fout);
+
+          const ibanGewijzigd =
+            (verzoek.voorstel?.iban ?? "") !== (verzoek.huidig?.iban ?? "") ||
+            (verzoek.voorstel?.ibanTenaamstelling ?? "") !== (verzoek.huidig?.ibanTenaamstelling ?? "");
+
+          let dynFout = null;
+          if (ibanGewijzigd) {
+            try {
+              const resource = process.env.DYNAMICS_RESOURCE_URL;
+              const token = await haalDynamicsToken();
+              await verwerkIbanInDynamics(resource, token, verzoek);
+            } catch (fout) {
+              dynFout = fout;
+            }
+          }
+
+          if (sqlFout) {
+            if (ibanGewijzigd && !dynFout) {
+              // Database-schrijven mislukt (bekend, nog niet opgelost probleem), maar IBAN/
+              // tenaamstelling staan via Dynamics klaar — die komen via de koppeling gewoon
+              // terug, dus voor de klant is dit verzoek in de praktijk verwerkt. Wel loggen.
+              context.log.error("Database-schrijven bij bedrijfsgegevens_facturatie mislukt (IBAN wél via Dynamics verwerkt):", sqlFout);
+            } else {
+              throw dynFout
+                ? new Error(`Database: ${sqlFout.message || sqlFout} | Dynamics: ${dynFout.message || dynFout}`)
+                : sqlFout;
+            }
+          } else if (dynFout) {
+            // Database-schrijven (het primaire pad) is gelukt; het wegschrijven naar Dynamics is
+            // hier alleen best-effort, dus een foutje daarin hoeft dit verzoek niet te laten mislukken.
+            context.log.error("Wegschrijven van IBAN naar Dynamics (best effort) mislukt:", dynFout);
+          }
         } else {
           const resource = process.env.DYNAMICS_RESOURCE_URL;
           const token = await haalDynamicsToken();
