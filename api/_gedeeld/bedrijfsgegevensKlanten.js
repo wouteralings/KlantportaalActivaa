@@ -27,6 +27,7 @@ const AAN_TE_VULLEN_VELDEN = [
 const LEEG = {
   bedrijfsnaam: "", straat: "", huisnummer: "", toevoeging: "", postcode: "", plaats: "", land: "NL",
   kvkNummer: "", btwNummer: "", iban: "", ibanTenaamstelling: "", logoUrl: "", ccEmail: "",
+  standaardBetalingstermijn: null, standaardBtwCode: "", standaardFactuurtekst: "",
 };
 
 function naarBuiten(row) {
@@ -50,6 +51,13 @@ function naarBuiten(row) {
     // (cr283_ccbijversturen, zie identiteit.js/CC_EMAIL_VELD) — de terugval daarvandaan gebeurt
     // in haalGegevensMetCrmAanvulling hieronder, niet hier (dit is de kale SQL-rij).
     ccEmail: row.cc_email || "",
+    // Standaardwaarden voor een NIEUWE factuur/offerte (migratie 007, 29-07-2026) — vullen alleen
+    // het formulier voor, ze zijn geen verificatiegegeven en hebben dus ook geen Dynamics-
+    // tegenhanger. `standaardBetalingstermijn` blijft bewust `null` (i.p.v. 0) als er niets is
+    // ingesteld, zodat het front-end verschil kan maken tussen "geen voorkeur" en "0 dagen".
+    standaardBetalingstermijn: row.standaard_betalingstermijn ?? null,
+    standaardBtwCode: row.standaard_btw_code || "",
+    standaardFactuurtekst: row.standaard_factuurtekst || "",
     gewijzigdOp: row.gewijzigd_op || row.aangemaakt_op || null,
   };
 }
@@ -142,6 +150,13 @@ async function zetGegevens(klantAccountId, data, email) {
   request.input("ibanTenaamstelling", sql.NVarChar(200), veld("ibanTenaamstelling") || null);
   request.input("logoUrl", sql.NVarChar(500), veld("logoUrl") || null);
   request.input("ccEmail", sql.NVarChar(320), veld("ccEmail") || null);
+  // Standaardwaarden (migratie 007) — standaardBetalingstermijn mag écht `null` zijn (= geen
+  // voorkeur ingesteld, front-end valt dan zelf terug op 30 dagen); vandaar hier bewust geen
+  // `|| null` (dat zou ook 0 tot null maken) maar een expliciete undefined/null-check.
+  const standaardBetalingstermijnWaarde = veld("standaardBetalingstermijn", null);
+  request.input("standaardBetalingstermijn", sql.Int, standaardBetalingstermijnWaarde === "" || standaardBetalingstermijnWaarde == null ? null : Number(standaardBetalingstermijnWaarde));
+  request.input("standaardBtwCode", sql.NVarChar(20), veld("standaardBtwCode") || null);
+  request.input("standaardFactuurtekst", sql.NVarChar(sql.MAX), veld("standaardFactuurtekst") || null);
   request.input("email", sql.NVarChar(320), email || null);
 
   if (bestaand) {
@@ -150,6 +165,8 @@ async function zetGegevens(klantAccountId, data, email) {
         bedrijfsnaam = @bedrijfsnaam, straat = @straat, huisnummer = @huisnummer, toevoeging = @toevoeging,
         postcode = @postcode, plaats = @plaats, land = @land, kvk_nummer = @kvkNummer, btw_nummer = @btwNummer,
         iban = @iban, iban_tenaamstelling = @ibanTenaamstelling, logo_url = @logoUrl, cc_email = @ccEmail,
+        standaard_betalingstermijn = @standaardBetalingstermijn, standaard_btw_code = @standaardBtwCode,
+        standaard_factuurtekst = @standaardFactuurtekst,
         gewijzigd_op = SYSUTCDATETIME(), gewijzigd_door = @email
       OUTPUT INSERTED.*
       WHERE klant_account_id = @klantAccountId
@@ -160,11 +177,13 @@ async function zetGegevens(klantAccountId, data, email) {
   const result = await request.query(`
     INSERT INTO dbo.bedrijfsgegevens_klanten
       (klant_account_id, bedrijfsnaam, straat, huisnummer, toevoeging, postcode, plaats, land,
-       kvk_nummer, btw_nummer, iban, iban_tenaamstelling, logo_url, cc_email, aangemaakt_door)
+       kvk_nummer, btw_nummer, iban, iban_tenaamstelling, logo_url, cc_email,
+       standaard_betalingstermijn, standaard_btw_code, standaard_factuurtekst, aangemaakt_door)
     OUTPUT INSERTED.*
     VALUES
       (@klantAccountId, @bedrijfsnaam, @straat, @huisnummer, @toevoeging, @postcode, @plaats, @land,
-       @kvkNummer, @btwNummer, @iban, @ibanTenaamstelling, @logoUrl, @ccEmail, @email)
+       @kvkNummer, @btwNummer, @iban, @ibanTenaamstelling, @logoUrl, @ccEmail,
+       @standaardBetalingstermijn, @standaardBtwCode, @standaardFactuurtekst, @email)
   `);
   return naarBuiten(result.recordset[0]);
 }
@@ -176,6 +195,8 @@ function terugvalKolom(naam) {
     bedrijfsnaam: "bedrijfsnaam", straat: "straat", huisnummer: "huisnummer", toevoeging: "toevoeging",
     postcode: "postcode", plaats: "plaats", land: "land", kvkNummer: "kvk_nummer", btwNummer: "btw_nummer",
     iban: "iban", ibanTenaamstelling: "iban_tenaamstelling", logoUrl: "logo_url", ccEmail: "cc_email",
+    standaardBetalingstermijn: "standaard_betalingstermijn", standaardBtwCode: "standaard_btw_code",
+    standaardFactuurtekst: "standaard_factuurtekst",
   };
   return MAP[naam] || naam;
 }

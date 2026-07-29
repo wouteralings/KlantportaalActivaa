@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   FileText, FileSpreadsheet, Package, Users, Settings, Plus, Send, Check, X,
-  Trash2, Pencil, CreditCard, Bell, Sliders, ArrowLeft, ChevronDown, Search,
+  Trash2, Pencil, CreditCard, Bell, ArrowLeft, ChevronDown, Search,
   Lock, Clock, Copy, Repeat, Download, Pause, Play, Mail, Eye,
 } from "lucide-react";
 
@@ -316,12 +316,20 @@ function useBedrijfsgegevens(accountId) {
 /* Facturen & Offertes — gedeelde lijst-/detailweergave                    */
 /* ---------------------------------------------------------------------- */
 
-const LEGE_REGEL = () => ({
-  omschrijving: "", artikelId: "", aantal: 1, prijs: 0, btwCode: "hoog", btwPercentage: 21,
-  // Optionele afwijkende leveringsperiode voor déze regel — leeg = geldt de leveringsperiode
-  // van het hele document (zie "Leveringsperiode" hieronder in DocumentFormulier).
-  leveringsperiodeStart: "", leveringsperiodeEind: "",
-});
+// standaardBtwCode/tarieven optioneel: als de klant bij Instellingen → Standaardwaarden een
+// eigen standaard BTW-code heeft ingesteld, gebruiken nieuwe regels die (met bijbehorend
+// percentage uit de tarievenlijst) i.p.v. de hardgecodeerde "hoog"/21% — zie 29-07-2026.
+const LEGE_REGEL = (standaardBtwCode, tarieven) => {
+  const tarief = (tarieven || []).find((t) => t.code === standaardBtwCode);
+  return {
+    omschrijving: "", artikelId: "", aantal: 1, prijs: 0,
+    btwCode: tarief ? tarief.code : "hoog",
+    btwPercentage: tarief ? tarief.percentage : 21,
+    // Optionele afwijkende leveringsperiode voor déze regel — leeg = geldt de leveringsperiode
+    // van het hele document (zie "Leveringsperiode" hieronder in DocumentFormulier).
+    leveringsperiodeStart: "", leveringsperiodeEind: "",
+  };
+};
 const BETALINGSTERMIJN_OPTIES = [7, 14, 21, 30];
 
 const FREQUENTIE_OPTIES = [
@@ -500,13 +508,17 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
   const [pdfStatus, setPdfStatus] = useState("idle"); // idle | bezig | fout
   const [verstuurStatus, setVerstuurStatus] = useState("idle"); // idle | bezig | fout
   const [klantKlantId, setKlantKlantId] = useState(bestaand?.klantKlantId || "");
-  const [betalingstermijnDagen, setBetalingstermijnDagen] = useState(bestaand?.betalingstermijnDagen ?? 30);
+  // Voor een NIEUW document (geen `bestaand`) vallen betalingstermijn/opmerkingen/BTW-code terug
+  // op de standaardwaarden die de klant zelf instelde bij Instellingen → Standaardwaarden (zie
+  // 29-07-2026), en pas daarna op de hardgecodeerde 30 dagen / "hoog" / leeg. Een al bestaand
+  // concept behoudt gewoon zijn eigen, eerder opgeslagen waarde.
+  const [betalingstermijnDagen, setBetalingstermijnDagen] = useState(bestaand?.betalingstermijnDagen ?? bedrijfsgegevens?.standaardBetalingstermijn ?? 30);
   // Geen invoerveld meer voor (zie 29-07-2026, "mag eraf") — de state blijft bestaan zodat een
   // al bewaarde periode op een bestaand concept behouden blijft (gewoon opnieuw meegestuurd bij
   // opslaan), maar is voor een nieuw document altijd leeg en niet meer zelf in te stellen.
   const [leveringsperiodeStart, _setLeveringsperiodeStart] = useState(bestaand?.leveringsperiodeStart ? String(bestaand.leveringsperiodeStart).slice(0, 10) : "");
   const [leveringsperiodeEind, _setLeveringsperiodeEind] = useState(bestaand?.leveringsperiodeEind ? String(bestaand.leveringsperiodeEind).slice(0, 10) : "");
-  const [opmerkingen, setOpmerkingen] = useState(bestaand?.opmerkingen || "");
+  const [opmerkingen, setOpmerkingen] = useState(bestaand?.opmerkingen || bedrijfsgegevens?.standaardFactuurtekst || "");
   const [regels, setRegels] = useState(
     bestaand?.regels?.length
       ? bestaand.regels.map((r) => ({
@@ -516,7 +528,7 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
           leveringsperiodeStart: r.leveringsperiodeStart ? String(r.leveringsperiodeStart).slice(0, 10) : "",
           leveringsperiodeEind: r.leveringsperiodeEind ? String(r.leveringsperiodeEind).slice(0, 10) : "",
         }))
-      : [LEGE_REGEL()]
+      : [LEGE_REGEL(bedrijfsgegevens?.standaardBtwCode, tarieven)]
   );
   const [status, setStatus] = useState("invoer"); // invoer | bezig | fout
   const [foutmelding, setFoutmelding] = useState("");
@@ -553,7 +565,7 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
       return nieuw;
     }));
   };
-  const voegRegelToe = () => setRegels((h) => [...h, LEGE_REGEL()]);
+  const voegRegelToe = () => setRegels((h) => [...h, LEGE_REGEL(bedrijfsgegevens?.standaardBtwCode, tarieven)]);
   const verwijderRegel = (i) => setRegels((h) => (h.length > 1 ? h.filter((_, idx) => idx !== i) : h));
 
   const subtotaal = useMemo(
@@ -2104,12 +2116,122 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
   );
 }
 
-function InstellingenTab({ accountId, bedrijfsgegevens, andereAccounts, account, eigenVerzoeken, verversVerzoeken }) {
+/** Standaardwaarden voor een NIEUWE factuur/offerte (migratie 007, 29-07-2026): standaard
+ * betalingstermijn, standaard BTW-code voor nieuwe factuurregels, en een standaard factuurtekst
+ * (vult "Opmerkingen" voor). Vullen alleen het formulier voor bij het aanmaken van een nieuw
+ * document (DocumentFormulier) — per document blijft alles gewoon aan te passen. Net als logo en
+ * CC-mailadres direct zelf te wijzigen, zonder goedkeuring door Activaa (geen verificatiegegeven). */
+function StandaardwaardenKaart({ accountId, bedrijfsgegevens, tarieven }) {
+  const { data, verversen: verversBedrijfsgegevens } = bedrijfsgegevens;
+  const [f, setF] = useState(null);
+  const [status, setStatus] = useState("idle"); // idle | bezig | fout | opgeslagen
+  const [foutmelding, setFoutmelding] = useState("");
+
+  useEffect(() => {
+    if (!data || f) return;
+    setF({
+      standaardBetalingstermijn: data.standaardBetalingstermijn ?? "",
+      standaardBtwCode: data.standaardBtwCode || "",
+      standaardFactuurtekst: data.standaardFactuurtekst || "",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  if (!f) {
+    return (
+      <div style={kaartStijl}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Standaardwaarden</div>
+        <LegeStaat tekst="Laden…" />
+      </div>
+    );
+  }
+
+  const zet = (k) => (e) => { setF((h) => ({ ...h, [k]: e.target.value })); setStatus("idle"); };
+
+  const opslaan = async () => {
+    setStatus("bezig");
+    setFoutmelding("");
+    try {
+      const opgeslagen = await haalJson(await fetch(`/api/bedrijfsgegevens-klanten?accountId=${encodeURIComponent(accountId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          standaardBetalingstermijn: f.standaardBetalingstermijn === "" ? null : Number(f.standaardBetalingstermijn),
+          standaardBtwCode: f.standaardBtwCode,
+          standaardFactuurtekst: f.standaardFactuurtekst,
+        }),
+      }));
+      setF({
+        standaardBetalingstermijn: opgeslagen.standaardBetalingstermijn ?? "",
+        standaardBtwCode: opgeslagen.standaardBtwCode || "",
+        standaardFactuurtekst: opgeslagen.standaardFactuurtekst || "",
+      });
+      verversBedrijfsgegevens?.();
+      setStatus("opgeslagen");
+    } catch (e) {
+      setFoutmelding(e.message || String(e));
+      setStatus("fout");
+    }
+  };
+
+  return (
+    <div style={kaartStijl}>
+      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Standaardwaarden</div>
+      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 16 }}>
+        Deze waarden worden automatisch ingevuld bij een nieuwe factuur of offerte — per document
+        kun je ze altijd nog gewoon aanpassen. Net als het logo direct zelf te wijzigen, zonder
+        goedkeuring door Activaa.
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0 20px" }}>
+        <div>
+          <div style={labelStijl}>Standaard betalingstermijn</div>
+          <select value={f.standaardBetalingstermijn} onChange={zet("standaardBetalingstermijn")} style={inputStijl}>
+            <option value="">Geen voorkeur (dan 30 dagen)</option>
+            {[...new Set([...BETALINGSTERMIJN_OPTIES, Number(f.standaardBetalingstermijn) || 0])]
+              .filter(Boolean)
+              .sort((a, b) => a - b)
+              .map((dagen) => <option key={dagen} value={dagen}>{dagen} dagen</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={labelStijl}>Standaard BTW-code (nieuwe factuurregels)</div>
+          <select value={f.standaardBtwCode} onChange={zet("standaardBtwCode")} style={inputStijl}>
+            <option value="">Geen voorkeur (dan hoog)</option>
+            {(tarieven || []).map((t) => <option key={t.code} value={t.code}>{t.label} ({t.percentage}%)</option>)}
+          </select>
+        </div>
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <div style={labelStijl}>Standaard factuurtekst (Opmerkingen)</div>
+        <textarea
+          value={f.standaardFactuurtekst}
+          onChange={zet("standaardFactuurtekst")}
+          rows={3}
+          style={{ ...inputStijl, resize: "vertical" }}
+          placeholder="Bijv. betaalinstructies of een vaste tekst die je meestal op je facturen/offertes zet."
+        />
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
+        <Knop variant="primair" onClick={opslaan} disabled={status === "bezig"}>
+          {status === "bezig" ? "Opslaan…" : "Opslaan"}
+        </Knop>
+        {status === "opgeslagen" && <span style={{ fontSize: 12.5, color: KLEUR.groen, fontWeight: 600 }}>Opgeslagen.</span>}
+      </div>
+      {status === "fout" && (
+        <div style={{ fontSize: 12, color: KLEUR.rood, marginTop: 4 }}>
+          Opslaan mislukt{foutmelding ? `: ${foutmelding}` : ""}, probeer het nog eens.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InstellingenTab({ accountId, bedrijfsgegevens, andereAccounts, account, eigenVerzoeken, verversVerzoeken, tarieven }) {
   return (
     <div>
       <BedrijfsgegevensKaart accountId={accountId} bedrijfsgegevens={bedrijfsgegevens} andereAccounts={andereAccounts} account={account} eigenVerzoeken={eigenVerzoeken} verversVerzoeken={verversVerzoeken} />
+      <StandaardwaardenKaart accountId={accountId} bedrijfsgegevens={bedrijfsgegevens} tarieven={tarieven} />
       <NogNietGebouwdKaart icon={CreditCard} titel="Mollie & betalingen" tekst="Koppeling met Mollie zodat klanten van jouw klanten direct kunnen betalen vanaf de factuur." />
-      <NogNietGebouwdKaart icon={Sliders} titel="Standaardwaarden" tekst="Standaard betalingstermijn, btw-percentage en factuurteksten instellen." />
       <NogNietGebouwdKaart icon={Bell} titel="Herinneringen & e-mailsjablonen" tekst="Automatische betalingsherinneringen; de teksten worden centraal beheerd door Activaa." />
     </div>
   );
@@ -2250,6 +2372,7 @@ function FacturatieAccountInhoud({ account, andereAccounts }) {
         <InstellingenTab
           accountId={accountId} bedrijfsgegevens={bedrijfsgegevensData} andereAccounts={andereAccounts} account={account}
           eigenVerzoeken={wijzigingsverzoeken.items} verversVerzoeken={wijzigingsverzoeken.verversen}
+          tarieven={btwTarievenData.items}
         />
       )}
     </div>
