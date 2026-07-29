@@ -11,6 +11,7 @@
  */
 const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
 const { genereerBetaalQr } = require("./qrBetaling");
+const { haalAfbeelding } = require("./media");
 
 const KLEUR = {
   tekst: rgb(0.11, 0.14, 0.13),
@@ -45,6 +46,16 @@ function adresRegels(adres) {
     a.land && a.land !== "NL" ? a.land : "",
   ].filter(Boolean);
 }
+// Het logo wordt bewaard als eigen blob (zie media.js#slaKlantLogoOp) en de opgeslagen
+// `logoUrl` is de eigen serveerroute ernaartoe ("/api/media/klantlogo-<accountId>?v=...").
+// Voor de PDF hebben we de ruwe bytes nodig (niet nóg een keer over HTTP ophalen — we draaien
+// al in dezelfde Azure Functions-app) — vandaar dat we hier de blob-naam terugleiden uit de
+// URL en 'm rechtstreeks via haalAfbeelding() (media.js) opvragen.
+function basisnaamUitMediaUrl(url) {
+  const match = /\/api\/media\/([a-z0-9_-]+)/i.exec(url || "");
+  return match ? match[1] : null;
+}
+
 function groepeerBtw(regels) {
   const groepen = new Map();
   for (const r of regels) {
@@ -90,14 +101,40 @@ async function genereerFactuurPdf({ document: doc, klant, bedrijfsgegevens, docu
   const breedte = 595.28 - marge * 2;
   let y = 792;
 
+  // Logo (optioneel) — staat wél al op het scherm-voorbeeld, ontbrak tot nu toe op de echte
+  // PDF. Best-effort: een ontbrekende blob, een niet-ondersteund formaat (pdf-lib kan alleen
+  // PNG/JPEG embedden, terwijl de upload zelf elk `image/*`-type toestaat) of een andere fout
+  // mag de PDF-generatie nooit laten mislukken — de factuur moet ook zonder logo gewoon lukken.
+  let logoAfbeelding = null;
+  const logoBasisnaam = basisnaamUitMediaUrl(bg.logoUrl);
+  if (logoBasisnaam) {
+    try {
+      const opgehaald = await haalAfbeelding(logoBasisnaam);
+      if (opgehaald) {
+        if (/png/i.test(opgehaald.contentType)) logoAfbeelding = await pdf.embedPng(opgehaald.buffer);
+        else if (/jpe?g/i.test(opgehaald.contentType)) logoAfbeelding = await pdf.embedJpg(opgehaald.buffer);
+      }
+    } catch {
+      logoAfbeelding = null;
+    }
+  }
+
   const tekst = (t, x, size, { f = font, kleur = KLEUR.tekst, align = "left" } = {}) => {
     const inhoud = String(t == null ? "" : t);
     const posX = align === "right" ? x - f.widthOfTextAtSize(inhoud, size) : x;
     page.drawText(inhoud, { x: posX, y, size, font: f, color: kleur });
   };
 
-  // ── Kop: afzender links, documenttitel + meta rechts ──────────────────────────────────
+  // ── Kop: afzender (evt. met logo) links, documenttitel + meta rechts ──────────────────
   const kopStartY = y;
+  if (logoAfbeelding) {
+    const maxBreedte = 110, maxHoogte = 34;
+    const schaal = Math.min(maxBreedte / logoAfbeelding.width, maxHoogte / logoAfbeelding.height, 1);
+    const logoBreedte = logoAfbeelding.width * schaal;
+    const logoHoogte = logoAfbeelding.height * schaal;
+    page.drawImage(logoAfbeelding, { x: marge, y: y - logoHoogte, width: logoBreedte, height: logoHoogte });
+    y -= logoHoogte + 8;
+  }
   if (bg.bedrijfsnaam) tekst(bg.bedrijfsnaam, marge, 13, { f: bold });
   y -= 16;
   for (const regel of adresRegels(bg)) { tekst(regel, marge, 9.5, { kleur: KLEUR.subtekst }); y -= 12; }
@@ -107,8 +144,11 @@ async function genereerFactuurPdf({ document: doc, klant, bedrijfsgegevens, docu
   let yRechts = kopStartY;
   const rechtsX = marge + breedte;
   // Let op: bewust page.drawText (met een expliciete y) i.p.v. de tekst()-helper hierboven —
-  // die tekent op de gedeelde, inmiddels al door het afzenderblok verlaagde `y`, wat de titel
-  // zou laten overlappen met de metaregels (factuurnummer/-datum/leveringsperiode) hieronder.
+  // die tekent op de gedeelde, inmiddels al door het afzenderblok (en evt. logo) verlaagde
+  // `y`, wat de titel zou laten overlappen met de metaregels (factuurnummer/-datum/
+  // leveringsperiode) hieronder. De rechterkolom start altijd bovenaan, ongeacht of er links
+  // een logo staat — zelfde als het scherm-voorbeeld (DocumentVoorbeeld: alignItems: "flex-start"
+  // op de gezamenlijke flex-rij, dus de titel zakt niet mee met een logo in de linkerkolom).
   page.drawText(naamType, {
     x: rechtsX - bold.widthOfTextAtSize(naamType, 18), y: yRechts, size: 18, font: bold, color: KLEUR.blauw,
   });
@@ -117,9 +157,13 @@ async function genereerFactuurPdf({ document: doc, klant, bedrijfsgegevens, docu
     [`${naamType}nummer`, doc.nummer || "(concept)"],
     [`${naamType}datum`, kortDatum(doc.factuurdatum)],
   ];
-  // Een offerte heeft een geldigheidsdatum, geen vervaldatum voor betaling — een vervaldatum
-  // tonen op een offerte zou ten onrechte een betaalverplichting suggereren.
+  // Een offerte heeft een geldigheidsdatum, geen vervaldatum/betalingstermijn voor betaling —
+  // die tonen op een offerte zou ten onrechte een betaalverplichting suggereren (zelfde
+  // voorwaarde als DocumentVoorbeeld op het scherm).
   if (documenttype !== "offerte") metaRegels.push(["Vervaldatum", kortDatum(doc.vervaldatum)]);
+  if (documenttype !== "offerte" && doc.betalingstermijnDagen != null) {
+    metaRegels.push(["Betalingstermijn", `${doc.betalingstermijnDagen} dagen`]);
+  }
   const leveringTekst = leveringsperiodeTekst(doc.leveringsperiodeStart, doc.leveringsperiodeEind);
   if (leveringTekst) metaRegels.push(["Leveringsperiode", leveringTekst]);
   for (const [label, waarde] of metaRegels) {
@@ -138,6 +182,9 @@ async function genereerFactuurPdf({ document: doc, klant, bedrijfsgegevens, docu
     tekst(klant.naam, marge, 11.5, { f: bold });
     y -= 14;
     for (const regel of adresRegels(klant.adres)) { tekst(regel, marge, 9.5, { kleur: KLEUR.subtekst }); y -= 12; }
+    // BTW/KvK van de klant zelf — stond al op het scherm-voorbeeld, ontbrak nog op de PDF.
+    if (klant.btwNummer) { tekst(`BTW ${klant.btwNummer}`, marge, 9.5, { kleur: KLEUR.subtekst }); y -= 12; }
+    if (klant.kvkNummer) { tekst(`KvK ${klant.kvkNummer}`, marge, 9.5, { kleur: KLEUR.subtekst }); y -= 12; }
     if (klant.email) { tekst(klant.email, marge, 9.5, { kleur: KLEUR.subtekst }); y -= 12; }
   } else {
     tekst("— geen klant —", marge, 10.5, { kleur: KLEUR.muted });
