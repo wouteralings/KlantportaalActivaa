@@ -1552,10 +1552,11 @@ function useEigenWijzigingsverzoeken() {
 }
 
 function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, account, eigenVerzoeken, verversVerzoeken }) {
-  const { status, data } = bedrijfsgegevens;
+  const { status, data, verversen: verversBedrijfsgegevens } = bedrijfsgegevens;
   const [f, setF] = useState(null);
   const [indienStatus, setIndienStatus] = useState("idle"); // idle | bezig | fout
   const [ingediend, setIngediend] = useState(false);
+  const [directOpgeslagen, setDirectOpgeslagen] = useState(false);
   const [logoStatus, setLogoStatus] = useState("idle"); // idle | bezig | fout | verwijderen
   const [kopieerVan, setKopieerVan] = useState("");
   const [kopieerBezig, setKopieerBezig] = useState(false);
@@ -1599,6 +1600,7 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
 
   const dienIn = async () => {
     setIndienStatus("bezig");
+    setDirectOpgeslagen(false);
     try {
       // logo en gewijzigdOp horen niet bij dit verzoek — logo gaat via een eigen, direct
       // endpoint (geen goedkeuring nodig), gewijzigdOp is read-only metadata.
@@ -1608,10 +1610,17 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accountId, type: "bedrijfsgegevens_facturatie", voorstel: velden }),
       });
-      await haalJson(res);
-      setIngediend(true);
+      const d = await haalJson(res);
       setIndienStatus("idle");
-      verversVerzoeken();
+      if (d.geenWijziging) {
+        // Niets dat je zelf hebt gewijzigd t.o.v. wat al bekend was (opgeslagen of vanuit CRM) —
+        // dan is er niets om goed te keuren en is het meteen (of allang) opgeslagen.
+        setDirectOpgeslagen(true);
+        verversBedrijfsgegevens?.();
+      } else {
+        setIngediend(true);
+        verversVerzoeken();
+      }
     } catch (e) {
       setIndienStatus("fout");
     }
@@ -1719,11 +1728,16 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
             <Clock size={14} color={KLEUR.blauw} /> Je wijziging is ingediend en wacht op goedkeuring door Activaa.
           </div>
         ) : (
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 18, flexWrap: "wrap" }}>
             <Knop variant="primair" icon={Send} onClick={dienIn} disabled={indienStatus === "bezig"}>
               {indienStatus === "bezig" ? "Indienen…" : "Wijziging indienen"}
             </Knop>
             {indienStatus === "fout" && <span style={{ fontSize: 12.5, color: KLEUR.rood }}>Indienen mislukt, probeer het nog eens.</span>}
+            {directOpgeslagen && (
+              <span style={{ fontSize: 12.5, color: KLEUR.groen, fontWeight: 600 }}>
+                Opgeslagen — geen goedkeuring nodig, er was niets dat je zelf wijzigde.
+              </span>
+            )}
           </div>
         )}
       </div>

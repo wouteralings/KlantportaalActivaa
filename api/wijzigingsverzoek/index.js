@@ -2,7 +2,7 @@ const { haalDynamicsToken, herleidAccounts, haalEmailUitPrincipal } = require(".
 const { voegVerzoekToe, haalVerzoekenVoorEmail } = require("../_gedeeld/wijzigingen");
 const { verstuurMail } = require("../_gedeeld/mail");
 const { isIngeschakeld } = require("../_gedeeld/facturatieInstellingen");
-const { haalGegevens: haalBedrijfsgegevens } = require("../_gedeeld/bedrijfsgegevensKlanten");
+const { haalGegevens: haalBedrijfsgegevens, zetGegevens: zetBedrijfsgegevens } = require("../_gedeeld/bedrijfsgegevensKlanten");
 
 const INFO_EMAIL = process.env.REVIEW_INFO_EMAIL || "info@activaa.nl";
 
@@ -102,21 +102,27 @@ module.exports = async function (context, req) {
       }
 
       const opgeslagen = await haalBedrijfsgegevens(accountId);
-      const ka = account.klantadres || {};
+      // Let op: `account` hier is wat herleidAccounts() teruggeeft — dat heeft GEEN
+      // account.klantadres/account.kvkNummer/account.btwNummer (die bestaan alleen op de
+      // aparte, verrijkte mapping die /api/mijn-gegevens maakt). De ruwe Dynamics-velden
+      // zitten genest onder account.account — zelfde bron als /api/mijn-gegevens en de
+      // front-end (BedrijfsgegevensKaart) gebruiken om voor te vullen.
+      const raw = account.account || {};
+      const kvkVeldNaam = process.env.DYNAMICS_KVK_VELD || "accountnumber";
+      const btwVeldNaam = process.env.DYNAMICS_BTW_VELD || "sk_btwnummer";
       // Voor elk veld: de al opgeslagen waarde, en anders (nog leeg) de bekende CRM-waarde als
       // die er is — zo blijft een al goedgekeurde eigen waarde behouden bij een volgend verzoek,
       // en wordt alleen een nog leeg veld aangevuld vanuit wat we al weten.
       const huidig = {
-        bedrijfsnaam: opgeslagen.bedrijfsnaam || account.klantnaam || "",
-        straat: opgeslagen.straat || ka.straat || "",
-        huisnummer: opgeslagen.huisnummer || ka.huisnummer || "",
-        toevoeging: opgeslagen.toevoeging || ka.toevoeging || "",
-        postcode: opgeslagen.postcode || ka.postcode || "",
-        plaats: opgeslagen.plaats || ka.plaats || "",
-        land: opgeslagen.land || ka.land || "NL",
-        kvkNummer: opgeslagen.kvkNummer || account.kvkNummer || "",
-        // Niet in CRM beschikbaar — blijft leeg totdat de klant (of Activaa) het zelf invult.
-        btwNummer: opgeslagen.btwNummer || "",
+        bedrijfsnaam: opgeslagen.bedrijfsnaam || account.klantnaam || raw.name || "",
+        straat: opgeslagen.straat || raw.address1_line1 || "",
+        huisnummer: opgeslagen.huisnummer || raw.cr283_huisnummer || "",
+        toevoeging: opgeslagen.toevoeging || raw.cr283_huisnummertoevoeging || "",
+        postcode: opgeslagen.postcode || raw.address1_postalcode || "",
+        plaats: opgeslagen.plaats || raw.address1_city || "",
+        land: opgeslagen.land || raw.address1_country || "NL",
+        kvkNummer: opgeslagen.kvkNummer || (raw[kvkVeldNaam] || "").toString().trim(),
+        btwNummer: opgeslagen.btwNummer || (raw[btwVeldNaam] || "").toString().trim(),
         iban: opgeslagen.iban || "",
         ibanTenaamstelling: opgeslagen.ibanTenaamstelling || "",
       };
@@ -129,7 +135,21 @@ module.exports = async function (context, req) {
 
       const isGewijzigd = BEDRIJFSGEGEVENS_VELDEN.some((v) => (definitiefVoorstel[v] ?? "") !== (huidig[v] ?? ""));
       if (!isGewijzigd) {
-        context.res = { status: 400, body: { error: "Er zijn geen wijzigingen ten opzichte van de huidige gegevens." } };
+        // Niets dat de klant écht zelf wijzigt t.o.v. wat al bekend is (opgeslagen, of anders
+        // de CRM-waarde) — dan hoeft Activaa daar niets voor goed te keuren. Wél gelijk
+        // wegschrijven als er nog CRM-waarden zijn die nog niet in de eigen tabel stonden,
+        // zodat bijv. een BTW-nummer dat alleen uit Dynamics kwam gewoon op de factuur
+        // verschijnt zonder dat er iets "gewijzigd" hoefde te worden.
+        const nieuwVoorOpgeslagen = BEDRIJFSGEGEVENS_VELDEN.some((v) => (huidig[v] ?? "") !== (opgeslagen[v] ?? ""));
+        if (nieuwVoorOpgeslagen) {
+          await zetBedrijfsgegevens(accountId, huidig, email).catch((fout) => {
+            context.log.error("Automatisch wegschrijven van CRM-bedrijfsgegevens mislukt:", fout);
+          });
+        }
+        context.res = {
+          headers: { "Content-Type": "application/json" },
+          body: { ok: true, geenWijziging: true },
+        };
         return;
       }
 
