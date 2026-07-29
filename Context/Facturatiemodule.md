@@ -771,3 +771,41 @@ hervatten (`actief`) en verwijderen aan.
 - Geverifieerd met `npx vite build` (1913 modules, geen nieuwe fouten) en `npx oxlint` (enige
   waarschuwing is een pre-existing ongebruikte catch-parameter elders in het bestand, niet
   door deze wijziging geïntroduceerd).
+
+## Voorbeeld toonde gegevens die op de echte PDF ontbraken (29-07-2026, vervolgsessie)
+
+Feedback van Wouter: *"Voorbeeld factuur bevat gegevens die niet op de daadwerkelijke factuur
+komen. Kan je die er ook op zetten?"* Het scherm-voorbeeld (`DocumentVoorbeeld` in
+`FacturatieModule.jsx`) en de echte, gegenereerde/verstuurde PDF (`genereerFactuurPdf` in
+`api/_gedeeld/facturenPdf.js`) zijn twee losse implementaties die zoveel mogelijk gelijk
+proberen te lopen — maar drie dingen die al wel op het scherm stonden, waren nooit aan de
+PDF-generator toegevoegd:
+
+- **Logo.** Stond nergens op de PDF, ook niet als er wel een logo was geüpload. Nu: de PDF laadt
+  de blob rechtstreeks via de al bestaande `haalAfbeelding()` (`media.js`, geen extra HTTP-call
+  nodig want de Functions-app draait al in hetzelfde proces) en leidt de blobnaam af uit de
+  opgeslagen `logoUrl` (`/api/media/klantlogo-<accountId>?v=...`). Best-effort: pdf-lib kan alleen
+  PNG/JPEG embedden, terwijl de upload zelf elk `image/*`-type toestaat (`accept="image/*"` in
+  `BedrijfsgegevensKaart`) — een niet-ondersteund formaat, of een inmiddels verwijderde blob, laat
+  de rest van de PDF gewoon doorgaan (het logo wordt dan simpelweg overgeslagen, geen throw).
+  Positionering: boven de bedrijfsnaam in de linkerkolom, net als op het scherm; de rechterkolom
+  (documenttitel) blijft bovenaan uitgelijnd, ook als er links een logo bij komt (zelfde
+  `alignItems: "flex-start"`-gedrag als de flex-rij in `DocumentVoorbeeld`).
+- **Betalingstermijn.** Werd vorige sessie wél aan het scherm-voorbeeld toegevoegd
+  (`voorbeeldDocument`/`DocumentVoorbeeld`), maar nooit aan de PDF's metaregels
+  (nummer/datum/vervaldatum/leveringsperiode, rechtsboven). Nu ook op de PDF, met dezelfde
+  voorwaarde als op het scherm (niet bij een offerte).
+- **BTW-/KvK-nummer van de klant zelf.** Het "Factuur/Offerte/Creditnota aan"-blok op de PDF
+  toonde alleen naam, adres en e-mailadres van de klant — het scherm toont daar ook diens
+  BTW-/KvK-nummer (indien bekend). Nu ook op de PDF, in dezelfde volgorde (BTW, dan KvK).
+- Geverifieerd met een los testscript (`node`, media.js gemockt om geen echte Azure Blob
+  Storage-verbinding nodig te hebben) dat `genereerFactuurPdf()` in vijf scenario's aanroept
+  (zonder logo, met een geldig PNG-logo, met een verwijderde blob, met een niet-ondersteund
+  beeldformaat, en als offerte) zonder te crashen, plus `pdftotext -layout` op de resulterende
+  PDF's om te bevestigen dat "Betalingstermijn: 14 dagen" en de klant-BTW/KvK er echt op staan
+  (en bij een offerte terecht ontbreken/wél staan, naar wat van toepassing is). Ook `npx oxlint`
+  op het gewijzigde bestand: geen waarschuwingen.
+- Bewust niet gewijzigd: de betaalinstructie/QR-code-banner blijft alleen verschijnen als
+  `bedrijfsgegevens.iban` bekend is (net als voorheen) — het scherm toont 'm ook als alléén de
+  tenaamstelling bekend is, maar zonder IBAN kan er toch geen betaal-QR gegenereerd worden, dus
+  dat verschil is bewust ongemoeid gelaten.
