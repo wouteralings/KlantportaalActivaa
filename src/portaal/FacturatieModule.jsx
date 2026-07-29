@@ -541,6 +541,8 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
   const [frequentie, setFrequentie] = useState("maandelijks");
   const [terugkerendStart, setTerugkerendStart] = useState(new Date().toISOString().slice(0, 10));
   const [terugkerendEind, setTerugkerendEind] = useState("");
+  const [terugkerendLeveringStart, setTerugkerendLeveringStart] = useState("");
+  const [terugkerendLeveringEind, setTerugkerendLeveringEind] = useState("");
   const [automatischVerzenden, setAutomatischVerzenden] = useState(false);
   const [terugkerendOpgeslagen, setTerugkerendOpgeslagen] = useState(false);
   const [abonnementZojuistAangemaakt, setAbonnementZojuistAangemaakt] = useState(false);
@@ -597,8 +599,8 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
           frequentie,
           startdatum: terugkerendStart,
           einddatum: terugkerendEind || null,
-          leveringsperiodeStart: leveringsperiodeStart || null,
-          leveringsperiodeEind: leveringsperiodeEind || null,
+          leveringsperiodeStart: terugkerendLeveringStart || null,
+          leveringsperiodeEind: terugkerendLeveringEind || null,
           automatischVerzenden,
           betalingstermijnDagen: Number(betalingstermijnDagen) || 30,
           opmerkingen,
@@ -881,6 +883,17 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
               <div>
                 <div style={labelStijl}>Einddatum (optioneel)</div>
                 <input type="date" value={terugkerendEind} onChange={(e) => setTerugkerendEind(e.target.value)} style={inputStijl} />
+              </div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <div style={labelStijl}>Abonnementsperiode (optioneel)</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <input type="date" value={terugkerendLeveringStart} onChange={(e) => setTerugkerendLeveringStart(e.target.value)} style={{ ...inputStijl, maxWidth: 170 }} />
+                  <span style={{ fontSize: 12, color: KLEUR.mutedTekst }}>t/m</span>
+                  <input type="date" value={terugkerendLeveringEind} onChange={(e) => setTerugkerendLeveringEind(e.target.value)} style={{ ...inputStijl, maxWidth: 170 }} />
+                </div>
+                <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 3 }}>
+                  Schuift elke cyclus automatisch een frequentie-stap mee op (bijv. bij maandelijks: steeds de volgende maand).
+                </div>
               </div>
               <div style={{ gridColumn: "1 / -1" }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, marginTop: 4, cursor: "pointer" }}>
