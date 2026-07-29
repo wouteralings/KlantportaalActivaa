@@ -1249,3 +1249,25 @@ de einddatum-vóór-startdatum-fout, "startdatum niet meegegeven laat alles onge
 verplicht-veld-fout — alle zes slagen. `npx vite build` (1913 modules) en `npx oxlint` op alle
 gewijzigde bestanden: geen nieuwe fouten/waarschuwingen (dezelfde ene bestaande, ongerelateerde
 waarschuwing in `FacturatieModule.jsx` als voorheen).
+
+## Abonnementsperiode ook instelbaar bij het aanmaken van een nieuw abonnement (29-07-2026, vervolgsessie)
+
+Verzoek van Wouter (n.a.v. een screenshot van het "terugkerende factuur"-blok in het
+factuurformulier): daar stonden alleen Frequentie/Startdatum/Einddatum, geen Abonnementsperiode —
+die kon tot nu toe alleen achteraf worden ingesteld via "Bewerken" op de tab "Abonnementen".
+
+- **`src/portaal/FacturatieModule.jsx`** — `DocumentFormulier`: nieuw veld "Abonnementsperiode
+  (optioneel)" (twee datum-inputs "t/m") in het "Dit is een terugkerende factuur"-blok, met een
+  eigen, losstaand state-paar `terugkerendLeveringStart`/`terugkerendLeveringEind`. Bewust NIET
+  hergebruikt de bestaande (ongebruikte) documentniveau-`leveringsperiodeStart`/`leveringsperiodeEind`-
+  state — die state is een overblijfsel van vóór het verwijderen van het losse
+  leveringsperiode-invoerveld op documentniveau (de setters daarvan zijn met een `_`-prefix al
+  bewust ongebruikt gemaakt) en hoort niet bij een eenmalig document; de nieuwe velden horen
+  uitsluitend bij het abonnement-sjabloon en worden alleen meegestuurd in de
+  `POST /api/facturen-terugkerend`-payload (dezelfde velden die `AbonnementFormulier` en
+  `maakTerugkerend()`/`wijzigTerugkerend()` al langer ondersteunden — geen backend-wijziging nodig).
+  Een korte toelichtingstekst onder het veld legt uit dat de periode elke cyclus automatisch een
+  frequentie-stap opschuift (zelfde gedrag als bij een bestaand abonnement).
+
+Geverifieerd: `npx vite build` (1913 modules) en `npx oxlint` — geen nieuwe fouten/waarschuwingen
+(dezelfde ene bestaande, ongerelateerde waarschuwing in `FacturatieModule.jsx` als voorheen).
