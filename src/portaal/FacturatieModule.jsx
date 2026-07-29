@@ -40,6 +40,41 @@ function datum(d) {
   return isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("nl-NL");
 }
 
+/** Zijn de eigen bedrijfsgegevens (afzender) volledig genoeg om zinvol op een factuur/offerte
+ * te tonen? Bedrijfsnaam, volledig adres en minstens één van KvK-/BTW-nummer. */
+function bedrijfsgegevensCompleet(bg) {
+  const g = bg || {};
+  return !!(g.bedrijfsnaam && g.straat && g.huisnummer && g.postcode && g.plaats && (g.kvkNummer || g.btwNummer));
+}
+
+/** Getalveld (aantal/prijs) met Nederlandse duizendtal-notatie: tijdens het bewerken zie je de
+ * ruwe waarde (zodat typen niet hinderlijk "springt"), zodra je het veld verlaat wordt het
+ * genetjes opgemaakt (bijv. "10.250"). De onderliggende waarde blijft gewoon een normaal getal
+ * (punt als decimaalteken) — alleen de weergave wordt verzorgd, niets aan het opslaan/rekenen
+ * verandert hierdoor. */
+function BedragInput({ waarde, onChange, decimalen = 2, style, ...props }) {
+  const [bewerken, setBewerken] = useState(false);
+  const getal = Number(waarde);
+  const heeftGetal = waarde !== "" && waarde !== null && waarde !== undefined && !isNaN(getal);
+  const weergave = bewerken
+    ? (waarde ?? "")
+    : heeftGetal
+      ? new Intl.NumberFormat("nl-NL", { minimumFractionDigits: decimalen, maximumFractionDigits: 2 }).format(getal)
+      : "";
+  return (
+    <input
+      {...props}
+      type="text"
+      inputMode="decimal"
+      value={weergave}
+      onFocus={() => setBewerken(true)}
+      onBlur={() => setBewerken(false)}
+      onChange={(e) => onChange(e.target.value.replace(/[^\d.,-]/g, "").replace(",", "."))}
+      style={style}
+    />
+  );
+}
+
 async function haalJson(res) {
   if (!res.ok) {
     let bericht = `HTTP ${res.status}`;
@@ -413,7 +448,7 @@ function DocumentVoorbeeld({ bedrijfsgegevens, documenttype, klant, document }) 
   );
 }
 
-function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tarieven, bedrijfsgegevens, bestaand, onKlaar, onOpgeslagen, onVerstuurd }) {
+function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tarieven, bedrijfsgegevens, bedrijfsgegevensInBehandeling, onGaNaarInstellingen, bestaand, onKlaar, onOpgeslagen, onVerstuurd }) {
   // Het laatst opgeslagen document (concept) — zodra dit gezet is, kunnen Download PDF en
   // Versturen getoond worden náást Opslaan, op hetzelfde scherm (geen aparte detailpagina meer
   // nodig). Start met `bestaand` (bij het bewerken van een reeds opgeslagen concept) of leeg
@@ -440,17 +475,17 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
   const [status, setStatus] = useState("invoer"); // invoer | bezig | fout
   const [foutmelding, setFoutmelding] = useState("");
 
-  // Terugkerend (abonnement) — alleen relevant bij het aanmaken van een NIEUWE factuur; een
-  // bestaand concept bewerk je gewoon als eenmalige factuur (het sjabloon zelf wijzig je via
-  // de tab "Abonnementen"). Is dit document al (één keer) opgeslagen, dan is het een echte
-  // eenmalige factuur geworden — dan verdwijnt de optie om het alsnog een abonnement te maken.
-  const kanTerugkerend = documenttype === "factuur" && !bestaand && !opgeslagenDocument;
+  // Terugkerend (abonnement) — ook beschikbaar bij het bewerken van een al opgeslagen concept:
+  // de huidige regels dienen dan als sjabloon voor een nieuw abonnement, náást het concept zelf
+  // (dat blijft gewoon bestaan als losse, eenmalige factuur; zie opslaan() hieronder).
+  const kanTerugkerend = documenttype === "factuur";
   const [terugkerend, setTerugkerend] = useState(false);
   const [frequentie, setFrequentie] = useState("maandelijks");
   const [terugkerendStart, setTerugkerendStart] = useState(new Date().toISOString().slice(0, 10));
   const [terugkerendEind, setTerugkerendEind] = useState("");
   const [automatischVerzenden, setAutomatischVerzenden] = useState(false);
   const [terugkerendOpgeslagen, setTerugkerendOpgeslagen] = useState(false);
+  const [abonnementZojuistAangemaakt, setAbonnementZojuistAangemaakt] = useState(false);
 
   const zetRegel = (i, veld, waarde) => {
     setRegels((h) => h.map((r, idx) => {
@@ -516,9 +551,17 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         }));
-        setStatus("invoer");
-        setTerugkerendOpgeslagen(true);
-        return;
+        if (!opgeslagenDocument) {
+          // Gloednieuwe factuur: er is niets los op te slaan, alleen het abonnement is relevant.
+          setStatus("invoer");
+          setTerugkerendOpgeslagen(true);
+          return;
+        }
+        // Bestond dit concept al: het abonnement is aangemaakt als los sjabloon — val nu door
+        // om ook de wijzigingen aan dit concept zelf op te slaan (zie hieronder), en zet het
+        // vinkje weer uit zodat een volgende "Wijzigingen opslaan" niet nóg een abonnement maakt.
+        setTerugkerend(false);
+        setAbonnementZojuistAangemaakt(true);
       }
 
       const payload = {
@@ -648,6 +691,38 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
 
       <Melding tekst={foutmelding} />
 
+      {!bedrijfsgegevensCompleet(bedrijfsgegevens) && (
+        <div style={{
+          display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", marginBottom: 14,
+          background: bedrijfsgegevensInBehandeling ? KLEUR.lichtblauw : "#FBF1E4",
+          border: `1px solid ${bedrijfsgegevensInBehandeling ? KLEUR.rand : KLEUR.goud}55`,
+          borderRadius: 8, fontSize: 12.5, color: KLEUR.tekst,
+        }}>
+          {bedrijfsgegevensInBehandeling
+            ? <Clock size={14} color={KLEUR.blauw} style={{ marginTop: 1, flexShrink: 0 }} />
+            : <Bell size={14} color={KLEUR.goud} style={{ marginTop: 1, flexShrink: 0 }} />}
+          <div>
+            {bedrijfsgegevensInBehandeling ? (
+              <>Je ingediende bedrijfsgegevens (naam, adres, KvK-/BTW-nummer) wachten nog op goedkeuring door Activaa en
+              verschijnen daarom nog niet op deze {naam}. Zodra dat goedgekeurd is, staan ze er automatisch op.</>
+            ) : (
+              <>
+                Je eigen bedrijfsgegevens (naam, adres, KvK-/BTW-nummer) staan nog niet volledig ingevuld, dus ontbreken
+                nu nog op deze {naam}.{" "}
+                {onGaNaarInstellingen ? (
+                  <button
+                    onClick={onGaNaarInstellingen}
+                    style={{ background: "none", border: "none", padding: 0, color: KLEUR.blauw, fontWeight: 700, cursor: "pointer", fontSize: 12.5, textDecoration: "underline" }}
+                  >
+                    Vul ze aan bij Instellingen
+                  </button>
+                ) : "Vul ze aan bij Instellingen."}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1.6fr", gap: 16 }}>
         <div>
           <div style={labelStijl}>Klant</div>
@@ -695,8 +770,8 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
                 {artikelen.filter((a) => a.actief).map((a) => <option key={a.id} value={a.id}>{a.omschrijving}</option>)}
               </select>
               <input value={r.omschrijving} onChange={(e) => zetRegel(i, "omschrijving", e.target.value)} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }} placeholder="Omschrijving" />
-              <input type="number" value={r.aantal} onChange={(e) => zetRegel(i, "aantal", e.target.value)} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }} />
-              <input type="number" value={r.prijs} onChange={(e) => zetRegel(i, "prijs", e.target.value)} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }} />
+              <BedragInput waarde={r.aantal} onChange={(w) => zetRegel(i, "aantal", w)} decimalen={0} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }} />
+              <BedragInput waarde={r.prijs} onChange={(w) => zetRegel(i, "prijs", w)} decimalen={2} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }} />
               <select value={r.btwCode || "hoog"} onChange={(e) => zetRegel(i, "btwCode", e.target.value)} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }}>
                 {(tarieven || []).length === 0 && <option value={r.btwCode || "hoog"}>{r.btwPercentage}%</option>}
                 {(tarieven || []).map((t) => (
@@ -739,7 +814,7 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
         <div style={{ marginTop: 18, padding: 14, background: KLEUR.lichtblauw, borderRadius: 8 }}>
           <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
             <input type="checkbox" checked={terugkerend} onChange={(e) => setTerugkerend(e.target.checked)} />
-            <Repeat size={14} /> Dit is een terugkerende factuur (abonnement)
+            <Repeat size={14} /> {opgeslagenDocument ? "Maak hier ook een terugkerend abonnement van (met deze regels als sjabloon)" : "Dit is een terugkerende factuur (abonnement)"}
           </label>
           {terugkerend && (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 16, marginTop: 12 }}>
@@ -770,7 +845,11 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
 
       <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
         <Knop variant="primair" onClick={opslaan} disabled={status === "bezig"} icon={Check}>
-          {status === "bezig" ? "Bezig…" : terugkerend ? "Abonnement aanmaken" : opgeslagenDocument ? "Wijzigingen opslaan" : "Opslaan als concept"}
+          {status === "bezig"
+            ? "Bezig…"
+            : terugkerend
+            ? (opgeslagenDocument ? "Opslaan + abonnement aanmaken" : "Abonnement aanmaken")
+            : opgeslagenDocument ? "Wijzigingen opslaan" : "Opslaan als concept"}
         </Knop>
         {opgeslagenDocument && (
           <>
@@ -787,15 +866,21 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
         <Knop onClick={onKlaar}>{opgeslagenDocument ? "Terug naar overzicht" : "Annuleren"}</Knop>
       </div>
       {pdfStatus === "fout" && <div style={{ marginTop: 10 }}><Melding tekst="PDF downloaden is niet gelukt, probeer het nog eens." /></div>}
-      {terugkerend ? (
+      {abonnementZojuistAangemaakt && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: KLEUR.groen, marginTop: 8, fontWeight: 600 }}>
+          <Repeat size={12} /> Abonnement aangemaakt — te beheren via de tab "Abonnementen".
+        </div>
+      )}
+      {terugkerend && (
         <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8 }}>
           Er wordt vanaf de startdatum automatisch periodiek een nieuwe conceptfactuur aangemaakt met deze regels — te beheren via de tab "Abonnementen".
         </div>
-      ) : opgeslagenDocument ? (
+      )}
+      {opgeslagenDocument ? (
         <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8 }}>
           Opgeslagen als concept{opgeslagenDocument.nummer ? ` (${opgeslagenDocument.nummer})` : ""}. Een nummer wordt pas definitief toegekend zodra je 'm verstuurt.
         </div>
-      ) : (
+      ) : !terugkerend && (
         <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8 }}>
           Een nummer wordt pas toegekend zodra je de {naam} verstuurt — hier sla je alleen het concept op.
         </div>
@@ -903,7 +988,7 @@ function DocumentDetail({ accountId, document, klantenMap, bedrijfsgegevens, onT
   );
 }
 
-function DocumentenTab({ accountId, documenttype, klanten, artikelen, tarieven, klantenMap, alleFacturen, bedrijfsgegevens }) {
+function DocumentenTab({ accountId, documenttype, klanten, artikelen, tarieven, klantenMap, alleFacturen, bedrijfsgegevens, bedrijfsgegevensInBehandeling, onGaNaarInstellingen }) {
   const { status, items, foutmelding, verversen } = useDocumenten(accountId, documenttype);
   const [weergave, setWeergave] = useState("lijst"); // lijst | nieuw | bewerken | detail
   const [actief, setActief] = useState(null);
@@ -962,6 +1047,7 @@ function DocumentenTab({ accountId, documenttype, klanten, artikelen, tarieven, 
     return (
       <DocumentFormulier
         accountId={accountId} documenttype={documenttype} klanten={klanten} artikelen={artikelen} tarieven={tarieven} bedrijfsgegevens={bedrijfsgegevens}
+        bedrijfsgegevensInBehandeling={bedrijfsgegevensInBehandeling} onGaNaarInstellingen={onGaNaarInstellingen}
         onKlaar={() => setWeergave("lijst")}
         onOpgeslagen={() => verversen()}
         onVerstuurd={naVersturenVanuitFormulier}
@@ -972,6 +1058,7 @@ function DocumentenTab({ accountId, documenttype, klanten, artikelen, tarieven, 
     return (
       <DocumentFormulier
         accountId={accountId} documenttype={documenttype} klanten={klanten} artikelen={artikelen} tarieven={tarieven} bedrijfsgegevens={bedrijfsgegevens} bestaand={actief}
+        bedrijfsgegevensInBehandeling={bedrijfsgegevensInBehandeling} onGaNaarInstellingen={onGaNaarInstellingen}
         onKlaar={() => setWeergave("lijst")}
         onOpgeslagen={() => verversen()}
         onVerstuurd={naVersturenVanuitFormulier}
@@ -1464,7 +1551,7 @@ function useEigenWijzigingsverzoeken() {
   return { items, verversen };
 }
 
-function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, account }) {
+function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, account, eigenVerzoeken, verversVerzoeken }) {
   const { status, data } = bedrijfsgegevens;
   const [f, setF] = useState(null);
   const [indienStatus, setIndienStatus] = useState("idle"); // idle | bezig | fout
@@ -1472,7 +1559,6 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
   const [logoStatus, setLogoStatus] = useState("idle"); // idle | bezig | fout | verwijderen
   const [kopieerVan, setKopieerVan] = useState("");
   const [kopieerBezig, setKopieerBezig] = useState(false);
-  const { items: eigenVerzoeken, verversen: verversVerzoeken } = useEigenWijzigingsverzoeken();
 
   const openVerzoek = eigenVerzoeken.find(
     (v) => v.accountId === accountId && v.type === "bedrijfsgegevens_facturatie" && v.status === "open"
@@ -1672,10 +1758,10 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
   );
 }
 
-function InstellingenTab({ accountId, bedrijfsgegevens, andereAccounts, account }) {
+function InstellingenTab({ accountId, bedrijfsgegevens, andereAccounts, account, eigenVerzoeken, verversVerzoeken }) {
   return (
     <div>
-      <BedrijfsgegevensKaart accountId={accountId} bedrijfsgegevens={bedrijfsgegevens} andereAccounts={andereAccounts} account={account} />
+      <BedrijfsgegevensKaart accountId={accountId} bedrijfsgegevens={bedrijfsgegevens} andereAccounts={andereAccounts} account={account} eigenVerzoeken={eigenVerzoeken} verversVerzoeken={verversVerzoeken} />
       <NogNietGebouwdKaart icon={CreditCard} titel="Mollie & betalingen" tekst="Koppeling met Mollie zodat klanten van jouw klanten direct kunnen betalen vanaf de factuur." />
       <NogNietGebouwdKaart icon={Sliders} titel="Standaardwaarden" tekst="Standaard betalingstermijn, btw-percentage en factuurteksten instellen." />
       <NogNietGebouwdKaart icon={Bell} titel="Herinneringen & e-mailsjablonen" tekst="Automatische betalingsherinneringen; de teksten worden centraal beheerd door Activaa." />
@@ -1708,6 +1794,14 @@ function FacturatieAccountInhoud({ account, andereAccounts }) {
   const bedrijfsgegevensData = useBedrijfsgegevens(accountId);
   // Voor de "omgezet naar factuur"-link bij geaccepteerde offertes hebben we ook de facturenlijst nodig.
   const facturenVoorKoppeling = useDocumenten(accountId, "factuur");
+  // Hier (i.p.v. alleen lokaal in BedrijfsgegevensKaart) opgehaald, zodat de factuur-/offerteschermen
+  // ook kunnen zien of een bedrijfsgegevens-wijziging nog op goedkeuring wacht (zie de melding in
+  // DocumentFormulier hierboven).
+  const wijzigingsverzoeken = useEigenWijzigingsverzoeken();
+  const bedrijfsgegevensInBehandeling = wijzigingsverzoeken.items.some(
+    (v) => v.accountId === accountId && v.type === "bedrijfsgegevens_facturatie" && v.status === "open"
+  );
+  const gaNaarInstellingen = useCallback(() => setSubtab("instellingen"), []);
 
   const klantenMap = useMemo(
     () => Object.fromEntries(klantenData.items.map((k) => [k.id, k])),
@@ -1741,10 +1835,16 @@ function FacturatieAccountInhoud({ account, andereAccounts }) {
       </div>
 
       {subtab === "facturen" && (
-        <DocumentenTab accountId={accountId} documenttype="factuur" klanten={klantenData.items} artikelen={alleArtikelen} tarieven={btwTarievenData.items} klantenMap={klantenMap} bedrijfsgegevens={bedrijfsgegevensData.data} />
+        <DocumentenTab
+          accountId={accountId} documenttype="factuur" klanten={klantenData.items} artikelen={alleArtikelen} tarieven={btwTarievenData.items} klantenMap={klantenMap}
+          bedrijfsgegevens={bedrijfsgegevensData.data} bedrijfsgegevensInBehandeling={bedrijfsgegevensInBehandeling} onGaNaarInstellingen={gaNaarInstellingen}
+        />
       )}
       {subtab === "offertes" && (
-        <DocumentenTab accountId={accountId} documenttype="offerte" klanten={klantenData.items} artikelen={alleArtikelen} tarieven={btwTarievenData.items} klantenMap={klantenMap} alleFacturen={facturenVoorKoppeling.items} bedrijfsgegevens={bedrijfsgegevensData.data} />
+        <DocumentenTab
+          accountId={accountId} documenttype="offerte" klanten={klantenData.items} artikelen={alleArtikelen} tarieven={btwTarievenData.items} klantenMap={klantenMap} alleFacturen={facturenVoorKoppeling.items}
+          bedrijfsgegevens={bedrijfsgegevensData.data} bedrijfsgegevensInBehandeling={bedrijfsgegevensInBehandeling} onGaNaarInstellingen={gaNaarInstellingen}
+        />
       )}
       {subtab === "abonnementen" && (
         <AbonnementenTab accountId={accountId} klantenMap={klantenMap} />
@@ -1764,7 +1864,10 @@ function FacturatieAccountInhoud({ account, andereAccounts }) {
         />
       )}
       {subtab === "instellingen" && (
-        <InstellingenTab accountId={accountId} bedrijfsgegevens={bedrijfsgegevensData} andereAccounts={andereAccounts} account={account} />
+        <InstellingenTab
+          accountId={accountId} bedrijfsgegevens={bedrijfsgegevensData} andereAccounts={andereAccounts} account={account}
+          eigenVerzoeken={wijzigingsverzoeken.items} verversVerzoeken={wijzigingsverzoeken.verversen}
+        />
       )}
     </div>
   );
