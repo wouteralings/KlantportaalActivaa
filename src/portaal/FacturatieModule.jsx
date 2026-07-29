@@ -1231,15 +1231,18 @@ function DocumentenTab({ accountId, documenttype, klanten, artikelen, tarieven, 
 /* (zie DocumentFormulier). Hier beheren: bewerken/pauzeren/hervatten/verwijderen. */
 /* ---------------------------------------------------------------------- */
 
-/** Een bestaand abonnement bewerken — frequentie, betalingstermijn, einddatum, automatisch
- * verzenden, leveringsperiode (schuift zelf elke cyclus op, zie facturenTerugkerend.js),
- * regels en opmerkingen. Klant en startdatum liggen vast (wijzigTerugkerend in
- * api/_gedeeld/facturenTerugkerend.js ondersteunt die twee bewust niet — de eerst al gegenereerde
- * facturen blijven verder ongemoeid); pauzeren/hervatten en verwijderen blijven losse acties in
- * AbonnementenTab, niet hier. Regel-editor is bewust een eigen kopie van die in DocumentFormulier
- * (zelfde velden/gedrag) i.p.v. een gedeeld component, om dat grotere, al goed geteste onderdeel
- * niet aan te hoeven raken voor deze losstaande toevoeging. */
+/** Een bestaand abonnement bewerken — startdatum, frequentie, betalingstermijn, einddatum,
+ * automatisch verzenden, leveringsperiode (schuift zelf elke cyclus op, zie
+ * facturenTerugkerend.js), regels en opmerkingen. Klant ligt vast. Startdatum is alleen zonder
+ * gevolgen aan te passen zolang er nog geen factuur is gegenereerd (dan schuift de eerstvolgende
+ * factuurdatum automatisch mee, zie wijzigTerugkerend in api/_gedeeld/facturenTerugkerend.js) —
+ * daarna is het nog slechts een historisch gegeven en blijft de eerstvolgende factuurdatum
+ * ongemoeid. Pauzeren/hervatten en verwijderen blijven losse acties in AbonnementenTab, niet hier.
+ * Regel-editor is bewust een eigen kopie van die in DocumentFormulier (zelfde velden/gedrag) i.p.v.
+ * een gedeeld component, om dat grotere, al goed geteste onderdeel niet aan te hoeven raken voor
+ * deze losstaande toevoeging. */
 function AbonnementFormulier({ accountId, bestaand, artikelen, tarieven, klantnaam, onKlaar, onOpgeslagen }) {
+  const [startdatum, setStartdatum] = useState(bestaand.startdatum ? String(bestaand.startdatum).slice(0, 10) : "");
   const [frequentie, setFrequentie] = useState(bestaand.frequentie);
   const [einddatum, setEinddatum] = useState(bestaand.einddatum ? String(bestaand.einddatum).slice(0, 10) : "");
   const [automatischVerzenden, setAutomatischVerzenden] = useState(!!bestaand.automatischVerzenden);
@@ -1294,8 +1297,18 @@ function AbonnementFormulier({ accountId, bestaand, artikelen, tarieven, klantna
   );
 
   const opslaan = async () => {
-    if (einddatum && bestaand.startdatum && new Date(einddatum) < new Date(bestaand.startdatum)) {
+    if (!startdatum) {
+      setFoutmelding("Startdatum is verplicht.");
+      setStatus("fout");
+      return;
+    }
+    if (einddatum && new Date(einddatum) < new Date(startdatum)) {
       setFoutmelding("Einddatum kan niet vóór de startdatum liggen.");
+      setStatus("fout");
+      return;
+    }
+    if (bestaand.aantalGegenereerd > 0 && new Date(startdatum) > new Date(bestaand.volgendeFactuurdatum)) {
+      setFoutmelding("Startdatum kan niet na de eerstvolgende factuurdatum liggen.");
       setStatus("fout");
       return;
     }
@@ -1314,6 +1327,7 @@ function AbonnementFormulier({ accountId, bestaand, artikelen, tarieven, klantna
         body: JSON.stringify({
           accountId,
           id: bestaand.id,
+          startdatum,
           frequentie,
           einddatum: einddatum || null,
           leveringsperiodeStart: leveringsperiodeStart || null,
@@ -1340,10 +1354,18 @@ function AbonnementFormulier({ accountId, bestaand, artikelen, tarieven, klantna
       </div>
       <Melding tekst={foutmelding} />
       <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 12 }}>
-        Startdatum: {datum(bestaand.startdatum)} · Volgende factuur: {datum(bestaand.volgendeFactuurdatum)} (klant en startdatum zijn hier niet te wijzigen).
+        Volgende factuur: {datum(bestaand.volgendeFactuurdatum)}
+        {bestaand.aantalGegenereerd === 0
+          ? " (schuift automatisch mee als je de startdatum hieronder wijzigt, want er is nog geen factuur gegenereerd)"
+          : ` (klant en eerstvolgende factuurdatum liggen hier vast — er ${bestaand.aantalGegenereerd === 1 ? "is al 1 factuur" : `zijn al ${bestaand.aantalGegenereerd} facturen`} gegenereerd)`}
+        .
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 16 }}>
+        <div>
+          <div style={labelStijl}>Startdatum</div>
+          <input type="date" value={startdatum} onChange={(e) => setStartdatum(e.target.value)} style={inputStijl} />
+        </div>
         <div>
           <div style={labelStijl}>Frequentie</div>
           <select value={frequentie} onChange={(e) => setFrequentie(e.target.value)} style={inputStijl}>

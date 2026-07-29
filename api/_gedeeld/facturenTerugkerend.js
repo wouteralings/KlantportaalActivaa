@@ -135,7 +135,13 @@ async function maakTerugkerend(klantAccountId, data, email) {
 }
 
 /** Pauzeren/hervatten (actief) of de sjabloon zelf bewerken — een wijziging aan regels/
- * frequentie/etc. raakt alleen nog te genereren facturen, nooit al eerder aangemaakte. */
+ * frequentie/etc. raakt alleen nog te genereren facturen, nooit al eerder aangemaakte.
+ *
+ * Startdatum is alleen zonder gevolgen aan te passen zolang er nog nooit een factuur uit dit
+ * sjabloon is gegenereerd (aantalGegenereerd === 0): dan is startdatum nog hetzelfde moment als
+ * volgendeFactuurdatum, dus schuift die automatisch mee. Is er al wél gegenereerd, dan is
+ * startdatum alleen nog een historisch gegeven (wanneer het abonnement ooit inging) — de
+ * eerstvolgende factuurdatum blijft dan onaangeroerd. */
 async function wijzigTerugkerend(klantAccountId, id, data, email) {
   const bestaand = await haalTerugkerend(klantAccountId, id);
   if (!bestaand) return null;
@@ -147,12 +153,31 @@ async function wijzigTerugkerend(klantAccountId, id, data, email) {
   const regelsBron = data.regels !== undefined ? data.regels : bestaand.regels;
   const { regels } = berekenTotalen(regelsBron);
 
+  let startdatum = new Date(bestaand.startdatum);
+  let volgendeFactuurdatum = new Date(bestaand.volgendeFactuurdatum);
+  if (data.startdatum !== undefined) {
+    if (!data.startdatum) throw new Error("VALIDATIE: startdatum is verplicht.");
+    startdatum = new Date(data.startdatum);
+    if (bestaand.aantalGegenereerd === 0) {
+      volgendeFactuurdatum = startdatum;
+    } else if (startdatum > volgendeFactuurdatum) {
+      throw new Error("VALIDATIE: startdatum kan niet na de eerstvolgende factuurdatum liggen.");
+    }
+  }
+
+  const einddatum = data.einddatum !== undefined ? (data.einddatum ? new Date(data.einddatum) : null) : (bestaand.einddatum ? new Date(bestaand.einddatum) : null);
+  if (einddatum && einddatum < startdatum) {
+    throw new Error("VALIDATIE: einddatum kan niet vóór de startdatum liggen.");
+  }
+
   const pool = await haalPool();
   const request = pool.request();
   request.input("klantAccountId", sql.UniqueIdentifier, klantAccountId);
   request.input("id", sql.UniqueIdentifier, id);
   request.input("frequentie", sql.VarChar(20), frequentie);
-  request.input("einddatum", sql.Date, data.einddatum !== undefined ? (data.einddatum ? new Date(data.einddatum) : null) : bestaand.einddatum);
+  request.input("startdatum", sql.Date, startdatum);
+  request.input("volgendeFactuurdatum", sql.Date, volgendeFactuurdatum);
+  request.input("einddatum", sql.Date, einddatum);
   request.input("leveringsperiodeStart", sql.Date, data.leveringsperiodeStart !== undefined ? (data.leveringsperiodeStart ? new Date(data.leveringsperiodeStart) : null) : bestaand.leveringsperiodeStart);
   request.input("leveringsperiodeEind", sql.Date, data.leveringsperiodeEind !== undefined ? (data.leveringsperiodeEind ? new Date(data.leveringsperiodeEind) : null) : bestaand.leveringsperiodeEind);
   request.input("automatischVerzenden", sql.Bit, data.automatischVerzenden !== undefined ? !!data.automatischVerzenden : bestaand.automatischVerzenden);
@@ -163,7 +188,8 @@ async function wijzigTerugkerend(klantAccountId, id, data, email) {
   request.input("email", sql.NVarChar(320), email || null);
   const result = await request.query(`
     UPDATE dbo.facturen_terugkerend SET
-      frequentie = @frequentie, einddatum = @einddatum, leveringsperiode_start = @leveringsperiodeStart,
+      frequentie = @frequentie, startdatum = @startdatum, volgende_factuurdatum = @volgendeFactuurdatum,
+      einddatum = @einddatum, leveringsperiode_start = @leveringsperiodeStart,
       leveringsperiode_eind = @leveringsperiodeEind, automatisch_verzenden = @automatischVerzenden,
       betalingstermijn_dagen = @betalingstermijnDagen, regels_json = @regelsJson,
       opmerkingen = @opmerkingen, actief = @actief, gewijzigd_op = SYSUTCDATETIME(), gewijzigd_door = @email
