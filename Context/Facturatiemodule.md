@@ -671,3 +671,69 @@ velden uitgebreid, met als concreet doel: *"dus wegschrijven en ophalen zou moet
   (schrijfrechten? connection string? firewall voor een ander IP-bereik?).
 - Geverifieerd met `npx vite build` (1913 modules, geen nieuwe fouten) en `node --check` op alle
   vier gewijzigde backend-bestanden.
+
+## CC-mailadres, ontbrekende gegevens op het voorbeeld, valse "niet compleet"-melding, leveringsperiode eraf (29-07-2026, vervolgsessie)
+
+Feedback van Wouter, met twee screenshots (de "niet compleet"-melding, en het document-niveau
+"Leveringsperiode"-invoerveld): *"Ik zou nog graag een eigen CC mailadres willen invullen. Dit
+zodat men weet of een factuur is aangekomen. Daarnaast mis ik op voorbeeld factuur nog de
+volgende gegevens: Bedrijfsnaam Adres Plaats Postcode BTW nummer Kvk-nummer Betaaltermijn. Kan
+je dat erop opnemen. ik heb tevens de melding dat gegevens niet compleet zijn, maar dat is wel
+zo. deze leveringsperiode mag eraf."*
+
+- **CC-mailadres bij versturen.** Nieuw veld `cc_email` op `dbo.bedrijfsgegevens_klanten`
+  (migratie `006_bedrijfsgegevens_cc_email.sql`) — een eigen, optioneel e-mailadres dat als CC
+  meegaat bij het versturen van een factuur/offerte/creditnota (`verstuurDocumentPerEmail()` in
+  `facturenKlanten.js`, via het al bestaande `cc`-argument van `verstuurMailMetBijlage()`). Net
+  als het logo is dit **geen verificatiegegeven** (geen naam/adres/KvK/BTW/IBAN), dus rechtstreeks
+  door de klant zelf te wijzigen zonder goedkeuring: `/api/bedrijfsgegevens-klanten` heeft nu een
+  smalle `PUT` die uitsluitend `ccEmail` accepteert (met een simpele e-mailformaat-check), naast
+  de bestaande GET — de overige tekstvelden blijven wél achter de wijzigingsverzoek-gate. Nieuwe
+  kaart "CC bij versturen" in `BedrijfsgegevensKaart` (`FacturatieModule.jsx`), met eigen
+  save-knop/status, los van de "Wijziging indienen"-flow.
+- **Ontbrekende bedrijfsnaam/adres/KvK/BTW/betaaltermijn op het voorbeeld + valse "niet
+  compleet"-melding — zelfde onderliggende oorzaak.** `DocumentenTab`/`DocumentFormulier`/
+  `DocumentVoorbeeld` kregen tot nu toe de **rauwe** `dbo.bedrijfsgegevens_klanten`-rij
+  (`bedrijfsgegevensData.data`) — dat is NIET hetzelfde als wat de Instellingen-kaart laat zien,
+  want die vult zelf al aan met Dynamics-bekende waarden (KvK/BTW/adres/IBAN) zodra het eigen
+  veld nog leeg is. Voor een klant die Instellingen nog nooit heeft opgeslagen (het staat er al
+  "compleet" uit dankzij die voorvulling, dus er lijkt niets te "wijzigen") bleef de rauwe tabel
+  dus leeg, en zag de factuur/melding een andere, incompletere versie dan wat de klant zelf op
+  het scherm zag staan. Fix, in `FacturatieModule.jsx`:
+  - Nieuwe gedeelde helper `vulBedrijfsgegevensAanMetCrm(data, account)` (bovenaan het bestand) —
+    dezelfde aanvul-logica die al in `BedrijfsgegevensKaart` zat, nu ook herbruikt.
+  - `FacturatieAccountInhoud` berekent nu `effectieveBedrijfsgegevens` (de aangevulde versie) en
+    geeft die door aan `DocumentenTab` voor zowel Facturen als Offertes (i.p.v. de rauwe
+    `bedrijfsgegevensData.data`) — dit lost de melding + het voorbeeld direct op, zonder dat er
+    ooit een wijzigingsverzoek is ingediend.
+  - **Ook echt weggeschreven, niet alleen op het scherm opgelost**: de PDF/e-mail die Activaa
+    daadwerkelijk verstuurt (`verstuurDocumentPerEmail()`/`genereerFactuurPdf()`) lezen de
+    bedrijfsgegevens rechtstreeks via `haalBedrijfsgegevens()` op de server — dus zonder
+    Dynamics-aanvulling. Puur het scherm repareren zou dus een mismatch hebben gelaten
+    (voorbeeld ziet er compleet uit, de echte PDF nog niet). Daarom stuurt `FacturatieAccountInhoud`
+    nu ook, stil op de achtergrond (best-effort, één keer per keer dat het scherm laadt), dezelfde
+    aanvulling als `voorstel` naar `POST /api/wijzigingsverzoek` — dat komt altijd uit op de
+    bestaande `geenWijziging`-tak (want het voorstel ís exact wat de server zelf als "huidig"
+    berekent), en schrijft dus zonder enige goedkeuring de CRM-waarden ook echt naar de eigen
+    tabel weg. Zo hoeft een klant niet meer eerst naar Instellingen te gaan en daar handmatig op
+    te slaan voordat KvK/BTW/adres/IBAN/bedrijfsnaam ook echt op de verstuurde factuur/PDF
+    verschijnen.
+  - **Betaaltermijn op het voorbeeld.** Stond al in het formulier maar werd nooit meegegeven aan
+    het live voorbeeld-object (`voorbeeldDocument` in `DocumentFormulier`); nu toegevoegd
+    (`betalingstermijnDagen`) en getoond in `DocumentVoorbeeld` als "Betalingstermijn: X dagen",
+    naast Nummer/Datum/Vervaldatum (niet bij offertes, net als vervaldatum).
+- **Leveringsperiode-invoerveld op documentniveau verwijderd.** Het "Leveringsperiode
+  (optioneel)"-invoerveld (twee datumvelden naast Betalingstermijn) is uit `DocumentFormulier`
+  gehaald. De onderliggende state/logica is bewust **niet** verwijderd: een al bestaand concept
+  met een eerder ingevulde periode behoudt die waarde gewoon bij het opnieuw opslaan (hij wordt
+  nergens meer overschreven, want er is geen invoerveld meer dat 'm kan wijzigen); een nieuw
+  document krijgt er simpelweg nooit meer een. De optionele leveringsperiode **per factuurregel**
+  (verderop in de regeltabel) is ongemoeid gelaten — daar is niet naar gevraagd.
+- Alles geverifieerd met `npx vite build` (1913 modules, geen nieuwe fouten) en `npx oxlint`
+  (geen nieuwe waarschuwingen t.o.v. de bestaande) en `node --check` op alle gewijzigde
+  backend-bestanden.
+- **Nog te doen vóór dit werkend is**: migratie `006_bedrijfsgegevens_cc_email.sql` tegen de
+  live database draaien (voegt `cc_email` toe aan `dbo.bedrijfsgegevens_klanten`) — zonder deze
+  migratie faalt de nieuwe CC-mailadres-functionaliteit met een SQL-fout ("Invalid column
+  name 'cc_email'"), al de rest van deze wijziging (voorbeeld/melding/betaaltermijn/
+  leveringsperiode) hangt er niet van af en werkt al zonder de migratie.

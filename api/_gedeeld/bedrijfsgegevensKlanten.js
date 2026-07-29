@@ -11,7 +11,7 @@ const { sql, haalPool } = require("./facturatieDb");
 
 const LEEG = {
   bedrijfsnaam: "", straat: "", huisnummer: "", toevoeging: "", postcode: "", plaats: "", land: "NL",
-  kvkNummer: "", btwNummer: "", iban: "", ibanTenaamstelling: "", logoUrl: "",
+  kvkNummer: "", btwNummer: "", iban: "", ibanTenaamstelling: "", logoUrl: "", ccEmail: "",
 };
 
 function naarBuiten(row) {
@@ -29,6 +29,9 @@ function naarBuiten(row) {
     iban: row.iban || "",
     ibanTenaamstelling: row.iban_tenaamstelling || "",
     logoUrl: row.logo_url || "",
+    // Eigen CC-mailadres bij versturen (bevestiging dat een factuur/offerte is verstuurd) —
+    // sinds 29-07-2026, puur een eigen voorkeur, geen Dynamics-tegenhanger.
+    ccEmail: row.cc_email || "",
     gewijzigdOp: row.gewijzigd_op || row.aangemaakt_op || null,
   };
 }
@@ -70,6 +73,7 @@ async function zetGegevens(klantAccountId, data, email) {
   request.input("iban", sql.NVarChar(34), veld("iban") || null);
   request.input("ibanTenaamstelling", sql.NVarChar(200), veld("ibanTenaamstelling") || null);
   request.input("logoUrl", sql.NVarChar(500), veld("logoUrl") || null);
+  request.input("ccEmail", sql.NVarChar(320), veld("ccEmail") || null);
   request.input("email", sql.NVarChar(320), email || null);
 
   if (bestaand) {
@@ -77,7 +81,7 @@ async function zetGegevens(klantAccountId, data, email) {
       UPDATE dbo.bedrijfsgegevens_klanten SET
         bedrijfsnaam = @bedrijfsnaam, straat = @straat, huisnummer = @huisnummer, toevoeging = @toevoeging,
         postcode = @postcode, plaats = @plaats, land = @land, kvk_nummer = @kvkNummer, btw_nummer = @btwNummer,
-        iban = @iban, iban_tenaamstelling = @ibanTenaamstelling, logo_url = @logoUrl,
+        iban = @iban, iban_tenaamstelling = @ibanTenaamstelling, logo_url = @logoUrl, cc_email = @ccEmail,
         gewijzigd_op = SYSUTCDATETIME(), gewijzigd_door = @email
       OUTPUT INSERTED.*
       WHERE klant_account_id = @klantAccountId
@@ -88,11 +92,11 @@ async function zetGegevens(klantAccountId, data, email) {
   const result = await request.query(`
     INSERT INTO dbo.bedrijfsgegevens_klanten
       (klant_account_id, bedrijfsnaam, straat, huisnummer, toevoeging, postcode, plaats, land,
-       kvk_nummer, btw_nummer, iban, iban_tenaamstelling, logo_url, aangemaakt_door)
+       kvk_nummer, btw_nummer, iban, iban_tenaamstelling, logo_url, cc_email, aangemaakt_door)
     OUTPUT INSERTED.*
     VALUES
       (@klantAccountId, @bedrijfsnaam, @straat, @huisnummer, @toevoeging, @postcode, @plaats, @land,
-       @kvkNummer, @btwNummer, @iban, @ibanTenaamstelling, @logoUrl, @email)
+       @kvkNummer, @btwNummer, @iban, @ibanTenaamstelling, @logoUrl, @ccEmail, @email)
   `);
   return naarBuiten(result.recordset[0]);
 }
@@ -103,7 +107,7 @@ function terugvalKolom(naam) {
   const MAP = {
     bedrijfsnaam: "bedrijfsnaam", straat: "straat", huisnummer: "huisnummer", toevoeging: "toevoeging",
     postcode: "postcode", plaats: "plaats", land: "land", kvkNummer: "kvk_nummer", btwNummer: "btw_nummer",
-    iban: "iban", ibanTenaamstelling: "iban_tenaamstelling", logoUrl: "logo_url",
+    iban: "iban", ibanTenaamstelling: "iban_tenaamstelling", logoUrl: "logo_url", ccEmail: "cc_email",
   };
   return MAP[naam] || naam;
 }

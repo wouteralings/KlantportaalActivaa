@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   FileText, FileSpreadsheet, Package, Users, Settings, Plus, Send, Check, X,
   Trash2, Pencil, CreditCard, Bell, Sliders, ArrowLeft, ChevronDown, Search,
@@ -46,6 +46,40 @@ function bedrijfsgegevensCompleet(bg) {
   const g = bg || {};
   return !!(g.bedrijfsnaam && g.straat && g.huisnummer && g.postcode && g.plaats && (g.kvkNummer || g.btwNummer));
 }
+
+/** Vult opgeslagen bedrijfsgegevens aan met wat al uit Dynamics bekend is (bedrijfsnaam, adres,
+ * KvK-/BTW-nummer, IBAN + tenaamstelling) voor elk veld dat zelf nog leeg is — nooit een al
+ * opgeslagen/goedgekeurde eigen waarde overschrijven. Gebruikt voor zowel het voorvullen van het
+ * Instellingen-formulier als (sinds 29-07-2026) de volledigheids-check en de factuur-/
+ * offerteweergave, zodat die hetzelfde laten zien als Instellingen — ook vóórdat er ooit een
+ * wijzigingsverzoek is ingediend/goedgekeurd (zie ook de automatische achtergrond-sync in
+ * FacturatieAccountInhoud, die dit ook echt naar de eigen tabel wegschrijft). */
+function vulBedrijfsgegevensAanMetCrm(data, account) {
+  if (!data) return null;
+  const a = account?.klantadres || {};
+  return {
+    ...data,
+    bedrijfsnaam: data.bedrijfsnaam || account?.klantnaam || "",
+    straat: data.straat || a.straat || "",
+    huisnummer: data.huisnummer || a.huisnummer || "",
+    toevoeging: data.toevoeging || a.toevoeging || "",
+    postcode: data.postcode || a.postcode || "",
+    plaats: data.plaats || a.plaats || "",
+    land: data.land || a.land || "NL",
+    kvkNummer: data.kvkNummer || account?.kvkNummer || "",
+    btwNummer: data.btwNummer || account?.btwNummer || "",
+    iban: data.iban || account?.iban || "",
+    ibanTenaamstelling: data.ibanTenaamstelling || account?.ibanTenaamstelling || "",
+  };
+}
+
+// Velden die meetellen bij het bepalen of er nog CRM-bekende waarden zijn die nog niet in de
+// eigen tabel staan (zie de achtergrond-sync in FacturatieAccountInhoud) — bewust zonder
+// ccEmail/logoUrl/gewijzigdOp, die hebben geen Dynamics-tegenhanger.
+const BEDRIJFSGEGEVENS_SYNC_VELDEN = [
+  "bedrijfsnaam", "straat", "huisnummer", "toevoeging", "postcode", "plaats", "land",
+  "kvkNummer", "btwNummer", "iban", "ibanTenaamstelling",
+];
 
 /** Getalveld (aantal/prijs) met Nederlandse duizendtal-notatie: tijdens het bewerken zie je de
  * ruwe waarde (zodat typen niet hinderlijk "springt"), zodra je het veld verlaat wordt het
@@ -366,6 +400,7 @@ function DocumentVoorbeeld({ bedrijfsgegevens, documenttype, klant, document }) 
             Nummer: {doc.nummer || "(concept)"}<br />
             Datum: {datum(doc.factuurdatum)}<br />
             {documenttype !== "offerte" && <>Vervaldatum: {datum(doc.vervaldatum)}<br /></>}
+            {documenttype !== "offerte" && doc.betalingstermijnDagen != null && <>Betalingstermijn: {doc.betalingstermijnDagen} dagen<br /></>}
             {leveringDocument && <>Leveringsperiode: {leveringDocument}<br /></>}
           </div>
         </div>
@@ -458,8 +493,11 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
   const [verstuurStatus, setVerstuurStatus] = useState("idle"); // idle | bezig | fout
   const [klantKlantId, setKlantKlantId] = useState(bestaand?.klantKlantId || "");
   const [betalingstermijnDagen, setBetalingstermijnDagen] = useState(bestaand?.betalingstermijnDagen ?? 30);
-  const [leveringsperiodeStart, setLeveringsperiodeStart] = useState(bestaand?.leveringsperiodeStart ? String(bestaand.leveringsperiodeStart).slice(0, 10) : "");
-  const [leveringsperiodeEind, setLeveringsperiodeEind] = useState(bestaand?.leveringsperiodeEind ? String(bestaand.leveringsperiodeEind).slice(0, 10) : "");
+  // Geen invoerveld meer voor (zie 29-07-2026, "mag eraf") — de state blijft bestaan zodat een
+  // al bewaarde periode op een bestaand concept behouden blijft (gewoon opnieuw meegestuurd bij
+  // opslaan), maar is voor een nieuw document altijd leeg en niet meer zelf in te stellen.
+  const [leveringsperiodeStart, _setLeveringsperiodeStart] = useState(bestaand?.leveringsperiodeStart ? String(bestaand.leveringsperiodeStart).slice(0, 10) : "");
+  const [leveringsperiodeEind, _setLeveringsperiodeEind] = useState(bestaand?.leveringsperiodeEind ? String(bestaand.leveringsperiodeEind).slice(0, 10) : "");
   const [opmerkingen, setOpmerkingen] = useState(bestaand?.opmerkingen || "");
   const [regels, setRegels] = useState(
     bestaand?.regels?.length
@@ -651,6 +689,7 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
       nummer: opgeslagenDocument?.nummer || null,
       factuurdatum: opgeslagenDocument?.factuurdatum || vandaag.toISOString(),
       vervaldatum: opgeslagenDocument?.vervaldatum || vervaldatum.toISOString(),
+      betalingstermijnDagen: Number(betalingstermijnDagen) || 30,
       leveringsperiodeStart: leveringsperiodeStart || null,
       leveringsperiodeEind: leveringsperiodeEind || null,
       regels,
@@ -723,7 +762,7 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1.6fr", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16 }}>
         <div>
           <div style={labelStijl}>Klant</div>
           <select value={klantKlantId} onChange={(e) => setKlantKlantId(e.target.value)} style={inputStijl}>
@@ -745,15 +784,6 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
               .sort((a, b) => a - b)
               .map((d) => <option key={d} value={d}>{d} dagen</option>)}
           </select>
-        </div>
-        <div>
-          <div style={labelStijl}>Leveringsperiode (optioneel)</div>
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <input type="date" value={leveringsperiodeStart} onChange={(e) => setLeveringsperiodeStart(e.target.value)} style={{ ...inputStijl, minWidth: 0, flex: 1 }} />
-            <span style={{ fontSize: 11, color: KLEUR.mutedTekst, flexShrink: 0 }}>t/m</span>
-            <input type="date" value={leveringsperiodeEind} onChange={(e) => setLeveringsperiodeEind(e.target.value)} style={{ ...inputStijl, minWidth: 0, flex: 1 }} />
-          </div>
-          <div style={{ fontSize: 10.5, color: KLEUR.mutedTekst, marginTop: 3 }}>Alleen invullen als deze afwijkt van de {naam}datum (bijv. bij een maandelijkse dienst).</div>
         </div>
       </div>
 
@@ -1566,25 +1596,14 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
   );
   const inBehandeling = !!openVerzoek || ingediend;
 
+  const [ccStatus, setCcStatus] = useState("idle"); // idle | bezig | fout
+
   useEffect(() => {
     if (!data || f) return;
     // Voor ieder veld dat bij Activaa al bekend is uit Dynamics (bedrijfsnaam, adres,
     // KvK-nummer, BTW-nummer, sinds 29-07-2026 ook IBAN + tenaamstelling) vullen we het aan
     // zodra het nog leeg is — nooit een al opgeslagen/goedgekeurde eigen waarde overschrijven.
-    const a = account?.klantadres || {};
-    setF({
-      ...data,
-      bedrijfsnaam: data.bedrijfsnaam || account?.klantnaam || "",
-      straat: data.straat || a.straat || "",
-      huisnummer: data.huisnummer || a.huisnummer || "",
-      toevoeging: data.toevoeging || a.toevoeging || "",
-      postcode: data.postcode || a.postcode || "",
-      plaats: data.plaats || a.plaats || "",
-      kvkNummer: data.kvkNummer || account?.kvkNummer || "",
-      btwNummer: data.btwNummer || account?.btwNummer || "",
-      iban: data.iban || account?.iban || "",
-      ibanTenaamstelling: data.ibanTenaamstelling || account?.ibanTenaamstelling || "",
-    });
+    setF(vulBedrijfsgegevensAanMetCrm(data, account));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
@@ -1662,6 +1681,25 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
       setLogoStatus("idle");
     } catch {
       setLogoStatus("fout");
+    }
+  };
+
+  // CC-mailadres bij het versturen van een factuur/offerte/creditnota — puur een eigen
+  // voorkeur (geen verificatiegegeven zoals naam/adres/KvK/BTW/IBAN), dus direct zelf te
+  // wijzigen zonder goedkeuring door Activaa, zelfde patroon als het logo hierboven.
+  const opslaanCcEmail = async () => {
+    setCcStatus("bezig");
+    try {
+      const res = await fetch("/api/bedrijfsgegevens-klanten", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId, ccEmail: f.ccEmail || "" }),
+      });
+      const d = await haalJson(res);
+      setF((h) => ({ ...h, ccEmail: d.ccEmail }));
+      setCcStatus("idle");
+    } catch {
+      setCcStatus("fout");
     }
   };
 
@@ -1769,6 +1807,29 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
         </div>
         {logoStatus === "fout" && <div style={{ fontSize: 12, color: KLEUR.rood, marginTop: 4 }}>Actie mislukt, probeer het nog eens.</div>}
       </div>
+
+      <div style={kaartStijl}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>CC bij versturen</div>
+        <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 16 }}>
+          Vul hier je eigen e-mailadres in om automatisch een kopie (CC) te ontvangen zodra je een
+          factuur, offerte of creditnota verstuurt — zo weet je zeker dat 'm ook echt is verzonden.
+          Leeg laten stuurt geen kopie. Net als het logo direct zelf te wijzigen, zonder goedkeuring
+          door Activaa.
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <input
+            type="email"
+            value={f.ccEmail || ""}
+            onChange={(e) => setF((h) => ({ ...h, ccEmail: e.target.value }))}
+            placeholder="jouw@eigenbedrijf.nl"
+            style={{ ...inputStijl, maxWidth: 280 }}
+          />
+          <Knop variant="primair" onClick={opslaanCcEmail} disabled={ccStatus === "bezig"}>
+            {ccStatus === "bezig" ? "Opslaan…" : "Opslaan"}
+          </Knop>
+        </div>
+        {ccStatus === "fout" && <div style={{ fontSize: 12, color: KLEUR.rood, marginTop: 4 }}>Opslaan mislukt, probeer het nog eens.</div>}
+      </div>
     </>
   );
 }
@@ -1818,6 +1879,43 @@ function FacturatieAccountInhoud({ account, andereAccounts }) {
   );
   const gaNaarInstellingen = useCallback(() => setSubtab("instellingen"), []);
 
+  // Wat er echt op de factuur/offerte moet verschijnen: de opgeslagen bedrijfsgegevens, aangevuld
+  // met wat al uit Dynamics bekend is (zelfde regel als de Instellingen-kaart) — anders zou de
+  // volledigheids-melding en de live-voorbeeld hier een LEGERE (want niet-aangevulde) versie tonen
+  // dan wat de klant zelf bij Instellingen ziet staan (zie 29-07-2026: "melding niet compleet,
+  // maar dat is wel zo").
+  const effectieveBedrijfsgegevens = useMemo(
+    () => vulBedrijfsgegevensAanMetCrm(bedrijfsgegevensData.data, account),
+    [bedrijfsgegevensData.data, account]
+  );
+
+  // Sync de CRM-aanvulling hierboven ook echt naar de eigen tabel weg, zodat de PDF/e-mail die
+  // Activaa daadwerkelijk verstuurt (die leest alleen de opgeslagen tabel, niet Dynamics) ook
+  // klopt — niet alleen dit scherm. Zelfde "geen-wijziging"-endpoint als een handmatige
+  // "Wijziging indienen" zonder echte wijziging (zie api/wijzigingsverzoek/index.js); hier
+  // stil op de achtergrond aangeroepen zodat een klant niet eerst naar Instellingen hoeft en
+  // daar handmatig moet opslaan voordat KvK/BTW/adres/IBAN echt op de factuur verschijnen.
+  const crmSyncGedaanRef = useRef(false);
+  useEffect(() => {
+    if (crmSyncGedaanRef.current) return;
+    if (bedrijfsgegevensData.status !== "klaar" || !effectieveBedrijfsgegevens) return;
+    const verschilt = BEDRIJFSGEGEVENS_SYNC_VELDEN.some(
+      (v) => (effectieveBedrijfsgegevens[v] || "") !== (bedrijfsgegevensData.data[v] || "")
+    );
+    if (!verschilt) { crmSyncGedaanRef.current = true; return; }
+    crmSyncGedaanRef.current = true;
+    const { logoUrl: _logoUrl, gewijzigdOp: _gewijzigdOp, ccEmail: _ccEmail, ...velden } = effectieveBedrijfsgegevens;
+    fetch("/api/wijzigingsverzoek", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accountId, type: "bedrijfsgegevens_facturatie", voorstel: velden }),
+    })
+      .then(haalJson)
+      .then((d) => { if (d.geenWijziging) bedrijfsgegevensData.verversen(); })
+      .catch(() => {}); // best-effort en stil: de klant kan het ook nog gewoon handmatig indienen
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bedrijfsgegevensData.status, effectieveBedrijfsgegevens, accountId]);
+
   const klantenMap = useMemo(
     () => Object.fromEntries(klantenData.items.map((k) => [k.id, k])),
     [klantenData.items]
@@ -1852,13 +1950,13 @@ function FacturatieAccountInhoud({ account, andereAccounts }) {
       {subtab === "facturen" && (
         <DocumentenTab
           accountId={accountId} documenttype="factuur" klanten={klantenData.items} artikelen={alleArtikelen} tarieven={btwTarievenData.items} klantenMap={klantenMap}
-          bedrijfsgegevens={bedrijfsgegevensData.data} bedrijfsgegevensInBehandeling={bedrijfsgegevensInBehandeling} onGaNaarInstellingen={gaNaarInstellingen}
+          bedrijfsgegevens={effectieveBedrijfsgegevens} bedrijfsgegevensInBehandeling={bedrijfsgegevensInBehandeling} onGaNaarInstellingen={gaNaarInstellingen}
         />
       )}
       {subtab === "offertes" && (
         <DocumentenTab
           accountId={accountId} documenttype="offerte" klanten={klantenData.items} artikelen={alleArtikelen} tarieven={btwTarievenData.items} klantenMap={klantenMap} alleFacturen={facturenVoorKoppeling.items}
-          bedrijfsgegevens={bedrijfsgegevensData.data} bedrijfsgegevensInBehandeling={bedrijfsgegevensInBehandeling} onGaNaarInstellingen={gaNaarInstellingen}
+          bedrijfsgegevens={effectieveBedrijfsgegevens} bedrijfsgegevensInBehandeling={bedrijfsgegevensInBehandeling} onGaNaarInstellingen={gaNaarInstellingen}
         />
       )}
       {subtab === "abonnementen" && (

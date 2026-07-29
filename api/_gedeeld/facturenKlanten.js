@@ -311,6 +311,9 @@ async function verstuurDocumentPerEmail(klantAccountId, document, context) {
 
     await verstuurMailMetBijlage({
       naar: klant.email,
+      // Eigen CC-mailadres (Instellingen → "CC bij versturen") — optioneel, zodat de
+      // portaalklant zelf een kopie krijgt als bevestiging dat het document is verstuurd.
+      cc: bedrijfsgegevens.ccEmail ? [bedrijfsgegevens.ccEmail] : [],
       onderwerp,
       html,
       bijlagen: [{
