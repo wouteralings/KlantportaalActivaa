@@ -16,6 +16,16 @@
  * regels/subtotaal/btw/totaal worden ALTIJD server-side herberekend uit de aangeleverde
  * regels — een door de klant meegestuurd totaal wordt nooit vertrouwd of overgenomen.
  *
+ * Crediteren (29-07-2026, verving het losse "annuleren" dat alleen de status omzette): een
+ * verstuurde of betaalde factuur crediteren maakt een CONCEPT-creditnota aan met alle regels
+ * van de factuur negatief (zelfde aantal, met een minteken — bedrag/btw/totaal worden dus
+ * vanzelf negatief via berekenTotalen) en gedateerd op de dag van crediteren (niet de
+ * oorspronkelijke factuurdatum), zie crediteerFactuur hieronder. De creditnota is bewust een
+ * concept: pas zodra die zelf verstuurd wordt (verstuurFactuur) krijgt hij een nummer én wordt
+ * de gecrediteerde factuur pas dán naar 'geannuleerd' gezet — zo blijft de factuur gewoon
+ * geldig zolang er nog geen daadwerkelijk verzonden creditnota tegenover staat (een concept dat
+ * de klant besluit te verwijderen laat de factuur dus terecht ongemoeid).
+ *
  * Synchronisatie naar de aparte Dynamics-tabel (dynamics_record_id / dynamics_sync_status)
  * is hier bewust nog niet geïmplementeerd — zie Context/Facturatiemodule.md voor de
  * openstaande stappen (custom tabel + relatie aanmaken in Dataverse, dan een sync-functie
@@ -31,8 +41,16 @@ const { verstuurMailMetBijlage } = require("./mail");
 const GELDIGE_DOCUMENTTYPES = ["factuur", "offerte", "creditnota"];
 const NAAM_PER_TYPE = { factuur: "factuur", offerte: "offerte", creditnota: "creditnota" };
 
+/** Rondt af op 2 decimalen, symmetrisch rond nul (round-half-away-from-zero) — bewust NIET
+ * kaal Math.round(), want die rondt halve waarden altijd naar +Infinity af (dus bijv. 68.355 →
+ * 68.36, maar -68.355 → -68.35, niet -68.36!). Zonder deze correctie zou een creditnota (met
+ * overal negatieve bedragen, zie crediteerFactuur) door dat teken-verschil een cent kunnen
+ * afwijken van de exacte tegenovergestelde van de oorspronkelijke factuur — en de creditnota
+ * moet juist wél exact het spiegelbeeld zijn (29-07-2026, crediteren-functionaliteit). */
 function rond(bedrag) {
-  return Math.round((Number(bedrag) + Number.EPSILON) * 100) / 100;
+  const n = Number(bedrag);
+  const teken = n < 0 ? -1 : 1;
+  return teken * (Math.round((Math.abs(n) + Number.EPSILON) * 100) / 100);
 }
 
 /** Valideert en normaliseert de regels van een factuur/offerte, en berekent
@@ -274,8 +292,37 @@ async function verstuurFactuur(klantAccountId, id, email, context) {
   if (!result.recordset[0]) return null;
   const document = naarBuiten(result.recordset[0]);
 
+  // Wordt hier een creditnota verstuurd die aan een factuur gekoppeld is (zie crediteerFactuur
+  // hieronder)? Dan is dit het moment (nu pas, niet eerder) om de gecrediteerde factuur naar
+  // 'geannuleerd' te zetten — zie het commentaar bovenaan dit bestand.
+  if (document.documenttype === "creditnota" && document.referentieFactuurId) {
+    await zetFactuurGeannuleerdDoorCreditnota(klantAccountId, document.referentieFactuurId, email);
+  }
+
   const { emailVerzonden, emailFout } = await verstuurDocumentPerEmail(klantAccountId, document, context);
   return { ...document, emailVerzonden, emailFout };
+}
+
+/** Zet de gecrediteerde factuur naar 'geannuleerd' zodra de bijbehorende creditnota daadwerkelijk
+ * verstuurd is — alleen als die factuur nog 'verzonden' of 'betaald' is (dus niet overschrijven
+ * als hij door iets anders al een andere status heeft). Bewust best-effort/stil: het versturen
+ * van de creditnota zelf (waar de klant net op klikte) mag hier nooit door mislukken. */
+async function zetFactuurGeannuleerdDoorCreditnota(klantAccountId, factuurId, email) {
+  try {
+    const pool = await haalPool();
+    const request = pool.request();
+    request.input("klantAccountId", sql.UniqueIdentifier, klantAccountId);
+    request.input("id", sql.UniqueIdentifier, factuurId);
+    request.input("email", sql.NVarChar(320), email || null);
+    await request.query(`
+      UPDATE dbo.facturen_klanten SET
+        status = 'geannuleerd', gewijzigd_op = SYSUTCDATETIME(), gewijzigd_door = @email
+      WHERE klant_account_id = @klantAccountId AND id = @id AND documenttype = 'factuur'
+        AND status IN ('verzonden', 'betaald')
+    `);
+  } catch {
+    // best-effort — de creditnota is al succesvol verzonden en blijft succesvol verzonden
+  }
 }
 
 /** Bouwt de PDF en verstuurt 'm als bijlage naar het e-mailadres van de klant_klant. Geeft
@@ -436,29 +483,46 @@ async function markeerBetaald(klantAccountId, id, email) {
   return result.recordset[0] ? naarBuiten(result.recordset[0]) : null;
 }
 
-async function annuleerFactuur(klantAccountId, id, email) {
-  const pool = await haalPool();
-  const request = pool.request();
-  request.input("klantAccountId", sql.UniqueIdentifier, klantAccountId);
-  request.input("id", sql.UniqueIdentifier, id);
-  request.input("email", sql.NVarChar(320), email || null);
-  const result = await request.query(`
-    UPDATE dbo.facturen_klanten SET
-      status = 'geannuleerd', gewijzigd_op = SYSUTCDATETIME(), gewijzigd_door = @email
-    OUTPUT INSERTED.*
-    WHERE klant_account_id = @klantAccountId AND id = @id AND documenttype = 'factuur'
-  `);
-  return result.recordset[0] ? naarBuiten(result.recordset[0]) : null;
+/** Crediteren (zie het uitgebreide commentaar bovenaan dit bestand): maakt een CONCEPT-creditnota
+ * aan met alle regels van de factuur negatief en gedateerd op vandaag. Mag op een verstuurde ÉN
+ * op een al betaalde factuur (bijv. voor een terugbetaling achteraf) — niet op een concept, een
+ * offerte, of een factuur die al geannuleerd/verlopen is. De factuur zelf wordt hier NIET
+ * aangepast; dat gebeurt pas zodra de creditnota daadwerkelijk verstuurd wordt, zie
+ * zetFactuurGeannuleerdDoorCreditnota hierboven bij verstuurFactuur. */
+async function crediteerFactuur(klantAccountId, id, email) {
+  const factuur = await haalFactuur(klantAccountId, id);
+  if (!factuur) return null;
+  if (factuur.documenttype !== "factuur") {
+    throw new Error("VALIDATIE: alleen een factuur kan gecrediteerd worden.");
+  }
+  if (!["verzonden", "betaald"].includes(factuur.status)) {
+    throw new Error("VALIDATIE: alleen een verstuurde of betaalde factuur kan gecrediteerd worden.");
+  }
+  const creditRegels = factuur.regels.map((r) => ({ ...r, aantal: -Math.abs(Number(r.aantal) || 0) }));
+  return maakFactuur(
+    klantAccountId,
+    {
+      documenttype: "creditnota",
+      klantKlantId: factuur.klantKlantId,
+      referentieFactuurId: factuur.id,
+      betalingstermijnDagen: factuur.betalingstermijnDagen,
+      opmerkingen: factuur.nummer ? `Creditnota voor factuur ${factuur.nummer}.` : "Creditnota.",
+      regels: creditRegels,
+      // Bewust GEEN factuurdatum meegeven: maakFactuur() valt dan terug op "vandaag", en dat is
+      // precies de datum van crediteren die hier vereist is — niet de oorspronkelijke factuurdatum.
+    },
+    email
+  );
 }
 
 /** Een concept mag hard verwijderd worden (heeft nog geen nummer verbruikt); alles daarna
- * moet via annuleren/crediteren, nooit weggegooid, om de nummerreeks en boekhouding kloppend
+ * moet via crediteren, nooit weggegooid, om de nummerreeks en boekhouding kloppend
  * te houden. */
 async function verwijderFactuur(klantAccountId, id) {
   const bestaand = await haalFactuur(klantAccountId, id);
   if (!bestaand) return false;
   if (bestaand.status !== "concept") {
-    throw new Error("VALIDATIE: alleen een concept kan verwijderd worden — annuleer een verstuurd document in plaats daarvan.");
+    throw new Error("VALIDATIE: alleen een concept kan verwijderd worden — een verstuurd document blijft bewaard (crediteer een factuur in plaats daarvan).");
   }
   const pool = await haalPool();
   const request = pool.request();
@@ -482,6 +546,6 @@ module.exports = {
   accepteerOfferte,
   wijsOfferteAf,
   markeerBetaald,
-  annuleerFactuur,
+  crediteerFactuur,
   verwijderFactuur,
 };

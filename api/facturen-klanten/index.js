@@ -18,7 +18,10 @@
  *   "accepteren"  offerte: verzonden → geaccepteerd; maakt automatisch een nieuwe factuur (concept) aan
  *   "afwijzen"    offerte: verzonden → afgewezen
  *   "betaald"     factuur: → betaald
- *   "annuleren"   factuur: → geannuleerd
+ *   "crediteren"  factuur (verzonden of betaald): maakt een CONCEPT-creditnota aan met alle
+ *                 regels negatief, gedateerd op vandaag — de factuur zelf gaat pas naar
+ *                 'geannuleerd' zodra die creditnota daadwerkelijk verstuurd wordt (zie
+ *                 crediteerFactuur/verstuurFactuur in facturenKlanten.js)
  */
 const { controleerToegang, afhandelFout } = require("../_gedeeld/facturatieToegang");
 const {
@@ -30,7 +33,7 @@ const {
   accepteerOfferte,
   wijsOfferteAf,
   markeerBetaald,
-  annuleerFactuur,
+  crediteerFactuur,
   verwijderFactuur,
 } = require("../_gedeeld/facturenKlanten");
 const { haalKlant } = require("../_gedeeld/klantenKlanten");
@@ -114,7 +117,7 @@ module.exports = async function (context, req) {
       else if (actie === "accepteren") resultaat = await accepteerOfferte(accountId, id, email);
       else if (actie === "afwijzen") resultaat = await wijsOfferteAf(accountId, id, email);
       else if (actie === "betaald") resultaat = await markeerBetaald(accountId, id, email);
-      else if (actie === "annuleren") resultaat = await annuleerFactuur(accountId, id, email);
+      else if (actie === "crediteren") resultaat = await crediteerFactuur(accountId, id, email);
       else {
         context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: `Onbekende actie: ${actie}` } };
         return;

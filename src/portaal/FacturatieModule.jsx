@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import {
   FileText, FileSpreadsheet, Package, Users, Settings, Plus, Send, Check, X,
   Trash2, Pencil, CreditCard, Bell, ArrowLeft, ChevronDown, Search,
-  Lock, Clock, Copy, Repeat, Download, Pause, Play, Mail, Eye,
+  Lock, Clock, Copy, Repeat, Download, Pause, Play, Mail, Eye, Undo2,
 } from "lucide-react";
 
 const KLEUR = {
@@ -415,8 +415,8 @@ function DocumentVoorbeeld({ bedrijfsgegevens, documenttype, klant, document }) 
           <div style={{ fontSize: 10.5, color: KLEUR.subtekst, marginTop: 4, lineHeight: 1.6 }}>
             Nummer: {doc.nummer || "(concept)"}<br />
             Datum: {datum(doc.factuurdatum)}<br />
-            {documenttype !== "offerte" && <>Vervaldatum: {datum(doc.vervaldatum)}<br /></>}
-            {documenttype !== "offerte" && doc.betalingstermijnDagen != null && <>Betalingstermijn: {doc.betalingstermijnDagen} dagen<br /></>}
+            {documenttype === "factuur" && <>Vervaldatum: {datum(doc.vervaldatum)}<br /></>}
+            {documenttype === "factuur" && doc.betalingstermijnDagen != null && <>Betalingstermijn: {doc.betalingstermijnDagen} dagen<br /></>}
             {leveringDocument && <>Leveringsperiode: {leveringDocument}<br /></>}
           </div>
         </div>
@@ -436,7 +436,7 @@ function DocumentVoorbeeld({ bedrijfsgegevens, documenttype, klant, document }) 
         ) : <span style={{ color: KLEUR.mutedTekst, fontStyle: "italic" }}>— nog geen klant gekozen —</span>}
       </div>
 
-      {documenttype !== "offerte" && doc.vervaldatum && (
+      {documenttype === "factuur" && doc.vervaldatum && (
         <div style={{ background: KLEUR.lichtblauw, borderRadius: 7, padding: "9px 12px", marginBottom: 16, fontSize: 13, fontWeight: 700, color: KLEUR.blauw }}>
           {geld(totaal)} te betalen op {datum(doc.vervaldatum)}
         </div>
@@ -480,7 +480,7 @@ function DocumentVoorbeeld({ bedrijfsgegevens, documenttype, klant, document }) 
 
       {doc.opmerkingen && <div style={{ fontSize: 11, color: KLEUR.subtekst, whiteSpace: "pre-wrap", marginBottom: 12 }}>{doc.opmerkingen}</div>}
 
-      {heeftBankgegevens && documenttype !== "offerte" && (
+      {heeftBankgegevens && documenttype === "factuur" && (
         <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 10, color: KLEUR.mutedTekst, borderTop: `1px solid ${KLEUR.rand}`, paddingTop: 10 }}>
           <div style={{
             width: 46, height: 46, borderRadius: 4, border: `1px dashed ${KLEUR.rand}`, flexShrink: 0,
@@ -699,7 +699,7 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
     }
   };
 
-  const naam = documenttype === "offerte" ? "offerte" : "factuur";
+  const naam = documenttype === "offerte" ? "offerte" : documenttype === "creditnota" ? "creditnota" : "factuur";
   const gekozenKlant = klanten.find((k) => k.id === klantKlantId) || null;
 
   const voorbeeldDocument = useMemo(() => {
@@ -1027,10 +1027,10 @@ function DocumentDetail({ accountId, document, klantenMap, bedrijfsgegevens, onT
           </>
         )}
         {document.documenttype === "factuur" && document.status === "verzonden" && (
-          <>
-            <Knop variant="groen" icon={Check} disabled={bezig} onClick={() => onActie(document, "betaald")}>Markeer betaald</Knop>
-            <Knop variant="rood" icon={X} disabled={bezig} onClick={() => onActie(document, "annuleren")}>Annuleren</Knop>
-          </>
+          <Knop variant="groen" icon={Check} disabled={bezig} onClick={() => onActie(document, "betaald")}>Markeer betaald</Knop>
+        )}
+        {document.documenttype === "factuur" && (document.status === "verzonden" || document.status === "betaald") && (
+          <Knop variant="rood" icon={Undo2} disabled={bezig} onClick={() => onActie(document, "crediteren")}>Crediteren</Knop>
         )}
       </div>
       {pdfStatus === "fout" && <div style={{ marginTop: 10 }}><Melding tekst="PDF downloaden is niet gelukt, probeer het nog eens." /></div>}
@@ -1046,11 +1046,13 @@ function DocumentenTab({ accountId, documenttype, klanten, artikelen, tarieven, 
   const [actieFout, setActieFout] = useState("");
   const [actieBezigId, setActieBezigId] = useState(null);
 
-  const naam = documenttype === "offerte" ? "offerte" : "factuur";
-  const naamMv = documenttype === "offerte" ? "offertes" : "facturen";
+  const naam = documenttype === "offerte" ? "offerte" : documenttype === "creditnota" ? "creditnota" : "factuur";
+  const naamMv = documenttype === "offerte" ? "offertes" : documenttype === "creditnota" ? "creditnota's" : "facturen";
 
   const statussen = documenttype === "offerte"
     ? ["alle", "concept", "verzonden", "geaccepteerd", "afgewezen"]
+    : documenttype === "creditnota"
+    ? ["alle", "concept", "verzonden"]
     : ["alle", "concept", "verzonden", "betaald", "verlopen", "geannuleerd"];
 
   const gefilterd = statusFilter === "alle" ? items : items.filter((d) => d.status === statusFilter);
@@ -1086,7 +1088,7 @@ function DocumentenTab({ accountId, documenttype, klanten, artikelen, tarieven, 
   };
 
   // Alleen concepten mogen verwijderd worden (zodra een document verstuurd/genummerd is,
-  // blijft het bewaard — annuleren is dan de juiste actie, zie voerActieUit "annuleren").
+  // blijft het bewaard — crediteren is dan de juiste actie voor een factuur, zie voerActieUit "crediteren").
   const verwijderDocument = async (document) => {
     if (!window.confirm(`Concept${document.nummer ? ` "${document.nummer}"` : ""} verwijderen? Dit kan niet ongedaan worden gemaakt.`)) return;
     setActieBezigId(document.id);
@@ -2245,6 +2247,7 @@ function InstellingenTab({ accountId, bedrijfsgegevens, andereAccounts, account,
 const SUBTABS = [
   { key: "facturen", label: "Facturen", icon: FileText },
   { key: "offertes", label: "Offertes", icon: FileSpreadsheet },
+  { key: "creditnotas", label: "Creditnota's", icon: Undo2 },
   { key: "abonnementen", label: "Abonnementen", icon: Repeat },
   { key: "klanten", label: "Klanten", icon: Users },
   { key: "producten", label: "Producten", icon: Package },
@@ -2348,6 +2351,12 @@ function FacturatieAccountInhoud({ account, andereAccounts }) {
       {subtab === "offertes" && (
         <DocumentenTab
           accountId={accountId} documenttype="offerte" klanten={klantenData.items} artikelen={alleArtikelen} tarieven={btwTarievenData.items} klantenMap={klantenMap} alleFacturen={facturenVoorKoppeling.items}
+          bedrijfsgegevens={effectieveBedrijfsgegevens} bedrijfsgegevensInBehandeling={bedrijfsgegevensInBehandeling} onGaNaarInstellingen={gaNaarInstellingen}
+        />
+      )}
+      {subtab === "creditnotas" && (
+        <DocumentenTab
+          accountId={accountId} documenttype="creditnota" klanten={klantenData.items} artikelen={alleArtikelen} tarieven={btwTarievenData.items} klantenMap={klantenMap}
           bedrijfsgegevens={effectieveBedrijfsgegevens} bedrijfsgegevensInBehandeling={bedrijfsgegevensInBehandeling} onGaNaarInstellingen={gaNaarInstellingen}
         />
       )}

@@ -168,9 +168,11 @@ async function genereerFactuurPdf({ document: doc, klant, bedrijfsgegevens, docu
   ];
   // Een offerte heeft een geldigheidsdatum, geen vervaldatum/betalingstermijn voor betaling —
   // die tonen op een offerte zou ten onrechte een betaalverplichting suggereren (zelfde
-  // voorwaarde als DocumentVoorbeeld op het scherm).
-  if (documenttype !== "offerte") metaRegels.push(["Vervaldatum", kortDatum(doc.vervaldatum)]);
-  if (documenttype !== "offerte" && doc.betalingstermijnDagen != null) {
+  // voorwaarde als DocumentVoorbeeld op het scherm). Een creditnota is evenmin iets dat "betaald"
+  // moet worden vóór een vervaldatum — dat verlaagt juist het openstaande bedrag elders — dus
+  // ook daar geen vervaldatum/betalingstermijn (29-07-2026, crediteren-functionaliteit).
+  if (documenttype === "factuur") metaRegels.push(["Vervaldatum", kortDatum(doc.vervaldatum)]);
+  if (documenttype === "factuur" && doc.betalingstermijnDagen != null) {
     metaRegels.push(["Betalingstermijn", `${doc.betalingstermijnDagen} dagen`]);
   }
   const leveringTekst = leveringsperiodeTekst(doc.leveringsperiodeStart, doc.leveringsperiodeEind);
@@ -201,8 +203,9 @@ async function genereerFactuurPdf({ document: doc, klant, bedrijfsgegevens, docu
   }
   y -= 12;
 
-  // ── Betaalbanner (alleen factuur/creditnota, niet offerte) ────────────────────────────
-  if (documenttype !== "offerte" && doc.vervaldatum) {
+  // ── Betaalbanner (alleen factuur — een creditnota heeft een negatief bedrag en vraagt niet
+  // om betaling, een offerte is nog niet verschuldigd) ──────────────────────────────────
+  if (documenttype === "factuur" && doc.vervaldatum) {
     const bannerTekst = `${geld(totaal)} te betalen op ${kortDatum(doc.vervaldatum)}`;
     page.drawRectangle({ x: marge, y: y - 22, width: breedte, height: 26, color: KLEUR.lichtblauw });
     page.drawText(bannerTekst, { x: marge + 10, y: y - 14, size: 11, font: bold, color: KLEUR.blauw });
@@ -276,8 +279,9 @@ async function genereerFactuurPdf({ document: doc, klant, bedrijfsgegevens, docu
     y -= 8;
   }
 
-  // ── Betaalinstructies + QR-code (alleen als er een IBAN bekend is) ───────────────────
-  if (bg.iban && documenttype !== "offerte") {
+  // ── Betaalinstructies + QR-code (alleen bij een factuur mét bekende IBAN — een creditnota
+  // heeft een negatief bedrag, daar kan/moet geen betaal-QR voor gegenereerd worden) ───────
+  if (bg.iban && documenttype === "factuur") {
     const qrPng = await genereerBetaalQr({
       naam: bg.bedrijfsnaam, iban: bg.iban, bedrag: totaal,
       omschrijving: doc.nummer ? `Factuurnummer ${doc.nummer}` : "Factuur",
