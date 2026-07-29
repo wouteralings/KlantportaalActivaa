@@ -737,3 +737,37 @@ zo. deze leveringsperiode mag eraf."*
   migratie faalt de nieuwe CC-mailadres-functionaliteit met een SQL-fout ("Invalid column
   name 'cc_email'"), al de rest van deze wijziging (voorbeeld/melding/betaaltermijn/
   leveringsperiode) hangt er niet van af en werkt al zonder de migratie.
+
+## Abonnementen nu ook te bewerken (29-07-2026, vervolgsessie)
+
+Feedback van Wouter: *"ik wil abonnementen nog kunnen bewerken. Nu kan ik alleen pauzeren of
+verwijderen."* De backend (`PATCH /api/facturen-terugkerend` → `wijzigTerugkerend()` in
+`api/_gedeeld/facturenTerugkerend.js`) ondersteunde bewerken van vrijwel elk veld al volledig —
+alleen de frontend (`AbonnementenTab` in `FacturatieModule.jsx`) bood tot nu toe enkel pauzeren/
+hervatten (`actief`) en verwijderen aan.
+
+- **Nieuw component `AbonnementFormulier`** (`FacturatieModule.jsx`, vlak vóór
+  `AbonnementenTab`) — een volwaardig bewerkformulier voor een bestaand abonnement:
+  frequentie, betalingstermijn, einddatum (optioneel), automatisch verzenden, leveringsperiode
+  (start/eind — deze schuift zelf een frequentie-stap op bij elke nieuw gegenereerde factuur,
+  zie `voegFrequentieToe()`/`verwerkGegenereerd()`), de volledige regeltabel (artikel/
+  omschrijving/aantal/prijs/btw, met een optionele afwijkende leveringsperiode per regel,
+  regels toevoegen/verwijderen) en opmerkingen. Bewust **niet** editable, in lijn met wat
+  `wijzigTerugkerend()` server-side toestaat: de klant (`klantKlantId`) en de startdatum — die
+  liggen vast zodra het abonnement is aangemaakt; getoond als alleen-lezen info bovenaan het
+  formulier.
+- De regel-editor (artikel-select, BTW-tarief-select, regels toevoegen/verwijderen,
+  per-regel-leveringsperiode) is bewust een eigen kopie van dezelfde JSX/logica die al in
+  `DocumentFormulier` zit, in plaats van een gedeeld component — zo hoefde dat grotere, al goed
+  geteste onderdeel niet aangeraakt te worden voor deze losstaande toevoeging.
+- `AbonnementenTab` kreeg een nieuwe "Bewerken"-knop (potlood-icoon) naast pauzeren/hervatten/
+  verwijderen in de actiekolom (die kolom is iets verbreed, 90px → 116px, om drie iconen te
+  laten passen) en een `weergave`-state ("lijst" | "bewerken") — zelfde patroon als
+  `KlantenTab`/`ProductenTab`. Ontvangt nu ook `artikelen`/`tarieven` als props (nodig voor de
+  regel-editor), doorgegeven vanuit `FacturatieAccountInhoud` (`alleArtikelen` resp.
+  `btwTarievenData.items`, dezelfde data die de facturen/offertes-tabs al gebruiken).
+- Opslaan gaat via de bestaande `PATCH /api/facturen-terugkerend` met `{ accountId, id, ...}` —
+  geen backend-wijziging nodig geweest.
+- Geverifieerd met `npx vite build` (1913 modules, geen nieuwe fouten) en `npx oxlint` (enige
+  waarschuwing is een pre-existing ongebruikte catch-parameter elders in het bestand, niet
+  door deze wijziging geïntroduceerd).
