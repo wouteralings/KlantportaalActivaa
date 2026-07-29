@@ -1419,7 +1419,7 @@ function AbonnementFormulier({ accountId, bestaand, artikelen, tarieven, klantna
         </div>
       </div>
 
-      <div style={labelStijl}>Leveringsperiode voor het hele document (optioneel)</div>
+      <div style={labelStijl}>Abonnementsperiode (optioneel)</div>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <input type="date" value={leveringsperiodeStart} onChange={(e) => setLeveringsperiodeStart(e.target.value)} style={inputStijl} />
         <span style={{ fontSize: 12, color: KLEUR.mutedTekst }}>t/m</span>
@@ -1502,17 +1502,18 @@ function AbonnementenTab({ accountId, klantenMap, artikelen, tarieven }) {
       {status === "klaar" && items.length === 0 && <LegeStaat tekst="Nog geen abonnementen ingesteld." />}
       {status === "klaar" && items.length > 0 && (
         <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 90px 116px", background: KLEUR.lichtblauw, padding: "9px 14px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
-            <div>Klant</div><div>Frequentie</div><div>Volgende factuur</div><div>Aantal verstuurd</div><div>Status</div><div>Acties</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1.7fr 0.9fr 0.9fr 1.3fr 0.9fr 90px 116px", background: KLEUR.lichtblauw, padding: "9px 14px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
+            <div>Klant</div><div>Frequentie</div><div>Volgende factuur</div><div>Abonnementsperiode</div><div>Aantal verstuurd</div><div>Status</div><div>Acties</div>
           </div>
           {items.map((item) => (
-            <div key={item.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 90px 116px", padding: "10px 14px", borderTop: `1px solid ${KLEUR.rand}`, fontSize: 13, alignItems: "center" }}>
+            <div key={item.id} style={{ display: "grid", gridTemplateColumns: "1.7fr 0.9fr 0.9fr 1.3fr 0.9fr 90px 116px", padding: "10px 14px", borderTop: `1px solid ${KLEUR.rand}`, fontSize: 13, alignItems: "center" }}>
               <div style={{ fontWeight: 600 }}>{klantenMap[item.klantKlantId]?.naam || "—"}</div>
               <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                 {FREQUENTIE_LABEL[item.frequentie] || item.frequentie}
                 {item.automatischVerzenden && <Mail size={11} color={KLEUR.mutedTekst} title="Automatisch verzenden staat aan" />}
               </div>
               <div>{datum(item.volgendeFactuurdatum)}</div>
+              <div style={{ fontSize: 12, color: KLEUR.subtekst }}>{leveringsperiodeTekst(item.leveringsperiodeStart, item.leveringsperiodeEind) || "—"}</div>
               <div>{item.aantalGegenereerd}</div>
               <div>
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: item.actief ? KLEUR.groen : KLEUR.mutedTekst }}>
