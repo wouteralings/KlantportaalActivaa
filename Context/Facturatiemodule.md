@@ -500,10 +500,13 @@ zichtbaar, zonder eerst te hoeven navigeren.
    E-mailsjablonen, zie screenshot "Eerste herinnering"/"Laatste aanmaning"); er is nog geen
    job die verlopen facturen signaleert en op basis daarvan automatisch een herinnering
    verstuurt via die sjablonen.
-5. ~~Logo + eigen factuurgegevens~~ — **afgerond (28-07-2026)**. Anders dan het oorspronkelijke
-   plan loopt dit niet via het wijzigingsverzoek-mechanisme, maar via een eigen tabel
-   (`dbo.bedrijfsgegevens_klanten`) die de klant direct zelf mag bewerken — zie "Bedrijfsgegevens
-   & logo + aanvraagflow" hierboven. Inclusief Dynamics-prefill en een "Logo verwijderen"-knop.
+5. ~~Logo + eigen factuurgegevens~~ — **afgerond (28-07-2026)**. Via een eigen tabel
+   (`dbo.bedrijfsgegevens_klanten`), zie "Bedrijfsgegevens & logo + aanvraagflow" hierboven.
+   Inclusief Dynamics-prefill en een "Logo verwijderen"-knop. **Let op, deze regel was hier
+   verouderd**: het logo blijft direct te wijzigen zonder goedkeuring, maar de tekstvelden
+   (bedrijfsnaam/adres/KvK/BTW/IBAN) lopen sinds de sectie "Bedrijfsgegevens via CRM-prefill +
+   wijzigingsverzoek" hieronder wél via een wijzigingsverzoek dat Activaa moet goedkeuren — zie
+   ook de sectie "Melding bij ontbrekende/in-behandeling eigen bedrijfsgegevens" verderop.
 6. **Mollie-koppeling** — nog steeds een "nog niet gebouwd"-kaart in de Instellingen-sub-tab
    (BTW-tarieven, standaardartikelen én bedrijfsgegevens/logo zijn inmiddels wél gebouwd — zie
    hierboven).
@@ -511,3 +514,58 @@ zichtbaar, zonder eerst te hoeven navigeren.
    (abonnementen), echte PDF + e-mail" hierboven — `api/_gedeeld/facturenPdf.js`, downloadbaar
    via "Download PDF" en meegestuurd als bijlage bij het versturen van een factuur/offerte/
    creditnota.
+
+## Melding bij ontbrekende/in-behandeling eigen bedrijfsgegevens, bedragnotatie, terugkerend bij bewerken (29-07-2026, vervolgsessie)
+
+Feedback van Wouter, met screenshots van een "Concept-factuur bewerken"-scherm (klant Activaa
+Group B.V.) en het Bedrijfsgegevens-scherm (account JOWO Holding B.V., volledig ingevuld):
+*"Ik mis de volgende zaken nog in facturatie: Ik mis eigen gevens op de factuur als: Naam,
+adres postcode plaats, BTW nummer, kvk nummer — bedrijfsgevens staan onder instellingen.
+Bedrag prijs mist een punt. ik mis verder nog dat ik hem terugkerend kan maken. Graag met een
+vink optie. Daarnaast ook een optie voor automatisch verzenden ja nee. en dan datum."*
+
+- **Eigen bedrijfsgegevens ontbraken zonder uitleg op de factuur.** Geen databug: de
+  Instellingen-schermwaarden die Wouter zag waren (deels) de Dynamics-prefill in het formulier
+  zelf, niet per se al goedgekeurde waarden in `dbo.bedrijfsgegevens_klanten` — sinds de
+  wijzigingsverzoek-gate (zie hierboven) staat een ingediende wijziging pas ná goedkeuring door
+  Activaa (via `PATCH /api/beheer-wijzigingen`) echt in die tabel, en dus pas dán op de factuur/
+  PDF. Vóór die goedkeuring bleef `DocumentVoorbeeld` dus terecht leeg — alleen zonder enige
+  aanwijzing waarom. Fix: `DocumentFormulier` toont nu een melding zodra de eigen gegevens niet
+  compleet zijn (naam/straat/huisnr/postcode/plaats + KvK- of BTW-nummer), met een directe link
+  naar de tab Instellingen; staat er een open wijzigingsverzoek voor dit account, dan toont hij
+  in plaats daarvan dat de wijziging nog op goedkeuring wacht. Hiervoor is
+  `useEigenWijzigingsverzoeken()` (voorheen alleen lokaal in `BedrijfsgegevensKaart` aangeroepen)
+  opgetild naar `FacturatieAccountInhoud`, zodat zowel de facturen-/offertetab als de
+  Instellingen-tab dezelfde data gebruiken.
+- **"Bedrag prijs mist een punt."** De Aantal-/Prijs-invoervelden in de regeltabel waren kale
+  `<input type="number">`s zonder opmaak (bijv. "10250"), terwijl de berekende kolommen
+  (Bedrag/Subtotaal/Totaal) wel al Nederlandse notatie gebruikten. Nieuw: `BedragInput` — toont
+  tijdens het bewerken de ruwe waarde (typen blijft prettig), en zodra je het veld verlaat de
+  nl-NL-opmaak (bijv. "10.250,00"). De onderliggende waarde/opslag/berekening is ongewijzigd,
+  alleen de weergave is nieuw.
+- **Terugkerend maken van een al opgeslagen concept.** De hele UI (vinkje, frequentie,
+  automatisch verzenden, datum) bestond al, maar was bewust verborgen zodra een document al
+  (eenmalig) was opgeslagen — zie de vorige sessie's toelichting hierboven. Wouter gaf aan dit
+  ook te willen bij het bewerken van een bestaand concept; op de vraag wat er dan bij opslaan
+  moet gebeuren koos hij voor: **wijzigingen aan het concept blijven bewaard, én er wordt
+  daarnaast een nieuw abonnement aangemaakt** (met de huidige regels als sjabloon) — het concept
+  blijft verder gewoon een losse eenmalige factuur. Zo geïmplementeerd: `kanTerugkerend` is niet
+  langer beperkt tot nieuwe documenten; `opslaan()` maakt bij een aangevinkt abonnement eerst het
+  abonnement aan (`POST /api/facturen-terugkerend`), en valt dan — alleen als het document al
+  bestond — door naar de normale concept-opslag i.p.v. daar te stoppen. Het vinkje wordt na
+  succes weer uitgezet (voorkomt een dubbel abonnement bij een volgende "Wijzigingen opslaan"),
+  met een groene bevestiging ("Abonnement aangemaakt — te beheren via de tab 'Abonnementen'.").
+- Alles geverifieerd met `npx vite build` (1913 modules, geen nieuwe fouten) en `npx oxlint`
+  (enige waarschuwing is een pre-existing, ongerelateerde `no-unused-vars` in `BedrijfsgegevensKaart`).
+  Gecommit als `631503b`. Nog niet gepusht (moet handmatig door Wouter, `git push` heeft vanuit
+  de sandbox geen netwerktoegang).
+- Apart, niet-code-gerelateerd probleem dat Wouter tegenkwam tijdens het testen van het
+  opslaan van een abonnement: een CORS-foutmelding in de console
+  (`identity.7.azurestaticapps.net/.redirect/aad?...` geblokkeerd) — dit is een verlopen
+  inlogsessie: Azure Static Web Apps zet een 401 (via `responseOverrides` in
+  `staticwebapp.config.json`) om in een redirect naar de Microsoft-inlogpagina, en een
+  `fetch()`-aanroep (i.p.v. een paginanavigatie) mag zo'n cross-origin redirect niet volgen
+  (CORS) — dus faalt het opslaan stil. Oplossing: pagina verversen (logt opnieuw in) en opnieuw
+  proberen. Geen codewijziging voor gedaan; eventueel later een dupliceerbare, duidelijkere
+  in-app melding voor verlopen sessies overwegen (raakt alle `fetch()`-aanroepen in de app, dus
+  een bredere wijziging dan dit moment aankon).
