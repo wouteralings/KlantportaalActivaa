@@ -964,3 +964,49 @@ Geverifieerd met een los testscript (`genereerFactuurPdf` met een factuur, media
 `pdftotext -layout` op het resultaat: de titel "Factuur" en de metaregels beginnen nu zichtbaar
 lager, ter hoogte van de 3e regel van de afzenderkolom in plaats van de 1e. `npx oxlint`: geen
 waarschuwingen.
+
+## Logo en mailadres wijzigen deden het helemaal niet — migratie 006 stond nog niet op de live database (29-07-2026, vervolgsessie)
+
+Wouter meldde dat zowel het CC-mailadres opslaan als het logo uploaden niet meer werkten voor een
+specifiek account (`114943e7-...`), met als concreet bewijs een GET-response waarin `gewijzigdOp`
+al ruim 24 uur stilstond op `2026-07-28T18:42:12.486Z` ondanks meerdere opslagpogingen — en alle
+kernvelden (bedrijfsnaam, adres, KvK, BTW, IBAN) leeg. De twee eerdere fixes voor de
+"Geef accountId mee"-melding (Dynamics-vangnet, daarna accountId ook in de query-string) hadden
+dit dus niet opgelost — logisch, want het bleek een heel andere, onderliggende oorzaak te zijn.
+
+**Root cause**: `zetGegevens()` (`api/_gedeeld/bedrijfsgegevensKlanten.js`) doet één UPDATE/INSERT
+die **alle** kolommen in één keer zet, inclusief `cc_email` — ook als je alleen een logo of alleen
+een adresveld wijzigt. De `cc_email`-kolom is toegevoegd via migratie
+`db/migrations/006_bedrijfsgegevens_cc_email.sql`, die **handmatig** in de Azure Portal
+Query-editor tegen de live database gedraaid moet worden (staat zo in het bestand zelf) — dat was
+nog niet gebeurd. Zolang die kolom op de live database ontbrak, faalde dus *elke* opslag via
+`zetGegevens()` met een SQL-fout ("Invalid column name 'cc_email'"), niet alleen een
+CC-mailadres-wijziging maar ook een logo-upload of een gewone adreswijziging. Dat verklaarde in
+één keer zowel de bevroren `gewijzigdOp` als het niet-werken van zowel mailadres als logo.
+
+De fout kwam bij Wouter overigens niet als deze SQL-tekst binnen — `afhandelFout()`
+(`facturatieToegang.js`) herkent alleen een paar specifieke foutcodes/-teksten en valt voor al het
+overige terug op een generieke "Onverwachte fout in de facturatiemodule." (met de echte tekst wel
+verborgen in een `detail`-veld in de response-body, dat de UI nu nog niet toont). Voor het
+CC-mailadres liet de nieuwe `ccFoutmelding`-state dus alleen de generieke tekst zien (niet de
+`detail`), voor het logo-uploaden zelfs helemaal niets (`uploadLogo`'s catch-blok toont geen
+servertekst). Gediagnosticeerd door Wouter te laten checken of de kolom bestond
+(`INFORMATION_SCHEMA.COLUMNS`) — die bleek er inderdaad nog niet te zijn.
+
+**Fix**: geen code-wijziging nodig — Wouter heeft migratie 006 alsnog rechtstreeks tegen de live
+database gedraaid (`ALTER TABLE dbo.bedrijfsgegevens_klanten ADD cc_email NVARCHAR(320) NULL;`).
+Daarna werkten zowel logo-upload als CC-mailadres-opslaan meteen. Geen commit nodig voor de fix
+zelf; wel voor deze log-aantekening.
+
+**Nog openstaande verbetermogelijkheid (niet uitgevoerd)**: `uploadLogo`/`verwijderLogo` tonen bij
+een fout geen servertekst (in tegenstelling tot `opslaanCcEmail`, die sinds de vorige fix wél
+`e.message` toont) — een volgende keer dat een save om wat voor reden dan ook faalt, is dat voor
+logo dus weer onzichtbaar. Zou op dezelfde manier verbeterd kunnen worden als bij ccEmail, en de
+UI zou ook het `detail`-veld kunnen tonen i.p.v. alleen `error`, zodat toekomstige SQL-fouten
+(zoals deze) meteen zichtbaar zijn zonder devtools nodig te hebben.
+
+**Les voor de toekomst**: nieuwe migraties in `db/migrations/` moeten na het schrijven ervan ook
+echt tegen de live database uitgevoerd worden — dat gebeurt niet automatisch bij een deploy. Zou
+het overwegen waard zijn om hier een simpele checklist/reminder voor te hebben (bijv. een sectie
+in dit bestand die per migratie bijhoudt of hij al gedraaid is), zodat dit niet nog een keer
+onopgemerkt blijft staan.
