@@ -24,7 +24,7 @@
 const { sql, haalPool } = require("./facturatieDb");
 const { volgendNummer } = require("./nummering");
 const { haalKlant } = require("./klantenKlanten");
-const { haalGegevens: haalBedrijfsgegevens } = require("./bedrijfsgegevensKlanten");
+const { haalGegevensMetCrmAanvulling: haalBedrijfsgegevens } = require("./bedrijfsgegevensKlanten");
 const { genereerFactuurPdf } = require("./facturenPdf");
 const { verstuurMailMetBijlage } = require("./mail");
 

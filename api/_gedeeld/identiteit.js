@@ -334,7 +334,57 @@ async function herleidAccounts(req, token) {
   };
 }
 
+/**
+ * Haalt één Account rechtstreeks op zijn accountid op bij Dynamics — zonder de ingelogde
+ * gebruiker (req) nodig te hebben, dus ook bruikbaar vanuit achtergrondcode zoals het genereren
+ * van een factuur/offerte-PDF of de bijbehorende e-mail (verstuurDocumentPerEmail in
+ * facturenKlanten.js krijgt geen req binnen).
+ *
+ * Gebruikt dezelfde optionele-velden-terugval als herleidAccounts hierboven: bestaat een van de
+ * BTW/IBAN/IBAN-tenaamstelling-velden niet onder de verwachte naam, dan wordt precies dát veld
+ * weggelaten en wordt het opnieuw geprobeerd, zodat KvK/adres/naam altijd blijven werken.
+ *
+ * Geeft `null` terug bij elke fout (ontbrekende configuratie, netwerkfout, onbekend account, ...)
+ * — dit is bewust best-effort en mag het genereren van een PDF/e-mail nooit blokkeren.
+ */
+async function haalAccountOpId(accountId, token) {
+  if (!accountId || !token) return null;
+  const resource = process.env.DYNAMICS_RESOURCE_URL;
+  if (!resource) return null;
+
+  const maakQuery = (extraVelden) =>
+    `${resource}/api/data/v9.2/accounts(${accountId})` +
+    `?$select=accountid,name,${KVK_VELD}${extraVelden.length ? "," + extraVelden.join(",") : ""},` +
+    `address1_line1,cr283_huisnummer,cr283_huisnummertoevoeging,address1_postalcode,address1_city,address1_country`;
+
+  const HEADERS = {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/json",
+    "OData-MaxVersion": "4.0",
+    "OData-Version": "4.0",
+  };
+
+  try {
+    let actieveOptioneleVelden = [...OPTIONELE_VELDEN];
+    let res = await fetch(maakQuery(actieveOptioneleVelden), { headers: HEADERS });
+    let tekstBijFout = "";
+    let pogingen = 0;
+    while (!res.ok && pogingen < OPTIONELE_VELDEN.length) {
+      tekstBijFout = await res.text();
+      const foutVeld = actieveOptioneleVelden.find((v) => tekstBijFout.includes(v));
+      if (!foutVeld) break;
+      actieveOptioneleVelden = actieveOptioneleVelden.filter((v) => v !== foutVeld);
+      res = await fetch(maakQuery(actieveOptioneleVelden), { headers: HEADERS });
+      pogingen++;
+    }
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 module.exports = {
   haalDynamicsToken, herleidAccounts, haalEmailUitPrincipal, haalNaamUitPrincipal, haalRollenUitPrincipal,
-  KLANTCATEGORIE_VELD, IBAN_VELD, IBAN_TENAAMSTELLING_VELD,
+  haalAccountOpId, KLANTCATEGORIE_VELD, IBAN_VELD, IBAN_TENAAMSTELLING_VELD,
 };

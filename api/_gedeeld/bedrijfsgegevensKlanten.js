@@ -8,6 +8,21 @@
  * de app hoeft nooit met een id te werken.
  */
 const { sql, haalPool } = require("./facturatieDb");
+const { haalDynamicsToken, haalAccountOpId, IBAN_VELD, IBAN_TENAAMSTELLING_VELD } = require("./identiteit");
+
+// Zelfde veldnamen als wijzigingsverzoek/index.js gebruikt voor het bedrijfsgegevens-formulier
+// (type bedrijfsgegevens_facturatie) — bewust hier opnieuw gedefinieerd i.p.v. geïmporteerd,
+// dat bestand doet dat ook zo (elke Dynamics-veldnaam is los overschrijfbaar via zijn eigen
+// Application Setting).
+const KVK_VELD_NAAM = process.env.DYNAMICS_KVK_VELD || "accountnumber";
+const BTW_VELD_NAAM = process.env.DYNAMICS_BTW_VELD || "sk_btwnummer";
+
+// Als één van deze velden leeg is in dbo.bedrijfsgegevens_klanten, vullen we best-effort aan
+// vanuit Dynamics — zelfde velden als het bedrijfsgegevens-formulier zelf als "aan te vullen"
+// beschouwt.
+const AAN_TE_VULLEN_VELDEN = [
+  "bedrijfsnaam", "straat", "postcode", "plaats", "kvkNummer", "btwNummer", "iban", "ibanTenaamstelling",
+];
 
 const LEEG = {
   bedrijfsnaam: "", straat: "", huisnummer: "", toevoeging: "", postcode: "", plaats: "", land: "NL",
@@ -47,6 +62,51 @@ async function haalRij(klantAccountId) {
 /** De bedrijfsgegevens voor één klant-account, of lege standaardwaarden als er nog niets is opgeslagen. */
 async function haalGegevens(klantAccountId) {
   return naarBuiten(await haalRij(klantAccountId));
+}
+
+/**
+ * Zelfde als haalGegevens(), maar vult ontbrekende velden best-effort aan vanuit Dynamics —
+ * exact dezelfde SQL-eerst/Dynamics-terugval-logica als het bedrijfsgegevens-formulier zelf
+ * gebruikt (zie api/wijzigingsverzoek/index.js, type bedrijfsgegevens_facturatie).
+ *
+ * Nodig omdat het genereren van de ECHTE factuur/offerte-PDF (en de bijbehorende e-mail) tot nu
+ * toe alleen de ruwe SQL-rij las, terwijl het scherm-voorbeeld in de Facturatiemodule deze
+ * Dynamics-aanvulling al wél toepaste — zie Context/Facturatiemodule.md (29-07-2026): eigen
+ * bedrijfsnaam/adres/KvK/BTW en IBAN-betaalgegevens ontbraken op de gedownloade PDF terwijl het
+ * voorbeeld ze wel toonde, omdat de achtergrond-synchronisatie naar SQL voor dit account
+ * (nog) niet volledig was gelukt.
+ *
+ * Faalt de Dynamics-aanroep om wat voor reden dan ook (config, netwerk, onbekend account, ...),
+ * dan wordt gewoon de eigen (mogelijk onvolledige) SQL-rij teruggegeven — dit mag het genereren
+ * van een PDF/e-mail nooit blokkeren.
+ */
+async function haalGegevensMetCrmAanvulling(klantAccountId) {
+  const opgeslagen = await haalGegevens(klantAccountId);
+  const ontbreektIets = AAN_TE_VULLEN_VELDEN.some((veld) => !opgeslagen[veld]);
+  if (!ontbreektIets) return opgeslagen;
+
+  try {
+    const token = await haalDynamicsToken();
+    const raw = await haalAccountOpId(klantAccountId, token);
+    if (!raw) return opgeslagen;
+
+    return {
+      ...opgeslagen,
+      bedrijfsnaam: opgeslagen.bedrijfsnaam || raw.name || "",
+      straat: opgeslagen.straat || raw.address1_line1 || "",
+      huisnummer: opgeslagen.huisnummer || raw.cr283_huisnummer || "",
+      toevoeging: opgeslagen.toevoeging || raw.cr283_huisnummertoevoeging || "",
+      postcode: opgeslagen.postcode || raw.address1_postalcode || "",
+      plaats: opgeslagen.plaats || raw.address1_city || "",
+      land: opgeslagen.land || raw.address1_country || "NL",
+      kvkNummer: opgeslagen.kvkNummer || (raw[KVK_VELD_NAAM] || "").toString().trim(),
+      btwNummer: opgeslagen.btwNummer || (raw[BTW_VELD_NAAM] || "").toString().trim(),
+      iban: opgeslagen.iban || (raw[IBAN_VELD] || "").toString().trim(),
+      ibanTenaamstelling: opgeslagen.ibanTenaamstelling || (raw[IBAN_TENAAMSTELLING_VELD] || "").toString().trim(),
+    };
+  } catch {
+    return opgeslagen;
+  }
 }
 
 /**
@@ -112,4 +172,4 @@ function terugvalKolom(naam) {
   return MAP[naam] || naam;
 }
 
-module.exports = { haalGegevens, zetGegevens };
+module.exports = { haalGegevens, zetGegevens, haalGegevensMetCrmAanvulling };

@@ -34,7 +34,7 @@ const {
   verwijderFactuur,
 } = require("../_gedeeld/facturenKlanten");
 const { haalKlant } = require("../_gedeeld/klantenKlanten");
-const { haalGegevens: haalBedrijfsgegevens } = require("../_gedeeld/bedrijfsgegevensKlanten");
+const { haalGegevensMetCrmAanvulling: haalBedrijfsgegevens } = require("../_gedeeld/bedrijfsgegevensKlanten");
 const { genereerFactuurPdf } = require("../_gedeeld/facturenPdf");
 
 module.exports = async function (context, req) {

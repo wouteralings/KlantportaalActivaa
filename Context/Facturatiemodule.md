@@ -809,3 +809,62 @@ PDF-generator toegevoegd:
   `bedrijfsgegevens.iban` bekend is (net als voorheen) — het scherm toont 'm ook als alléén de
   tenaamstelling bekend is, maar zonder IBAN kan er toch geen betaal-QR gegenereerd worden, dus
   dat verschil is bewust ongemoeid gelaten.
+
+## Eigen bedrijfsgegevens/IBAN ontbraken alsnog op de echte PDF — dieper zittende oorzaak (29-07-2026, vervolgsessie)
+
+Na de vorige fix (logo/betalingstermijn/klant-BTW-KvK) meldde Wouter met screenshots dat er op
+de écht gedownloade PDF nóg meer ontbrak: de EIGEN bedrijfsnaam/adres/KvK/BTW (kop en voettekst)
+en de IBAN-betaalinstructie/QR — terwijl het scherm-voorbeeld die wél toont.
+
+Oorzaak was dieper dan de vorige fix: het scherm-voorbeeld (`effectieveBedrijfsgegevens` in
+`FacturatieModule.jsx`) combineert de opgeslagen SQL-rij (`dbo.bedrijfsgegevens_klanten`) met een
+Dynamics-terugval voor lege velden (`vulBedrijfsgegevensAanMetCrm`) — maar `genereerFactuurPdf`
+las via `haalBedrijfsgegevens()` altijd **alleen** de ruwe SQL-rij, zonder die Dynamics-terugval.
+Staat de achtergrond-synchronisatie (het automatische `wijzigingsverzoek` bij het openen van de
+Facturatiemodule, zie eerdere sessie) voor een account nog niet (volledig) in SQL — bijvoorbeeld
+door de nog steeds niet volledig verklaarde incidentele schrijffout op
+`dbo.bedrijfsgegevens_klanten` (zie eerdere aantekening, account JOWO Holding B.V. — exact het
+account uit de screenshots) — dan mist de PDF dus gegevens die het scherm wél toont.
+
+**Fix: dezelfde SQL-eerst/Dynamics-terugval-logica die het bedrijfsgegevens-formulier zelf al
+gebruikt (`api/wijzigingsverzoek/index.js`, type `bedrijfsgegevens_facturatie`) nu ook
+toegepast vlak vóór het genereren van een PDF/e-mail:**
+
+- **`api/_gedeeld/identiteit.js`** — nieuwe `haalAccountOpId(accountId, token)`: haalt één
+  Account rechtstreeks op zijn `accountid` op bij Dynamics, zonder de ingelogde gebruiker (`req`)
+  nodig te hebben — in tegenstelling tot het bestaande `herleidAccounts(req, token)`, dat een
+  e-mailadres uit de sessie nodig heeft. Nodig omdat `verstuurDocumentPerEmail()` (versturen per
+  e-mail) geen `req` binnenkrijgt. Gebruikt dezelfde optionele-velden-terugval als
+  `herleidAccounts` (BTW-/IBAN-/IBAN-tenaamstelling-veld bestaat niet → dat veld weglaten en
+  opnieuw proberen) en geeft `null` terug bij elke fout (ontbrekende configuratie, netwerkfout,
+  onbekend account) — puur best-effort, mag PDF/e-mail nooit blokkeren.
+- **`api/_gedeeld/bedrijfsgegevensKlanten.js`** — nieuwe `haalGegevensMetCrmAanvulling(accountId)`:
+  haalt eerst de SQL-rij op (`haalGegevens`), en als daar iets essentieels in ontbreekt
+  (bedrijfsnaam, straat, postcode, plaats, kvkNummer, btwNummer, iban, ibanTenaamstelling) wordt
+  best-effort aangevuld vanuit Dynamics — exact dezelfde velden/veldnamen-logica als
+  `wijzigingsverzoek/index.js`'s `huidig`-berekening. Faalt de Dynamics-aanroep (geen config,
+  geen netwerk, onbekend account), dan wordt gewoon de eigen — mogelijk onvolledige — SQL-rij
+  teruggegeven, nooit een throw.
+- De twee plekken die de PDF genereren zijn omgezet van `haalGegevens` naar
+  `haalGegevensMetCrmAanvulling` (alleen de import-alias gewijzigd, verder niets aan de
+  aanroepende code): `verstuurDocumentPerEmail()` in `api/_gedeeld/facturenKlanten.js`, en de
+  GET `?formaat=pdf`-route in `api/facturen-klanten/index.js`. Andere plekken die
+  `haalGegevens`/`zetGegevens` gebruiken (het bedrijfsgegevens-instellingenscherm zelf,
+  logo-upload) deden al hun eigen Dynamics-aanvulling of hebben dat niet nodig, en zijn
+  ongemoeid gelaten.
+- Dit is een verdedigingslinie bovenop de nog steeds niet opgeloste onderliggende schrijffout op
+  `dbo.bedrijfsgegevens_klanten` — lost die schrijffout zelf niet op, maar zorgt dat de PDF/
+  e-mail ook zonder een geslaagde achtergrond-sync de juiste gegevens toont.
+- Geverifieerd met een los testscript (`node`, `facturatieDb`/SQL en `identiteit`/Dynamics beide
+  gemockt) dat vijf scenario's doorloopt: SQL-rij compleet (geen Dynamics-aanroep nodig), SQL-rij
+  volledig leeg + Dynamics succesvol (alles aangevuld), SQL-rij deels gevuld — bijv. logo/
+  CC-mailadres al wel opgeslagen — (alleen de ontbrekende velden aangevuld, eigen velden niet
+  overschreven), Dynamics-configuratie ontbreekt (nette terugval, geen throw), en account
+  onbekend bij Dynamics (nette terugval, geen throw). Alle vijf slagen. Ook `npx oxlint` op de
+  vier gewijzigde bestanden: geen waarschuwingen.
+- **Blauwe balken die wit worden** (tweede deel van Wouters melding) — kon dit keer niet
+  onderzoeken: de kleurwaarde van de PDF (`KLEUR.lichtblauw = rgb(0.92, 0.95, 0.97)`) is
+  rekenkundig vrijwel identiek aan de schermkleur (`#EAF2F8` = rgb(0.918, 0.949, 0.973)), dus een
+  simpele fout in de kleurwaarde zelf lijkt uitgesloten. Om dit echt te kunnen vaststellen is de
+  daadwerkelijk gedownloade PDF nodig (niet het scherm-voorbeeld) — nog navragen bij Wouter welke
+  specifieke balk het betreft (betaalbanner, tabelkop, of iets anders) en idealiter de PDF zelf.
