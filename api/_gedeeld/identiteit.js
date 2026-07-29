@@ -139,7 +139,26 @@ function haalRollenUitPrincipal(req) {
  * toegangsadministratie nodig: de koppeling die in Dynamics al bestaat bepaalt wat hij ziet.
  *
  * Gooit een fout met een 'code' veld zodat de aanroepende Function een passende status kan zetten.
+ *
+ * "Meekijken als klant" (medewerkers met het als-klant-recht, zie _gedeeld/wijzigrechten.js):
+ * stuurt het klantportaal de header x-meekijken-als-email mee met het e-mailadres van de
+ * contactpersoon van de gekozen klant. Is die header aanwezig, dan geldt dit ALTIJD als
+ * alleen-lezen: bij elke andere requestmethode dan GET wordt de header genegeerd én de aanroep
+ * geweigerd (fout.code ALLEEN_LEZEN) — dit is de ENE centrale plek waar die garantie wordt
+ * afgedwongen, want herleidAccounts() is de gemeenschappelijke ingang van vrijwel elk klant-
+ * gericht endpoint (mijn-gegevens, taken, mijn-content, wijzigingsverzoek, reviews, en via
+ * facturatieToegang.js ook de hele facturatiemodule). Is de aanroeper geen medewerker/beheerder
+ * met het recht, dan wordt de header genegeerd en gooit deze functie fout.code GEEN_RECHT i.p.v.
+ * stilzwijgend door te gaan met de eigen identiteit (dat zou een medewerker zonder recht een
+ * verwarrende lege/eigen weergave geven i.p.v. een duidelijke foutmelding).
  */
+async function magMeekijkenAlsKlant(req) {
+  const { magAlsKlant } = require("./wijzigrechten");
+  const rollen = haalRollenUitPrincipal(req);
+  if (!rollen.includes("medewerker") && !rollen.includes("beheerder")) return false;
+  const eigenEmail = haalEmailUitPrincipal(req);
+  return magAlsKlant(eigenEmail, rollen.includes("beheerder"));
+}
 /**
  * Naam van het klantcategorie-veld op Account in Dataverse. Overschrijf via de
  * Application Setting DYNAMICS_KLANTCATEGORIE_VELD als het bij jullie anders heet
@@ -193,7 +212,22 @@ const GROEPSNAAM_NAAMVELD = process.env.DYNAMICS_GROEPSNAAM_NAAMVELD || "sk_name
 
 async function herleidAccounts(req, token) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
-  const email = haalEmailUitPrincipal(req);
+  let email = haalEmailUitPrincipal(req);
+
+  const meekijkAls = (req.headers && req.headers["x-meekijken-als-email"]) || null;
+  if (meekijkAls) {
+    if ((req.method || "GET").toUpperCase() !== "GET") {
+      const fout = new Error("Meekijken als klant is alleen-lezen; deze actie is niet toegestaan.");
+      fout.code = "ALLEEN_LEZEN";
+      throw fout;
+    }
+    if (!(await magMeekijkenAlsKlant(req))) {
+      const fout = new Error("Je hebt geen recht om als klant mee te kijken.");
+      fout.code = "GEEN_RECHT";
+      throw fout;
+    }
+    email = String(meekijkAls).trim();
+  }
 
   if (!email) {
     const fout = new Error("Kon geen e-mailadres uit de ingelogde gebruiker halen.");

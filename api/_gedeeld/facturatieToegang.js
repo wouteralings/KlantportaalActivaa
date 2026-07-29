@@ -40,7 +40,7 @@ async function controleerToegang(req) {
 
 /** Zet een gevangen fout om in een passende HTTP-response, consistent met de rest van api/. */
 function afhandelFout(context, err) {
-  if (err.code === "GEEN_IDENTITEIT" || err.code === "GEEN_KOPPELING") {
+  if (err.code === "GEEN_IDENTITEIT" || err.code === "GEEN_KOPPELING" || err.code === "GEEN_RECHT" || err.code === "ALLEEN_LEZEN") {
     context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: err.message } };
     return;
   }

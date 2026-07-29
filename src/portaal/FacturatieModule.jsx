@@ -2290,7 +2290,7 @@ const SUBTABS = [
   { key: "instellingen", label: "Instellingen", icon: Settings },
 ];
 
-function FacturatieAccountInhoud({ account, andereAccounts }) {
+function FacturatieAccountInhoud({ account, andereAccounts, alleenLezen = false }) {
   const accountId = account.accountId;
   const [subtab, setSubtab] = useState("facturen");
 
@@ -2361,6 +2361,15 @@ function FacturatieAccountInhoud({ account, andereAccounts }) {
 
   return (
     <div>
+      {alleenLezen && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", marginBottom: 16,
+          background: "#FFF4E5", border: "1px solid #E8C27A", borderRadius: 10, fontSize: 12.5, color: "#8A5A00",
+        }}>
+          <Eye size={14} style={{ flexShrink: 0 }} />
+          Alleen-lezen weergave — facturen, offertes en instellingen kunnen hier niet aangemaakt, gewijzigd of verstuurd worden.
+        </div>
+      )}
       <div style={{ display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap" }}>
         {SUBTABS.map(({ key, label, icon: Icon }) => (
           <button
@@ -2499,7 +2508,7 @@ function FacturatieNietActief({ account, prijs, toonUitleg = true }) {
 /* bij "Mijn gegevens"), met de volle module of een aanvraagkaart erin.    */
 /* ---------------------------------------------------------------------- */
 
-export default function FacturatieModule({ accounts, prijs = 5 }) {
+export default function FacturatieModule({ accounts, prijs = 5, alleenLezen = false }) {
   const [openAccountId, setOpenAccountId] = useState(accounts.length === 1 ? accounts[0].accountId : null);
   const [zoek, setZoek] = useState("");
 
@@ -2521,7 +2530,7 @@ export default function FacturatieModule({ accounts, prijs = 5 }) {
   if (accounts.length === 1) {
     const acc = accounts[0];
     return acc.facturatieIngeschakeld
-      ? <FacturatieAccountInhoud account={acc} andereAccounts={[]} />
+      ? <FacturatieAccountInhoud account={acc} andereAccounts={[]} alleenLezen={alleenLezen} />
       : <FacturatieNietActief account={acc} prijs={prijs} />;
   }
 
@@ -2551,7 +2560,7 @@ export default function FacturatieModule({ accounts, prijs = 5 }) {
         </button>
         {open && (
           acc.facturatieIngeschakeld
-            ? <div style={{ padding: "16px" }}><FacturatieAccountInhoud account={acc} andereAccounts={andereAccounts} /></div>
+            ? <div style={{ padding: "16px" }}><FacturatieAccountInhoud account={acc} andereAccounts={andereAccounts} alleenLezen={alleenLezen} /></div>
             : <FacturatieNietActief account={acc} prijs={prijs} toonUitleg={false} />
         )}
       </div>

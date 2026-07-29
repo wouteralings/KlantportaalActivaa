@@ -1,7 +1,7 @@
 /**
  * Rechten per medewerker (op e-mailadres) voor het medewerkersportaal.
  *
- * Twee onafhankelijke instellingen, beide beheerd in het beheerdersportaal:
+ * Drie onafhankelijke instellingen, alle drie beheerd in het beheerdersportaal:
  *   1) Wijzig-niveau (klantgegevens per klant wijzigen):
  *        - "medewerker" (standaard, niet opgeslagen) → alleen lezen
  *        - "manager"                                  → mag klantgegevens wijzigen
@@ -9,9 +9,13 @@
  *      De Azure-rol 'beheerder' geeft sowieso altijd wijzig-rechten, los van deze lijst.
  *   2) Bulk-recht (meerdere klanten tegelijk aanpassen): een aparte lijst met e-mailadressen.
  *      De Azure-rol 'beheerder' mag sowieso altijd bulk-aanpassingen doen.
+ *   3) Als-klant-recht ("meekijken" — alleen-lezen het klantportaal bekijken namens een
+ *      gekozen klant, zie api/_gedeeld/identiteit.js → herleidAccounts): ook een aparte lijst
+ *      met e-mailadressen. De Azure-rol 'beheerder' mag dit sowieso altijd.
  *
  * Opslag in Azure Blob Storage (container portaalcontent, blob wijzigrechten.json).
- * Structuur: { "niveaus": { "naam@activaa.nl": "manager" }, "bulk": ["naam@activaa.nl"] }
+ * Structuur: { "niveaus": { "naam@activaa.nl": "manager" }, "bulk": ["naam@activaa.nl"],
+ *              "alsKlant": ["naam@activaa.nl"] }
  */
 const { BlobServiceClient } = require("@azure/storage-blob");
 
@@ -40,13 +44,13 @@ async function streamNaarTekst(readableStream) {
 }
 
 /**
- * Leest het volledige rechtendocument: { niveaus: {email:niveau}, bulk: [email] }.
+ * Leest het volledige rechtendocument: { niveaus: {email:niveau}, bulk: [email], alsKlant: [email] }.
  * Verwerkt ook de oude structuur { wijzigers: [emails] } (→ die golden als 'manager').
  */
 async function haalRechten() {
   const containerClient = await haalContainerClient();
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
-  if (!(await blobClient.exists())) return { niveaus: {}, bulk: [] };
+  if (!(await blobClient.exists())) return { niveaus: {}, bulk: [], alsKlant: [] };
   const tekst = await streamNaarTekst((await blobClient.download()).readableStreamBody);
   try {
     const data = JSON.parse(tekst);
@@ -60,9 +64,12 @@ async function haalRechten() {
     const bulk = Array.isArray(data && data.bulk)
       ? data.bulk.map((e) => String(e || "").trim().toLowerCase()).filter(Boolean)
       : [];
-    return { niveaus, bulk };
+    const alsKlant = Array.isArray(data && data.alsKlant)
+      ? data.alsKlant.map((e) => String(e || "").trim().toLowerCase()).filter(Boolean)
+      : [];
+    return { niveaus, bulk, alsKlant };
   } catch {
-    return { niveaus: {}, bulk: [] };
+    return { niveaus: {}, bulk: [], alsKlant: [] };
   }
 }
 
@@ -76,8 +83,13 @@ async function haalBulk() {
   return (await haalRechten()).bulk;
 }
 
+/** Geeft de als-klant-lijst terug: [ "<email>" ] (kleine letters). */
+async function haalAlsKlant() {
+  return (await haalRechten()).alsKlant;
+}
+
 /** Overschrijft het volledige rechtendocument. Normaliseert e-mail; 'medewerker' wordt niet bewaard. */
-async function zetRechten({ niveaus, bulk }) {
+async function zetRechten({ niveaus, bulk, alsKlant }) {
   const schoonNiveaus = {};
   for (const [email, niveau] of Object.entries(niveaus || {})) {
     const laag = String(email || "").trim().toLowerCase();
@@ -87,17 +99,23 @@ async function zetRechten({ niveaus, bulk }) {
   const schoonBulk = [...new Set(
     (Array.isArray(bulk) ? bulk : []).map((e) => String(e || "").trim().toLowerCase()).filter(Boolean)
   )];
+  const schoonAlsKlant = [...new Set(
+    (Array.isArray(alsKlant) ? alsKlant : []).map((e) => String(e || "").trim().toLowerCase()).filter(Boolean)
+  )];
   const containerClient = await haalContainerClient();
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
-  const buffer = Buffer.from(JSON.stringify({ niveaus: schoonNiveaus, bulk: schoonBulk }, null, 2), "utf-8");
+  const buffer = Buffer.from(
+    JSON.stringify({ niveaus: schoonNiveaus, bulk: schoonBulk, alsKlant: schoonAlsKlant }, null, 2),
+    "utf-8"
+  );
   await blobClient.upload(buffer, buffer.length, { overwrite: true });
-  return { niveaus: schoonNiveaus, bulk: schoonBulk };
+  return { niveaus: schoonNiveaus, bulk: schoonBulk, alsKlant: schoonAlsKlant };
 }
 
-/** Overschrijft alleen de niveaus; behoudt de bestaande bulk-lijst. */
+/** Overschrijft alleen de niveaus; behoudt de bestaande bulk-/als-klant-lijst. */
 async function zetNiveaus(niveaus) {
-  const { bulk } = await haalRechten();
-  return (await zetRechten({ niveaus, bulk })).niveaus;
+  const { bulk, alsKlant } = await haalRechten();
+  return (await zetRechten({ niveaus, bulk, alsKlant })).niveaus;
 }
 
 /** Bepaalt of deze gebruiker mag wijzigen: beheerder (Azure) mag altijd; anders niveau manager/beheerder. */
@@ -117,4 +135,15 @@ async function magBulk(email, isBeheerder) {
   return (await haalBulk()).includes(laag);
 }
 
-module.exports = { haalRechten, haalNiveaus, haalBulk, zetRechten, zetNiveaus, magWijzigen, magBulk, GELDIGE_NIVEAUS };
+/** Bepaalt of deze gebruiker alleen-lezen mag "meekijken als klant": beheerder (Azure) mag altijd; anders in de alsKlant-lijst. */
+async function magAlsKlant(email, isBeheerder) {
+  if (isBeheerder) return true;
+  const laag = String(email || "").trim().toLowerCase();
+  if (!laag) return false;
+  return (await haalAlsKlant()).includes(laag);
+}
+
+module.exports = {
+  haalRechten, haalNiveaus, haalBulk, haalAlsKlant, zetRechten, zetNiveaus,
+  magWijzigen, magBulk, magAlsKlant, GELDIGE_NIVEAUS,
+};

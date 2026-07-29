@@ -3,20 +3,21 @@ const { haalRechten, zetRechten } = require("../_gedeeld/wijzigrechten");
 /**
  * Route is beveiligd via staticwebapp.config.json (alleen rol 'beheerder').
  *
- * GET → { niveaus: { "<email>": "manager"|"beheerder" }, bulk: ["<email>"] }
+ * GET → { niveaus: { "<email>": "manager"|"beheerder" }, bulk: ["<email>"], alsKlant: ["<email>"] }
  *       medewerker = standaard (niet opgeslagen).
- * PUT body { niveaus: {...}, bulk: [...] } → overschrijft de rechten.
+ * PUT body { niveaus: {...}, bulk: [...], alsKlant: [...] } → overschrijft de rechten.
  */
 module.exports = async function (context, req) {
   try {
     if (req.method === "GET") {
-      const { niveaus, bulk } = await haalRechten();
-      context.res = { headers: { "Content-Type": "application/json" }, body: { niveaus, bulk } };
+      const { niveaus, bulk, alsKlant } = await haalRechten();
+      context.res = { headers: { "Content-Type": "application/json" }, body: { niveaus, bulk, alsKlant } };
       return;
     }
     if (req.method === "PUT") {
       const niveaus = (req.body && req.body.niveaus) || {};
       const bulk = (req.body && req.body.bulk) || [];
+      const alsKlant = (req.body && req.body.alsKlant) || [];
       if (typeof niveaus !== "object" || Array.isArray(niveaus)) {
         context.res = { status: 400, body: { error: "Geef 'niveaus' (object van e-mail → niveau) mee." } };
         return;
@@ -25,7 +26,11 @@ module.exports = async function (context, req) {
         context.res = { status: 400, body: { error: "Geef 'bulk' (lijst met e-mailadressen) mee." } };
         return;
       }
-      const opgeslagen = await zetRechten({ niveaus, bulk });
+      if (!Array.isArray(alsKlant)) {
+        context.res = { status: 400, body: { error: "Geef 'alsKlant' (lijst met e-mailadressen) mee." } };
+        return;
+      }
+      const opgeslagen = await zetRechten({ niveaus, bulk, alsKlant });
       context.res = { headers: { "Content-Type": "application/json" }, body: opgeslagen };
       return;
     }

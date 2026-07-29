@@ -157,9 +157,13 @@ export default function BeheerPortaal() {
   const [niveaus, setNiveaus] = useState({});
   // Bulk-recht: lijst met e-mailadressen die bulk-aanpassingen mogen doen.
   const [bulk, setBulk] = useState([]);
+  // Als-klant-recht: lijst met e-mailadressen die (alleen-lezen) mogen meekijken als klant.
+  const [alsKlant, setAlsKlant] = useState([]);
   const [wijzigrechtenStatus, setWijzigrechtenStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [medewerkers, setMedewerkers] = useState(null); // null = laden; alle Activaa-medewerkers
   const [medewerkerZoek, setMedewerkerZoek] = useState("");
+  const [inzageLog, setInzageLog] = useState(null); // null = laden; audit-log "meekijken als klant"
+  const [inzageLogZoek, setInzageLogZoek] = useState("");
 
   // Klantoverzicht-kolommen (medewerkersportaal): extra velden + standaard verborgen kolommen.
   const [koExtra, setKoExtra] = useState([]); // [{ veld, label, type }]
@@ -271,12 +275,16 @@ export default function BeheerPortaal() {
       .catch(() => setCategorieen([]));
     fetch("/api/beheer-wijzigrechten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { setNiveaus(d.niveaus || {}); setBulk(Array.isArray(d.bulk) ? d.bulk : []); })
+      .then((d) => { setNiveaus(d.niveaus || {}); setBulk(Array.isArray(d.bulk) ? d.bulk : []); setAlsKlant(Array.isArray(d.alsKlant) ? d.alsKlant : []); })
       .catch(() => {});
     fetch("/api/beheer-medewerkers")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setMedewerkers(d.medewerkers || []))
       .catch(() => setMedewerkers([]));
+    fetch("/api/medewerker-klant-inzage")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setInzageLog(Array.isArray(d.log) ? d.log : []))
+      .catch(() => setInzageLog([]));
     fetch("/api/beheer-taaksoorten")
       .then((r) => r.json())
       .then((d) => {
@@ -791,23 +799,30 @@ export default function BeheerPortaal() {
     setWijzigrechtenStatus("idle");
   }, []);
 
+  const zetAlsKlant = useCallback((email, aan) => {
+    const laag = String(email).toLowerCase();
+    setAlsKlant((h) => (aan ? [...new Set([...h, laag])] : h.filter((e) => e !== laag)));
+    setWijzigrechtenStatus("idle");
+  }, []);
+
   const slaWijzigrechtenOp = useCallback(async () => {
     setWijzigrechtenStatus("bezig");
     try {
       const res = await fetch("/api/beheer-wijzigrechten", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ niveaus, bulk }),
+        body: JSON.stringify({ niveaus, bulk, alsKlant }),
       });
       if (!res.ok) throw new Error(await res.text());
       const d = await res.json();
       setNiveaus(d.niveaus || {});
       setBulk(Array.isArray(d.bulk) ? d.bulk : []);
+      setAlsKlant(Array.isArray(d.alsKlant) ? d.alsKlant : []);
       setWijzigrechtenStatus("gelukt");
     } catch {
       setWijzigrechtenStatus("fout");
     }
-  }, [niveaus, bulk]);
+  }, [niveaus, bulk, alsKlant]);
 
   const slaKlantoverzichtOp = useCallback(async () => {
     setKoStatus("bezig");
@@ -2082,8 +2097,10 @@ export default function BeheerPortaal() {
         {rubriekIsOpen("medewerkers") && (<>
         <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 14px" }}>
           Standaard mag een medewerker in het medewerkersportaal alleen lezen. Kies per medewerker het
-          <strong> niveau</strong> (wijzigen van klantgegevens) en vink aan wie <strong>bulk-aanpassingen</strong>
-          {" "}op meerdere klanten tegelijk mag doen. Beheerders mogen sowieso altijd wijzigen én bulk-aanpassingen doen.
+          <strong> niveau</strong> (wijzigen van klantgegevens), vink aan wie <strong>bulk-aanpassingen</strong>
+          {" "}op meerdere klanten tegelijk mag doen, en vink aan wie <strong>als klant mag meekijken</strong>
+          {" "}(alleen-lezen het klantportaal bekijken namens een gekozen klant, via de tab "Meekijken als klant"
+          {" "}in het medewerkersportaal). Beheerders mogen dit alle drie sowieso altijd.
         </div>
 
         {medewerkers === null ? (
@@ -2104,7 +2121,7 @@ export default function BeheerPortaal() {
               />
             </div>
             <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 8 }}>
-              {Object.values(niveaus).filter((n) => n === "manager" || n === "beheerder").length} met wijzig-recht · {bulk.length} met bulk-recht · {medewerkers.length} medewerkers
+              {Object.values(niveaus).filter((n) => n === "manager" || n === "beheerder").length} met wijzig-recht · {bulk.length} met bulk-recht · {alsKlant.length} met als-klant-recht · {medewerkers.length} medewerkers
             </div>
             <div style={{ display: "flex", flexDirection: "column", maxHeight: 460, overflowY: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
               {medewerkers
@@ -2122,6 +2139,14 @@ export default function BeheerPortaal() {
                         onChange={(e) => zetBulk(m.email, e.target.checked)}
                       />
                       Bulk
+                    </label>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: KLEUR.subtekst, cursor: "pointer", whiteSpace: "nowrap" }} title="Mag (alleen-lezen) meekijken als klant, via de tab 'Meekijken als klant' in het medewerkersportaal">
+                      <input
+                        type="checkbox"
+                        checked={alsKlant.includes(String(m.email).toLowerCase())}
+                        onChange={(e) => zetAlsKlant(m.email, e.target.checked)}
+                      />
+                      Als klant
                     </label>
                     <select
                       value={niveaus[m.email] || "medewerker"}
@@ -2152,6 +2177,68 @@ export default function BeheerPortaal() {
                 <span style={{ marginLeft: 12, fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
               )}
             </div>
+          </>
+        )}
+        </>)}
+      </div>
+      )}
+
+      {tab === "medewerkers" && (
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+        <button
+          onClick={() => toggleRubriek("klantInzageLog")}
+          aria-expanded={rubriekIsOpen("klantInzageLog")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("klantInzageLog") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Log — meekijken als klant</span>
+        </button>
+        {rubriekIsOpen("klantInzageLog") && (<>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 14px" }}>
+          Overzicht van elk moment dat een medewerker (alleen-lezen) het klantportaal namens een klant heeft
+          bekeken — wie, namens welke klant, en wanneer.
+        </div>
+        {inzageLog === null ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst }}>
+            <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Log ophalen…
+          </div>
+        ) : (
+          <>
+            <div style={{ position: "relative", marginBottom: 12, maxWidth: 320 }}>
+              <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+              <input
+                value={inzageLogZoek}
+                onChange={(e) => setInzageLogZoek(e.target.value)}
+                placeholder="Zoek op medewerker of klant…"
+                style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 32px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}
+              />
+            </div>
+            {inzageLog.length === 0 ? (
+              <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Nog niemand heeft als klant meegekeken.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", maxHeight: 360, overflowY: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
+                {inzageLog
+                  .filter((item) => {
+                    const q = inzageLogZoek.trim().toLowerCase();
+                    if (!q) return true;
+                    return [item.medewerkerNaam, item.medewerkerEmail, item.klantnaam, String(item.klantnummer ?? "")]
+                      .filter(Boolean)
+                      .some((v) => v.toLowerCase().includes(q));
+                  })
+                  .slice(0, 200)
+                  .map((item, i) => (
+                    <div key={item.id || i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, fontSize: 12.5 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <strong>{item.medewerkerNaam || item.medewerkerEmail}</strong> keek mee als <strong>{item.klantnaam || "onbekende klant"}</strong>
+                        {item.klantnummer ? ` (${item.klantnummer})` : ""}
+                      </div>
+                      <div style={{ color: KLEUR.mutedTekst, whiteSpace: "nowrap" }}>
+                        {item.tijdstip ? new Date(item.tijdstip).toLocaleString("nl-NL") : ""}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
           </>
         )}
         </>)}

@@ -302,7 +302,7 @@ module.exports = async function (context, req) {
 
     context.res = { status: 405, body: { error: "Methode niet ondersteund." } };
   } catch (err) {
-    if (err.code === "GEEN_IDENTITEIT" || err.code === "GEEN_KOPPELING") {
+    if (err.code === "GEEN_IDENTITEIT" || err.code === "GEEN_KOPPELING" || err.code === "GEEN_RECHT" || err.code === "ALLEEN_LEZEN") {
       context.res = {
         status: 403,
         headers: { "Content-Type": "application/json" },

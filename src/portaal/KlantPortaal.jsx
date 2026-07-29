@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { haalApiToken } from "./msal";
 import FacturatieModule from "./FacturatieModule";
+import { haalMeekijkSessie, activeerMeekijkFetch, deactiveerMeekijkFetch, stopMeekijken } from "../meekijken";
 
 const KLEUR = {
   blauw: "#1C5D8C",
@@ -84,6 +85,10 @@ export default function KlantPortaal() {
   const [gebruiker, setGebruiker] = useState(null);
   const [tab, setTab] = useState("home");
   const [fout, setFout] = useState("");
+  // Actief zodra een medewerker (met het als-klant-recht) vanuit het medewerkersportaal
+  // "Bekijk als klant" heeft gekozen — zie src/meekijken.js. Alleen-lezen, zie de fetch-
+  // interceptor daar en de afdwinging in herleidAccounts() op de backend.
+  const [meekijkSessie, setMeekijkSessie] = useState(null);
 
   const [mijnGegevens, setMijnGegevens] = useState(null);
   const [taken, setTaken] = useState(null);
@@ -109,10 +114,28 @@ export default function KlantPortaal() {
       .then((r) => r.json())
       .then((data) => {
         const principal = data.clientPrincipal;
+        // Alleen een medewerker/beheerder mag ooit een meekijk-sessie honoreren (defense-in-depth
+        // aan de voorkant; de echte controle gebeurt sowieso op de backend in herleidAccounts()).
+        if (principal) {
+          const rollen = principal.userRoles || [];
+          if (rollen.includes("medewerker") || rollen.includes("beheerder")) {
+            const sessie = haalMeekijkSessie();
+            if (sessie) {
+              activeerMeekijkFetch(sessie.contactEmail);
+              setMeekijkSessie(sessie);
+            }
+          }
+        }
         setIngelogd(!!principal);
         setGebruiker(principal);
       })
       .catch(() => setIngelogd(false));
+  }, []);
+
+  const stopMetMeekijken = useCallback(() => {
+    deactiveerMeekijkFetch();
+    stopMeekijken();
+    window.location.href = "/medewerker";
   }, []);
 
   useEffect(() => {
@@ -398,9 +421,13 @@ export default function KlantPortaal() {
   // hele tab te verbergen (anders kan een klant het nooit aanvragen). Welke accounts
   // daadwerkelijk mogen werken met facturen bepaalt de module verderop zelf.
   const alleAccounts = mijnGegevens?.accounts || [];
-  const zichtbareTabs = alleAccounts.length > 0
+  const zichtbareTabs = (alleAccounts.length > 0
     ? [...TABS.slice(0, 3), FACTUREN_TAB, ...TABS.slice(3)]
-    : TABS;
+    : TABS
+  // Documenten werkt via de eigen Microsoft Graph-rechten van de ingelogde gebruiker
+  // (on-behalf-of) — dat kan technisch niet "namens een andere klant" getoond worden, dus
+  // deze tab blijft verborgen tijdens meekijken.
+  ).filter((t) => !(meekijkSessie && t.key === "documenten"));
 
   // Als de actieve tab niet (meer) zichtbaar is (bijv. geen accounts meer), terug naar Home.
   useEffect(() => {
@@ -414,6 +441,25 @@ export default function KlantPortaal() {
   return (
     <div className="kp-container" style={{ maxWidth: "none", width: "100%", margin: "0 auto", fontFamily: "system-ui, -apple-system, sans-serif", color: KLEUR.tekst }}>
       <Header gebruiker={gebruiker} logoUrl={logoUrl} />
+      {meekijkSessie && (
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10,
+          margin: "12px 0", padding: "10px 16px", background: "#FFF4E5", border: "1px solid #E8C27A",
+          borderRadius: 10, fontSize: 13, color: "#8A5A00",
+        }}>
+          <span>
+            <Eye size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />
+            Je bekijkt dit portaal <strong>alleen-lezen</strong> namens <strong>{meekijkSessie.klantnaam || "een klant"}</strong> — er
+            wordt niets gewijzigd of verstuurd.
+          </span>
+          <button
+            onClick={stopMetMeekijken}
+            style={{ padding: "6px 12px", background: "#fff", color: "#8A5A00", border: "1px solid #E8C27A", borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+          >
+            Stop met meekijken
+          </button>
+        </div>
+      )}
       <Tabs tab={tab} setTab={setTab} tabs={zichtbareTabs} />
 
       {fout && <Foutmelding tekst={fout} onSluiten={() => setFout("")} />}
@@ -428,7 +474,7 @@ export default function KlantPortaal() {
       {tab === "home" && (
         <>
           <Kopje tekst="Open taken" />
-          <TabTaken data={taken} gebruiker={gebruiker} onAkkoord={geefAkkoord} onNietAkkoord={geefNietAkkoord} onOndertekenen={geefHandtekening} />
+          <TabTaken data={taken} gebruiker={gebruiker} onAkkoord={geefAkkoord} onNietAkkoord={geefNietAkkoord} onOndertekenen={geefHandtekening} alleenLezen={!!meekijkSessie} />
 
           {content?.programmas?.length > 0 && (
             <div style={{ marginTop: 28 }}>
@@ -451,7 +497,7 @@ export default function KlantPortaal() {
         </>
       )}
       {tab === "gegevens" && (
-        <TabGegevens data={mijnGegevens} verzoeken={mijnVerzoeken} onWijzigen={dienWijzigingIn} />
+        <TabGegevens data={mijnGegevens} verzoeken={mijnVerzoeken} onWijzigen={dienWijzigingIn} alleenLezen={!!meekijkSessie} />
       )}
       {tab === "documenten" && (
         <TabDocumenten
@@ -466,9 +512,9 @@ export default function KlantPortaal() {
           onEntiteitWijzigen={wijzigEntiteit}
         />
       )}
-      {tab === "facturen" && <FacturatieModule accounts={alleAccounts} prijs={facturatiemodulePrijs} />}
+      {tab === "facturen" && <FacturatieModule accounts={alleAccounts} prijs={facturatiemodulePrijs} alleenLezen={!!meekijkSessie} />}
       {tab === "faq" && <TabFaq content={content} teamsChatUrl={teamsChatUrl} whatsappUrl={whatsappUrl} copilotEmbedUrl={copilotEmbedUrl} />}
-      {tab === "review" && <TabReview onVerzenden={verstuurReview} />}
+      {tab === "review" && <TabReview onVerzenden={verstuurReview} alleenLezen={!!meekijkSessie} />}
     </div>
   );
 }
@@ -1117,7 +1163,7 @@ function WijzigLinkKnop({ label, onClick }) {
 }
 
 // Uitklapbare detail: bedrijfsgegevens + contactpersoon, elk met een eigen wijzig-knop.
-function KlantDetail({ acc, verzoekStatus, onWijzigen }) {
+function KlantDetail({ acc, verzoekStatus, onWijzigen, alleenLezen }) {
   const [wijzigWat, setWijzigWat] = useState(null); // null | "contact" | "bedrijf"
   const [ingediend, setIngediend] = useState(false);
   const inBehandeling = verzoekStatus === "open" || ingediend;
@@ -1151,10 +1197,10 @@ function KlantDetail({ acc, verzoekStatus, onWijzigen }) {
             Deze gegevens worden automatisch gesynchroniseerd met de Kamer van Koophandel.
           </div>
         )}
-        {acc.bedrijfsadresBewerkbaar && !inBehandeling && wijzigWat !== "bedrijf" && (
+        {acc.bedrijfsadresBewerkbaar && !inBehandeling && !alleenLezen && wijzigWat !== "bedrijf" && (
           <WijzigLinkKnop label="Bedrijfsadres wijzigen" onClick={() => setWijzigWat("bedrijf")} />
         )}
-        {wijzigWat === "bedrijf" && (
+        {wijzigWat === "bedrijf" && !alleenLezen && (
           <WijzigForm acc={acc} velden={BEDRIJF_VELDEN} titel="Bedrijfsadres wijzigen" onWijzigen={onWijzigen} onKlaar={sluit} />
         )}
       </div>
@@ -1182,10 +1228,10 @@ function KlantDetail({ acc, verzoekStatus, onWijzigen }) {
             </span>
           </div>
         )}
-        {!inBehandeling && wijzigWat !== "contact" && (
+        {!inBehandeling && !alleenLezen && wijzigWat !== "contact" && (
           <WijzigLinkKnop label="Contactgegevens wijzigen" onClick={() => setWijzigWat("contact")} />
         )}
-        {wijzigWat === "contact" && (
+        {wijzigWat === "contact" && !alleenLezen && (
           <WijzigForm acc={acc} velden={CONTACT_VELDEN} titel="Contactgegevens wijzigen" onWijzigen={onWijzigen} onKlaar={sluit} />
         )}
       </div>
@@ -1206,7 +1252,7 @@ function KlantDetail({ acc, verzoekStatus, onWijzigen }) {
   );
 }
 
-function TabGegevens({ data, verzoeken, onWijzigen }) {
+function TabGegevens({ data, verzoeken, onWijzigen, alleenLezen }) {
   const [zoek, setZoek] = useState("");
   const [openId, setOpenId] = useState(null);
 
@@ -1295,6 +1341,7 @@ function TabGegevens({ data, verzoeken, onWijzigen }) {
                   acc={acc}
                   verzoekStatus={openVerzoeken.has(acc.accountId) ? "open" : null}
                   onWijzigen={onWijzigen}
+                  alleenLezen={alleenLezen}
                 />
               )}
             </div>
@@ -1476,7 +1523,7 @@ function leidGebruikerAf(gebruiker) {
   return { naam: naam || "", email: email || "" };
 }
 
-function TabTaken({ data, gebruiker, onAkkoord, onNietAkkoord, onOndertekenen }) {
+function TabTaken({ data, gebruiker, onAkkoord, onNietAkkoord, onOndertekenen, alleenLezen }) {
   const [bevestigId, setBevestigId] = useState(null);
   const [afwijzenId, setAfwijzenId] = useState(null);
   const [afwijzenTekst, setAfwijzenTekst] = useState("");
@@ -1553,7 +1600,7 @@ function TabTaken({ data, gebruiker, onAkkoord, onNietAkkoord, onOndertekenen })
                         {open ? "Inklappen" : "Bekijken & ondertekenen"}
                       </button>
                     )}
-                    {taak.kanAkkoord && !taak.vereistHandtekening && idle && (
+                    {taak.kanAkkoord && !taak.vereistHandtekening && idle && !alleenLezen && (
                       <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
                         <button
                           onClick={() => { setAfwijzenId(null); setBevestigId(taak.id); }}
@@ -1596,7 +1643,7 @@ function TabTaken({ data, gebruiker, onAkkoord, onNietAkkoord, onOndertekenen })
                     </div>
                   )}
 
-                  {taak.vereistHandtekening && open && afwijzenId !== taak.id && (
+                  {taak.vereistHandtekening && open && afwijzenId !== taak.id && !alleenLezen && (
                     <HandtekeningPaneel
                       taak={taak}
                       voorinvul={voorinvul}
@@ -1870,7 +1917,7 @@ function TabDocumenten({ status, data, foutmelding, pad = [], onOphalen, onOpenM
   );
 }
 
-function TabReview({ onVerzenden }) {
+function TabReview({ onVerzenden, alleenLezen }) {
   const [sterren, setSterren] = useState(0);
   const [hoverSterren, setHoverSterren] = useState(0);
   const [opmerking, setOpmerking] = useState("");
@@ -1962,8 +2009,9 @@ function TabReview({ onVerzenden }) {
 
       <button
         onClick={versturen}
-        disabled={sterren === 0 || status === "versturen"}
-        style={{ ...knopStijlPrimair, opacity: sterren === 0 ? 0.5 : 1 }}
+        disabled={sterren === 0 || status === "versturen" || alleenLezen}
+        title={alleenLezen ? "Niet beschikbaar tijdens meekijken als klant" : undefined}
+        style={{ ...knopStijlPrimair, opacity: (sterren === 0 || alleenLezen) ? 0.5 : 1, cursor: alleenLezen ? "not-allowed" : "pointer" }}
       >
         <Send size={14} /> {status === "versturen" ? "Versturen..." : "Verstuur review"}
       </button>

@@ -77,6 +77,10 @@
       "allowedRoles": ["beheerder", "medewerker"]
     },
     {
+      "route": "/api/medewerker-klant-inzage",
+      "allowedRoles": ["beheerder", "medewerker"]
+    },
+    {
       "route": "/api/medewerker-klant-wijzigen",
       "allowedRoles": ["beheerder", "medewerker"]
     },

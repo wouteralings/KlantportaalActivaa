@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, FileText } from "lucide-react";
+import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, FileText, Eye } from "lucide-react";
+import { startMeekijken } from "../meekijken";
 
 const KLEUR = {
   blauw: "#1C5D8C",
@@ -1864,12 +1865,137 @@ function KlantOverzicht() {
   );
 }
 
+// ── Meekijken als klant ─────────────────────────────────────────────────────
+/** Kies een klant en bekijk (alleen-lezen) precies wat die klant in het klantportaal ziet.
+ * Alleen zichtbaar/bruikbaar voor medewerkers met het als-klant-recht (of beheerders — zie
+ * Beheer → Medewerkers). De daadwerkelijke autorisatie + het alleen-lezen afdwingen gebeurt op
+ * de backend (herleidAccounts in api/_gedeeld/identiteit.js); dit scherm kiest alleen wélke klant
+ * en legt het moment vast in de audit-log (api/medewerker-klant-inzage). */
+function MeekijkenAlsKlant({ gebruiker }) {
+  const [klanten, setKlanten] = useState(null); // null = laden
+  const [fout, setFout] = useState(false);
+  const [zoek, setZoek] = useState("");
+  const [bezigId, setBezigId] = useState(null);
+  const [startFout, setStartFout] = useState("");
+
+  useEffect(() => {
+    fetch("/api/beheer-klanten")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setKlanten(d.klanten || []))
+      .catch(() => { setKlanten([]); setFout(true); });
+  }, []);
+
+  const bekijkAlsKlant = useCallback(async (klant) => {
+    setStartFout("");
+    if (!klant.contactEmail) {
+      setStartFout(`Geen e-mailadres van de contactpersoon bekend bij "${klant.klantnaam}" — kan niet meekijken.`);
+      return;
+    }
+    setBezigId(klant.accountId);
+    try {
+      const res = await fetch("/api/medewerker-klant-inzage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accountId: klant.accountId,
+          klantnummer: klant.klantnummer,
+          klantnaam: klant.klantnaam,
+          contactEmail: klant.contactEmail,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      startMeekijken({
+        accountId: klant.accountId,
+        klantnummer: klant.klantnummer,
+        klantnaam: klant.klantnaam,
+        contactEmail: klant.contactEmail,
+        medewerkerNaam: gebruiker?.userDetails || "",
+        medewerkerEmail: gebruiker?.userDetails || "",
+      });
+      window.location.href = "/";
+    } catch {
+      setStartFout("Meekijken starten is niet gelukt, probeer het nog eens.");
+      setBezigId(null);
+    }
+  }, [gebruiker]);
+
+  if (klanten === null) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst }}>
+        <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Klanten ophalen…
+      </div>
+    );
+  }
+
+  const term = zoek.trim().toLowerCase();
+  const gefilterd = klanten
+    .filter((k) => !term || [k.klantnaam, String(k.klantnummer ?? ""), k.contactNaam, k.contactEmail].filter(Boolean).some((v) => v.toLowerCase().includes(term)))
+    .slice(0, 200);
+
+  return (
+    <div>
+      <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 14, maxWidth: 720 }}>
+        Kies hieronder een klant om het klantportaal <strong>alleen-lezen</strong> te bekijken, precies zoals die
+        klant het zelf ziet. Er wordt niets gewijzigd of verstuurd namens de klant, en dit moment wordt vastgelegd
+        in de audit-log (Beheer → Medewerkers).
+      </div>
+      {fout && (
+        <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 12 }}>
+          Er ging iets mis bij het ophalen van de klantenlijst.
+        </div>
+      )}
+      {startFout && (
+        <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 12 }}>{startFout}</div>
+      )}
+      <div style={{ position: "relative", marginBottom: 12, maxWidth: 320 }}>
+        <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+        <input
+          value={zoek}
+          onChange={(e) => setZoek(e.target.value)}
+          placeholder="Zoek klant…"
+          style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 32px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}
+        />
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", maxHeight: 520, overflowY: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
+        {gefilterd.length === 0 ? (
+          <div style={{ padding: 14, fontSize: 12.5, color: KLEUR.mutedTekst }}>Geen klanten gevonden.</div>
+        ) : (
+          gefilterd.map((k, i) => (
+            <div key={k.accountId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}` }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>{k.klantnaam}{k.klantnummer ? ` (${k.klantnummer})` : ""}</div>
+                <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>
+                  {k.contactNaam || "Geen contactpersoon"}{k.contactEmail ? ` · ${k.contactEmail}` : ""}
+                </div>
+              </div>
+              <button
+                onClick={() => bekijkAlsKlant(k)}
+                disabled={bezigId === k.accountId || !k.contactEmail}
+                title={!k.contactEmail ? "Geen e-mailadres van de contactpersoon bekend" : "Bekijk het klantportaal alleen-lezen namens deze klant"}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px",
+                  background: k.contactEmail ? KLEUR.blauw : KLEUR.rand, color: k.contactEmail ? "#fff" : KLEUR.mutedTekst,
+                  border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600,
+                  cursor: k.contactEmail ? "pointer" : "not-allowed", whiteSpace: "nowrap",
+                }}
+              >
+                <Eye size={13} /> {bezigId === k.accountId ? "Bezig…" : "Bekijk als klant"}
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Medewerkersportaal ──────────────────────────────────────────────────────
 export default function MedewerkerPortaal() {
   const [status, setStatus] = useState("laden"); // laden | nietIngelogd | geenRol | klaar
   const [gebruiker, setGebruiker] = useState(null);
   const [isBeheerder, setIsBeheerder] = useState(false);
-  const [tab, setTab] = useState("klantoverzicht"); // klantoverzicht | verzoeken | reacties | ondertekeningen | reviews
+  const [magAlsKlant, setMagAlsKlant] = useState(false);
+  const [tab, setTab] = useState("klantoverzicht"); // klantoverzicht | verzoeken | reacties | ondertekeningen | reviews | meekijken
   const [tellingen, setTellingen] = useState({ openWijzigingen: 0, nieuweReviews: 0 });
   const [offerteUrl, setOfferteUrl] = useState("");
   const [offerteToolUrl, setOfferteToolUrl] = useState("");
@@ -1906,6 +2032,10 @@ export default function MedewerkerPortaal() {
       .then((r) => r.json())
       .then((d) => { zetBrowserFavicon(d.faviconUrl); setOfferteUrl(d.offerteportaalUrl || ""); setOfferteToolUrl(d.offerteToolUrl || ""); setLogoUrl(d.logoUrl || ""); })
       .catch(() => {});
+    fetch("/api/medewerker-rechten")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setMagAlsKlant(!!d.magAlsKlant))
+      .catch(() => setMagAlsKlant(false));
   }, [status]);
 
   // Tellingen bijwerken bij elke tabwissel. Op het reviews-tabblad worden de reviews
@@ -1968,6 +2098,7 @@ export default function MedewerkerPortaal() {
     ["reacties", "Log klantreacties", 0],
     ["ondertekeningen", "Ondertekeningen", 0],
     ["reviews", "Reviews", tellingen.nieuweReviews],
+    ...(magAlsKlant || isBeheerder ? [["meekijken", "Meekijken als klant", 0]] : []),
   ];
 
   return (
@@ -2039,6 +2170,7 @@ export default function MedewerkerPortaal() {
       {tab === "reacties" && <AkkoordenLog />}
       {tab === "ondertekeningen" && <OndertekeningenLog />}
       {tab === "reviews" && <ReviewBeheer />}
+      {tab === "meekijken" && <MeekijkenAlsKlant gebruiker={gebruiker} />}
     </div>
   );
 }

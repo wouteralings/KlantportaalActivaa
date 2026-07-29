@@ -38,7 +38,7 @@ module.exports = async function (context, req) {
     const opgeslagen = await zetAanvraag(accountId, email);
     context.res = { headers: { "Content-Type": "application/json" }, body: { accountId, ...opgeslagen } };
   } catch (err) {
-    if (err.code === "GEEN_IDENTITEIT" || err.code === "GEEN_KOPPELING") {
+    if (err.code === "GEEN_IDENTITEIT" || err.code === "GEEN_KOPPELING" || err.code === "GEEN_RECHT" || err.code === "ALLEEN_LEZEN") {
       context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: err.message } };
       return;
     }
