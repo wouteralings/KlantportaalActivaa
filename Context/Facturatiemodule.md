@@ -1111,3 +1111,82 @@ geweigerd, een te lange factuurtekst wordt geweigerd — alle zes slagen. Losse 
 fallback-ketens van `betalingstermijnDagen`/`opmerkingen`/`LEGE_REGEL` (bestaand document >
 standaardwaarde > hardgecodeerde fallback) — alle vijf slagen. `npx vite build` (1913 modules) en
 `npx oxlint` op alle gewijzigde bestanden: geen nieuwe fouten/waarschuwingen.
+
+## Beheerportaal: facturatie-filter, mededelingen bewerken+herschikken, FAQ bewerken (29-07-2026, vervolgsessie)
+
+Verzoek van Wouter: filteren op aan/uit in de Facturatie-tab, mededelingen ook aan te passen en
+in volgorde te wijzigen, FAQ ook aanpasbaar. Alle drie puur in `src/beheer/BeheerPortaal.jsx` —
+`/api/beheer-content` (PUT voor bewerken, PATCH voor herschikken) ondersteunde dit voor
+mededelingen/FAQ al, dus geen backend-wijziging nodig; alleen de UI ontbrak nog.
+
+- **Facturatie-tab**: filterknoppen "Alle / Aan / Uit" naast het zoekveld, extra `.filter()`-stap
+  in `gefilterdFacturatie` op `facturatieStatussen[accountId].ingeschakeld`.
+- **Mededelingen**: Pencil-knop per mededeling opent een inline bewerk-formulier (titel, tekst,
+  klantgroepen, zichtbaar-tot) — zelfde velden als "Mededeling versturen", opgeslagen via PUT.
+  Herschikken (ArrowUp/ArrowDown) alleen binnen de *actieve* mededelingen — verlopen mededelingen
+  hoeven niet herordend; de PATCH-volgorde bevat daarom alleen de actieve id's (het endpoint
+  plakt de rest er zelf achteraan, zie `herschikItems` in `api/_gedeeld/content.js`).
+- **FAQ**: zelfde Pencil-bewerkpatroon (vraag, antwoord, klantgroepen) naast de al bestaande
+  toevoegen/herschikken/verwijderen.
+- Geen migratie, geen nieuwe endpoints. Geverifieerd met `npx oxlint` en `npx vite build`
+  (1913 modules, geen nieuwe fouten/waarschuwingen).
+
+## Crediteren vervangt annuleren: automatische creditnota bij een verstuurde/betaalde factuur (29-07-2026, vervolgsessie)
+
+Verzoek van Wouter: *"Ik wil factuurregels alleen kunnen crediteren. Dus annuleren moet worden
+crediteren. Hier moet dan de nota exact opgemaakt worden met datum crederen en negatief."*
+Vooraf via `AskUserQuestion` uitgevraagd (financiële/boekhoudkundige logica, dus bewust niet
+geraden): altijd de hele factuur crediteren (geen regel-voor-regel selectie), de creditnota eerst
+als concept (zelf controleren voor je 'm verstuurt), crediteren mag op zowel een verstuurde als
+een al betaalde factuur, en bij volledige creditering gaat de factuur naar "Geannuleerd" — maar
+pas op het moment dat de creditnota zelf ook echt verstuurd is (zie hieronder, om een kapotte
+boekhoudkundige trail te voorkomen als iemand het concept weer weggooit).
+
+- **`api/_gedeeld/facturenKlanten.js`**: `annuleerFactuur` (zette alleen de status om) vervangen
+  door `crediteerFactuur(klantAccountId, id, email)` — valideert dat het om een `factuur` gaat met
+  status `verzonden` of `betaald`, negeert alle regels (`aantal: -Math.abs(aantal)`, prijs
+  ongewijzigd — bedrag/btw/totaal worden dus automatisch negatief via `berekenTotalen`), en maakt
+  via het bestaande `maakFactuur()` een **concept**-creditnota aan (`documenttype: "creditnota"`,
+  `referentieFactuurId` naar de originele factuur, `opmerkingen: "Creditnota voor factuur
+  <nummer>."`). Bewust geen `factuurdatum` meegegeven — `maakFactuur()` valt dan terug op
+  "vandaag", en dat is precies de datum van crediteren die vereist is, niet de oorspronkelijke
+  factuurdatum.
+- `verstuurFactuur()` kreeg een extra stap: wordt hier een creditnota verstuurd die een
+  `referentieFactuurId` heeft, dan wordt nú pas (nieuwe helper `zetFactuurGeannuleerdDoorCreditnota`)
+  de gecrediteerde factuur naar `geannuleerd` gezet — best-effort/stil, mag het versturen van de
+  creditnota zelf nooit blokkeren.
+- **`api/facturen-klanten/index.js`**: PATCH-actie `annuleren` → `crediteren`.
+- **`src/portaal/FacturatieModule.jsx`**: de rode "Annuleren"-knop is nu "Crediteren" (icoon
+  `Undo2`), zichtbaar bij zowel `verzonden` als `betaald`. Nieuwe sub-tab **"Creditnota's"**
+  (hergebruikt de bestaande `DocumentenTab`/`DocumentFormulier`/`DocumentDetail`-componenten,
+  alleen `documenttype="creditnota"` is nieuw) om concept-creditnota's te bekijken, te bewerken
+  en zelf te versturen — exact dezelfde generieke concept→versturen-flow als facturen/offertes.
+  `naam`/`naamMv`/`statussen` in `DocumentenTab` en `naam` in `DocumentFormulier` kregen een
+  `creditnota`-tak voor correcte labels ("Nieuwe creditnota", "Concept-creditnota bewerken", enz.).
+- **PDF (`facturenPdf.js`) + scherm-voorbeeld (`DocumentVoorbeeld`)**: de "€ X te betalen op
+  datum"-banner, de Vervaldatum/Betalingstermijn-metaregels, én het betaal-QR-blok stonden allemaal
+  aan bij "niet offerte" (dus ook bij creditnota) — dat is fout voor een negatief bedrag: je vraagt
+  niemand om een negatief bedrag over te maken. Alle drie nu beperkt tot `documenttype === "factuur"`
+  (dus wel bij een factuur, niet meer bij offerte óf creditnota).
+- **Belangrijke bugfix in `rond()`** (afronding op 2 decimalen): `Math.round()` in JavaScript rondt
+  exacte halve waarden altijd naar +Infinity af — voor een positief bedrag is dat "naar boven"
+  (weg van nul), maar voor een negatief bedrag is dat "naar boven richting nul", dus een halve-cent-
+  grensgeval rondde vóór deze fix niet symmetrisch: een factuur van bijv. €393,86 werd bij crediteren
+  soms €-393,85 in plaats van het exacte €-393,86. `rond()` rondt nu de absolute waarde af en past
+  daarna pas het teken toe (round-half-away-from-zero), zodat `rond(-x) === -rond(x)` altijd klopt.
+  Dit was een latent probleem dat er al vanaf het begin in zat (annuleren/offerte/factuur waren tot
+  nu toe altijd positief, dus het kwam nooit aan het licht) — nu voor het eerst relevant omdat een
+  creditnota bewust negatieve regels heeft.
+
+Geverifieerd: `berekenTotalen()` rechtstreeks getest met de exacte negatie-logica uit
+`crediteerFactuur()` — subtotaal/btw/totaal van een creditnota zijn bit-exact het tegenovergestelde
+van de originele factuur, plus een brute-force-test met 500 losse (aantal/prijs/btw%)-combinaties,
+allemaal symmetrisch na de `rond()`-fix (vóór de fix faalden er twee van de drie kernchecks op het
+eerste voorbeeld al). `npx vite build` (1913 modules) en `npx oxlint` op alle gewijzigde bestanden:
+geen nieuwe fouten/waarschuwingen (op één bestaande, ongerelateerde waarschuwing in
+`FacturatieModule.jsx` na).
+
+**Nog niet gebouwd / bewust buiten scope**: regel-voor-regel (partieel) crediteren — dit gaat
+altijd om de hele factuur; handmatig een "losse" creditnota aanmaken zonder gekoppelde factuur kan
+technisch via de nieuwe "Creditnota's"-tab (de generieke formulieren staan dat toe), maar is niet
+apart getest/ontworpen — de bedoelde weg is de "Crediteren"-knop op een factuur.
