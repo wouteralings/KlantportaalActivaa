@@ -141,14 +141,19 @@ async function genereerFactuurPdf({ document: doc, klant, bedrijfsgegevens, docu
   if (bg.kvkNummer) { tekst(`KvK ${bg.kvkNummer}`, marge, 9.5, { kleur: KLEUR.subtekst }); y -= 12; }
   if (bg.btwNummer) { tekst(`BTW ${bg.btwNummer}`, marge, 9.5, { kleur: KLEUR.subtekst }); y -= 12; }
 
-  let yRechts = kopStartY;
+  // De factuurgegevens (titel + metaregels) rechts staan 2 regels lager dan de kop van de
+  // linkerkolom — feedback Wouter (29-07-2026): stond te hoog/te dicht tegen de bovenrand (en
+  // het logo, indien aanwezig) aan. Het hele blok schuift als geheel naar beneden, de interne
+  // regelafstand binnen het blok blijft ongewijzigd.
+  let yRechts = kopStartY - 26;
   const rechtsX = marge + breedte;
   // Let op: bewust page.drawText (met een expliciete y) i.p.v. de tekst()-helper hierboven —
   // die tekent op de gedeelde, inmiddels al door het afzenderblok (en evt. logo) verlaagde
   // `y`, wat de titel zou laten overlappen met de metaregels (factuurnummer/-datum/
-  // leveringsperiode) hieronder. De rechterkolom start altijd bovenaan, ongeacht of er links
-  // een logo staat — zelfde als het scherm-voorbeeld (DocumentVoorbeeld: alignItems: "flex-start"
-  // op de gezamenlijke flex-rij, dus de titel zakt niet mee met een logo in de linkerkolom).
+  // leveringsperiode) hieronder. De rechterkolom start altijd bovenaan (op 2 regels na, zie
+  // hierboven), ongeacht of er links een logo staat — zelfde als het scherm-voorbeeld
+  // (DocumentVoorbeeld: alignItems: "flex-start" op de gezamenlijke flex-rij, dus de titel zakt
+  // niet mee met een logo in de linkerkolom).
   page.drawText(naamType, {
     x: rechtsX - bold.widthOfTextAtSize(naamType, 18), y: yRechts, size: 18, font: bold, color: KLEUR.blauw,
   });

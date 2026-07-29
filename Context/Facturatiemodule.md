@@ -917,3 +917,22 @@ SQL-schrijfprobleem, dan komt de waarde via Dynamics alsnog terecht. Dynamics-ve
   leidend; de PUT-handler zelf slaagt en stuurt de juiste waarde naar Dynamics; en de PUT-handler
   slaagt ook nog steeds als de Dynamics-PATCH faalt. Alle vijf slagen. Ook `npx vite build`
   (1913 modules, geen nieuwe fouten) en `npx oxlint` (geen nieuwe waarschuwingen).
+
+## PDF: factuurgegevens (titel + metaregels) 2 regels lager (29-07-2026, vervolgsessie)
+
+Feedback van Wouter: *"Factuurgegevens moeten 2 regels in z'n geheel naar beneden."* — de
+rechterkolom op de PDF (documenttitel "Factuur"/"Offerte"/"Creditnota" + de metaregels
+factuurnummer/-datum/vervaldatum/betalingstermijn/leveringsperiode) begon precies op de
+bovenrand van de pagina, wat te krap oogde (o.a. tegen een eventueel logo in de linkerkolom aan).
+
+In `api/_gedeeld/facturenPdf.js`: `yRechts` (de startpositie van dat hele blok) begint nu op
+`kopStartY - 26` (2 regels van 13pt, dezelfde regelafstand die binnen het blok zelf al werd
+gebruikt) in plaats van precies op `kopStartY`. Het blok schuift als geheel naar beneden — de
+regelafstand tussen titel en metaregels, en tussen de metaregels onderling, blijft ongewijzigd.
+Bewust alleen in de PDF aangepast, niet in het scherm-voorbeeld (`DocumentVoorbeeld`) — de
+melding ging over de gedownloade PDF specifiek.
+
+Geverifieerd met een los testscript (`genereerFactuurPdf` met een factuur, media.js gemockt) +
+`pdftotext -layout` op het resultaat: de titel "Factuur" en de metaregels beginnen nu zichtbaar
+lager, ter hoogte van de 3e regel van de afzenderkolom in plaats van de 1e. `npx oxlint`: geen
+waarschuwingen.
