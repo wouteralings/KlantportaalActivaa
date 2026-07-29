@@ -1185,13 +1185,224 @@ function DocumentenTab({ accountId, documenttype, klanten, artikelen, tarieven, 
 /* ---------------------------------------------------------------------- */
 /* Abonnementen (facturen_terugkerend) — sjablonen voor terugkerende        */
 /* facturen; het aanmaken zelf gebeurt via "Nieuwe factuur" → "Terugkerend" */
-/* (zie DocumentFormulier). Hier alleen beheren: pauzeren/hervatten/verwijderen. */
+/* (zie DocumentFormulier). Hier beheren: bewerken/pauzeren/hervatten/verwijderen. */
 /* ---------------------------------------------------------------------- */
 
-function AbonnementenTab({ accountId, klantenMap }) {
+/** Een bestaand abonnement bewerken — frequentie, betalingstermijn, einddatum, automatisch
+ * verzenden, leveringsperiode (schuift zelf elke cyclus op, zie facturenTerugkerend.js),
+ * regels en opmerkingen. Klant en startdatum liggen vast (wijzigTerugkerend in
+ * api/_gedeeld/facturenTerugkerend.js ondersteunt die twee bewust niet — de eerst al gegenereerde
+ * facturen blijven verder ongemoeid); pauzeren/hervatten en verwijderen blijven losse acties in
+ * AbonnementenTab, niet hier. Regel-editor is bewust een eigen kopie van die in DocumentFormulier
+ * (zelfde velden/gedrag) i.p.v. een gedeeld component, om dat grotere, al goed geteste onderdeel
+ * niet aan te hoeven raken voor deze losstaande toevoeging. */
+function AbonnementFormulier({ accountId, bestaand, artikelen, tarieven, klantnaam, onKlaar, onOpgeslagen }) {
+  const [frequentie, setFrequentie] = useState(bestaand.frequentie);
+  const [einddatum, setEinddatum] = useState(bestaand.einddatum ? String(bestaand.einddatum).slice(0, 10) : "");
+  const [automatischVerzenden, setAutomatischVerzenden] = useState(!!bestaand.automatischVerzenden);
+  const [betalingstermijnDagen, setBetalingstermijnDagen] = useState(bestaand.betalingstermijnDagen ?? 30);
+  const [leveringsperiodeStart, setLeveringsperiodeStart] = useState(bestaand.leveringsperiodeStart ? String(bestaand.leveringsperiodeStart).slice(0, 10) : "");
+  const [leveringsperiodeEind, setLeveringsperiodeEind] = useState(bestaand.leveringsperiodeEind ? String(bestaand.leveringsperiodeEind).slice(0, 10) : "");
+  const [opmerkingen, setOpmerkingen] = useState(bestaand.opmerkingen || "");
+  const [regels, setRegels] = useState(
+    bestaand.regels?.length
+      ? bestaand.regels.map((r) => ({
+          ...r,
+          artikelId: r.artikelId || "",
+          btwCode: r.btwCode || "hoog",
+          leveringsperiodeStart: r.leveringsperiodeStart ? String(r.leveringsperiodeStart).slice(0, 10) : "",
+          leveringsperiodeEind: r.leveringsperiodeEind ? String(r.leveringsperiodeEind).slice(0, 10) : "",
+        }))
+      : [LEGE_REGEL()]
+  );
+  const [status, setStatus] = useState("invoer");
+  const [foutmelding, setFoutmelding] = useState("");
+
+  const zetRegel = (i, veld, waarde) => {
+    setRegels((h) => h.map((r, idx) => {
+      if (idx !== i) return r;
+      const nieuw = { ...r, [veld]: waarde };
+      if (veld === "artikelId" && waarde) {
+        const artikel = artikelen.find((a) => a.id === waarde);
+        if (artikel) {
+          nieuw.omschrijving = artikel.omschrijving;
+          nieuw.prijs = artikel.prijs;
+          nieuw.btwCode = artikel.btwCode || nieuw.btwCode;
+          nieuw.btwPercentage = artikel.btwPercentage;
+        }
+      }
+      if (veld === "btwCode") {
+        const tarief = (tarieven || []).find((t) => t.code === waarde);
+        if (tarief) nieuw.btwPercentage = tarief.percentage;
+      }
+      return nieuw;
+    }));
+  };
+  const voegRegelToe = () => setRegels((h) => [...h, LEGE_REGEL()]);
+  const verwijderRegel = (i) => setRegels((h) => (h.length > 1 ? h.filter((_, idx) => idx !== i) : h));
+
+  const subtotaal = useMemo(
+    () => regels.reduce((som, r) => som + (Number(r.aantal) || 0) * (Number(r.prijs) || 0), 0),
+    [regels]
+  );
+  const btwBedrag = useMemo(
+    () => regels.reduce((som, r) => som + (Number(r.aantal) || 0) * (Number(r.prijs) || 0) * ((Number(r.btwPercentage) || 0) / 100), 0),
+    [regels]
+  );
+
+  const opslaan = async () => {
+    if (einddatum && bestaand.startdatum && new Date(einddatum) < new Date(bestaand.startdatum)) {
+      setFoutmelding("Einddatum kan niet vóór de startdatum liggen.");
+      setStatus("fout");
+      return;
+    }
+    setStatus("bezig");
+    setFoutmelding("");
+    try {
+      const regelsVoorVerzending = regels.map((r) => ({
+        ...r,
+        artikelId: r.artikelId || null,
+        leveringsperiodeStart: r.leveringsperiodeStart || null,
+        leveringsperiodeEind: r.leveringsperiodeEind || null,
+      }));
+      const data = await haalJson(await fetch("/api/facturen-terugkerend", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accountId,
+          id: bestaand.id,
+          frequentie,
+          einddatum: einddatum || null,
+          leveringsperiodeStart: leveringsperiodeStart || null,
+          leveringsperiodeEind: leveringsperiodeEind || null,
+          automatischVerzenden,
+          betalingstermijnDagen: Number(betalingstermijnDagen) || 30,
+          opmerkingen,
+          regels: regelsVoorVerzending,
+        }),
+      }));
+      onOpgeslagen(data);
+      onKlaar();
+    } catch (e) {
+      setFoutmelding(e.message || String(e));
+      setStatus("fout");
+    }
+  };
+
+  return (
+    <div style={kaartStijl}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+        <button onClick={onKlaar} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.subtekst, display: "flex" }}><ArrowLeft size={16} /></button>
+        <div style={{ fontSize: 15, fontWeight: 700 }}>Abonnement bewerken — {klantnaam}</div>
+      </div>
+      <Melding tekst={foutmelding} />
+      <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 12 }}>
+        Startdatum: {datum(bestaand.startdatum)} · Volgende factuur: {datum(bestaand.volgendeFactuurdatum)} (klant en startdatum zijn hier niet te wijzigen).
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 16 }}>
+        <div>
+          <div style={labelStijl}>Frequentie</div>
+          <select value={frequentie} onChange={(e) => setFrequentie(e.target.value)} style={inputStijl}>
+            {FREQUENTIE_OPTIES.map((f) => <option key={f.code} value={f.code}>{f.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={labelStijl}>Betalingstermijn</div>
+          <select value={betalingstermijnDagen} onChange={(e) => setBetalingstermijnDagen(Number(e.target.value))} style={inputStijl}>
+            {[...new Set([...BETALINGSTERMIJN_OPTIES, Number(betalingstermijnDagen) || 30])]
+              .sort((a, b) => a - b)
+              .map((d) => <option key={d} value={d}>{d} dagen</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={labelStijl}>Einddatum (optioneel)</div>
+          <input type="date" value={einddatum} onChange={(e) => setEinddatum(e.target.value)} style={inputStijl} />
+        </div>
+      </div>
+
+      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginTop: 12, marginBottom: 8, cursor: "pointer" }}>
+        <input type="checkbox" checked={automatischVerzenden} onChange={(e) => setAutomatischVerzenden(e.target.checked)} />
+        Automatisch verzenden zodra de conceptfactuur is aangemaakt
+      </label>
+
+      <div style={labelStijl}>Regels</div>
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, overflow: "hidden" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.8fr 55px 85px 105px 85px 28px", gap: 0, background: KLEUR.lichtblauw, padding: "7px 10px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
+          <div>Artikel</div><div>Omschrijving</div><div>Aantal</div><div>Prijs</div><div>BTW</div><div>Bedrag</div><div />
+        </div>
+        {regels.map((r, i) => (
+          <div key={i} style={{ borderTop: `1px solid ${KLEUR.rand}` }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1.8fr 55px 85px 105px 85px 28px", gap: 6, padding: "8px 10px 4px", alignItems: "center" }}>
+              <select value={r.artikelId} onChange={(e) => zetRegel(i, "artikelId", e.target.value)} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }}>
+                <option value="">— vrije tekst —</option>
+                {artikelen.filter((a) => a.actief).map((a) => <option key={a.id} value={a.id}>{a.omschrijving}</option>)}
+              </select>
+              <input value={r.omschrijving} onChange={(e) => zetRegel(i, "omschrijving", e.target.value)} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }} placeholder="Omschrijving" />
+              <BedragInput waarde={r.aantal} onChange={(w) => zetRegel(i, "aantal", w)} decimalen={0} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }} />
+              <BedragInput waarde={r.prijs} onChange={(w) => zetRegel(i, "prijs", w)} decimalen={2} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }} />
+              <select value={r.btwCode || "hoog"} onChange={(e) => zetRegel(i, "btwCode", e.target.value)} style={{ ...inputStijl, padding: "6px 8px", fontSize: 12.5 }}>
+                {(tarieven || []).length === 0 && <option value={r.btwCode || "hoog"}>{r.btwPercentage}%</option>}
+                {(tarieven || []).map((t) => (
+                  <option key={t.code} value={t.code}>{t.label} ({t.percentage}%)</option>
+                ))}
+              </select>
+              <div style={{ fontSize: 12.5, fontWeight: 600, textAlign: "right" }}>{geld((Number(r.aantal) || 0) * (Number(r.prijs) || 0))}</div>
+              <button onClick={() => verwijderRegel(i)} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.rood, display: "flex", justifyContent: "center" }}>
+                <Trash2 size={14} />
+              </button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1.8fr 55px 85px 105px 85px 28px", gap: 6, padding: "0 10px 8px" }}>
+              <div />
+              <div style={{ gridColumn: "2 / 6", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 10, color: KLEUR.mutedTekst, whiteSpace: "nowrap" }}>Leveringsperiode voor deze regel:</span>
+                <input type="date" value={r.leveringsperiodeStart || ""} onChange={(e) => zetRegel(i, "leveringsperiodeStart", e.target.value)} style={{ ...inputStijl, padding: "3px 6px", fontSize: 11, width: 128 }} />
+                <span style={{ fontSize: 10, color: KLEUR.mutedTekst }}>t/m</span>
+                <input type="date" value={r.leveringsperiodeEind || ""} onChange={(e) => zetRegel(i, "leveringsperiodeEind", e.target.value)} style={{ ...inputStijl, padding: "3px 6px", fontSize: 11, width: 128 }} />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <button onClick={voegRegelToe} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", color: KLEUR.blauw, fontSize: 12.5, fontWeight: 600, cursor: "pointer", marginTop: 8 }}>
+        <Plus size={13} /> Regel toevoegen
+      </button>
+
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, textAlign: "right" }}>
+          <div>Subtotaal: {geld(subtotaal)}</div>
+          <div>BTW: {geld(btwBedrag)}</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: KLEUR.tekst, marginTop: 2 }}>Totaal: {geld(subtotaal + btwBedrag)}</div>
+        </div>
+      </div>
+
+      <div style={labelStijl}>Leveringsperiode voor het hele document (optioneel)</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <input type="date" value={leveringsperiodeStart} onChange={(e) => setLeveringsperiodeStart(e.target.value)} style={inputStijl} />
+        <span style={{ fontSize: 12, color: KLEUR.mutedTekst }}>t/m</span>
+        <input type="date" value={leveringsperiodeEind} onChange={(e) => setLeveringsperiodeEind(e.target.value)} style={inputStijl} />
+      </div>
+      <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 4, marginBottom: 4 }}>
+        Schuift automatisch een frequentie-stap op bij elke nieuw gegenereerde factuur (bijv. bij een maandelijkse dienst).
+      </div>
+
+      <div style={labelStijl}>Opmerkingen (optioneel)</div>
+      <textarea value={opmerkingen} onChange={(e) => setOpmerkingen(e.target.value)} rows={2} style={{ ...inputStijl, resize: "vertical" }} />
+
+      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+        <Knop variant="primair" icon={Check} disabled={status === "bezig"} onClick={opslaan}>{status === "bezig" ? "Opslaan…" : "Opslaan"}</Knop>
+        <Knop onClick={onKlaar}>Annuleren</Knop>
+      </div>
+    </div>
+  );
+}
+
+function AbonnementenTab({ accountId, klantenMap, artikelen, tarieven }) {
   const { status, items, foutmelding, verversen } = useTerugkerend(accountId);
   const [actieBezigId, setActieBezigId] = useState(null);
   const [actieFout, setActieFout] = useState("");
+  const [weergave, setWeergave] = useState("lijst");
+  const [bewerkItem, setBewerkItem] = useState(null);
 
   const wijzigActief = async (item, actief) => {
     setActieBezigId(item.id);
@@ -1223,22 +1434,36 @@ function AbonnementenTab({ accountId, klantenMap }) {
     setActieBezigId(null);
   };
 
+  if (weergave === "bewerken" && bewerkItem) {
+    return (
+      <AbonnementFormulier
+        accountId={accountId}
+        bestaand={bewerkItem}
+        artikelen={artikelen}
+        tarieven={tarieven}
+        klantnaam={klantenMap[bewerkItem.klantKlantId]?.naam || "deze klant"}
+        onKlaar={() => setWeergave("lijst")}
+        onOpgeslagen={verversen}
+      />
+    );
+  }
+
   return (
     <div>
       <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 16, maxWidth: 640 }}>
         Terugkerende facturen (abonnementen) stel je in vanaf "Nieuwe factuur" — schakel daar "Dit is een terugkerende factuur" in.
-        Hier beheer je bestaande abonnementen: pauzeren, hervatten of verwijderen.
+        Hier beheer je bestaande abonnementen: bewerken, pauzeren, hervatten of verwijderen.
       </div>
       <Melding tekst={foutmelding || actieFout} />
       {status === "laden" && <LegeStaat tekst="Laden…" />}
       {status === "klaar" && items.length === 0 && <LegeStaat tekst="Nog geen abonnementen ingesteld." />}
       {status === "klaar" && items.length > 0 && (
         <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 90px 90px", background: KLEUR.lichtblauw, padding: "9px 14px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 90px 116px", background: KLEUR.lichtblauw, padding: "9px 14px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
             <div>Klant</div><div>Frequentie</div><div>Volgende factuur</div><div>Aantal verstuurd</div><div>Status</div><div>Acties</div>
           </div>
           {items.map((item) => (
-            <div key={item.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 90px 90px", padding: "10px 14px", borderTop: `1px solid ${KLEUR.rand}`, fontSize: 13, alignItems: "center" }}>
+            <div key={item.id} style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 90px 116px", padding: "10px 14px", borderTop: `1px solid ${KLEUR.rand}`, fontSize: 13, alignItems: "center" }}>
               <div style={{ fontWeight: 600 }}>{klantenMap[item.klantKlantId]?.naam || "—"}</div>
               <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                 {FREQUENTIE_LABEL[item.frequentie] || item.frequentie}
@@ -1252,6 +1477,7 @@ function AbonnementenTab({ accountId, klantenMap }) {
                 </span>
               </div>
               <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={() => { setBewerkItem(item); setWeergave("bewerken"); }} disabled={actieBezigId === item.id} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.blauw, display: "flex" }} title="Bewerken"><Pencil size={14} /></button>
                 {item.actief ? (
                   <button onClick={() => wijzigActief(item, false)} disabled={actieBezigId === item.id} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.subtekst, display: "flex" }} title="Pauzeren"><Pause size={14} /></button>
                 ) : (
@@ -1960,7 +2186,7 @@ function FacturatieAccountInhoud({ account, andereAccounts }) {
         />
       )}
       {subtab === "abonnementen" && (
-        <AbonnementenTab accountId={accountId} klantenMap={klantenMap} />
+        <AbonnementenTab accountId={accountId} klantenMap={klantenMap} artikelen={alleArtikelen} tarieven={btwTarievenData.items} />
       )}
       {subtab === "klanten" && (
         <KlantenTab accountId={accountId} klanten={klantenData.items} status={klantenData.status} foutmelding={klantenData.foutmelding} verversen={klantenData.verversen} />
