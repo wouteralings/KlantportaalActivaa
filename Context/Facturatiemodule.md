@@ -868,3 +868,52 @@ toegepast vlak vóór het genereren van een PDF/e-mail:**
   simpele fout in de kleurwaarde zelf lijkt uitgesloten. Om dit echt te kunnen vaststellen is de
   daadwerkelijk gedownloade PDF nodig (niet het scherm-voorbeeld) — nog navragen bij Wouter welke
   specifieke balk het betreft (betaalbanner, tabelkop, of iets anders) en idealiter de PDF zelf.
+
+## CC-mailadres: "Geef accountId mee"-fout + Dynamics-vangnet toegevoegd (29-07-2026, vervolgsessie)
+
+Wouter meldde dat opslaan van het CC-mailadres (Instellingen → Bedrijfsgegevens) mislukte met
+`{"error": "Geef accountId (het klant-account waarvoor je werkt) mee."}` — dat is exact de
+foutmelding van `controleerToegang()` in `api/_gedeeld/facturatieToegang.js`. De frontend-code
+(`opslaanCcEmail` in `FacturatieModule.jsx`) stuurt `accountId` echter al wél netjes mee in de
+PUT-body, en dat is ook altijd al zo geweest sinds deze knop in commit `572a728` is toegevoegd —
+er zit dus geen fout in de huidige broncode die deze specifieke melding zou veroorzaken. Meest
+waarschijnlijke verklaring: de site die Wouter gebruikte draaide (nog) niet de nieuwste versie
+(gecachte/oude frontend-bundle, of een GitHub Actions-deploy die nog niet (helemaal) was
+doorgekomen) — dit kon ik vanuit deze sessie niet verifiëren (geen toegang tot de GitHub
+Actions-run-status of de live site). Nog te doen: navragen of een harde refresh + controle van
+de laatste Actions-run dit oplost.
+
+**Onafhankelijk daarvan**, op verzoek van Wouter: het CC-mailadres krijgt nu hetzelfde
+Dynamics-vangnet als IBAN/tenaamstelling, met als doel: mislukt het wegschrijven naar de eigen
+tabel (`dbo.bedrijfsgegevens_klanten`) een keer door het bekende, nog niet opgeloste
+SQL-schrijfprobleem, dan komt de waarde via Dynamics alsnog terecht. Dynamics-veldnaam:
+`cr283_ccbijversturen` (bevestigd door Wouter), overschrijfbaar via Application Setting
+`DYNAMICS_CC_EMAIL_VELD`.
+
+- **`api/_gedeeld/identiteit.js`** — nieuwe constante `CC_EMAIL_VELD`, toegevoegd aan
+  `OPTIONELE_VELDEN` (dus met dezelfde ontbreekt-dit-veld-dan-toch-doorgaan-terugval als BTW/IBAN
+  als het veld niet blijkt te bestaan), geëxporteerd.
+- **`api/bedrijfsgegevens-klanten/index.js`** (PUT) — na het opslaan in de eigen tabel wordt
+  best-effort ook een PATCH naar het Account in Dynamics gestuurd
+  (`schrijfCcEmailNaarDynamics()`) — mislukt die aanroep (geen config, netwerkfout, ...), dan
+  wordt dat alleen gelogd; het opslaan zelf (de HTTP-respons naar de klant) faalt hier nooit op.
+- **`api/_gedeeld/bedrijfsgegevensKlanten.js`** — `haalGegevensMetCrmAanvulling()` vult ccEmail
+  nu ook aan vanuit Dynamics, maar bewust **niet** als reden om zelf een Dynamics-aanroep te
+  triggeren (ccEmail leeg is voor de meeste klanten de normale situatie, dus geen reden om bij
+  elke PDF/e-mail een extra Dynamics-round-trip te doen) — alleen als er toch al een aanroep
+  gebeurt (omdat een ander kernveld ontbreekt) liften we ccEmail gratis mee.
+- **`api/mijn-gegevens/index.js`** + **`FacturatieModule.jsx`**
+  (`vulBedrijfsgegevensAanMetCrm`) — ccEmail wordt (kosteloos, via dezelfde al bestaande
+  Dynamics-query) ook aan het scherm-voorbeeld in Instellingen voorgevuld, zodat een eventueel
+  mislukte SQL-schrijfactie niet als "leeg/verdwenen" overkomt.
+- **Bijgevangen, gerelateerde kleine bug**: bij het indienen van de hoofd-bedrijfsgegevens
+  (`dienIn()`, de goedkeuring-vereisende "Wijziging indienen"-knop) werd `ccEmail` per ongeluk
+  meegestuurd in de `voorstel`-payload naar `/api/wijzigingsverzoek` — dat veld hoort daar niet
+  in thuis (het heeft zijn eigen, direct-opslaan-endpoint zonder goedkeuring). Nu expliciet
+  uitgesloten, net als elders in het bestand al gebeurde voor de achtergrond-sync.
+- Geverifieerd met een los testscript (SQL/Dynamics-token/`fetch` gemockt): kernvelden compleet
+  + ccEmail leeg → geen Dynamics-aanroep; een kernveld ontbreekt + ccEmail leeg → ccEmail wordt
+  gratis aangevuld; een kernveld ontbreekt + eigen ccEmail al gezet → eigen waarde blijft
+  leidend; de PUT-handler zelf slaagt en stuurt de juiste waarde naar Dynamics; en de PUT-handler
+  slaagt ook nog steeds als de Dynamics-PATCH faalt. Alle vijf slagen. Ook `npx vite build`
+  (1913 modules, geen nieuwe fouten) en `npx oxlint` (geen nieuwe waarschuwingen).

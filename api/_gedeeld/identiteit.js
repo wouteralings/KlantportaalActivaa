@@ -175,11 +175,17 @@ const BTW_VELD = process.env.DYNAMICS_BTW_VELD || "sk_btwnummer";
 // DYNAMICS_IBAN_VELD / DYNAMICS_IBAN_TENAAMSTELLING_VELD als de schemanaam bij jullie anders is.
 const IBAN_VELD = process.env.DYNAMICS_IBAN_VELD || "sk_iban";
 const IBAN_TENAAMSTELLING_VELD = process.env.DYNAMICS_IBAN_TENAAMSTELLING_VELD || "cr283_ibannaamstelling";
+// Het CC-mailadres bij versturen (Facturatiemodule → Instellingen → "CC bij versturen") wordt,
+// naast de eigen SQL-tabel, ook naar Dynamics geschreven — zelfde vangnet-gedachte als
+// IBAN/tenaamstelling hierboven: mislukt het wegschrijven naar dbo.bedrijfsgegevens_klanten een
+// keer (bekend, nog niet opgelost probleem), dan komt de waarde via Dynamics alsnog terecht bij
+// het versturen van een factuur/offerte/creditnota. Veldnaam bevestigd door Wouter (29-07-2026).
+const CC_EMAIL_VELD = process.env.DYNAMICS_CC_EMAIL_VELD || "cr283_ccbijversturen";
 // Optionele velden die (nog) niet gegarandeerd onder deze naam in Dataverse bestaan — bij een
 // foutmelding die zo'n veldnaam noemt, laten we precies dát veld weg en proberen het opnieuw
 // (zie de retry-lus in herleidAccounts hieronder), zodat één verkeerde/ontbrekende schemanaam
 // niet de hele koppeling breekt.
-const OPTIONELE_VELDEN = [BTW_VELD, IBAN_VELD, IBAN_TENAAMSTELLING_VELD].filter(Boolean);
+const OPTIONELE_VELDEN = [BTW_VELD, IBAN_VELD, IBAN_TENAAMSTELLING_VELD, CC_EMAIL_VELD].filter(Boolean);
 // De groepsnaam ("cliëntgroep", bv. ACTIVAA/JOWO) is een lookup op Account naar de entiteit
 // sk_groepen; de leesbare naam staat daar in het veld sk_name.
 const GROEPSNAAM_NAV = process.env.DYNAMICS_GROEPSNAAM_NAV || "sk_Groepsnaam";
@@ -386,5 +392,5 @@ async function haalAccountOpId(accountId, token) {
 
 module.exports = {
   haalDynamicsToken, herleidAccounts, haalEmailUitPrincipal, haalNaamUitPrincipal, haalRollenUitPrincipal,
-  haalAccountOpId, KLANTCATEGORIE_VELD, IBAN_VELD, IBAN_TENAAMSTELLING_VELD,
+  haalAccountOpId, KLANTCATEGORIE_VELD, IBAN_VELD, IBAN_TENAAMSTELLING_VELD, CC_EMAIL_VELD,
 };

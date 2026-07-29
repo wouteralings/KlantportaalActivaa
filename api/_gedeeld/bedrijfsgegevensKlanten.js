@@ -8,7 +8,7 @@
  * de app hoeft nooit met een id te werken.
  */
 const { sql, haalPool } = require("./facturatieDb");
-const { haalDynamicsToken, haalAccountOpId, IBAN_VELD, IBAN_TENAAMSTELLING_VELD } = require("./identiteit");
+const { haalDynamicsToken, haalAccountOpId, IBAN_VELD, IBAN_TENAAMSTELLING_VELD, CC_EMAIL_VELD } = require("./identiteit");
 
 // Zelfde veldnamen als wijzigingsverzoek/index.js gebruikt voor het bedrijfsgegevens-formulier
 // (type bedrijfsgegevens_facturatie) — bewust hier opnieuw gedefinieerd i.p.v. geïmporteerd,
@@ -45,7 +45,10 @@ function naarBuiten(row) {
     ibanTenaamstelling: row.iban_tenaamstelling || "",
     logoUrl: row.logo_url || "",
     // Eigen CC-mailadres bij versturen (bevestiging dat een factuur/offerte is verstuurd) —
-    // sinds 29-07-2026, puur een eigen voorkeur, geen Dynamics-tegenhanger.
+    // sinds 29-07-2026 een eigen voorkeur, direct zelf te wijzigen (geen goedkeuring nodig); sinds
+    // 29-07-2026 (later die dag) ook best-effort naar Dynamics geschreven als vangnet
+    // (cr283_ccbijversturen, zie identiteit.js/CC_EMAIL_VELD) — de terugval daarvandaan gebeurt
+    // in haalGegevensMetCrmAanvulling hieronder, niet hier (dit is de kale SQL-rij).
     ccEmail: row.cc_email || "",
     gewijzigdOp: row.gewijzigd_op || row.aangemaakt_op || null,
   };
@@ -103,6 +106,11 @@ async function haalGegevensMetCrmAanvulling(klantAccountId) {
       btwNummer: opgeslagen.btwNummer || (raw[BTW_VELD_NAAM] || "").toString().trim(),
       iban: opgeslagen.iban || (raw[IBAN_VELD] || "").toString().trim(),
       ibanTenaamstelling: opgeslagen.ibanTenaamstelling || (raw[IBAN_TENAAMSTELLING_VELD] || "").toString().trim(),
+      // ccEmail zit bewust niet in AAN_TE_VULLEN_VELDEN hierboven (het ontbreken ervan is de
+      // normale situatie voor de meeste klanten, dus geen reden om altijd een Dynamics-aanroep
+      // te doen) — maar gebeurt die aanroep al vanwege een ander ontbrekend veld, dan vullen we
+      // 'm hier gratis mee aan als vangnet tegen dezelfde SQL-schrijfbug.
+      ccEmail: opgeslagen.ccEmail || (raw[CC_EMAIL_VELD] || "").toString().trim(),
     };
   } catch {
     return opgeslagen;

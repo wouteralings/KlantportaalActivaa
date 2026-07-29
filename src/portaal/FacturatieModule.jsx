@@ -70,12 +70,20 @@ function vulBedrijfsgegevensAanMetCrm(data, account) {
     btwNummer: data.btwNummer || account?.btwNummer || "",
     iban: data.iban || account?.iban || "",
     ibanTenaamstelling: data.ibanTenaamstelling || account?.ibanTenaamstelling || "",
+    // CC-mailadres — sinds 29-07-2026 ook een vangnet naar/vanuit Dynamics (cr283_ccbijversturen),
+    // zelfde reden als IBAN hierboven: mislukt het opslaan in de eigen tabel een keer, dan blijft
+    // de eerder ingestelde waarde hier toch zichtbaar i.p.v. onterecht leeg te lijken.
+    ccEmail: data.ccEmail || account?.ccEmail || "",
   };
 }
 
 // Velden die meetellen bij het bepalen of er nog CRM-bekende waarden zijn die nog niet in de
 // eigen tabel staan (zie de achtergrond-sync in FacturatieAccountInhoud) — bewust zonder
-// ccEmail/logoUrl/gewijzigdOp, die hebben geen Dynamics-tegenhanger.
+// logoUrl/gewijzigdOp (die hebben geen Dynamics-tegenhanger) én zonder ccEmail: dat heeft sinds
+// 29-07-2026 wél een Dynamics-tegenhanger (cr283_ccbijversturen), maar loopt bewust niet mee in
+// déze goedkeuring-vereisende sync — ccEmail wordt direct zelf opgeslagen (geen verificatiegegeven,
+// zie opslaanCcEmail hieronder), dat zou anders onterecht een wijzigingsverzoek ter goedkeuring
+// aanmaken voor een veld dat helemaal geen goedkeuring nodig heeft.
 const BEDRIJFSGEGEVENS_SYNC_VELDEN = [
   "bedrijfsnaam", "straat", "huisnummer", "toevoeging", "postcode", "plaats", "land",
   "kvkNummer", "btwNummer", "iban", "ibanTenaamstelling",
@@ -1848,9 +1856,10 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
     setIndienStatus("bezig");
     setDirectOpgeslagen(false);
     try {
-      // logo en gewijzigdOp horen niet bij dit verzoek — logo gaat via een eigen, direct
-      // endpoint (geen goedkeuring nodig), gewijzigdOp is read-only metadata.
-      const { logoUrl: _logoUrl, gewijzigdOp: _gewijzigdOp, ...velden } = f;
+      // logo, gewijzigdOp en ccEmail horen niet bij dit verzoek — logo en ccEmail gaan via hun
+      // eigen, directe endpoints (geen goedkeuring nodig, zie opslaanCcEmail/uploadLogo),
+      // gewijzigdOp is read-only metadata.
+      const { logoUrl: _logoUrl, gewijzigdOp: _gewijzigdOp, ccEmail: _ccEmail, ...velden } = f;
       const res = await fetch("/api/wijzigingsverzoek", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

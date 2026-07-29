@@ -1,4 +1,4 @@
-const { haalDynamicsToken, herleidAccounts, IBAN_VELD, IBAN_TENAAMSTELLING_VELD } = require("../_gedeeld/identiteit");
+const { haalDynamicsToken, herleidAccounts, IBAN_VELD, IBAN_TENAAMSTELLING_VELD, CC_EMAIL_VELD } = require("../_gedeeld/identiteit");
 const { haalStatussen } = require("../_gedeeld/facturatieInstellingen");
 
 module.exports = async function (context, req) {
@@ -48,6 +48,10 @@ module.exports = async function (context, req) {
           // (sk_iban / cr283_ibannaamstelling). Leeg als het veld niet is meegekomen.
           iban: (account[IBAN_VELD] || "").toString().trim(),
           ibanTenaamstelling: (account[IBAN_TENAAMSTELLING_VELD] || "").toString().trim(),
+          // CC-mailadres bij versturen — zelfde voorvul-doel, uit Dataverse (cr283_ccbijversturen,
+          // zie identiteit.js / DYNAMICS_CC_EMAIL_VELD). Leeg als er nog nooit een CC-mailadres
+          // via het portaal of Dynamics is gezet.
+          ccEmail: (account[CC_EMAIL_VELD] || "").toString().trim(),
           // Volledige contactpersoon-gegevens (wijzigbaar via een verzoek, behalve functie rol).
           contactpersoon: contactpersoon || {},
           relatiebeheerder,
