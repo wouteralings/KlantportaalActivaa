@@ -569,3 +569,45 @@ vink optie. Daarnaast ook een optie voor automatisch verzenden ja nee. en dan da
   proberen. Geen codewijziging voor gedaan; eventueel later een dupliceerbare, duidelijkere
   in-app melding voor verlopen sessies overwegen (raakt alle `fetch()`-aanroepen in de app, dus
   een bredere wijziging dan dit moment aankon).
+
+### Vervolg dezelfde dag: "Dat is gek, want deze gegevens heb ik niet gewijzigd"
+
+Wouter's reactie op de "wacht op goedkeuring"-melding hierboven: hij had de BTW-/KvK-gegevens
+van JOWO Holding B.V. niet zelf aangepast (die kwamen gewoon uit Dynamics-prefill), en wilde
+dat goedkeuring **alleen nog nodig is bij een echte (handmatige) wijziging**.
+
+Onderzoek wees een echte bug uit in `api/wijzigingsverzoek/index.js`: het "huidig"-object
+(waartegen een ingediend voorstel vergeleken wordt om te bepalen of er iets gewijzigd is)
+gebruikte `account.klantadres`, `account.kvkNummer` en `account.btwNummer` — maar
+`herleidAccounts()` (in `identiteit.js`) geeft die velden helemaal niet terug; die verrijkte
+vorm bestaat alléén in de aparte mapping van `/api/mijn-gegevens` (en wordt daarvandaan ook
+gebruikt om het front-end formulier voor te vullen). Op de server waren die velden dus altijd
+`undefined` → "huidig" was voor bedrijfsadres/KvK/BTW feitelijk altijd leeg, ongeacht wat er al
+via Dynamics bekend was. Elke keer dat een klant "Wijziging indienen" klikte — zelfs zonder ook
+maar één letter aan te passen — week het (Dynamics-voorgevulde) formulier dus af van dat lege
+"huidig", en ontstond er een overbodig wijzigingsverzoek dat op goedkeuring bleef wachten.
+
+Fix (`api/wijzigingsverzoek/index.js`): "huidig" wordt nu op dezelfde manier opgebouwd als
+`/api/mijn-gegevens` en de front-end — rechtstreeks vanaf `account.account` (het ruwe
+Dynamics-account), met `DYNAMICS_KVK_VELD`/`DYNAMICS_BTW_VELD` voor KvK/BTW. Blijkt er ná deze
+correctie nog steeds geen echt verschil te zijn tussen het voorstel en "huidig" (dus de klant
+heeft feitelijk niets zelf gewijzigd), dan wordt er geen wijzigingsverzoek meer aangemaakt —
+in plaats daarvan wordt "huidig" direct weggeschreven naar `dbo.bedrijfsgegevens_klanten` (via
+`zetGegevens`), zonder goedkeuring, mits dat nog niet zo was opgeslagen. Zo verschijnt een
+BTW-/KvK-nummer dat alleen uit Dynamics kwam gewoon op de factuur, zonder tussenkomst van
+Activaa. Wijkt het voorstel wél af van wat al bekend is (bijv. een zelf ingevuld IBAN, of een
+bewuste correctie van adres/naam), dan loopt dat gewoon via een wijzigingsverzoek zoals bedoeld
+— geverifieerd met een korte Node-simulatie van alle drie de scenario's (ongewijzigd/IBAN
+toegevoegd/postcode gecorrigeerd).
+
+`BedrijfsgegevensKaart` (front-end) verwerkt de nieuwe `{ geenWijziging: true }`-respons met
+een groene bevestiging ("Opgeslagen — geen goedkeuring nodig...") in plaats van de "wacht op
+goedkeuring"-melding, en ververst meteen de bedrijfsgegevens zodat het scherm de nu echt
+opgeslagen waarden weerspiegelt.
+
+Geverifieerd met `npx vite build`, `npx oxlint` (geen nieuwe waarschuwingen) en `node --check`
+op het gewijzigde backend-bestand. Gecommit als `e2fc3df`. Nog niet gepusht.
+
+**Waar keur je een wijzigingsverzoek goed/af?** Beheer → Wijzigingsverzoeken (voor zowel de
+gewone NAW-verzoeken als de facturatiemodule-bedrijfsgegevens — beide staan in dezelfde lijst,
+te herkennen aan het type).
