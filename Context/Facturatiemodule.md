@@ -918,6 +918,34 @@ SQL-schrijfprobleem, dan komt de waarde via Dynamics alsnog terecht. Dynamics-ve
   slaagt ook nog steeds als de Dynamics-PATCH faalt. Alle vijf slagen. Ook `npx vite build`
   (1913 modules, geen nieuwe fouten) en `npx oxlint` (geen nieuwe waarschuwingen).
 
+## CC-mailadres: "Geef accountId mee" bleef terugkomen — accountId nu ook in de query (29-07-2026, vervolgsessie, later die dag)
+
+Wouter meldde de exacte melding (`{"error": "Geef accountId (het klant-account waarvoor je werkt)
+mee."}`) een tweede keer bij het opslaan van het CC-mailadres, ook ná de Dynamics-vangnet-fix
+hierboven (die loste dit niet op — dat was een parallelle verbetering, geen fix van déze fout).
+De frontend-code (`opslaanCcEmail`) stuurde `accountId` al wel correct mee in de PUT-body, en dat
+klopt ook al sinds de knop bestaat (commit `572a728`) — een statische code-analyse liet geen
+fout zien die deze melding zou verklaren.
+
+**Toegepaste, defensieve fix**: `controleerToegang()` (`api/_gedeeld/facturatieToegang.js`) leest
+sowieso al eerst `req.query.accountId`, en pas als terugval `req.body.accountId` — maar
+`opslaanCcEmail` stuurde `accountId` tot nu toe alléén in de JSON-body mee, niet ook in de
+query-string (in tegenstelling tot bijv. de GET-aanroepen naar hetzelfde endpoint, die dat wel
+altijd deden). `opslaanCcEmail` stuurt `accountId` nu **ook** als query-parameter mee
+(`?accountId=...`), naast de body — dit dekt de fout af, ongeacht of de precieze oorzaak in een
+verouderde/gecachte frontend-bundle zat, of ergens in hoe de JSON-body de Azure Function bereikte
+(dat laatste kon vanuit deze sessie niet geverifieerd worden — geen toegang tot productie-logs of
+de GitHub Actions-deploygeschiedenis).
+
+Extra: de generieke foutmelding bij het opslaan ("Opslaan mislukt, probeer het nog eens.") toont
+nu ook de echte servermelding (`ccFoutmelding`-state) als die er is — zodat een volgende keer
+meteen zichtbaar is wát er misging, zonder dat Wouter de melding apart uit de browser-devtools
+hoeft te halen.
+
+Geverifieerd met `npx vite build` (geen nieuwe fouten) en `npx oxlint` (geen nieuwe
+waarschuwingen). Kon dit niet end-to-end tegen de echte, live Dynamics/SQL-omgeving testen —
+alleen statisch (build/lint) en tegen de eerder gemockte scenario's.
+
 ## PDF: factuurgegevens (titel + metaregels) 2 regels lager (29-07-2026, vervolgsessie)
 
 Feedback van Wouter: *"Factuurgegevens moeten 2 regels in z'n geheel naar beneden."* — de

@@ -1831,6 +1831,7 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
   const inBehandeling = !!openVerzoek || ingediend;
 
   const [ccStatus, setCcStatus] = useState("idle"); // idle | bezig | fout
+  const [ccFoutmelding, setCcFoutmelding] = useState("");
 
   useEffect(() => {
     if (!data || f) return;
@@ -1922,10 +1923,18 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
   // CC-mailadres bij het versturen van een factuur/offerte/creditnota — puur een eigen
   // voorkeur (geen verificatiegegeven zoals naam/adres/KvK/BTW/IBAN), dus direct zelf te
   // wijzigen zonder goedkeuring door Activaa, zelfde patroon als het logo hierboven.
+  //
+  // accountId staat hier bewust zowel in de query-string als in de body: controleerToegang()
+  // (facturatieToegang.js) leest sowieso al eerst req.query.accountId, dan pas req.body.accountId
+  // — maar deze aanroep stuurde 'm tot nu toe alléén in de body mee. Wouter kreeg herhaaldelijk
+  // "Geef accountId mee" bij het opslaan, terwijl de body-waarde bij nalezen altijd correct leek;
+  // dit dekt het ook af als de JSON-body om wat voor reden dan ook (proxy/omgeving) niet
+  // meekomt bij Azure Functions.
   const opslaanCcEmail = async () => {
     setCcStatus("bezig");
+    setCcFoutmelding("");
     try {
-      const res = await fetch("/api/bedrijfsgegevens-klanten", {
+      const res = await fetch(`/api/bedrijfsgegevens-klanten?accountId=${encodeURIComponent(accountId)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accountId, ccEmail: f.ccEmail || "" }),
@@ -1933,7 +1942,8 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
       const d = await haalJson(res);
       setF((h) => ({ ...h, ccEmail: d.ccEmail }));
       setCcStatus("idle");
-    } catch {
+    } catch (e) {
+      setCcFoutmelding(e.message || "");
       setCcStatus("fout");
     }
   };
@@ -2063,7 +2073,11 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
             {ccStatus === "bezig" ? "Opslaan…" : "Opslaan"}
           </Knop>
         </div>
-        {ccStatus === "fout" && <div style={{ fontSize: 12, color: KLEUR.rood, marginTop: 4 }}>Opslaan mislukt, probeer het nog eens.</div>}
+        {ccStatus === "fout" && (
+          <div style={{ fontSize: 12, color: KLEUR.rood, marginTop: 4 }}>
+            Opslaan mislukt{ccFoutmelding ? `: ${ccFoutmelding}` : ""}, probeer het nog eens.
+          </div>
+        )}
       </div>
     </>
   );
