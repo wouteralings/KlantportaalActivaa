@@ -1190,3 +1190,62 @@ geen nieuwe fouten/waarschuwingen (op één bestaande, ongerelateerde waarschuwi
 altijd om de hele factuur; handmatig een "losse" creditnota aanmaken zonder gekoppelde factuur kan
 technisch via de nieuwe "Creditnota's"-tab (de generieke formulieren staan dat toe), maar is niet
 apart getest/ontworpen — de bedoelde weg is de "Crediteren"-knop op een factuur.
+
+## Abonnementsperiode: label verduidelijkt + zichtbaar in de lijst (29-07-2026, vervolgsessie)
+
+Verzoek van Wouter (n.a.v. twee screenshots van de Abonnementen-lijst): het label "Leveringsperiode
+voor het hele document (optioneel)" in het abonnement-bewerkformulier hernoemen naar
+"Abonnementsperiode (optioneel)", en die periode ook zichtbaar maken in de Abonnementen-lijst zelf.
+
+- **`src/portaal/FacturatieModule.jsx`** — `AbonnementFormulier`: het label bij het
+  leveringsperiode-veld voor het hele document is nu "Abonnementsperiode (optioneel)" (puur een
+  tekstwijziging, geen gedragswijziging — het vult nog steeds `leveringsperiodeStart`/`leveringsperiodeEind`
+  op sjabloonniveau, dat elke cyclus automatisch een frequentie-stap opschuift, zie
+  `facturenTerugkerend.js`).
+- **`AbonnementenTab`** (de lijst): grid uitgebreid van 6 naar 7 kolommen — een nieuwe kolom
+  "Abonnementsperiode" ingevoegd tussen "Volgende factuur" en "Aantal verstuurd", die
+  `leveringsperiodeTekst(item.leveringsperiodeStart, item.leveringsperiodeEind)` toont (of "—" als
+  er geen leveringsperiode is ingesteld).
+
+Geverifieerd: `npx vite build` en `npx oxlint` — geen nieuwe fouten/waarschuwingen.
+
+## Abonnement: startdatum weer aanpasbaar (29-07-2026, vervolgsessie)
+
+Verzoek van Wouter (n.a.v. het bewerkformulier van een abonnement): de startdatum stond vast
+("klant en startdatum zijn hier niet te wijzigen") — dat moest ook aanpasbaar worden, net als
+frequentie/einddatum/leveringsperiode.
+
+- **`api/_gedeeld/facturenTerugkerend.js`** — `wijzigTerugkerend()` accepteert nu optioneel
+  `data.startdatum`. Sync-logica hangt af van `aantalGegenereerd` (hoeveel facturen dit sjabloon al
+  daadwerkelijk heeft gegenereerd):
+  - **Nog 0 gegenereerd**: `startdatum` en `volgendeFactuurdatum` zijn op dat moment nog hetzelfde
+    "eerste factuurmoment" (zo werkt `maakTerugkerend()` bij aanmaken al) — een nieuwe startdatum
+    schuift `volgendeFactuurdatum` dus automatisch mee.
+  - **Al 1 of meer gegenereerd**: `volgendeFactuurdatum` is dan door `verwerkGegenereerd()` al
+    losgekoppeld van de oorspronkelijke startdatum (die immers al één of meer cycli verder is) —
+    startdatum wordt dan alleen nog bijgewerkt als historisch gegeven (wanneer het abonnement ooit
+    inging), de eerstvolgende factuurdatum blijft met rust. Validatie: de nieuwe startdatum mag in
+    dat geval niet ná de (ongewijzigde) eerstvolgende factuurdatum liggen.
+  - Overige validatie (ongewijzigd van bedoeling, nu op basis van de effectieve startdatum i.p.v.
+    altijd de oorspronkelijke): `einddatum` mag niet vóór `startdatum` liggen. Leeg/`null`
+    meegegeven `startdatum` wordt geweigerd (verplicht veld, kan niet losgekoppeld worden).
+  - `startdatum`/`volgende_factuurdatum` toegevoegd aan de UPDATE-statement; `klant_klant_id`
+    blijft bewust nog steeds niet wijzigbaar (dat verandert namelijk fundamenteel wie de factuur
+    krijgt, en dat is geen doel van deze wijziging).
+- **`api/facturen-terugkerend/index.js`**: geen wijziging nodig — de PATCH-handler geeft `req.body`
+  al ongefilterd door aan `wijzigTerugkerend()`.
+- **`src/portaal/FacturatieModule.jsx`** — `AbonnementFormulier`: nieuw `startdatum`-veld
+  (date-input) in de bovenste grid, vóór Frequentie. De informatieve tekst boven het formulier
+  toont nu conditioneel: bij 0 gegenereerde facturen "(schuift automatisch mee als je de startdatum
+  hieronder wijzigt, want er is nog geen factuur gegenereerd)", anders "(klant en eerstvolgende
+  factuurdatum liggen hier vast — er zijn al N facturen gegenereerd)". Client-side validatie in
+  `opslaan()` gespiegeld aan de backend (verplicht veld, einddatum-check, en de
+  aantalGegenereerd>0-grens) zodat de fout meteen zichtbaar is vóórdat de PATCH-aanroep faalt.
+
+Geverifieerd: een los testscript (geen echte DB, alleen de sync/validatie-logica letterlijk
+gekopieerd uit `wijzigTerugkerend()`) met zes gevallen — startdatum-sync bij 0 gegenereerd,
+startdatum-update zonder sync bij >0 gegenereerd, de nieuwe-startdatum-na-volgende-factuurdatum-fout,
+de einddatum-vóór-startdatum-fout, "startdatum niet meegegeven laat alles ongemoeid", en de
+verplicht-veld-fout — alle zes slagen. `npx vite build` (1913 modules) en `npx oxlint` op alle
+gewijzigde bestanden: geen nieuwe fouten/waarschuwingen (dezelfde ene bestaande, ongerelateerde
+waarschuwing in `FacturatieModule.jsx` als voorheen).
