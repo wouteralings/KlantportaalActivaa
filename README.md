@@ -26,7 +26,10 @@ Microsoft-login, maar vereist de rol `beheerder`. Daar kunnen het logo, de snell
 home) en mededelingen beheerd worden, elk met een keuzelijst van de echte klantcategorieën uit
 Dataverse. FAQ en de Google-/Teams-links staan daar nog niet in (zie onder).
 
-Losstaand van de interne offertetool — dit project bevat alleen het klantportaal.
+Sinds de integratie (29-07-2026) bevat dit project ook de interne Offertetool, als
+"Offertes"-tab in het medewerkersportaal (`/medewerker`, `src/medewerker/offertes/`) — zie
+`Context/AI-context.md` en de eerdere, losstaande `offerte-tool-activaa`-repo (wordt uitgefaseerd
+zodra Stap 6 van het integratieplan — testen en Application Settings — is afgerond).
 
 ---
 

@@ -30,7 +30,7 @@ async function haalInstellingen() {
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
 
   const bestaat = await blobClient.exists();
-  if (!bestaat) return { googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "", reviewWebhookUrl: "", offerteportaalUrl: "", offerteToolUrl: "", facturatiemodulePrijs: 5, klantoverzicht: { extraKolommen: [], standaardVerborgen: [] } };
+  if (!bestaat) return { googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "", reviewWebhookUrl: "", facturatiemodulePrijs: 5, klantoverzicht: { extraKolommen: [], standaardVerborgen: [] } };
 
   const downloadResponse = await blobClient.download();
   const tekst = await streamNaarTekst(downloadResponse.readableStreamBody);
@@ -49,10 +49,6 @@ async function haalInstellingen() {
     taakAfwijzingWebhookUrl: "",
     // Power Automate HTTP-trigger (webhook) voor de afhandeling van reviews onder de 5 sterren.
     reviewWebhookUrl: "",
-    // Link naar het externe offerteportaal (getoond in het medewerkersportaal).
-    offerteportaalUrl: "",
-    // Link naar de offertetool "Project" (getoond in het medewerkersportaal).
-    offerteToolUrl: "",
     // Prijs (in hele euro's of met centen, bijv. 5 of 7.5) van de facturatiemodule per
     // klantaccount per maand — getoond in het klantportaal bij een nog niet actief account
     // (Facturatiemodule → "Niet actief"-uitleg), instelbaar in Beheer → Facturatie.

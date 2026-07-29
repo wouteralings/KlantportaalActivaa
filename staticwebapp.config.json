@@ -109,6 +109,66 @@
       "allowedRoles": ["anonymous"]
     },
     {
+      "route": "/tekenen/*",
+      "allowedRoles": ["anonymous"]
+    },
+    {
+      "route": "/api/teken/*",
+      "allowedRoles": ["anonymous"]
+    },
+    {
+      "route": "/api/offertes-instellingen/*",
+      "allowedRoles": ["beheerder", "medewerker"]
+    },
+    {
+      "route": "/api/offertes-klanten",
+      "allowedRoles": ["beheerder", "medewerker"]
+    },
+    {
+      "route": "/api/offertes-verstuur-mail",
+      "allowedRoles": ["beheerder", "medewerker"]
+    },
+    {
+      "route": "/api/offerte/*",
+      "allowedRoles": ["beheerder", "medewerker"]
+    },
+    {
+      "route": "/api/offertes",
+      "allowedRoles": ["beheerder", "medewerker"]
+    },
+    {
+      "route": "/api/opdrachtbevestiging/*",
+      "allowedRoles": ["beheerder", "medewerker"]
+    },
+    {
+      "route": "/api/opdrachtbevestigingen",
+      "allowedRoles": ["beheerder", "medewerker"]
+    },
+    {
+      "route": "/api/ben-ik-beheerder",
+      "allowedRoles": ["beheerder", "medewerker"]
+    },
+    {
+      "route": "/api/taakcategorieen",
+      "allowedRoles": ["beheerder", "medewerker"]
+    },
+    {
+      "route": "/api/dataverse-schema-setup",
+      "allowedRoles": ["beheerder"]
+    },
+    {
+      "route": "/api/dataverse-kolom-aanmaken",
+      "allowedRoles": ["beheerder"]
+    },
+    {
+      "route": "/api/dataverse-status",
+      "allowedRoles": ["beheerder"]
+    },
+    {
+      "route": "/api/dataverse-tarieven-overzicht",
+      "allowedRoles": ["beheerder"]
+    },
+    {
       "route": "/*",
       "allowedRoles": ["authenticated"]
     }

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, FileText, Eye } from "lucide-react";
+import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye } from "lucide-react";
 import { startMeekijken } from "../meekijken";
+import OffertesModule from "./OffertesModule";
 
 const KLEUR = {
   blauw: "#1C5D8C",
@@ -1995,10 +1996,8 @@ export default function MedewerkerPortaal() {
   const [gebruiker, setGebruiker] = useState(null);
   const [isBeheerder, setIsBeheerder] = useState(false);
   const [magAlsKlant, setMagAlsKlant] = useState(false);
-  const [tab, setTab] = useState("klantoverzicht"); // klantoverzicht | verzoeken | reacties | ondertekeningen | reviews | meekijken
+  const [tab, setTab] = useState("klantoverzicht"); // klantoverzicht | verzoeken | reacties | ondertekeningen | reviews | offertes | meekijken
   const [tellingen, setTellingen] = useState({ openWijzigingen: 0, nieuweReviews: 0 });
-  const [offerteUrl, setOfferteUrl] = useState("");
-  const [offerteToolUrl, setOfferteToolUrl] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
 
   const laadTellingen = useCallback(() => {
@@ -2030,7 +2029,7 @@ export default function MedewerkerPortaal() {
     if (status !== "klaar") return;
     fetch("/api/instellingen")
       .then((r) => r.json())
-      .then((d) => { zetBrowserFavicon(d.faviconUrl); setOfferteUrl(d.offerteportaalUrl || ""); setOfferteToolUrl(d.offerteToolUrl || ""); setLogoUrl(d.logoUrl || ""); })
+      .then((d) => { zetBrowserFavicon(d.faviconUrl); setLogoUrl(d.logoUrl || ""); })
       .catch(() => {});
     fetch("/api/medewerker-rechten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
@@ -2098,6 +2097,7 @@ export default function MedewerkerPortaal() {
     ["reacties", "Log klantreacties", 0],
     ["ondertekeningen", "Ondertekeningen", 0],
     ["reviews", "Reviews", tellingen.nieuweReviews],
+    ["offertes", "Offertes", 0],
     ...(magAlsKlant || isBeheerder ? [["meekijken", "Meekijken als klant", 0]] : []),
   ];
 
@@ -2111,16 +2111,6 @@ export default function MedewerkerPortaal() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <span style={{ fontSize: 12.5, color: KLEUR.subtekst }}>{gebruiker?.userDetails}</span>
-          {offerteUrl && (
-            <a href={offerteUrl} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: KLEUR.blauw, textDecoration: "none" }}>
-              <FileText size={13} /> Offerteportaal
-            </a>
-          )}
-          {offerteToolUrl && (
-            <a href={offerteToolUrl} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: KLEUR.blauw, textDecoration: "none" }}>
-              <FileText size={13} /> Offertetool Project
-            </a>
-          )}
           {isBeheerder && (
             <a href="/beheer" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: KLEUR.blauw, textDecoration: "none" }}>
               <Building2 size={13} /> Beheer
@@ -2170,6 +2160,7 @@ export default function MedewerkerPortaal() {
       {tab === "reacties" && <AkkoordenLog />}
       {tab === "ondertekeningen" && <OndertekeningenLog />}
       {tab === "reviews" && <ReviewBeheer />}
+      {tab === "offertes" && <OffertesModule isBeheerder={isBeheerder} />}
       {tab === "meekijken" && <MeekijkenAlsKlant gebruiker={gebruiker} />}
     </div>
   );

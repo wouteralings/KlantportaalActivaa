@@ -149,8 +149,6 @@ export default function BeheerPortaal() {
   const [teamsChatUrl, setTeamsChatUrl] = useState("");
   const [whatsappUrl, setWhatsappUrl] = useState("");
   const [copilotEmbedUrl, setCopilotEmbedUrl] = useState("");
-  const [offerteportaalUrl, setOfferteportaalUrl] = useState("");
-  const [offerteToolUrl, setOfferteToolUrl] = useState("");
   const [linksOpslaanStatus, setLinksOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
 
   // Rechtenniveau per medewerker (e-mail → 'manager'|'beheerder'; standaard = medewerker).
@@ -263,8 +261,6 @@ export default function BeheerPortaal() {
         setCopilotEmbedUrl(d.copilotEmbedUrl || "");
         setTaakAfwijzingWebhookUrl(d.taakAfwijzingWebhookUrl || "");
         setReviewWebhookUrl(d.reviewWebhookUrl || "");
-        setOfferteportaalUrl(d.offerteportaalUrl || "");
-        setOfferteToolUrl(d.offerteToolUrl || "");
         setFacturatiemodulePrijs(d.facturatiemodulePrijs != null ? String(d.facturatiemodulePrijs) : "5");
         setKoExtra((d.klantoverzicht && d.klantoverzicht.extraKolommen) || []);
         setKoVerborgen((d.klantoverzicht && d.klantoverzicht.standaardVerborgen) || []);
@@ -609,8 +605,6 @@ export default function BeheerPortaal() {
           teamsChatUrl: teamsChatUrl.trim(),
           whatsappUrl: whatsappUrl.trim(),
           copilotEmbedUrl: copilotEmbedUrl.trim(),
-          offerteportaalUrl: offerteportaalUrl.trim(),
-          offerteToolUrl: offerteToolUrl.trim(),
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -618,7 +612,7 @@ export default function BeheerPortaal() {
     } catch {
       setLinksOpslaanStatus("fout");
     }
-  }, [googleReviewUrl, teamsChatUrl, whatsappUrl, copilotEmbedUrl, offerteportaalUrl, offerteToolUrl]);
+  }, [googleReviewUrl, teamsChatUrl, whatsappUrl, copilotEmbedUrl]);
 
   const slaFacturatiemodulePrijsOp = useCallback(async () => {
     const bedrag = Number(String(facturatiemodulePrijs).replace(",", "."));
@@ -1971,24 +1965,6 @@ export default function BeheerPortaal() {
           value={teamsChatUrl}
           onChange={(e) => setTeamsChatUrl(e.target.value)}
           placeholder="https://teams.microsoft.com/l/chat/..."
-          style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 16, boxSizing: "border-box" }}
-        />
-
-        <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Offerteportaal-link (medewerkersportaal)</div>
-        <input
-          type="text"
-          value={offerteportaalUrl}
-          onChange={(e) => setOfferteportaalUrl(e.target.value)}
-          placeholder="https://…"
-          style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 16, boxSizing: "border-box" }}
-        />
-
-        <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Offertetool Project-link (medewerkersportaal)</div>
-        <input
-          type="text"
-          value={offerteToolUrl}
-          onChange={(e) => setOfferteToolUrl(e.target.value)}
-          placeholder="https://…"
           style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 16, boxSizing: "border-box" }}
         />
 
