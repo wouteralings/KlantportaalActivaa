@@ -1037,3 +1037,25 @@ kleine 2×1-testafbeelding geprobeerd — te klein om iets te tonen — daarna e
 400×120 blauwe testafbeelding) + `pdftoppm` om de PDF naar een PNG te renderen en visueel te
 controleren: met de oude `+8` hing de bedrijfsnaam zichtbaar tegen/in het logo, met de nieuwe
 `+16` staat er duidelijke witruimte tussen logo en bedrijfsnaam.
+
+## Terugkerende facturen: Power Automate-scheduler nu echt ingericht (29-07-2026, vervolgsessie)
+
+Laatste openstaande configuratiestap voor abonnementen/terugkerende facturen: Wouter heeft een
+geplande cloudflow in Power Automate aangemaakt die dagelijks een HTTP POST doet naar
+`/api/verwerk-terugkerende-facturen` met header `x-verwerk-sleutel`. Twee losse fouten onderweg,
+allebei door Wouter zelf opgelost na een korte aanwijzing:
+
+1. **`HostNotFound: No such host is known`** — de ingevulde URI was
+   `http://mijn.activaa.nll/...` (dubbele L, en `http` i.p.v. `https`). Hersteld naar
+   `https://mijn.activaa.nl/api/verwerk-terugkerende-facturen`.
+2. **HTTP 501 `TERUGKEREND_TRIGGER_SECRET is nog niet geconfigureerd`** — de sleutel stond wel al
+   in de flow (header `x-verwerk-sleutel`), maar de bijbehorende App Setting ontbrak nog op de
+   Static Web App zelf. Toegevoegd: Application Setting `TERUGKEREND_TRIGGER_SECRET` met dezelfde
+   waarde als de header.
+
+Na deze twee fixes gaf een handmatige testrun een 200 met `{"verwerkt": 0, "mislukt": 0,
+"resultaten": []}` — verwacht resultaat zolang er nog geen abonnement met een vervallen
+"volgende factuurdatum" is. Vanaf de eerstvolgende geplande run (dagelijks) worden vervallen
+abonnementen automatisch verwerkt. **Hiermee is de laatste openstaande configuratiestap voor de
+facturatiemodule afgerond** — geen codewijziging nodig geweest, puur Azure/Power
+Automate-configuratie.
