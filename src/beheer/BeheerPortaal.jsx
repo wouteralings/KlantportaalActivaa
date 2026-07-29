@@ -112,6 +112,14 @@ export default function BeheerPortaal() {
   const [onbeperktZichtbaar, setOnbeperktZichtbaar] = useState(true); // "tot nader te bepalen"
   const [actieveMededelingenOpen, setActieveMededelingenOpen] = useState(true);
   const [verlopenMededelingenOpen, setVerlopenMededelingenOpen] = useState(false);
+  // Mededeling bewerken (bestaande mededeling aanpassen, geen nieuwe versturen).
+  const [mededelingBewerken, setMededelingBewerken] = useState(null); // id van mededeling die bewerkt wordt, of null
+  const [bewerkTitel, setBewerkTitel] = useState("");
+  const [bewerkTekst, setBewerkTekst] = useState("");
+  const [bewerkCategorieen, setBewerkCategorieen] = useState([]);
+  const [bewerkOnbeperkt, setBewerkOnbeperkt] = useState(true);
+  const [bewerkZichtbaarTot, setBewerkZichtbaarTot] = useState("");
+  const [bewerkMededelingStatus, setBewerkMededelingStatus] = useState("idle"); // idle | bezig | fout
 
   const [snellinks, setSnellinks] = useState(null);
   const [snellinksOpen, setSnellinksOpen] = useState(false);
@@ -126,6 +134,12 @@ export default function BeheerPortaal() {
   const [gekozenFaqCategorieen, setGekozenFaqCategorieen] = useState([]);
   const [faqVerzendStatus, setFaqVerzendStatus] = useState("idle"); // idle | bezig | fout
   const [faqZoek, setFaqZoek] = useState("");
+  // FAQ bewerken (bestaande vraag/antwoord aanpassen).
+  const [faqBewerken, setFaqBewerken] = useState(null); // id van vraag die bewerkt wordt, of null
+  const [bewerkVraag, setBewerkVraag] = useState("");
+  const [bewerkAntwoord, setBewerkAntwoord] = useState("");
+  const [bewerkFaqCategorieen, setBewerkFaqCategorieen] = useState([]);
+  const [bewerkFaqStatus, setBewerkFaqStatus] = useState("idle"); // idle | bezig | fout
 
   const [wijzigingFormNawUrl, setWijzigingFormNawUrl] = useState("");
   const [wijzigingFormContactUrl, setWijzigingFormContactUrl] = useState("");
@@ -173,6 +187,7 @@ export default function BeheerPortaal() {
   const [facturatieKlanten, setFacturatieKlanten] = useState(null); // null = laden; [{accountId, klantnaam, klantnummer}]
   const [facturatieStatussen, setFacturatieStatussen] = useState({}); // accountId -> { ingeschakeld, gewijzigdOp, gewijzigdDoor }
   const [facturatieZoek, setFacturatieZoek] = useState("");
+  const [facturatieStatusFilter, setFacturatieStatusFilter] = useState("alle"); // "alle" | "aan" | "uit"
   const [facturatieBezig, setFacturatieBezig] = useState({}); // accountId -> bool
   const [facturatieFout, setFacturatieFout] = useState("");
   const [facturatieToonAantal, setFacturatieToonAantal] = useState(50);
@@ -366,6 +381,43 @@ export default function BeheerPortaal() {
     [faqs, haalFaqs]
   );
 
+  const beginBewerkFaq = useCallback((f) => {
+    setFaqBewerken(f.id);
+    setBewerkVraag(f.vraag || "");
+    setBewerkAntwoord(f.antwoord || "");
+    setBewerkFaqCategorieen(f.klantcategorieen || []);
+    setBewerkFaqStatus("idle");
+  }, []);
+
+  const annuleerBewerkFaq = useCallback(() => setFaqBewerken(null), []);
+
+  const toggleBewerkFaqCategorie = useCallback((waarde) => {
+    setBewerkFaqCategorieen((huidig) => (huidig.includes(waarde) ? huidig.filter((c) => c !== waarde) : [...huidig, waarde]));
+  }, []);
+
+  const slaFaqOp = useCallback(async () => {
+    if (!bewerkVraag.trim() || !bewerkAntwoord.trim()) return;
+    setBewerkFaqStatus("bezig");
+    try {
+      const res = await fetch("/api/beheer-content", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "faq",
+          id: faqBewerken,
+          vraag: bewerkVraag.trim(),
+          antwoord: bewerkAntwoord.trim(),
+          klantcategorieen: bewerkFaqCategorieen,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setFaqBewerken(null);
+      haalFaqs();
+    } catch {
+      setBewerkFaqStatus("fout");
+    }
+  }, [bewerkVraag, bewerkAntwoord, bewerkFaqCategorieen, faqBewerken, haalFaqs]);
+
   const haalSnellinks = useCallback(() => {
     fetch("/api/beheer-content?type=programma")
       .then((r) => r.json())
@@ -464,6 +516,46 @@ export default function BeheerPortaal() {
     },
     [haalMededelingen]
   );
+
+  const beginBewerkMededeling = useCallback((m) => {
+    setMededelingBewerken(m.id);
+    setBewerkTitel(m.titel || "");
+    setBewerkTekst(m.tekst || "");
+    setBewerkCategorieen(m.klantcategorieen || []);
+    setBewerkOnbeperkt(!m.zichtbaarTot);
+    setBewerkZichtbaarTot(m.zichtbaarTot ? String(m.zichtbaarTot).slice(0, 10) : "");
+    setBewerkMededelingStatus("idle");
+  }, []);
+
+  const annuleerBewerkMededeling = useCallback(() => setMededelingBewerken(null), []);
+
+  const toggleBewerkCategorie = useCallback((waarde) => {
+    setBewerkCategorieen((huidig) => (huidig.includes(waarde) ? huidig.filter((c) => c !== waarde) : [...huidig, waarde]));
+  }, []);
+
+  const slaMededelingOp = useCallback(async () => {
+    if (!bewerkTitel.trim() || !bewerkTekst.trim()) return;
+    setBewerkMededelingStatus("bezig");
+    try {
+      const res = await fetch("/api/beheer-content", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "mededeling",
+          id: mededelingBewerken,
+          titel: bewerkTitel.trim(),
+          tekst: bewerkTekst.trim(),
+          klantcategorieen: bewerkCategorieen,
+          zichtbaarTot: bewerkOnbeperkt ? null : (bewerkZichtbaarTot || null),
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setMededelingBewerken(null);
+      haalMededelingen();
+    } catch {
+      setBewerkMededelingStatus("fout");
+    }
+  }, [bewerkTitel, bewerkTekst, bewerkCategorieen, bewerkOnbeperkt, bewerkZichtbaarTot, mededelingBewerken, haalMededelingen]);
 
   const labelVoorWaarde = (waarde) => categorieen?.find((c) => c.waarde === waarde)?.label || waarde;
 
@@ -1289,28 +1381,153 @@ export default function BeheerPortaal() {
               ? "Zichtbaar tot " + new Date(m.zichtbaarTot).toLocaleDateString("nl-NL", { day: "numeric", month: "short", year: "numeric" })
               : "Tot nader te bepalen";
 
-          const MededelingRegel = ({ m, verlopenStijl }) => (
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "10px 0", borderTop: `1px solid ${KLEUR.rand}`, opacity: verlopenStijl ? 0.7 : 1 }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700 }}>{m.titel}</div>
-                <div style={{ fontSize: 12, color: KLEUR.subtekst, marginTop: 2 }}>{m.tekst}</div>
-                <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 6 }}>
-                  {(m.klantcategorieen?.length > 0
-                    ? m.klantcategorieen.map(labelVoorWaarde).join(", ")
-                    : "Alle klanten")}
-                  {" · "}
-                  <span style={{ color: verlopenStijl ? KLEUR.rood : KLEUR.mutedTekst }}>{zichtbaarTotLabel(m)}</span>
+          // Herschikken werkt alleen binnen de actieve sectie (verlopen mededelingen hoeven niet
+          // herordend te worden); de verlopen items behouden hun eigen relatieve volgorde erachter
+          // — /api/beheer-content PATCH accepteert een gedeeltelijke volgorde-array precies daarvoor.
+          const herschikMededelingRegel = (index, richting) => {
+            const doel = index + richting;
+            if (doel < 0 || doel >= actief.length) return;
+            const nieuwActief = [...actief];
+            [nieuwActief[index], nieuwActief[doel]] = [nieuwActief[doel], nieuwActief[index]];
+            setMededelingen([...nieuwActief, ...verlopen]);
+            fetch("/api/beheer-content", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ type: "mededeling", volgorde: nieuwActief.map((m) => m.id) }),
+            }).catch(() => haalMededelingen());
+          };
+
+          const MededelingRegel = ({ m, verlopenStijl, index, aantal, onHerschik }) => {
+            if (mededelingBewerken === m.id) {
+              return (
+                <div style={{ padding: "12px 0", borderTop: `1px solid ${KLEUR.rand}` }}>
+                  <input
+                    type="text"
+                    value={bewerkTitel}
+                    onChange={(e) => setBewerkTitel(e.target.value)}
+                    placeholder="Titel"
+                    style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13.5, marginBottom: 10, boxSizing: "border-box" }}
+                  />
+                  <textarea
+                    value={bewerkTekst}
+                    onChange={(e) => setBewerkTekst(e.target.value)}
+                    placeholder="Tekst van de mededeling"
+                    rows={3}
+                    style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13.5, fontFamily: "inherit", resize: "vertical", marginBottom: 10, boxSizing: "border-box" }}
+                  />
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 8, cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={bewerkOnbeperkt}
+                      onChange={(e) => setBewerkOnbeperkt(e.target.checked)}
+                      style={{ width: 16, height: 16, cursor: "pointer" }}
+                    />
+                    Tot nader te bepalen
+                  </label>
+                  {!bewerkOnbeperkt && (
+                    <input
+                      type="date"
+                      value={bewerkZichtbaarTot}
+                      onChange={(e) => setBewerkZichtbaarTot(e.target.value)}
+                      style={{ display: "block", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 13.5, marginBottom: 10, boxSizing: "border-box" }}
+                    />
+                  )}
+                  {categorieen && categorieen.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+                      {categorieen.map((c) => {
+                        const gekozen = bewerkCategorieen.includes(c.waarde);
+                        return (
+                          <button
+                            key={c.waarde}
+                            onClick={() => toggleBewerkCategorie(c.waarde)}
+                            style={{
+                              padding: "6px 12px", borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+                              border: `1px solid ${gekozen ? KLEUR.blauw : KLEUR.rand}`,
+                              background: gekozen ? KLEUR.blauw : "#fff",
+                              color: gekozen ? "#fff" : KLEUR.tekst,
+                            }}
+                          >
+                            {c.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <button
+                      onClick={slaMededelingOp}
+                      disabled={!bewerkTitel.trim() || !bewerkTekst.trim() || bewerkMededelingStatus === "bezig"}
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: KLEUR.blauw,
+                        color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+                        opacity: !bewerkTitel.trim() || !bewerkTekst.trim() ? 0.5 : 1,
+                      }}
+                    >
+                      <Check size={13} /> {bewerkMededelingStatus === "bezig" ? "Opslaan..." : "Opslaan"}
+                    </button>
+                    <button
+                      onClick={annuleerBewerkMededeling}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+                    >
+                      <X size={13} /> Annuleren
+                    </button>
+                    {bewerkMededelingStatus === "fout" && <span style={{ fontSize: 12, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>}
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "10px 0", borderTop: `1px solid ${KLEUR.rand}`, opacity: verlopenStijl ? 0.7 : 1 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>{m.titel}</div>
+                  <div style={{ fontSize: 12, color: KLEUR.subtekst, marginTop: 2 }}>{m.tekst}</div>
+                  <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 6 }}>
+                    {(m.klantcategorieen?.length > 0
+                      ? m.klantcategorieen.map(labelVoorWaarde).join(", ")
+                      : "Alle klanten")}
+                    {" · "}
+                    <span style={{ color: verlopenStijl ? KLEUR.rood : KLEUR.mutedTekst }}>{zichtbaarTotLabel(m)}</span>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                  {!verlopenStijl && onHerschik && (
+                    <>
+                      <button
+                        onClick={() => onHerschik(index, -1)}
+                        disabled={index === 0}
+                        title="Omhoog"
+                        style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: index === 0 ? KLEUR.rand : KLEUR.subtekst, cursor: index === 0 ? "default" : "pointer" }}
+                      >
+                        <ArrowUp size={14} />
+                      </button>
+                      <button
+                        onClick={() => onHerschik(index, 1)}
+                        disabled={index === aantal - 1}
+                        title="Omlaag"
+                        style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: index === aantal - 1 ? KLEUR.rand : KLEUR.subtekst, cursor: index === aantal - 1 ? "default" : "pointer" }}
+                      >
+                        <ArrowDown size={14} />
+                      </button>
+                    </>
+                  )}
+                  <button
+                    onClick={() => beginBewerkMededeling(m)}
+                    title="Bewerken"
+                    style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: KLEUR.blauw, cursor: "pointer", flexShrink: 0 }}
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  <button
+                    onClick={() => verwijderMededeling(m.id)}
+                    title="Verwijderen"
+                    style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: KLEUR.rood, cursor: "pointer", flexShrink: 0 }}
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
               </div>
-              <button
-                onClick={() => verwijderMededeling(m.id)}
-                title="Verwijderen"
-                style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: KLEUR.rood, cursor: "pointer", flexShrink: 0 }}
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          );
+            );
+          };
 
           const sectieKnop = (open, setOpen, label, aantal) => (
             <button
@@ -1331,7 +1548,7 @@ export default function BeheerPortaal() {
                   <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, marginTop: 10 }}>Geen actieve mededelingen.</div>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", marginTop: 6 }}>
-                    {actief.map((m) => <MededelingRegel key={m.id} m={m} />)}
+                    {actief.map((m, i) => <MededelingRegel key={m.id} m={m} index={i} aantal={actief.length} onHerschik={herschikMededelingRegel} />)}
                   </div>
                 )
               )}
@@ -1455,6 +1672,69 @@ export default function BeheerPortaal() {
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {faqs.map((f, i) => {
                     if (term && ![f.vraag, f.antwoord].filter(Boolean).some((v) => v.toLowerCase().includes(term))) return null;
+
+                    if (faqBewerken === f.id) {
+                      return (
+                        <div key={f.id} style={{ padding: "10px 0", borderTop: `1px solid ${KLEUR.rand}` }}>
+                          <input
+                            type="text"
+                            value={bewerkVraag}
+                            onChange={(e) => setBewerkVraag(e.target.value)}
+                            placeholder="Vraag"
+                            style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13.5, marginBottom: 10, boxSizing: "border-box" }}
+                          />
+                          <textarea
+                            value={bewerkAntwoord}
+                            onChange={(e) => setBewerkAntwoord(e.target.value)}
+                            placeholder="Antwoord"
+                            rows={3}
+                            style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13.5, fontFamily: "inherit", resize: "vertical", marginBottom: 10, boxSizing: "border-box" }}
+                          />
+                          {categorieen && categorieen.length > 0 && (
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+                              {categorieen.map((c) => {
+                                const gekozen = bewerkFaqCategorieen.includes(c.waarde);
+                                return (
+                                  <button
+                                    key={c.waarde}
+                                    onClick={() => toggleBewerkFaqCategorie(c.waarde)}
+                                    style={{
+                                      padding: "6px 12px", borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+                                      border: `1px solid ${gekozen ? KLEUR.blauw : KLEUR.rand}`,
+                                      background: gekozen ? KLEUR.blauw : "#fff",
+                                      color: gekozen ? "#fff" : KLEUR.tekst,
+                                    }}
+                                  >
+                                    {c.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                            <button
+                              onClick={slaFaqOp}
+                              disabled={!bewerkVraag.trim() || !bewerkAntwoord.trim() || bewerkFaqStatus === "bezig"}
+                              style={{
+                                display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: KLEUR.blauw,
+                                color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+                                opacity: !bewerkVraag.trim() || !bewerkAntwoord.trim() ? 0.5 : 1,
+                              }}
+                            >
+                              <Check size={13} /> {bewerkFaqStatus === "bezig" ? "Opslaan..." : "Opslaan"}
+                            </button>
+                            <button
+                              onClick={annuleerBewerkFaq}
+                              style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+                            >
+                              <X size={13} /> Annuleren
+                            </button>
+                            {bewerkFaqStatus === "fout" && <span style={{ fontSize: 12, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>}
+                          </div>
+                        </div>
+                      );
+                    }
+
                     return (
                       <div key={f.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "10px 0", borderTop: `1px solid ${KLEUR.rand}` }}>
                         <div style={{ minWidth: 0 }}>
@@ -1475,6 +1755,9 @@ export default function BeheerPortaal() {
                               </button>
                             </>
                           )}
+                          <button onClick={() => beginBewerkFaq(f)} title="Bewerken" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: KLEUR.blauw, cursor: "pointer" }}>
+                            <Pencil size={14} />
+                          </button>
                           <button onClick={() => verwijderFaq(f.id)} title="Verwijderen" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: KLEUR.rood, cursor: "pointer" }}>
                             <Trash2 size={14} />
                           </button>
@@ -1937,14 +2220,32 @@ export default function BeheerPortaal() {
           <div style={{ fontSize: 12.5, color: KLEUR.rood }}>Geen klanten gevonden (controleer de Dynamics-koppeling).</div>
         ) : (
           <>
-            <div style={{ position: "relative", marginBottom: 12, maxWidth: 320 }}>
-              <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
-              <input
-                value={facturatieZoek}
-                onChange={(e) => setFacturatieZoek(e.target.value)}
-                placeholder="Zoek klant…"
-                style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 32px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}
-              />
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginBottom: 12 }}>
+              <div style={{ position: "relative", maxWidth: 320, flex: "1 1 220px" }}>
+                <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+                <input
+                  value={facturatieZoek}
+                  onChange={(e) => setFacturatieZoek(e.target.value)}
+                  placeholder="Zoek klant…"
+                  style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 32px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}
+                />
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {[["alle", "Alle"], ["aan", "Aan"], ["uit", "Uit"]].map(([v, lbl]) => (
+                  <button
+                    key={v}
+                    onClick={() => setFacturatieStatusFilter(v)}
+                    style={{
+                      padding: "7px 12px", borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+                      border: `1px solid ${facturatieStatusFilter === v ? KLEUR.blauw : KLEUR.rand}`,
+                      background: facturatieStatusFilter === v ? KLEUR.blauw : "#fff",
+                      color: facturatieStatusFilter === v ? "#fff" : KLEUR.subtekst,
+                    }}
+                  >
+                    {lbl}
+                  </button>
+                ))}
+              </div>
             </div>
             <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 8 }}>
               {Object.values(facturatieStatussen).filter((s) => s && s.ingeschakeld).length} van {facturatieKlanten.length} klanten ingeschakeld
@@ -1958,6 +2259,11 @@ export default function BeheerPortaal() {
                 .filter((k) => {
                   const q = facturatieZoek.trim().toLowerCase();
                   return !q || (k.klantnaam || "").toLowerCase().includes(q) || String(k.klantnummer || "").toLowerCase().includes(q);
+                })
+                .filter((k) => {
+                  if (facturatieStatusFilter === "alle") return true;
+                  const aan = !!(facturatieStatussen[k.accountId] && facturatieStatussen[k.accountId].ingeschakeld);
+                  return facturatieStatusFilter === "aan" ? aan : !aan;
                 })
                 .slice()
                 .sort((a, b) => {
