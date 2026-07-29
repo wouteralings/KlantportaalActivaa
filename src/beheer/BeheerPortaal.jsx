@@ -164,6 +164,7 @@ export default function BeheerPortaal() {
   const [medewerkerZoek, setMedewerkerZoek] = useState("");
   const [inzageLog, setInzageLog] = useState(null); // null = laden; audit-log "meekijken als klant"
   const [inzageLogZoek, setInzageLogZoek] = useState("");
+  const [inzageLogToonAantal, setInzageLogToonAantal] = useState(50);
 
   // Klantoverzicht-kolommen (medewerkersportaal): extra velden + standaard verborgen kolommen.
   const [koExtra, setKoExtra] = useState([]); // [{ veld, label, type }]
@@ -2215,30 +2216,56 @@ export default function BeheerPortaal() {
             </div>
             {inzageLog.length === 0 ? (
               <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Nog niemand heeft als klant meegekeken.</div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", maxHeight: 360, overflowY: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
-                {inzageLog
-                  .filter((item) => {
-                    const q = inzageLogZoek.trim().toLowerCase();
-                    if (!q) return true;
-                    return [item.medewerkerNaam, item.medewerkerEmail, item.klantnaam, String(item.klantnummer ?? "")]
-                      .filter(Boolean)
-                      .some((v) => v.toLowerCase().includes(q));
-                  })
-                  .slice(0, 200)
-                  .map((item, i) => (
-                    <div key={item.id || i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, fontSize: 12.5 }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <strong>{item.medewerkerNaam || item.medewerkerEmail}</strong> keek mee als <strong>{item.klantnaam || "onbekende klant"}</strong>
-                        {item.klantnummer ? ` (${item.klantnummer})` : ""}
+            ) : (() => {
+              const gefilterdInzageLog = inzageLog.filter((item) => {
+                const q = inzageLogZoek.trim().toLowerCase();
+                if (!q) return true;
+                return [item.medewerkerNaam, item.medewerkerEmail, item.klantnaam, String(item.klantnummer ?? "")]
+                  .filter(Boolean)
+                  .some((v) => v.toLowerCase().includes(q));
+              });
+              const zichtbaarInzageLog = gefilterdInzageLog.slice(0, inzageLogToonAantal);
+              return (
+                <>
+                  <div style={{ display: "flex", flexDirection: "column", maxHeight: 360, overflowY: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
+                    {zichtbaarInzageLog.map((item, i) => (
+                      <div key={item.id || i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, fontSize: 12.5 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <strong>{item.medewerkerNaam || item.medewerkerEmail}</strong> keek mee als <strong>{item.klantnaam || "onbekende klant"}</strong>
+                          {item.klantnummer ? ` (${item.klantnummer})` : ""}
+                        </div>
+                        <div style={{ color: KLEUR.mutedTekst, whiteSpace: "nowrap" }}>
+                          {item.tijdstip ? new Date(item.tijdstip).toLocaleString("nl-NL") : ""}
+                        </div>
                       </div>
-                      <div style={{ color: KLEUR.mutedTekst, whiteSpace: "nowrap" }}>
-                        {item.tijdstip ? new Date(item.tijdstip).toLocaleString("nl-NL") : ""}
-                      </div>
+                    ))}
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+                    <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>
+                      {Math.min(inzageLogToonAantal, gefilterdInzageLog.length)} van {gefilterdInzageLog.length} getoond
                     </div>
-                  ))}
-              </div>
-            )}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, flexWrap: "wrap" }}>
+                      <span style={{ color: KLEUR.mutedTekst }}>Toon:</span>
+                      {[[25, "25"], [50, "50"], [100, "100"], [250, "250"], [500, "500"], [Infinity, "Alle"]].map(([n, lbl]) => (
+                        <button
+                          key={lbl}
+                          onClick={() => setInzageLogToonAantal(n)}
+                          style={{
+                            padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                            border: `1px solid ${inzageLogToonAantal === n ? KLEUR.blauw : KLEUR.rand}`,
+                            background: inzageLogToonAantal === n ? KLEUR.blauw : "#fff",
+                            color: inzageLogToonAantal === n ? "#fff" : KLEUR.subtekst,
+                          }}
+                        >
+                          {lbl}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
           </>
         )}
         </>)}
