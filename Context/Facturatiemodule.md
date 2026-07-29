@@ -1010,3 +1010,30 @@ echt tegen de live database uitgevoerd worden — dat gebeurt niet automatisch b
 het overwegen waard zijn om hier een simpele checklist/reminder voor te hebben (bijv. een sectie
 in dit bestand die per migratie bijhoudt of hij al gedraaid is), zodat dit niet nog een keer
 onopgemerkt blijft staan.
+
+## Conceptfacturen/-offertes verwijderen + logo op de PDF krijgt meer ruimte (29-07-2026, vervolgsessie)
+
+Twee losse verzoeken van Wouter: *"Ik wil concept facturen ook kunnen verwijderen."* en
+*"pdf factuur het logo meer ruimte geven, nu valt logo over bedrijfsnaam heen."*
+
+**Concepten verwijderen**: de backend ondersteunde dit al volledig (`DELETE
+/api/facturen-klanten?accountId=...&id=...` → `verwijderFactuur()` in `facturenKlanten.js`, met
+een server-side guard die alleen `status === "concept"` toestaat en anders een
+`VALIDATIE`-fout geeft) — er was alleen geen knop in de UI. Toegevoegd in `DocumentenTab`
+(`FacturatieModule.jsx`): een rode prullenbak-knop naast het bewerk-potloodje, alleen zichtbaar
+bij concepten, met een bevestigingsdialoog (`window.confirm`) — zelfde patroon als het al
+bestaande "abonnement verwijderen" in `AbonnementenTab`. Geen backend-wijziging nodig.
+
+**Logo over bedrijfsnaam heen op de PDF**: in `facturenPdf.js` liet de code na het tekenen van
+het logo maar 8pt ruimte vóór de bedrijfsnaam-tekst (`y -= logoHoogte + 8`). Bij 13pt vetgedrukte
+tekst steekt de ascender van de letters echter ~9-10pt boven de tekst-baseline uit — dus de
+bedrijfsnaam kwam in de praktijk net ín het logo te hangen in plaats van eronder. Aangepast naar
+`+ 16` (gelijk aan de regelafstand die verderop al tussen bedrijfsnaam en adres gebruikt wordt),
+wat ruim voldoende lucht geeft.
+
+Geverifieerd: `npx vite build` (1913 modules) en `npx oxlint` op beide bestanden, geen nieuwe
+fouten/waarschuwingen. Voor het logo een los testscript met `media.js` gemockt (eerst een te
+kleine 2×1-testafbeelding geprobeerd — te klein om iets te tonen — daarna een realistische
+400×120 blauwe testafbeelding) + `pdftoppm` om de PDF naar een PNG te renderen en visueel te
+controleren: met de oude `+8` hing de bedrijfsnaam zichtbaar tegen/in het logo, met de nieuwe
+`+16` staat er duidelijke witruimte tussen logo en bedrijfsnaam.
