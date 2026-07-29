@@ -1032,6 +1032,7 @@ function DocumentenTab({ accountId, documenttype, klanten, artikelen, tarieven, 
   const [actief, setActief] = useState(null);
   const [statusFilter, setStatusFilter] = useState("alle");
   const [actieFout, setActieFout] = useState("");
+  const [actieBezigId, setActieBezigId] = useState(null);
 
   const naam = documenttype === "offerte" ? "offerte" : "factuur";
   const naamMv = documenttype === "offerte" ? "offertes" : "facturen";
@@ -1070,6 +1071,21 @@ function DocumentenTab({ accountId, documenttype, klanten, artikelen, tarieven, 
       setActieFout(e.message || String(e));
       setActief({ ...document, _bezig: false });
     }
+  };
+
+  // Alleen concepten mogen verwijderd worden (zodra een document verstuurd/genummerd is,
+  // blijft het bewaard — annuleren is dan de juiste actie, zie voerActieUit "annuleren").
+  const verwijderDocument = async (document) => {
+    if (!window.confirm(`Concept${document.nummer ? ` "${document.nummer}"` : ""} verwijderen? Dit kan niet ongedaan worden gemaakt.`)) return;
+    setActieBezigId(document.id);
+    setActieFout("");
+    try {
+      await haalJson(await fetch(`/api/facturen-klanten?accountId=${encodeURIComponent(accountId)}&id=${document.id}`, { method: "DELETE" }));
+      verversen();
+    } catch (e) {
+      setActieFout(e.message || String(e));
+    }
+    setActieBezigId(null);
   };
 
   // Na het versturen (vanuit het formulier zelf, zie DocumentFormulier) is het geen concept
@@ -1154,7 +1170,7 @@ function DocumentenTab({ accountId, documenttype, klanten, artikelen, tarieven, 
         <Knop variant="primair" icon={Plus} onClick={() => setWeergave("nieuw")}>Nieuwe {naam}</Knop>
       </div>
 
-      <Melding tekst={foutmelding} />
+      <Melding tekst={foutmelding || actieFout} />
 
       {status === "laden" && <LegeStaat tekst="Laden…" />}
       {status === "klaar" && gefilterd.length === 0 && <LegeStaat tekst={`Nog geen ${naamMv}.`} />}
@@ -1171,11 +1187,16 @@ function DocumentenTab({ accountId, documenttype, klanten, artikelen, tarieven, 
               <div>{datum(d.vervaldatum)}</div>
               <div>{geld(d.totaal)}</div>
               <div><StatusBadge status={d.status} /></div>
-              <div style={{ display: "flex", gap: 6 }}>
+              <div style={{ display: "flex", gap: 10 }}>
                 {d.status === "concept" ? (
-                  <button onClick={() => { setActief(d); setWeergave("bewerken"); }} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.blauw, display: "flex" }} title="Bewerken">
-                    <Pencil size={14} />
-                  </button>
+                  <>
+                    <button onClick={() => { setActief(d); setWeergave("bewerken"); }} disabled={actieBezigId === d.id} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.blauw, display: "flex" }} title="Bewerken">
+                      <Pencil size={14} />
+                    </button>
+                    <button onClick={() => verwijderDocument(d)} disabled={actieBezigId === d.id} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.rood, display: "flex" }} title="Verwijderen">
+                      <Trash2 size={14} />
+                    </button>
+                  </>
                 ) : (
                   <button onClick={() => { setActief(d); setWeergave("detail"); }} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.blauw, fontSize: 12, fontWeight: 600 }}>
                     Bekijken

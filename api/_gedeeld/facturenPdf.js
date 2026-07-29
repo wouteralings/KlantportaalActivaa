@@ -133,7 +133,11 @@ async function genereerFactuurPdf({ document: doc, klant, bedrijfsgegevens, docu
     const logoBreedte = logoAfbeelding.width * schaal;
     const logoHoogte = logoAfbeelding.height * schaal;
     page.drawImage(logoAfbeelding, { x: marge, y: y - logoHoogte, width: logoBreedte, height: logoHoogte });
-    y -= logoHoogte + 8;
+    // 8pt bleek te weinig: bij 13pt bold-tekst steekt de ascender ~9-10pt boven de baseline uit,
+    // dus de bedrijfsnaam ging visueel over de onderrand van het logo heen (feedback Wouter,
+    // 29-07-2026). 16pt geeft ruim voldoende lucht, gelijk aan de regelafstand die verderop al
+    // gebruikt wordt tussen de bedrijfsnaam en het adres.
+    y -= logoHoogte + 16;
   }
   if (bg.bedrijfsnaam) tekst(bg.bedrijfsnaam, marge, 13, { f: bold });
   y -= 16;
