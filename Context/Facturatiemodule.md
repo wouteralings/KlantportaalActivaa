@@ -1059,3 +1059,55 @@ Na deze twee fixes gaf een handmatige testrun een 200 met `{"verwerkt": 0, "misl
 abonnementen automatisch verwerkt. **Hiermee is de laatste openstaande configuratiestap voor de
 facturatiemodule afgerond** — geen codewijziging nodig geweest, puur Azure/Power
 Automate-configuratie.
+
+## Standaardwaarden voor nieuwe facturen: betalingstermijn, BTW-code, factuurtekst (29-07-2026, vervolgsessie)
+
+Verzoek van Wouter: *"Kan je nu standaardwaarden bouwen die de klant kan instellen. Dit moet
+onthouden worden. Dus betalingstermijn btw code. Factuurteksten."* — dit was al een tijdje een
+"NOG NIET GEBOUWD"-placeholderkaart bij Instellingen (`Sliders`-icoon, tekst "Standaard
+betalingstermijn, btw-percentage en factuurteksten instellen"), nu echt gebouwd.
+
+**Migratie 007** (`db/migrations/007_bedrijfsgegevens_standaardwaarden.sql`) voegt drie kolommen
+toe aan `dbo.bedrijfsgegevens_klanten` (zelfde tabel als cc_email/logo — een eigen voorkeur, geen
+verificatiegegeven, dus geen goedkeuring nodig): `standaard_betalingstermijn` (INT, NULL = geen
+voorkeur), `standaard_btw_code` (NVARCHAR(20)), `standaard_factuurtekst` (NVARCHAR(MAX)). **Let
+op: deze migratie moet nog handmatig tegen de live database gedraaid worden** (zelfde
+"Uitvoeren in de Query-editor"-stap als migratie 006 — en gezien wat daar recent misging, dit
+keer meteen even bevestigen dat de kolommen er staan voordat het als "klaar" wordt gemeld).
+
+**Backend**: `bedrijfsgegevensKlanten.js` — `naarBuiten()`/`LEEG` geven de drie nieuwe velden nu
+mee; `zetGegevens()` slaat ze op (met dezelfde partial-update-logica als de rest: alleen
+meegegeven velden wijzigen, de rest blijft staan — inclusief een aparte terugval voor
+`standaardBetalingstermijn` omdat `null` daar een geldige, betekenisvolle waarde is en niet als
+"niet meegegeven" behandeld mag worden). `api/bedrijfsgegevens-klanten/index.js`'s PUT-handler
+accepteert nu naast `ccEmail` ook `standaardBetalingstermijn`/`standaardBtwCode`/
+`standaardFactuurtekst` — los of samen aan te roepen, met validatie (betalingstermijn 1-365 dagen
+of leeg, factuurtekst max 4000 tekens).
+
+**Frontend**: nieuwe kaart `StandaardwaardenKaart` in de Instellingen-tab (naast Bedrijfsgegevens
+en vóór de nog-niet-gebouwde Mollie/Herinneringen-kaarten), met een dropdown voor de
+betalingstermijn, een dropdown voor de standaard BTW-code (gevuld vanuit de al bestaande
+BTW-tarievenlijst, dezelfde `tarieven`-prop als het factuurformulier), en een tekstveld voor de
+standaard factuurtekst. Direct zelf op te slaan, zonder goedkeuring.
+
+Deze standaardwaarden vullen alleen een NIEUW document voor (`DocumentFormulier`, dus zowel een
+losse factuur/offerte als het aanmaken van een nieuw abonnement) — per document blijft alles
+gewoon aan te passen, en een al bestaand concept behoudt zijn eigen eerder opgeslagen waarde
+(fallback-volgorde: eigen waarde van het document → ingestelde standaardwaarde → hardgecodeerde
+fallback zoals voorheen: 30 dagen / "hoog" / leeg). `LEGE_REGEL()` (de fabrieksfunctie voor een
+nieuwe factuurregel) kreeg hiervoor een optioneel `(standaardBtwCode, tarieven)`-argument, met een
+veilige terugval naar "hoog"/21% als er geen standaard is ingesteld of de ingestelde code niet
+meer in de tarievenlijst voorkomt. Bewust NIET doorgevoerd in `AbonnementFormulier` (het bewerken
+van een al bestaand abonnement) — dat is een edit-only formulier waar dit minder relevant is, en
+het zou extra prop-doorgeefwerk vragen voor weinig winst.
+
+Geverifieerd: een los testscript (SQL-pool gemockt) voor `zetGegevens()` — lege standaardwaarden
+voor een vers account, opslaan zonder bestaande rij (INSERT-pad), een ongerelateerde wijziging
+(bijv. bedrijfsnaam) die de standaardwaarden met rust laat (UPDATE-pad regressietest), en
+`standaardBetalingstermijn` weer expliciet terug naar `null` zetten — alle vijf slagen. Een tweede
+testscript voor de PUT-endpointvalidatie (accountId/toegang gemockt): alleen standaardwaarden
+meegeven laat ccEmail met rust en omgekeerd, 0 of >365 dagen wordt geweigerd, een lege body wordt
+geweigerd, een te lange factuurtekst wordt geweigerd — alle zes slagen. Losse Node-tests voor de
+fallback-ketens van `betalingstermijnDagen`/`opmerkingen`/`LEGE_REGEL` (bestaand document >
+standaardwaarde > hardgecodeerde fallback) — alle vijf slagen. `npx vite build` (1913 modules) en
+`npx oxlint` op alle gewijzigde bestanden: geen nieuwe fouten/waarschuwingen.
