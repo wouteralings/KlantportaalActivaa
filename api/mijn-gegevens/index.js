@@ -64,6 +64,8 @@ module.exports = async function (context, req) {
           facturatieAangevraagdOp: (facturatieStatussen[accountId] && facturatieStatussen[accountId].aangevraagdOp) || null,
           urenIngeschakeld: !!(urenStatussen[accountId] && urenStatussen[accountId].ingeschakeld),
           urenAangevraagdOp: (urenStatussen[accountId] && urenStatussen[accountId].aangevraagdOp) || null,
+          // Klant-voorkeur: snelknop "Uren registreren" op de homepagina tonen (zie /api/uren-instelling).
+          toonUrenOpHome: !!(urenStatussen[accountId] && urenStatussen[accountId].toonOpHome),
         })),
       },
     };

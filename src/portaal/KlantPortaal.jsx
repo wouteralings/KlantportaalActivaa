@@ -86,6 +86,10 @@ export default function KlantPortaal() {
   const [ingelogd, setIngelogd] = useState(null); // null = nog aan het checken
   const [gebruiker, setGebruiker] = useState(null);
   const [tab, setTab] = useState("home");
+  // Waar de Administratie-tab op opent: standaard "facturen", maar de snelknop op Home zet 'm op
+  // "uren" zodat je direct in de urenregistratie belandt. Wordt bij een handmatige tabklik weer
+  // teruggezet (zie de Tabs-wrapper hieronder).
+  const [adminInitieelSubtab, setAdminInitieelSubtab] = useState("facturen");
   const [fout, setFout] = useState("");
   // Actief zodra een medewerker (met het als-klant-recht) vanuit het medewerkersportaal
   // "Bekijk als klant" heeft gekozen — zie src/meekijken.js. Alleen-lezen, zie de fetch-
@@ -423,6 +427,10 @@ export default function KlantPortaal() {
   // hele tab te verbergen (anders kan een klant het nooit aanvragen). Welke accounts
   // daadwerkelijk mogen werken met facturen bepaalt de module verderop zelf.
   const alleAccounts = mijnGegevens?.accounts || [];
+  // Snelknop "Uren registreren" op Home: alleen als minstens één administratie de urenregistratie
+  // aan heeft én de klant die snelknop daar heeft aangezet (Administratie → Instellingen).
+  const kanUrenSnel = !meekijkSessie && alleAccounts.some((a) => a.urenIngeschakeld && a.toonUrenOpHome);
+  const gaNaarUrenRegistratie = () => { setAdminInitieelSubtab("uren"); setTab("facturen"); };
   const zichtbareTabs = (alleAccounts.length > 0
     ? [...TABS.slice(0, 3), FACTUREN_TAB, ...TABS.slice(3)]
     : TABS
@@ -462,7 +470,7 @@ export default function KlantPortaal() {
           </button>
         </div>
       )}
-      <Tabs tab={tab} setTab={setTab} tabs={zichtbareTabs} />
+      <Tabs tab={tab} setTab={(k) => { setAdminInitieelSubtab("facturen"); setTab(k); }} tabs={zichtbareTabs} />
 
       {fout && <Foutmelding tekst={fout} onSluiten={() => setFout("")} />}
 
@@ -475,6 +483,19 @@ export default function KlantPortaal() {
 
       {tab === "home" && (
         <>
+          {kanUrenSnel && (
+            <div style={{ marginBottom: 22 }}>
+              <button
+                onClick={gaNaarUrenRegistratie}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 8, padding: "11px 18px", borderRadius: 9,
+                  background: KLEUR.blauw, color: "#fff", border: "none", cursor: "pointer", fontSize: 14, fontWeight: 700,
+                }}
+              >
+                <Clock size={17} /> Uren registreren
+              </button>
+            </div>
+          )}
           <Kopje tekst="Open taken" />
           <TabTaken data={taken} gebruiker={gebruiker} onAkkoord={geefAkkoord} onNietAkkoord={geefNietAkkoord} onOndertekenen={geefHandtekening} alleenLezen={!!meekijkSessie} />
 
@@ -514,7 +535,7 @@ export default function KlantPortaal() {
           onEntiteitWijzigen={wijzigEntiteit}
         />
       )}
-      {tab === "facturen" && <FacturatieModule accounts={alleAccounts} prijs={facturatiemodulePrijs} alleenLezen={!!meekijkSessie} />}
+      {tab === "facturen" && <FacturatieModule accounts={alleAccounts} prijs={facturatiemodulePrijs} alleenLezen={!!meekijkSessie} initieelSubtab={adminInitieelSubtab} />}
       {tab === "faq" && <TabFaq content={content} teamsChatUrl={teamsChatUrl} whatsappUrl={whatsappUrl} copilotEmbedUrl={copilotEmbedUrl} />}
       {tab === "review" && <TabReview onVerzenden={verstuurReview} alleenLezen={!!meekijkSessie} />}
     </div>

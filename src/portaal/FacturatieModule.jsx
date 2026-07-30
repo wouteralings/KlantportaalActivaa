@@ -2551,11 +2551,58 @@ function StandaardwaardenKaart({ accountId, bedrijfsgegevens, tarieven, artikele
   );
 }
 
+/** Klant-voorkeur: een snelknop "Uren registreren" op de homepagina tonen. Alleen relevant (en
+ * getoond) als de urenregistratie voor dit account aan staat. Slaat direct op via /api/uren-instelling. */
+function UrenHomeKaart({ account }) {
+  const [aan, setAan] = useState(!!account.toonUrenOpHome);
+  const [status, setStatus] = useState("idle"); // idle | bezig | fout
+
+  const zet = async (nieuw) => {
+    setAan(nieuw);
+    setStatus("bezig");
+    try {
+      await haalJson(await fetch("/api/uren-instelling", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId: account.accountId, toonOpHome: nieuw }),
+      }));
+      setStatus("idle");
+    } catch {
+      setAan(!nieuw);
+      setStatus("fout");
+    }
+  };
+
+  return (
+    <div style={kaartStijl}>
+      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Urenregistratie op de homepagina</div>
+      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 12, maxWidth: 620 }}>
+        Toon een snelknop <strong>"Uren registreren"</strong> op je Home-pagina, zodat je snel uren kunt vastleggen
+        zonder eerst naar deze tab te gaan.
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <button
+          type="button"
+          onClick={() => zet(!aan)}
+          disabled={status === "bezig"}
+          title={aan ? "Snelknop verbergen" : "Snelknop tonen"}
+          style={{ position: "relative", width: 40, height: 22, borderRadius: 20, border: "none", cursor: status === "bezig" ? "default" : "pointer", background: aan ? KLEUR.blauw : KLEUR.rand, flexShrink: 0, transition: "background .15s" }}
+        >
+          <span style={{ position: "absolute", top: 2, left: aan ? 20 : 2, width: 18, height: 18, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 2px rgba(0,0,0,.25)", transition: "left .15s" }} />
+        </button>
+        <span style={{ fontSize: 13.5 }}>Snelknop op Home tonen</span>
+      </div>
+      {status === "fout" && <div style={{ fontSize: 12, color: KLEUR.rood, marginTop: 8 }}>Opslaan mislukt, probeer het nog eens.</div>}
+    </div>
+  );
+}
+
 function InstellingenTab({ accountId, bedrijfsgegevens, andereAccounts, account, eigenVerzoeken, verversVerzoeken, tarieven, artikelen }) {
   return (
     <div>
       <BedrijfsgegevensKaart accountId={accountId} bedrijfsgegevens={bedrijfsgegevens} andereAccounts={andereAccounts} account={account} eigenVerzoeken={eigenVerzoeken} verversVerzoeken={verversVerzoeken} />
       <StandaardwaardenKaart accountId={accountId} bedrijfsgegevens={bedrijfsgegevens} tarieven={tarieven} artikelen={artikelen} />
+      {account.urenIngeschakeld && <UrenHomeKaart account={account} />}
       <NogNietGebouwdKaart icon={CreditCard} titel="Mollie & betalingen" tekst="Koppeling met Mollie zodat klanten van jouw klanten direct kunnen betalen vanaf de factuur." />
       <NogNietGebouwdKaart icon={Bell} titel="Herinneringen & e-mailsjablonen" tekst="Automatische betalingsherinneringen; de teksten worden centraal beheerd door Activaa." />
     </div>
@@ -2578,9 +2625,9 @@ const SUBTABS = [
   { key: "instellingen", label: "Instellingen", icon: Settings },
 ];
 
-function FacturatieAccountInhoud({ account, andereAccounts, alleenLezen = false }) {
+function FacturatieAccountInhoud({ account, andereAccounts, alleenLezen = false, initieelSubtab }) {
   const accountId = account.accountId;
-  const [subtab, setSubtab] = useState("facturen");
+  const [subtab, setSubtab] = useState(initieelSubtab || "facturen");
 
   const klantenData = useKlanten(accountId);
   const artikelenData = useArtikelen(accountId);
@@ -2739,36 +2786,17 @@ function FacturatieAccountInhoud({ account, andereAccounts, alleenLezen = false 
   );
 }
 
-/** Uitleg + prijs van de facturatiemodule — één keer bovenaan de sectie "Niet actief" bij
- * meerdere klantaccounts, zodat een klant dit niet per account hoeft open te klikken. */
-function FacturatiemoduleUitlegBanner({ prijs }) {
-  return (
-    <div style={{
-      display: "flex", alignItems: "flex-start", gap: 10, padding: "14px 16px", marginBottom: 10,
-      background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 10,
-    }}>
-      <Lock size={15} color={KLEUR.mutedTekst} style={{ marginTop: 2, flexShrink: 0 }} />
-      <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>
-        <strong style={{ color: KLEUR.tekst }}>Facturatiemodule nog niet actief voor deze klantaccounts.</strong>{" "}
-        Hiermee kun je zelf facturen en offertes opstellen aan je eigen klanten, met een eigen productencatalogus,
-        eigen bedrijfsgegevens/logo en automatische doorlopende nummering. Deze module kost <strong>{geld(prijs)} per maand</strong> per
-        klantaccount.
-      </div>
-    </div>
-  );
-}
-
-/** Kaart voor een gekoppeld klantaccount waarvoor de facturatiemodule nog niet aan staat —
- * i.p.v. de tab helemaal te verbergen (dan zou een klant het nooit kunnen aanvragen).
- * toonUitleg=false laat de kop/uitleg/prijs weg — gebruikt binnen de sectie "Niet actief"
- * (meerdere accounts), waar FacturatiemoduleUitlegBanner die uitleg al één keer toont. */
-function FacturatieNietActief({ account, prijs, toonUitleg = true }) {
-  const [status, setStatus] = useState(account.facturatieAangevraagdOp ? "aangevraagd" : "idle"); // idle | bezig | aangevraagd | fout
+/** Eén regel in het "Beschikbare functies"-overzicht: naam, prijs, uitleg en — als de functie nog
+ * niet aan staat — een aanvraagknop. Zo weet een klant welke (betaalde) functies er zijn, óók als
+ * er nog niets aan staat. Nieuwe functies toevoegen = een item toevoegen in FunctiesOverzicht. */
+function BetaaldeFunctieRij({ account, functie }) {
+  const Icon = functie.icon;
+  const [status, setStatus] = useState(functie.aangevraagdOp ? "aangevraagd" : "idle"); // idle | bezig | aangevraagd | fout
 
   const vraagAan = async () => {
     setStatus("bezig");
     try {
-      await haalJson(await fetch("/api/facturatie-aanvraag", {
+      await haalJson(await fetch(functie.aanvraagUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accountId: account.accountId }),
@@ -2780,39 +2808,106 @@ function FacturatieNietActief({ account, prijs, toonUitleg = true }) {
   };
 
   return (
-    <div style={{ padding: "18px 20px" }}>
-      {toonUitleg && (
-        <>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <Lock size={15} color={KLEUR.mutedTekst} />
-            <div style={{ fontSize: 14, fontWeight: 700 }}>Facturatiemodule nog niet actief voor dit klantaccount</div>
-          </div>
-          <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 16, maxWidth: 560 }}>
-            Hiermee kun je zelf facturen en offertes opstellen aan je eigen klanten, met een eigen productencatalogus,
-            eigen bedrijfsgegevens/logo en automatische doorlopende nummering. Deze module kost <strong>{geld(prijs)} per maand</strong> per
-            klantaccount.
-          </div>
-        </>
-      )}
-      {status === "aangevraagd" ? (
-        <div style={{ fontSize: 12.5, color: KLEUR.blauw, display: "flex", alignItems: "center", gap: 6 }}>
-          <Clock size={13} />
-          Aangevraagd{account.facturatieAangevraagdOp ? ` op ${datum(account.facturatieAangevraagdOp)}` : ""} — we nemen contact met je op.
+    <div style={{ display: "flex", gap: 12, padding: "14px 0", borderTop: `1px solid ${KLEUR.rand}` }}>
+      <div style={{ flexShrink: 0, width: 34, height: 34, borderRadius: 8, background: KLEUR.lichtblauw, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Icon size={17} color={KLEUR.blauw} />
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 14, fontWeight: 700 }}>{functie.naam}</span>
+          <span style={{ fontSize: 12, color: KLEUR.mutedTekst }}>{geld(functie.prijs)} per maand</span>
+          {functie.ingeschakeld && (
+            <span style={{ fontSize: 11, fontWeight: 700, color: KLEUR.groen, background: "#E7F3EB", borderRadius: 20, padding: "2px 9px" }}>Actief</span>
+          )}
         </div>
-      ) : (
-        <Knop variant="primair" onClick={vraagAan} disabled={status === "bezig"}>
-          {status === "bezig" ? "Bezig…" : "Vraag facturatiemodule aan"}
-        </Knop>
-      )}
-      {status === "fout" && <div style={{ marginTop: 10 }}><Melding tekst="Aanvragen is niet gelukt, probeer het nog eens." /></div>}
+        <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginTop: 3, maxWidth: 620 }}>{functie.beschrijving}</div>
+        {functie.vereistTekst && !functie.ingeschakeld && (
+          <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4, fontStyle: "italic" }}>{functie.vereistTekst}</div>
+        )}
+        {!functie.ingeschakeld && (
+          <div style={{ marginTop: 8 }}>
+            {status === "aangevraagd" ? (
+              <div style={{ fontSize: 12.5, color: KLEUR.blauw, display: "flex", alignItems: "center", gap: 6 }}>
+                <Clock size={13} /> Aangevraagd{functie.aangevraagdOp ? ` op ${datum(functie.aangevraagdOp)}` : ""} — we nemen contact met je op.
+              </div>
+            ) : (
+              <Knop variant="primair" onClick={vraagAan} disabled={status === "bezig"}>
+                {status === "bezig" ? "Bezig…" : "Aanvragen"}
+              </Knop>
+            )}
+            {status === "fout" && <div style={{ marginTop: 8 }}><Melding tekst="Aanvragen is niet gelukt, probeer het nog eens." /></div>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Overzicht van alle beschikbare (betaalde) functies voor één klant-account, met per functie de
+ * status (actief / aangevraagd / aan te vragen). Getoond zodra de Facturatiemodule voor dit account
+ * nog niet aan staat — zo weet de klant altijd wélke functies er zijn en kan hij ze aanvragen, ook
+ * als er nog niets aan staat. */
+function FunctiesOverzicht({ account, facturatiePrijs }) {
+  const functies = [
+    {
+      id: "facturatie",
+      naam: "Facturatiemodule",
+      icon: FileText,
+      prijs: facturatiePrijs,
+      beschrijving: "Stel zelf facturen, offertes en creditnota's op aan je eigen klanten — met een eigen productencatalogus, bedrijfsgegevens en logo, automatische doorlopende nummering, terugkerende facturen en een echte PDF per e-mail.",
+      aanvraagUrl: "/api/facturatie-aanvraag",
+      ingeschakeld: account.facturatieIngeschakeld,
+      aangevraagdOp: account.facturatieAangevraagdOp,
+    },
+    {
+      id: "uren",
+      naam: "Urenregistratie",
+      icon: Clock,
+      prijs: UREN_MODULE_PRIJS,
+      beschrijving: "Registreer losse uren per klant en zet je openstaande uren in één klik op een factuur.",
+      aanvraagUrl: "/api/uren-aanvraag",
+      ingeschakeld: account.urenIngeschakeld,
+      aangevraagdOp: account.urenAangevraagdOp,
+      vereistTekst: account.facturatieIngeschakeld ? null : "Werkt samen met de Facturatiemodule — die moet ook aan staan.",
+    },
+  ];
+
+  return (
+    <div style={{ ...kaartStijl, marginBottom: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <Lock size={15} color={KLEUR.mutedTekst} />
+        <div style={{ fontSize: 15, fontWeight: 700 }}>Beschikbare functies</div>
+      </div>
+      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 6, maxWidth: 620 }}>
+        Deze functies kun je per administratie los aanzetten. Vraag een functie aan, dan regelen we het en nemen we contact met je op.
+      </div>
+      {functies.map((f) => <BetaaldeFunctieRij key={f.id} account={account} functie={f} />)}
+    </div>
+  );
+}
+
+/** Korte intro boven de sectie "Niet actief" bij meerdere klantaccounts (rijen staan default dicht),
+ * zodat een klant weet dat er functies zijn zónder elke administratie te hoeven openklikken. */
+function FacturatiemoduleUitlegBanner() {
+  return (
+    <div style={{
+      display: "flex", alignItems: "flex-start", gap: 10, padding: "14px 16px", marginBottom: 10,
+      background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 10,
+    }}>
+      <Lock size={15} color={KLEUR.mutedTekst} style={{ marginTop: 2, flexShrink: 0 }} />
+      <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>
+        <strong style={{ color: KLEUR.tekst }}>Er zijn betaalde functies beschikbaar voor deze administraties.</strong>{" "}
+        Onder andere de Facturatiemodule (zelf facturen en offertes opstellen) en Urenregistratie. Klap een administratie
+        open om te zien wat er is en om een functie aan te vragen.
+      </div>
     </div>
   );
 }
 
 /** Aanvraagkaart voor de losse urenregistratie (€2,50) — getoond in de Uren-sub-tab zolang de
- * urenregistratie voor dit account nog niet aan staat. Zelfde opzet als FacturatieNietActief,
- * maar tegen /api/uren-aanvraag. De facturatiemodule staat hier per definitie al aan (anders zou
- * deze hele sub-tab niet zichtbaar zijn). */
+ * urenregistratie voor dit account nog niet aan staat. Zelfde aanvraag-opzet als het functie-
+ * overzicht, maar tegen /api/uren-aanvraag. De facturatiemodule staat hier per definitie al aan
+ * (anders zou deze hele sub-tab niet zichtbaar zijn). */
 function UrenNietActief({ account, prijs }) {
   const [status, setStatus] = useState(account.urenAangevraagdOp ? "aangevraagd" : "idle"); // idle | bezig | aangevraagd | fout
 
@@ -2860,7 +2955,7 @@ function UrenNietActief({ account, prijs }) {
 /* bij "Mijn gegevens"), met de volle module of een aanvraagkaart erin.    */
 /* ---------------------------------------------------------------------- */
 
-export default function FacturatieModule({ accounts, prijs = 5, alleenLezen = false }) {
+export default function FacturatieModule({ accounts, prijs = 5, alleenLezen = false, initieelSubtab }) {
   const [openAccountId, setOpenAccountId] = useState(accounts.length === 1 ? accounts[0].accountId : null);
   const [zoek, setZoek] = useState("");
 
@@ -2882,8 +2977,8 @@ export default function FacturatieModule({ accounts, prijs = 5, alleenLezen = fa
   if (accounts.length === 1) {
     const acc = accounts[0];
     return acc.facturatieIngeschakeld
-      ? <FacturatieAccountInhoud account={acc} andereAccounts={[]} alleenLezen={alleenLezen} />
-      : <FacturatieNietActief account={acc} prijs={prijs} />;
+      ? <FacturatieAccountInhoud account={acc} andereAccounts={[]} alleenLezen={alleenLezen} initieelSubtab={initieelSubtab} />
+      : <FunctiesOverzicht account={acc} facturatiePrijs={prijs} />;
   }
 
   // Meerdere gekoppelde klantaccounts: opsplitsen in "Actief" en "Niet actief", met de
@@ -2912,8 +3007,8 @@ export default function FacturatieModule({ accounts, prijs = 5, alleenLezen = fa
         </button>
         {open && (
           acc.facturatieIngeschakeld
-            ? <div style={{ padding: "16px" }}><FacturatieAccountInhoud account={acc} andereAccounts={andereAccounts} alleenLezen={alleenLezen} /></div>
-            : <FacturatieNietActief account={acc} prijs={prijs} toonUitleg={false} />
+            ? <div style={{ padding: "16px" }}><FacturatieAccountInhoud account={acc} andereAccounts={andereAccounts} alleenLezen={alleenLezen} initieelSubtab={initieelSubtab} /></div>
+            : <div style={{ padding: "16px" }}><FunctiesOverzicht account={acc} facturatiePrijs={prijs} /></div>
         )}
       </div>
     );
@@ -2950,7 +3045,7 @@ export default function FacturatieModule({ accounts, prijs = 5, alleenLezen = fa
       {nietActieveAccounts.length > 0 && (
         <div>
           <div style={sectieKopStijl}>Niet actief ({nietActieveAccounts.length})</div>
-          <FacturatiemoduleUitlegBanner prijs={prijs} />
+          <FacturatiemoduleUitlegBanner />
           <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, overflow: "hidden", background: "#fff" }}>
             {nietActieveAccounts.map(renderAccountRij)}
           </div>

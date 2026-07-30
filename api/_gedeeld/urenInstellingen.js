@@ -90,6 +90,20 @@ async function zetAanvraag(accountId, aangevraagdDoor) {
   return statussen[accountId];
 }
 
+/**
+ * Klant-voorkeur: toon een snelknop "Uren registreren" op de homepagina van het klantportaal.
+ * Los van aan/uit (dat blijft de beheerder); dit is puur een eigen voorkeur van de klant, in
+ * dezelfde blob bijgehouden (los veld toonOpHome per account, laat de rest ongemoeid).
+ */
+async function zetToonOpHome(accountId, toonOpHome) {
+  if (!accountId) throw new Error("VALIDATIE: accountId is verplicht.");
+  const statussen = await haalStatussen();
+  const huidig = statussen[accountId] || { ingeschakeld: false };
+  statussen[accountId] = { ...huidig, toonOpHome: !!toonOpHome };
+  await bewaarStatussen(statussen);
+  return statussen[accountId];
+}
+
 async function bewaarStatussen(statussen) {
   const containerClient = await haalContainerClient();
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
@@ -97,4 +111,4 @@ async function bewaarStatussen(statussen) {
   await blobClient.upload(buffer, buffer.length, { overwrite: true });
 }
 
-module.exports = { haalStatussen, isIngeschakeld, zetIngeschakeld, zetAanvraag };
+module.exports = { haalStatussen, isIngeschakeld, zetIngeschakeld, zetAanvraag, zetToonOpHome };
