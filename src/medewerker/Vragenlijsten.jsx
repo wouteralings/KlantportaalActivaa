@@ -147,7 +147,7 @@ export default function Vragenlijsten() {
       {/* Scope-schakelaar + zoeken */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
         <div style={{ display: "inline-flex", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, overflow: "hidden" }}>
-          <button onClick={() => setScope("mijn")} disabled={!mijnNaam} title={mijnNaam ? "" : "Je naam is niet bekend; toon kantoorbreed"} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", border: "none", cursor: mijnNaam ? "pointer" : "default", fontSize: 12.5, fontWeight: 600, background: scope === "mijn" ? KLEUR.blauw : "#fff", color: scope === "mijn" ? "#fff" : KLEUR.subtekst }}><User size={13} /> Mijn cliënten</button>
+          <button onClick={() => setScope("mijn")} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 600, background: scope === "mijn" ? KLEUR.blauw : "#fff", color: scope === "mijn" ? "#fff" : KLEUR.subtekst }}><User size={13} /> Mijn cliënten</button>
           <button onClick={() => setScope("alle")} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", border: "none", borderLeft: `1px solid ${KLEUR.rand}`, cursor: "pointer", fontSize: 12.5, fontWeight: 600, background: scope === "alle" ? KLEUR.blauw : "#fff", color: scope === "alle" ? "#fff" : KLEUR.subtekst }}><Users size={13} /> Kantoorbreed</button>
         </div>
         <select value={soort} onChange={(e) => setSoort(e.target.value)} title="Filter op soort vragenlijst" style={{ boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 9px", fontSize: 12.5, background: "#fff", maxWidth: 240 }}>
@@ -162,6 +162,7 @@ export default function Vragenlijsten() {
       </div>
 
       {scope === "mijn" && klantNamen === null && <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 6 }}>Cliëntkoppeling laden…</div>}
+      {scope === "mijn" && klantNamen !== null && !mijnNaam && <div style={{ fontSize: 12, color: KLEUR.goud, marginBottom: 6 }}>Je naam kon niet automatisch worden bepaald, dus we kunnen niet zien welke cliënten van jou zijn. Gebruik <strong>Kantoorbreed</strong>.</div>}
       <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 6 }}>{gefilterd.length} vragenlijst{gefilterd.length === 1 ? "" : "en"}{gefilterd.length !== zichtbaar.length ? ` · ${zichtbaar.length} getoond` : ""}</div>
 
       <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10 }}>

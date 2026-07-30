@@ -8,9 +8,29 @@
  *
  * Alleen medewerker/beheerder (rolcheck in het endpoint zelf).
  */
-const { haalEmailUitPrincipal, haalNaamUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
+const { haalDynamicsToken, haalEmailUitPrincipal, haalNaamUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const verzoeken = require("../_gedeeld/aanleververzoeken");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
+
+/**
+ * Zoekt de volledige naam (systemuser fullname) van de ingelogde medewerker op basis van het
+ * e-mailadres. Dat is dezelfde naam die Dynamics bij de klant-rolvelden (relatiebeheerder, accountant,
+ * …) gebruikt, zodat het 'mijn cliënten'-filter betrouwbaar matcht — ook als het inlogtoken zelf geen
+ * naam-claim meestuurt. Best effort: leeg bij een fout.
+ */
+async function haalMijnNaam(resource, token, email) {
+  if (!resource || !email) return "";
+  const veilig = String(email).replace(/'/g, "''");
+  const url = `${resource}/api/data/v9.2/systemusers?$select=fullname&$filter=internalemailaddress eq '${encodeURIComponent(veilig)}' and isdisabled eq false&$top=1`;
+  try {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "OData-MaxVersion": "4.0", "OData-Version": "4.0" } });
+    if (!res.ok) return "";
+    const d = await res.json();
+    return (d.value && d.value[0] && d.value[0].fullname) || "";
+  } catch {
+    return "";
+  }
+}
 
 /** Aantal onbeantwoorde klantvragen: klantberichten ná het laatste medewerker-/ai-antwoord. */
 function openVragen(vragen) {
@@ -96,7 +116,19 @@ module.exports = async function (context, req) {
       String(b.startdatum).localeCompare(String(a.startdatum))
     );
 
-    context.res = { headers: { "Content-Type": "application/json" }, body: { rijen, mijnNaam: naam || "" } };
+    // Betrouwbare naam voor het 'mijn cliënten'-filter: uit Dynamics (systemuser fullname) op basis
+    // van het e-mailadres; val terug op de token-naam als dat niet lukt.
+    let mijnNaam = naam || "";
+    const resource = process.env.DYNAMICS_RESOURCE_URL;
+    if (resource && email) {
+      try {
+        const token = await haalDynamicsToken();
+        const fn = await haalMijnNaam(resource, token, email);
+        if (fn) mijnNaam = fn;
+      } catch { /* val terug op token-naam */ }
+    }
+
+    context.res = { headers: { "Content-Type": "application/json" }, body: { rijen, mijnNaam } };
   } catch (err) {
     if (err.message === "MISSING_CONFIG") { context.res = { status: 501, body: { error: "Opslag is nog niet geconfigureerd." } }; return; }
     context.log.error(err);
