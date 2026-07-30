@@ -7,9 +7,10 @@
  *   - POST { actie:"uitzetten", accountId, contactId, lijstId?, regels?, notitie? } → nieuw verzoek
  *   - POST { actie:"verwijderen", id }          → verzoek verwijderen
  */
-const { haalDynamicsToken, haalEmailUitPrincipal } = require("../_gedeeld/identiteit");
+const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const { haalLijsten } = require("../_gedeeld/aanleverlijsten");
 const { haalOnderwerpen, resolvePad } = require("../_gedeeld/aanleveronderwerpen");
+const { magBulk } = require("../_gedeeld/wijzigrechten");
 const klantonderwerpen = require("../_gedeeld/klantonderwerpen");
 const verzoeken = require("../_gedeeld/aanleververzoeken");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
@@ -34,6 +35,21 @@ async function haalContactNaam(resource, token, contactId) {
   const res = await fetch(url, { headers: leesHeaders(token) });
   if (!res.ok) return "";
   return (await res.json()).fullname || "";
+}
+
+async function haalAccountMetPrimair(resource, token, accountId) {
+  const url = `${resource}/api/data/v9.2/accounts(${accountId})?$select=name,${CLIENTNUMMER_VELD}&$expand=primarycontactid($select=contactid,fullname)`;
+  const res = await fetch(url, { headers: leesHeaders(token) });
+  if (!res.ok) return null;
+  const a = await res.json();
+  const nummer = a[CLIENTNUMMER_VELD];
+  const p = a.primarycontactid || null;
+  return {
+    klantnaam: a.name || "",
+    klantnummer: nummer != null && nummer !== "" ? String(nummer) : "",
+    contactId: p ? p.contactid : "",
+    contactNaam: p ? p.fullname || "" : "",
+  };
 }
 
 module.exports = async function (context, req) {
@@ -81,6 +97,55 @@ module.exports = async function (context, req) {
         tekst: `Concept aanlever-verzoek vrijgegeven (nu zichtbaar voor ${v.contactNaam || "de klant"})${v.lijstNaam ? ` — ${v.lijstNaam}` : ""}.`,
       });
       context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek: v } };
+      return;
+    }
+
+    // Bulk: één vragenlijst in één keer naar meerdere cliënten (naar hun primaire contactpersoon).
+    if (actie === "bulk-uitzetten") {
+      const { accountIds, lijstId: bLijstId, jaar: bJaar, deadline: bDeadline, modus } = req.body || {};
+      const beheerder = haalRollenUitPrincipal(req).includes("beheerder");
+      if (!(await magBulk(email, beheerder))) {
+        context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Je hebt geen rechten om bulk-acties uit te voeren." } };
+        return;
+      }
+      if (!Array.isArray(accountIds) || accountIds.length === 0 || !bLijstId) {
+        context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'accountIds' (niet leeg) en 'lijstId' mee." } };
+        return;
+      }
+      const lijst = (await haalLijsten()).find((l) => l.id === bLijstId);
+      if (!lijst) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Gekozen aanleverlijst niet gevonden." } }; return; }
+      const bulkRegels = lijst.regels || [];
+      if (!bulkRegels.length) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Deze lijst heeft geen documenten." } }; return; }
+
+      const zichtbaar = modus === "versturen";
+      const token = await haalDynamicsToken();
+      const map = lijst.pad ? resolvePad(lijst.pad, { jaar: bJaar, lijst: lijst.naam, onderwerp: lijst.naam }) : [];
+      let aangemaakt = 0;
+      const mislukt = [];
+      for (const accId of [...new Set(accountIds.filter(Boolean))]) {
+        try {
+          const acc = await haalAccountMetPrimair(resource, token, accId);
+          if (!acc) { mislukt.push({ accountId: accId, reden: "cliënt niet gevonden" }); continue; }
+          if (!acc.contactId) { mislukt.push({ accountId: accId, klantnaam: acc.klantnaam, reden: "geen primaire contactpersoon" }); continue; }
+          const verzoek = verzoeken.maakVerzoek({
+            accountId: accId, klantnaam: acc.klantnaam, klantnummer: acc.klantnummer,
+            contactId: acc.contactId, contactNaam: acc.contactNaam,
+            lijstId: bLijstId, lijstNaam: lijst.naam, jaar: bJaar, map, notitie: "",
+            regels: bulkRegels, aangemaaktDoor: email || "onbekend",
+            zichtbaar, deadline: bDeadline, bron: "bulk",
+          });
+          await verzoeken.voegToe(verzoek);
+          aangemaakt++;
+          await logGebeurtenis({
+            door: email || "onbekend", actie: "aanleververzoek", accountId: accId, accountIds: [accId],
+            klantnaam: acc.klantnaam, klantnummer: acc.klantnummer, contactId: acc.contactId, contactNaam: acc.contactNaam,
+            tekst: `Bulk: aanlever-verzoek "${lijst.naam}"${bJaar ? ` ${bJaar}` : ""} ${zichtbaar ? "verstuurd (zichtbaar)" : "als concept klaargezet"}${bDeadline ? ` — deadline ${bDeadline}` : ""}.`,
+          });
+        } catch (e) {
+          mislukt.push({ accountId: accId, reden: String(e && e.message ? e.message : e) });
+        }
+      }
+      context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, aangemaakt, mislukt } };
       return;
     }
 

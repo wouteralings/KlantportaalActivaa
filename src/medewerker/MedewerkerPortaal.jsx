@@ -919,6 +919,105 @@ function BulkBewerken({ aantal, keuzes, medewerkers, onKlaar, onToepassen }) {
   );
 }
 
+// Bulk: één vragenlijst in één keer naar meerdere geselecteerde cliënten (primaire contactpersoon).
+function BulkVragenlijst({ accountIds, onKlaar, onKlaarEnVervers }) {
+  const [lijsten, setLijsten] = useState([]);
+  const [lijstId, setLijstId] = useState("");
+  const [jaar, setJaar] = useState("");
+  const [deadline, setDeadline] = useState("");
+  const [modus, setModus] = useState("versturen");
+  const [status, setStatus] = useState("invoer"); // invoer | bezig | klaar | fout
+  const [res, setRes] = useState(null);
+  const [fout, setFout] = useState("");
+  const aantal = accountIds.length;
+
+  useEffect(() => {
+    fetch("/api/medewerker-aanleververzoeken")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setLijsten(d.lijsten || []))
+      .catch(() => {});
+  }, []);
+
+  const versturen = async () => {
+    if (!lijstId) { setFout("Kies een vragenlijst."); return; }
+    const gekozen = lijsten.find((l) => l.id === lijstId);
+    if (!window.confirm(`Vragenlijst "${gekozen ? gekozen.naam : ""}" ${modus === "versturen" ? "versturen naar" : "als concept klaarzetten bij"} ${aantal} cliënt${aantal === 1 ? "" : "en"}?`)) return;
+    setStatus("bezig"); setFout("");
+    try {
+      const r = await fetch("/api/medewerker-aanleververzoeken", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "bulk-uitzetten", accountIds, lijstId, jaar, deadline, modus }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      setRes(d); setStatus("klaar");
+    } catch (e) { setFout(e.message || "Versturen mislukt."); setStatus("fout"); }
+  };
+
+  const label = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3, marginTop: 8 };
+  const veld = { width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 9px", fontSize: 13, background: "#fff" };
+
+  return (
+    <>
+      <div onClick={onKlaar} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 70 }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 71, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.2)", padding: 22, width: 440, maxWidth: "92vw", maxHeight: "88vh", overflowY: "auto" }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Vragenlijst versturen</div>
+        <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 6 }}>
+          Wordt uitgezet bij <strong>{aantal}</strong> geselecteerde cliënt{aantal === 1 ? "" : "en"}, naar de <strong>primaire contactpersoon</strong> van elke cliënt.
+        </div>
+
+        {status === "klaar" && res ? (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 13, color: KLEUR.groen, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}><CheckCircle2 size={15} /> {res.aangemaakt} verstuurd{res.mislukt && res.mislukt.length ? ` · ${res.mislukt.length} overgeslagen` : ""}.</div>
+            {res.mislukt && res.mislukt.length > 0 && (
+              <div style={{ marginTop: 8, fontSize: 12, color: KLEUR.subtekst, maxHeight: 160, overflowY: "auto" }}>
+                {res.mislukt.map((m, i) => <div key={i}>• {m.klantnaam || m.accountId}: {m.reden}</div>)}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <button onClick={onKlaarEnVervers} style={{ padding: "9px 16px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Klaar</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div style={label}>Vragenlijst</div>
+            <select value={lijstId} onChange={(e) => setLijstId(e.target.value)} style={veld}>
+              <option value="">— kies een aanleverlijst —</option>
+              {lijsten.map((l) => <option key={l.id} value={l.id}>{l.naam}{l.aantalRegels ? ` (${l.aantalRegels})` : ""}</option>)}
+            </select>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div>
+                <div style={label}>Jaar (optioneel)</div>
+                <input value={jaar} onChange={(e) => setJaar(e.target.value)} placeholder="2025" style={veld} />
+              </div>
+              <div>
+                <div style={label}>Deadline (optioneel)</div>
+                <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} style={veld} />
+              </div>
+            </div>
+
+            <div style={label}>Bij versturen</div>
+            <select value={modus} onChange={(e) => setModus(e.target.value)} style={veld}>
+              <option value="versturen">Direct zichtbaar voor de klant</option>
+              <option value="concept">Concept klaarzetten (later vrijgeven)</option>
+            </select>
+
+            {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginTop: 10 }}>{fout}</div>}
+
+            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+              <button onClick={versturen} disabled={status === "bezig"} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: KLEUR.groen, color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                <CheckCircle2 size={14} /> {status === "bezig" ? "Bezig…" : `Versturen (${aantal})`}
+              </button>
+              <button onClick={onKlaar} style={{ padding: "9px 14px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Annuleren</button>
+            </div>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
 function KlantBewerken({ klant, keuzes, medewerkers, onKlaar, onOpgeslagen }) {
   const kz = keuzes || { clienttype: [], status: [], team: [], kantoor: [] };
   const alleMedewerkers = medewerkers || [];
@@ -1711,6 +1810,7 @@ function KlantOverzicht() {
   const [isBeheerder, setIsBeheerder] = useState(false);
   const [selectie, setSelectie] = useState(() => new Set()); // geselecteerde accountId's voor bulk
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkVragenlijstOpen, setBulkVragenlijstOpen] = useState(false);
   const [klantToevoegenOpen, setKlantToevoegenOpen] = useState(false);
 
   useEffect(() => {
@@ -2010,6 +2110,7 @@ function KlantOverzicht() {
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 10, padding: "10px 14px", background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.blauw}`, borderRadius: 10 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: KLEUR.blauw }}>{selectie.size} geselecteerd</span>
           <button onClick={() => setBulkOpen(true)} style={{ padding: "7px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Bulk bewerken</button>
+          <button onClick={() => setBulkVragenlijstOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px", background: "#fff", color: KLEUR.blauw, border: `1px solid ${KLEUR.blauw}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><Mail size={13} /> Vragenlijst versturen</button>
           <button onClick={() => setSelectie(new Set())} style={{ padding: "7px 12px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Selectie wissen</button>
         </div>
       )}
@@ -2134,6 +2235,14 @@ function KlantOverzicht() {
           medewerkers={medewerkers}
           onToepassen={bulkToepassen}
           onKlaar={() => setBulkOpen(false)}
+        />
+      )}
+
+      {bulkVragenlijstOpen && magBulk && (
+        <BulkVragenlijst
+          accountIds={[...selectie]}
+          onKlaar={() => setBulkVragenlijstOpen(false)}
+          onKlaarEnVervers={() => { setBulkVragenlijstOpen(false); setSelectie(new Set()); }}
         />
       )}
 

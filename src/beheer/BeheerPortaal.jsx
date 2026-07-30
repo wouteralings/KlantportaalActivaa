@@ -3,6 +3,7 @@ import OffertetoolApp from "../medewerker/offertes/OffertetoolApp";
 import AanleverLijstenBeheer from "./AanleverLijstenBeheer";
 import AanleverOnderwerpenBeheer from "./AanleverOnderwerpenBeheer";
 import PeriodiekeUitvragenBeheer from "./PeriodiekeUitvragenBeheer";
+import AbonnementenOverzicht from "./AbonnementenOverzicht";
 import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Search, ArrowUp, ArrowDown, HelpCircle, ChevronDown, Plus, Pencil, Check, X, Clock } from "lucide-react";
 
 const KLEUR = {
@@ -1147,6 +1148,7 @@ export default function BeheerPortaal() {
           ["aanleveren", "Aanleverlijsten"],
           ["onderwerpen", "Onderwerpen"],
           ["periodiek", "Periodiek"],
+          ["abonnementen", "Abonnementen"],
           ["instellingen", "Instellingen"],
         ].map(([k, label]) => (
           <button
@@ -1179,6 +1181,8 @@ export default function BeheerPortaal() {
       {tab === "onderwerpen" && <AanleverOnderwerpenBeheer />}
 
       {tab === "periodiek" && <PeriodiekeUitvragenBeheer />}
+
+      {tab === "abonnementen" && <AbonnementenOverzicht />}
 
       {tab === "uitstraling" && (<>
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
