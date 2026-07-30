@@ -134,13 +134,13 @@ export default function KlantVasteUitvragen({ accountId, klantnaam, defaultConta
   const veld = { width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 12.5, background: "#fff" };
   const mini = { boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "5px 7px", fontSize: 12, background: "#fff" };
 
-  if (data === null) return <div style={{ marginTop: 12, paddingTop: 14, borderTop: `1px solid ${KLEUR.rand}`, fontSize: 12.5, color: KLEUR.mutedTekst }}>Vaste uitvragen ophalen…</div>;
+  if (data === null) return <div style={{ marginTop: 12, paddingTop: 14, borderTop: `1px solid ${KLEUR.rand}`, fontSize: 12.5, color: KLEUR.mutedTekst }}>Uitvragen ophalen…</div>;
 
   return (
     <div style={{ marginTop: 12, paddingTop: 14, borderTop: `1px solid ${KLEUR.rand}` }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
         <ClipboardCheck size={15} color={KLEUR.blauw} />
-        <span style={{ fontSize: 13, fontWeight: 700 }}>Vaste uitvragen</span>
+        <span style={{ fontSize: 13, fontWeight: 700 }}>Uitvragen</span>
       </div>
       <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 10 }}>
         Richt een aanleverlijst voor deze klant in: pas de documenten aan waar nodig en koppel een
