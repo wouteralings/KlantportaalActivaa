@@ -29,6 +29,7 @@ const { haalGegevens, zetGegevens } = require("../_gedeeld/bedrijfsgegevensKlant
 const { haalDynamicsToken, CC_EMAIL_VELD } = require("../_gedeeld/identiteit");
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const GUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 const MAX_FACTUURTEKST_LENGTE = 4000;
 
 function heeftVeld(body, naam) {
@@ -91,7 +92,7 @@ module.exports = async function (context, req) {
         data.ccEmail = ccEmail;
       }
 
-      const heeftStandaardwaarden = ["standaardBetalingstermijn", "standaardBtwCode", "standaardFactuurtekst"]
+      const heeftStandaardwaarden = ["standaardBetalingstermijn", "standaardBtwCode", "standaardFactuurtekst", "standaardUurArtikelId"]
         .some((naam) => heeftVeld(req.body, naam));
       if (heeftStandaardwaarden) {
         if (heeftVeld(req.body, "standaardBetalingstermijn")) {
@@ -126,6 +127,19 @@ module.exports = async function (context, req) {
           }
           data.standaardFactuurtekst = tekst;
         }
+        if (heeftVeld(req.body, "standaardUurArtikelId")) {
+          const ruw = req.body.standaardUurArtikelId;
+          const waarde = typeof ruw === "string" ? ruw.trim() : "";
+          if (waarde && !GUID_REGEX.test(waarde)) {
+            context.res = {
+              status: 400,
+              headers: { "Content-Type": "application/json" },
+              body: { error: "Ongeldig standaard uur-artikel." },
+            };
+            return;
+          }
+          data.standaardUurArtikelId = waarde;
+        }
       }
 
       if (!heeftCcEmail && !heeftStandaardwaarden) {
@@ -154,6 +168,7 @@ module.exports = async function (context, req) {
           standaardBetalingstermijn: opgeslagen.standaardBetalingstermijn,
           standaardBtwCode: opgeslagen.standaardBtwCode,
           standaardFactuurtekst: opgeslagen.standaardFactuurtekst,
+          standaardUurArtikelId: opgeslagen.standaardUurArtikelId,
         },
       };
       return;

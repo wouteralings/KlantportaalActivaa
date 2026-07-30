@@ -28,6 +28,7 @@ const LEEG = {
   bedrijfsnaam: "", straat: "", huisnummer: "", toevoeging: "", postcode: "", plaats: "", land: "NL",
   kvkNummer: "", btwNummer: "", iban: "", ibanTenaamstelling: "", logoUrl: "", ccEmail: "",
   standaardBetalingstermijn: null, standaardBtwCode: "", standaardFactuurtekst: "",
+  standaardUurArtikelId: "",
 };
 
 function naarBuiten(row) {
@@ -58,6 +59,10 @@ function naarBuiten(row) {
     standaardBetalingstermijn: row.standaard_betalingstermijn ?? null,
     standaardBtwCode: row.standaard_btw_code || "",
     standaardFactuurtekst: row.standaard_factuurtekst || "",
+    // Standaard uur-artikel (migratie 008): vult een nieuwe uren-registratie voor met dit artikel
+    // (en daarmee het uurtarief). Geen verificatiegegeven, dus net als de overige standaardwaarden
+    // direct zelf te wijzigen.
+    standaardUurArtikelId: row.standaard_uur_artikel_id || "",
     gewijzigdOp: row.gewijzigd_op || row.aangemaakt_op || null,
   };
 }
@@ -157,6 +162,7 @@ async function zetGegevens(klantAccountId, data, email) {
   request.input("standaardBetalingstermijn", sql.Int, standaardBetalingstermijnWaarde === "" || standaardBetalingstermijnWaarde == null ? null : Number(standaardBetalingstermijnWaarde));
   request.input("standaardBtwCode", sql.NVarChar(20), veld("standaardBtwCode") || null);
   request.input("standaardFactuurtekst", sql.NVarChar(sql.MAX), veld("standaardFactuurtekst") || null);
+  request.input("standaardUurArtikelId", sql.UniqueIdentifier, veld("standaardUurArtikelId") || null);
   request.input("email", sql.NVarChar(320), email || null);
 
   if (bestaand) {
@@ -166,7 +172,7 @@ async function zetGegevens(klantAccountId, data, email) {
         postcode = @postcode, plaats = @plaats, land = @land, kvk_nummer = @kvkNummer, btw_nummer = @btwNummer,
         iban = @iban, iban_tenaamstelling = @ibanTenaamstelling, logo_url = @logoUrl, cc_email = @ccEmail,
         standaard_betalingstermijn = @standaardBetalingstermijn, standaard_btw_code = @standaardBtwCode,
-        standaard_factuurtekst = @standaardFactuurtekst,
+        standaard_factuurtekst = @standaardFactuurtekst, standaard_uur_artikel_id = @standaardUurArtikelId,
         gewijzigd_op = SYSUTCDATETIME(), gewijzigd_door = @email
       OUTPUT INSERTED.*
       WHERE klant_account_id = @klantAccountId
@@ -178,12 +184,12 @@ async function zetGegevens(klantAccountId, data, email) {
     INSERT INTO dbo.bedrijfsgegevens_klanten
       (klant_account_id, bedrijfsnaam, straat, huisnummer, toevoeging, postcode, plaats, land,
        kvk_nummer, btw_nummer, iban, iban_tenaamstelling, logo_url, cc_email,
-       standaard_betalingstermijn, standaard_btw_code, standaard_factuurtekst, aangemaakt_door)
+       standaard_betalingstermijn, standaard_btw_code, standaard_factuurtekst, standaard_uur_artikel_id, aangemaakt_door)
     OUTPUT INSERTED.*
     VALUES
       (@klantAccountId, @bedrijfsnaam, @straat, @huisnummer, @toevoeging, @postcode, @plaats, @land,
        @kvkNummer, @btwNummer, @iban, @ibanTenaamstelling, @logoUrl, @ccEmail,
-       @standaardBetalingstermijn, @standaardBtwCode, @standaardFactuurtekst, @email)
+       @standaardBetalingstermijn, @standaardBtwCode, @standaardFactuurtekst, @standaardUurArtikelId, @email)
   `);
   return naarBuiten(result.recordset[0]);
 }
@@ -196,7 +202,7 @@ function terugvalKolom(naam) {
     postcode: "postcode", plaats: "plaats", land: "land", kvkNummer: "kvk_nummer", btwNummer: "btw_nummer",
     iban: "iban", ibanTenaamstelling: "iban_tenaamstelling", logoUrl: "logo_url", ccEmail: "cc_email",
     standaardBetalingstermijn: "standaard_betalingstermijn", standaardBtwCode: "standaard_btw_code",
-    standaardFactuurtekst: "standaard_factuurtekst",
+    standaardFactuurtekst: "standaard_factuurtekst", standaardUurArtikelId: "standaard_uur_artikel_id",
   };
   return MAP[naam] || naam;
 }

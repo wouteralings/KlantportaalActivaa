@@ -34,6 +34,7 @@
 const { sql, haalPool } = require("./facturatieDb");
 const { volgendNummer } = require("./nummering");
 const { haalKlant } = require("./klantenKlanten");
+const { reconcileerUrenVoorFactuur } = require("./urenKlanten");
 const { haalGegevensMetCrmAanvulling: haalBedrijfsgegevens } = require("./bedrijfsgegevensKlanten");
 const { genereerFactuurPdf } = require("./facturenPdf");
 const { verstuurMailMetBijlage } = require("./mail");
@@ -64,6 +65,11 @@ function berekenTotalen(regelsInvoer) {
     return {
       omschrijving: String(r.omschrijving || "").slice(0, 300),
       artikelId: r.artikelId || null,
+      // Optionele koppeling naar een uren-registratie (dbo.uren_klanten) waaruit deze regel is
+      // ontstaan via "Openstaande uren ophalen" — bewaard in regels_json zodat we bij het
+      // opslaan/verwijderen van de factuur de bijbehorende uren kunnen (ont)koppelen. Puur
+      // administratief, staat niet op de factuur/PDF zelf.
+      urenId: r.urenId || null,
       aantal,
       prijs,
       // btwCode is puur informatief (welke BTW-categorie was gekozen in de keuzelijst) —
@@ -84,6 +90,12 @@ function berekenTotalen(regelsInvoer) {
   const btwBedrag = rond(regels.reduce((som, r) => som + r.bedrag * (r.btwPercentage / 100), 0));
   const totaal = rond(subtotaal + btwBedrag);
   return { regels, subtotaal, btwBedrag, totaal };
+}
+
+/** De unieke uren-registratie-ids die in deze regels voorkomen (regels ontstaan uit
+ * "Openstaande uren ophalen") — gebruikt om de bijbehorende uren aan de factuur te koppelen. */
+function urenIdsUit(regels) {
+  return [...new Set((regels || []).map((r) => r.urenId).filter(Boolean))];
 }
 
 function naarBuiten(row) {
@@ -201,7 +213,14 @@ async function maakFactuur(klantAccountId, data, email) {
        @factuurdatum, @vervaldatum, @leveringsperiodeStart, @leveringsperiodeEind, @terugkerendId,
        @betalingstermijnDagen, @regelsJson, @subtotaal, @btwBedrag, @totaal, @taal, @opmerkingen, @email)
   `);
-  return naarBuiten(result.recordset[0]);
+  const nieuw = naarBuiten(result.recordset[0]);
+  // Koppel eventueel opgehaalde open uren aan deze (nieuwe) factuur, zodat ze niet nog een keer
+  // gefactureerd kunnen worden. Idempotent en beperkt tot uren van dezelfde eindklant.
+  const urenIds = urenIdsUit(regels);
+  if (urenIds.length > 0) {
+    await reconcileerUrenVoorFactuur(klantAccountId, nieuw.id, nieuw.klantKlantId, urenIds);
+  }
+  return nieuw;
 }
 
 /** Concept bijwerken — alleen toegestaan zolang het document nog niet verstuurd is. */
@@ -256,7 +275,13 @@ async function wijzigFactuur(klantAccountId, id, data, email) {
     OUTPUT INSERTED.*
     WHERE klant_account_id = @klantAccountId AND id = @id
   `);
-  return result.recordset[0] ? naarBuiten(result.recordset[0]) : null;
+  if (!result.recordset[0]) return null;
+  const bijgewerkt = naarBuiten(result.recordset[0]);
+  // Breng de uren-koppeling in lijn met de huidige regels: uren die uit een regel zijn gehaald
+  // komen weer vrij, nieuw opgehaalde uren worden gekoppeld. Altijd (ook als er nu geen uren meer
+  // zijn) zodat verwijderde uren-regels echt weer beschikbaar worden.
+  await reconcileerUrenVoorFactuur(klantAccountId, bijgewerkt.id, bijgewerkt.klantKlantId, urenIdsUit(regels));
+  return bijgewerkt;
 }
 
 /** Concept → verzonden. Kent hier pas het volgende nummer uit de reeks van dit documenttype
@@ -498,7 +523,9 @@ async function crediteerFactuur(klantAccountId, id, email) {
   if (!["verzonden", "betaald"].includes(factuur.status)) {
     throw new Error("VALIDATIE: alleen een verstuurde of betaalde factuur kan gecrediteerd worden.");
   }
-  const creditRegels = factuur.regels.map((r) => ({ ...r, aantal: -Math.abs(Number(r.aantal) || 0) }));
+  // urenId bewust NIET meenemen: de uren blijven aan de oorspronkelijke factuur gekoppeld; een
+  // creditnota mag ze niet "overnemen" (anders zouden ze door het crediteren weer als open gaan gelden).
+  const creditRegels = factuur.regels.map((r) => ({ ...r, urenId: null, aantal: -Math.abs(Number(r.aantal) || 0) }));
   return maakFactuur(
     klantAccountId,
     {
@@ -524,15 +551,38 @@ async function verwijderFactuur(klantAccountId, id) {
   if (bestaand.status !== "concept") {
     throw new Error("VALIDATIE: alleen een concept kan verwijderd worden — een verstuurd document blijft bewaard (crediteer een factuur in plaats daarvan).");
   }
+  // In één transactie: verwijder het concept én maak de eventueel eraan gekoppelde uren weer vrij
+  // (factuur_id terug op NULL). Alleen als het verwijderen echt lukt worden de uren losgemaakt —
+  // zo kunnen uren nooit "kwijtraken" doordat het ene wel en het andere niet slaagt.
   const pool = await haalPool();
-  const request = pool.request();
-  request.input("klantAccountId", sql.UniqueIdentifier, klantAccountId);
-  request.input("id", sql.UniqueIdentifier, id);
-  const result = await request.query(`
-    DELETE FROM dbo.facturen_klanten OUTPUT DELETED.id
-    WHERE klant_account_id = @klantAccountId AND id = @id AND status = 'concept'
-  `);
-  return result.recordset.length > 0;
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+  try {
+    const deleteRequest = new sql.Request(transaction);
+    deleteRequest.input("klantAccountId", sql.UniqueIdentifier, klantAccountId);
+    deleteRequest.input("id", sql.UniqueIdentifier, id);
+    const result = await deleteRequest.query(`
+      DELETE FROM dbo.facturen_klanten OUTPUT DELETED.id
+      WHERE klant_account_id = @klantAccountId AND id = @id AND status = 'concept'
+    `);
+    const verwijderd = result.recordset.length > 0;
+
+    if (verwijderd) {
+      const urenRequest = new sql.Request(transaction);
+      urenRequest.input("klantAccountId", sql.UniqueIdentifier, klantAccountId);
+      urenRequest.input("factuurId", sql.UniqueIdentifier, id);
+      await urenRequest.query(`
+        UPDATE dbo.uren_klanten SET factuur_id = NULL, gefactureerd = 0
+        WHERE klant_account_id = @klantAccountId AND factuur_id = @factuurId
+      `);
+    }
+
+    await transaction.commit();
+    return verwijderd;
+  } catch (err) {
+    await transaction.rollback();
+    throw err;
+  }
 }
 
 module.exports = {

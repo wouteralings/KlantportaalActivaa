@@ -255,6 +255,25 @@ function useArtikelen(accountId) {
   return { status, items, foutmelding, verversen };
 }
 
+/** Uren-/projecturenregistratie van dit klant-account (dbo.uren_klanten) — de tab "Uren". */
+function useUren(accountId) {
+  const [status, setStatus] = useState("laden");
+  const [items, setItems] = useState([]);
+  const [foutmelding, setFoutmelding] = useState("");
+
+  const verversen = useCallback(() => {
+    if (!accountId) return;
+    setStatus("laden");
+    fetch(`/api/uren-klanten?accountId=${encodeURIComponent(accountId)}&status=alle`)
+      .then(haalJson)
+      .then((d) => { setItems(d.uren || []); setStatus("klaar"); })
+      .catch((e) => { setFoutmelding(e.message || String(e)); setStatus("fout"); });
+  }, [accountId]);
+
+  useEffect(() => { verversen(); }, [verversen]);
+  return { status, items, foutmelding, verversen };
+}
+
 /** Door Activaa centraal beheerde artikelen (dbo.artikelen_algemeen) — voor elke klant
  * hetzelfde, alleen leesbaar via het portaal (beheer gebeurt in Beheer). */
 function useArtikelenAlgemeen(accountId) {
@@ -325,6 +344,9 @@ const LEGE_REGEL = (standaardBtwCode, tarieven) => {
     omschrijving: "", artikelId: "", aantal: 1, prijs: 0,
     btwCode: tarief ? tarief.code : "hoog",
     btwPercentage: tarief ? tarief.percentage : 21,
+    // Optionele koppeling naar een uren-registratie (gezet door "Openstaande uren ophalen") —
+    // leeg bij een handmatig toegevoegde regel. Wordt in regels_json bewaard, zie facturenKlanten.js.
+    urenId: null,
     // Optionele afwijkende leveringsperiode voor déze regel — leeg = geldt de leveringsperiode
     // van het hele document (zie "Leveringsperiode" hieronder in DocumentFormulier).
     leveringsperiodeStart: "", leveringsperiodeEind: "",
@@ -569,6 +591,54 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
   };
   const voegRegelToe = () => setRegels((h) => [...h, LEGE_REGEL(bedrijfsgegevens?.standaardBtwCode, tarieven)]);
   const verwijderRegel = (i) => setRegels((h) => (h.length > 1 ? h.filter((_, idx) => idx !== i) : h));
+
+  // "Openstaande uren ophalen" — alleen bij een factuur: haalt de nog niet gefactureerde uren van
+  // de gekozen klant op en zet ze om in factuurregels (aantal = uren, tarief uit het gekoppelde
+  // artikel). Elke regel houdt zijn urenId vast, zodat de uren bij het opslaan aan deze factuur
+  // gekoppeld worden en niet dubbel gefactureerd kunnen worden (zie facturenKlanten.js).
+  const kanUrenOphalen = documenttype === "factuur";
+  const [urenStatus, setUrenStatus] = useState("idle"); // idle | bezig
+  const [urenMelding, setUrenMelding] = useState("");
+  const haalOpenUrenOp = async () => {
+    if (!klantKlantId) { setUrenMelding("Kies eerst een klant."); return; }
+    setUrenStatus("bezig");
+    setUrenMelding("");
+    try {
+      const d = await haalJson(await fetch(`/api/uren-klanten?accountId=${encodeURIComponent(accountId)}&klantKlantId=${encodeURIComponent(klantKlantId)}&status=open`));
+      const open = d.uren || [];
+      const alGebruikt = new Set(regels.map((r) => r.urenId).filter(Boolean));
+      const nieuwe = open.filter((u) => !alGebruikt.has(u.id));
+      if (nieuwe.length === 0) {
+        setUrenStatus("idle");
+        setUrenMelding(open.length ? "Alle openstaande uren staan al op deze factuur." : "Geen openstaande uren voor deze klant.");
+        return;
+      }
+      const nieuweRegels = nieuwe.map((u) => {
+        const artikel = artikelen.find((a) => a.id === u.artikelId) || null;
+        const tarief = (tarieven || []).find((t) => t.code === artikel?.btwCode);
+        const basis = u.omschrijving || (artikel ? artikel.omschrijving : "Uren");
+        return {
+          omschrijving: `${basis} (${datum(u.datum)})`,
+          artikelId: u.artikelId || "",
+          aantal: u.aantalUren,
+          prijs: artikel ? artikel.prijs : 0,
+          btwCode: artikel?.btwCode || "hoog",
+          btwPercentage: artikel ? artikel.btwPercentage : (tarief ? tarief.percentage : 21),
+          leveringsperiodeStart: "", leveringsperiodeEind: "",
+          urenId: u.id,
+        };
+      });
+      setRegels((h) => {
+        const leegBegin = h.length === 1 && !h[0].urenId && !(h[0].omschrijving || "").trim() && !h[0].artikelId && (Number(h[0].prijs) || 0) === 0;
+        return leegBegin ? nieuweRegels : [...h, ...nieuweRegels];
+      });
+      setUrenStatus("idle");
+      setUrenMelding(`${nieuwe.length} urenregel${nieuwe.length === 1 ? "" : "s"} toegevoegd.`);
+    } catch (e) {
+      setUrenStatus("idle");
+      setUrenMelding(e.message || String(e));
+    }
+  };
 
   const subtotaal = useMemo(
     () => regels.reduce((som, r) => som + (Number(r.aantal) || 0) * (Number(r.prijs) || 0), 0),
@@ -847,9 +917,17 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
           </div>
         ))}
       </div>
-      <button onClick={voegRegelToe} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", color: KLEUR.blauw, fontSize: 12.5, fontWeight: 600, cursor: "pointer", marginTop: 8 }}>
-        <Plus size={13} /> Regel toevoegen
-      </button>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 8, flexWrap: "wrap" }}>
+        <button onClick={voegRegelToe} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", color: KLEUR.blauw, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+          <Plus size={13} /> Regel toevoegen
+        </button>
+        {kanUrenOphalen && (
+          <button onClick={haalOpenUrenOp} disabled={urenStatus === "bezig"} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", color: KLEUR.blauw, fontSize: 12.5, fontWeight: 600, cursor: urenStatus === "bezig" ? "default" : "pointer" }}>
+            <Clock size={13} /> {urenStatus === "bezig" ? "Uren ophalen…" : "Openstaande uren ophalen"}
+          </button>
+        )}
+        {urenMelding && <span style={{ fontSize: 11.5, color: KLEUR.subtekst }}>{urenMelding}</span>}
+      </div>
 
       <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
         <div style={{ fontSize: 13, color: KLEUR.subtekst, textAlign: "right" }}>
@@ -1848,6 +1926,183 @@ function ProductenTab({ accountId, artikelen, artikelenAlgemeen, tarieven, statu
 }
 
 /* ---------------------------------------------------------------------- */
+/* Uren (uren_klanten) — losse uren/projecturen per eindklant, te factureren  */
+/* ---------------------------------------------------------------------- */
+
+function UurFormulier({ accountId, bestaand, klanten, artikelen, standaardUurArtikelId, onKlaar, onOpgeslagen }) {
+  const [f, setF] = useState({
+    datum: bestaand?.datum ? String(bestaand.datum).slice(0, 10) : new Date().toISOString().slice(0, 10),
+    klantKlantId: bestaand?.klantKlantId || "",
+    artikelId: bestaand?.artikelId || standaardUurArtikelId || "",
+    aantalUren: bestaand?.aantalUren ?? 1,
+    omschrijving: bestaand?.omschrijving || "",
+  });
+  const [status, setStatus] = useState("invoer");
+  const [foutmelding, setFoutmelding] = useState("");
+  const zet = (k) => (e) => setF((h) => ({ ...h, [k]: e.target.value }));
+
+  const gekozenArtikel = artikelen.find((a) => a.id === f.artikelId) || null;
+
+  const opslaan = async () => {
+    if (!f.klantKlantId) { setFoutmelding("Kies een klant."); setStatus("fout"); return; }
+    if (!(Number(f.aantalUren) > 0)) { setFoutmelding("Vul een aantal uren groter dan 0 in."); setStatus("fout"); return; }
+    setStatus("bezig");
+    setFoutmelding("");
+    try {
+      const payload = {
+        accountId,
+        klantKlantId: f.klantKlantId,
+        artikelId: f.artikelId || null,
+        datum: f.datum,
+        aantalUren: Number(f.aantalUren),
+        omschrijving: f.omschrijving,
+      };
+      const res = bestaand
+        ? await fetch("/api/uren-klanten", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, id: bestaand.id }) })
+        : await fetch("/api/uren-klanten", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const data = await haalJson(res);
+      onOpgeslagen(data);
+      onKlaar();
+    } catch (e) {
+      setFoutmelding(e.message || String(e));
+      setStatus("fout");
+    }
+  };
+
+  return (
+    <div style={kaartStijl}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+        <button onClick={onKlaar} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.subtekst, display: "flex" }}><ArrowLeft size={16} /></button>
+        <div style={{ fontSize: 15, fontWeight: 700 }}>{bestaand ? "Uren bewerken" : "Uren registreren"}</div>
+      </div>
+      <Melding tekst={foutmelding} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div>
+          <div style={labelStijl}>Datum *</div>
+          <input type="date" value={f.datum} onChange={zet("datum")} style={inputStijl} />
+        </div>
+        <div>
+          <div style={labelStijl}>Aantal uren *</div>
+          <input type="number" step="0.25" min="0" value={f.aantalUren} onChange={zet("aantalUren")} style={inputStijl} />
+        </div>
+      </div>
+      <div style={labelStijl}>Klant *</div>
+      <select value={f.klantKlantId} onChange={zet("klantKlantId")} style={inputStijl}>
+        <option value="">— kies een klant —</option>
+        {klanten.filter((k) => k.actief || k.id === f.klantKlantId).map((k) => (
+          <option key={k.id} value={k.id}>{k.naam}</option>
+        ))}
+      </select>
+      {klanten.length === 0 && (
+        <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginTop: 4 }}>
+          Nog geen klanten. Voeg er eerst één toe via de tab "Klanten".
+        </div>
+      )}
+      <div style={labelStijl}>Artikel (bepaalt het uurtarief)</div>
+      <select value={f.artikelId} onChange={zet("artikelId")} style={inputStijl}>
+        <option value="">— geen (tarief pas op de factuur invullen) —</option>
+        {artikelen.filter((a) => a.actief).map((a) => (
+          <option key={a.id} value={a.id}>{a.omschrijving}{a.prijs != null ? ` — ${geld(a.prijs)}${a.eenheid ? "/" + a.eenheid : ""}` : ""}</option>
+        ))}
+      </select>
+      {gekozenArtikel && (
+        <div style={{ fontSize: 12, color: KLEUR.subtekst, marginTop: 4 }}>
+          Tarief: {geld(gekozenArtikel.prijs)}{gekozenArtikel.eenheid ? ` per ${gekozenArtikel.eenheid}` : ""} · {gekozenArtikel.btwPercentage}% btw.
+          {Number(f.aantalUren) > 0 && <> Bedrag: <strong>{geld((Number(f.aantalUren) || 0) * (Number(gekozenArtikel.prijs) || 0))}</strong> (excl. btw).</>}
+        </div>
+      )}
+      <div style={labelStijl}>Omschrijving</div>
+      <textarea value={f.omschrijving} onChange={zet("omschrijving")} rows={2} style={{ ...inputStijl, resize: "vertical" }} placeholder="Wat is er gedaan?" />
+      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+        <Knop variant="primair" icon={Check} disabled={status === "bezig"} onClick={opslaan}>{status === "bezig" ? "Opslaan…" : "Opslaan"}</Knop>
+        <Knop onClick={onKlaar}>Annuleren</Knop>
+      </div>
+    </div>
+  );
+}
+
+function UrenTab({ accountId, uren, klanten, artikelen, klantenMap, status, foutmelding, verversen, standaardUurArtikelId }) {
+  const [weergave, setWeergave] = useState("lijst");
+  const [actief, setActief] = useState(null);
+  const [klantFilter, setKlantFilter] = useState("");
+  const [actieFout, setActieFout] = useState("");
+
+  const verwijderen = async (u) => {
+    if (!window.confirm(`Uren van ${datum(u.datum)} verwijderen?`)) return;
+    setActieFout("");
+    try {
+      await haalJson(await fetch(`/api/uren-klanten?accountId=${encodeURIComponent(accountId)}&id=${u.id}`, { method: "DELETE" }));
+      verversen();
+    } catch (e) {
+      setActieFout(e.message || String(e));
+    }
+  };
+
+  if (weergave === "nieuw") return <UurFormulier accountId={accountId} klanten={klanten} artikelen={artikelen} standaardUurArtikelId={standaardUurArtikelId} onKlaar={() => setWeergave("lijst")} onOpgeslagen={verversen} />;
+  if (weergave === "bewerken" && actief) return <UurFormulier accountId={accountId} bestaand={actief} klanten={klanten} artikelen={artikelen} standaardUurArtikelId={standaardUurArtikelId} onKlaar={() => setWeergave("lijst")} onOpgeslagen={verversen} />;
+
+  const artikelNaam = (id) => (artikelen.find((a) => a.id === id) || {}).omschrijving || "—";
+  const gefilterd = uren.filter((u) => !klantFilter || u.klantKlantId === klantFilter);
+  const open = gefilterd.filter((u) => !u.gefactureerd);
+  const gefactureerd = gefilterd.filter((u) => u.gefactureerd);
+  const totaalOpen = open.reduce((s, u) => s + (Number(u.aantalUren) || 0), 0);
+
+  const UrenTabel = ({ items, toonActies }) => (
+    <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "95px 1.4fr 2fr 1.2fr 70px 80px", background: KLEUR.lichtblauw, padding: "9px 14px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
+        <div>Datum</div><div>Klant</div><div>Omschrijving</div><div>Artikel</div><div style={{ textAlign: "right" }}>Uren</div><div style={{ textAlign: "right" }}>Acties</div>
+      </div>
+      {items.map((u) => (
+        <div key={u.id} style={{ display: "grid", gridTemplateColumns: "95px 1.4fr 2fr 1.2fr 70px 80px", padding: "10px 14px", borderTop: `1px solid ${KLEUR.rand}`, fontSize: 13, alignItems: "center" }}>
+          <div>{datum(u.datum)}</div>
+          <div style={{ fontWeight: 600 }}>{(klantenMap[u.klantKlantId] || {}).naam || "—"}</div>
+          <div style={{ color: KLEUR.subtekst }}>{u.omschrijving || "—"}</div>
+          <div style={{ color: KLEUR.subtekst }}>{artikelNaam(u.artikelId)}</div>
+          <div style={{ textAlign: "right", fontWeight: 600 }}>{u.aantalUren}</div>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            {toonActies ? (
+              <>
+                <button onClick={() => { setActief(u); setWeergave("bewerken"); }} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.blauw, display: "flex" }} title="Bewerken"><Pencil size={14} /></button>
+                <button onClick={() => verwijderen(u)} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.rood, display: "flex" }} title="Verwijderen"><Trash2 size={14} /></button>
+              </>
+            ) : (
+              <span style={{ fontSize: 11, color: KLEUR.groen, fontWeight: 600 }}>Op factuur</span>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+        <select value={klantFilter} onChange={(e) => setKlantFilter(e.target.value)} style={{ ...inputStijl, width: "auto", minWidth: 200 }}>
+          <option value="">Alle klanten</option>
+          {klanten.map((k) => <option key={k.id} value={k.id}>{k.naam}</option>)}
+        </select>
+        <Knop variant="primair" icon={Plus} onClick={() => setWeergave("nieuw")}>Uren registreren</Knop>
+      </div>
+      <Melding tekst={foutmelding || actieFout} />
+      {status === "laden" && <LegeStaat tekst="Laden…" />}
+      {status === "klaar" && gefilterd.length === 0 && <LegeStaat tekst="Nog geen uren geregistreerd." />}
+      {status === "klaar" && open.length > 0 && (
+        <div style={{ marginBottom: gefactureerd.length > 0 ? 24 : 0 }}>
+          <div style={sectieKopStijl}>Openstaand ({open.length}) — {totaalOpen} uur nog te factureren</div>
+          <UrenTabel items={open} toonActies />
+        </div>
+      )}
+      {status === "klaar" && gefactureerd.length > 0 && (
+        <div>
+          <div style={sectieKopStijl}>Op een factuur ({gefactureerd.length})</div>
+          <UrenTabel items={gefactureerd} toonActies={false} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
 /* Instellingen — hier staat wat nog gebouwd moet worden (bewust eerlijk)   */
 /* ---------------------------------------------------------------------- */
 
@@ -2159,7 +2414,7 @@ function BedrijfsgegevensKaart({ accountId, bedrijfsgegevens, andereAccounts, ac
  * (vult "Opmerkingen" voor). Vullen alleen het formulier voor bij het aanmaken van een nieuw
  * document (DocumentFormulier) — per document blijft alles gewoon aan te passen. Net als logo en
  * CC-mailadres direct zelf te wijzigen, zonder goedkeuring door Activaa (geen verificatiegegeven). */
-function StandaardwaardenKaart({ accountId, bedrijfsgegevens, tarieven }) {
+function StandaardwaardenKaart({ accountId, bedrijfsgegevens, tarieven, artikelen }) {
   const { data, verversen: verversBedrijfsgegevens } = bedrijfsgegevens;
   const [f, setF] = useState(null);
   const [status, setStatus] = useState("idle"); // idle | bezig | fout | opgeslagen
@@ -2171,6 +2426,7 @@ function StandaardwaardenKaart({ accountId, bedrijfsgegevens, tarieven }) {
       standaardBetalingstermijn: data.standaardBetalingstermijn ?? "",
       standaardBtwCode: data.standaardBtwCode || "",
       standaardFactuurtekst: data.standaardFactuurtekst || "",
+      standaardUurArtikelId: data.standaardUurArtikelId || "",
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
@@ -2197,12 +2453,14 @@ function StandaardwaardenKaart({ accountId, bedrijfsgegevens, tarieven }) {
           standaardBetalingstermijn: f.standaardBetalingstermijn === "" ? null : Number(f.standaardBetalingstermijn),
           standaardBtwCode: f.standaardBtwCode,
           standaardFactuurtekst: f.standaardFactuurtekst,
+          standaardUurArtikelId: f.standaardUurArtikelId || "",
         }),
       }));
       setF({
         standaardBetalingstermijn: opgeslagen.standaardBetalingstermijn ?? "",
         standaardBtwCode: opgeslagen.standaardBtwCode || "",
         standaardFactuurtekst: opgeslagen.standaardFactuurtekst || "",
+        standaardUurArtikelId: opgeslagen.standaardUurArtikelId || "",
       });
       verversBedrijfsgegevens?.();
       setStatus("opgeslagen");
@@ -2238,6 +2496,18 @@ function StandaardwaardenKaart({ accountId, bedrijfsgegevens, tarieven }) {
             {(tarieven || []).map((t) => <option key={t.code} value={t.code}>{t.label} ({t.percentage}%)</option>)}
           </select>
         </div>
+        <div>
+          <div style={labelStijl}>Standaard uur-artikel</div>
+          <select value={f.standaardUurArtikelId} onChange={zet("standaardUurArtikelId")} style={inputStijl}>
+            <option value="">Geen voorkeur</option>
+            {(artikelen || []).filter((a) => a.actief).map((a) => (
+              <option key={a.id} value={a.id}>{a.omschrijving}{a.prijs != null ? ` — ${geld(a.prijs)}${a.eenheid ? "/" + a.eenheid : ""}` : ""}</option>
+            ))}
+          </select>
+          <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 3 }}>
+            Vult een nieuwe uren-registratie voor met dit artikel (en dus het uurtarief).
+          </div>
+        </div>
       </div>
       <div style={{ marginTop: 12 }}>
         <div style={labelStijl}>Standaard factuurtekst (Opmerkingen)</div>
@@ -2264,11 +2534,11 @@ function StandaardwaardenKaart({ accountId, bedrijfsgegevens, tarieven }) {
   );
 }
 
-function InstellingenTab({ accountId, bedrijfsgegevens, andereAccounts, account, eigenVerzoeken, verversVerzoeken, tarieven }) {
+function InstellingenTab({ accountId, bedrijfsgegevens, andereAccounts, account, eigenVerzoeken, verversVerzoeken, tarieven, artikelen }) {
   return (
     <div>
       <BedrijfsgegevensKaart accountId={accountId} bedrijfsgegevens={bedrijfsgegevens} andereAccounts={andereAccounts} account={account} eigenVerzoeken={eigenVerzoeken} verversVerzoeken={verversVerzoeken} />
-      <StandaardwaardenKaart accountId={accountId} bedrijfsgegevens={bedrijfsgegevens} tarieven={tarieven} />
+      <StandaardwaardenKaart accountId={accountId} bedrijfsgegevens={bedrijfsgegevens} tarieven={tarieven} artikelen={artikelen} />
       <NogNietGebouwdKaart icon={CreditCard} titel="Mollie & betalingen" tekst="Koppeling met Mollie zodat klanten van jouw klanten direct kunnen betalen vanaf de factuur." />
       <NogNietGebouwdKaart icon={Bell} titel="Herinneringen & e-mailsjablonen" tekst="Automatische betalingsherinneringen; de teksten worden centraal beheerd door Activaa." />
     </div>
@@ -2287,6 +2557,7 @@ const SUBTABS = [
   { key: "abonnementen", label: "Abonnementen", icon: Repeat },
   { key: "klanten", label: "Klanten", icon: Users },
   { key: "producten", label: "Producten", icon: Package },
+  { key: "uren", label: "Uren", icon: Clock },
   { key: "instellingen", label: "Instellingen", icon: Settings },
 ];
 
@@ -2297,6 +2568,7 @@ function FacturatieAccountInhoud({ account, andereAccounts, alleenLezen = false 
   const klantenData = useKlanten(accountId);
   const artikelenData = useArtikelen(accountId);
   const artikelenAlgemeenData = useArtikelenAlgemeen(accountId);
+  const urenData = useUren(accountId);
   const btwTarievenData = useBtwTarieven(accountId);
   const bedrijfsgegevensData = useBedrijfsgegevens(accountId);
   // Voor de "omgezet naar factuur"-link bij geaccepteerde offertes hebben we ook de facturenlijst nodig.
@@ -2422,11 +2694,24 @@ function FacturatieAccountInhoud({ account, andereAccounts, alleenLezen = false 
           verversen={artikelenData.verversen}
         />
       )}
+      {subtab === "uren" && (
+        <UrenTab
+          accountId={accountId}
+          uren={urenData.items}
+          klanten={klantenData.items}
+          artikelen={alleArtikelen}
+          klantenMap={klantenMap}
+          status={urenData.status}
+          foutmelding={urenData.foutmelding}
+          verversen={urenData.verversen}
+          standaardUurArtikelId={bedrijfsgegevensData.data?.standaardUurArtikelId || ""}
+        />
+      )}
       {subtab === "instellingen" && (
         <InstellingenTab
           accountId={accountId} bedrijfsgegevens={bedrijfsgegevensData} andereAccounts={andereAccounts} account={account}
           eigenVerzoeken={wijzigingsverzoeken.items} verversVerzoeken={wijzigingsverzoeken.verversen}
-          tarieven={btwTarievenData.items}
+          tarieven={btwTarievenData.items} artikelen={alleArtikelen}
         />
       )}
     </div>
