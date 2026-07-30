@@ -84,6 +84,12 @@
       ]
     },
     {
+      "route": "/api/beheer-aanleverlijsten",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
       "route": "/api/beheer-taakakkoorden",
       "allowedRoles": [
         "beheerder",
