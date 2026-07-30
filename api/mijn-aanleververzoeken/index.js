@@ -65,8 +65,9 @@ module.exports = async function (context, req) {
 
     const b = req.body || {};
     const { actie, verzoekId, regelId } = b;
-    if (actie !== "upload" && actie !== "opmerking") { context.res = { status: 400, body: { error: "Onbekende of ontbrekende 'actie'." } }; return; }
-    if (!verzoekId || !regelId) { context.res = { status: 400, body: { error: "Geef 'verzoekId' en 'regelId' mee." } }; return; }
+    if (actie !== "upload" && actie !== "opmerking" && actie !== "vraag") { context.res = { status: 400, body: { error: "Onbekende of ontbrekende 'actie'." } }; return; }
+    if (!verzoekId) { context.res = { status: 400, body: { error: "Geef 'verzoekId' mee." } }; return; }
+    if ((actie === "upload" || actie === "opmerking") && !regelId) { context.res = { status: 400, body: { error: "Geef 'regelId' mee." } }; return; }
 
     // Verzoek ophalen + controleren dat het van deze ingelogde klant is.
     const alle = await verzoeken.haalAlle();
@@ -81,6 +82,18 @@ module.exports = async function (context, req) {
     }
     const rechten = await haalVoorContact(acc.contactId);
     if (!rechten.aanleveren) { context.res = { status: 403, body: { error: "Je hebt geen recht om aan te leveren." } }; return; }
+
+    // ── Een vraag/bericht plaatsen bij deze vragenlijst (verzoek-niveau) ──
+    if (actie === "vraag") {
+      const tekst = String(b.tekst || "").trim();
+      if (!tekst) { context.res = { status: 400, body: { error: "Lege vraag." } }; return; }
+      const bijgewerkt = await verzoeken.werkBij(verzoekId, (v) => {
+        if (!Array.isArray(v.vragen)) v.vragen = [];
+        v.vragen.push(verzoeken.maakBericht("klant", verzoek.contactNaam || acc.klantnaam || "Klant", tekst));
+      });
+      context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek: bijgewerkt } };
+      return;
+    }
 
     const regel = verzoek.regels.find((r) => r.id === regelId);
     if (!regel) { context.res = { status: 404, body: { error: "Regel niet gevonden." } }; return; }

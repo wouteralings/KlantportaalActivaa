@@ -76,6 +76,9 @@ function maakVerzoek({ accountId, klantnaam, klantnummer, contactId, contactNaam
     zichtbaar: zichtbaar === false ? false : true,
     deadline: deadline ? String(deadline).slice(0, 10) : "",
     bron: bron || "",
+    // Vraag-/berichtenreeks tussen klant en medewerker over deze vragenlijst:
+    // [ { id, rol("klant"|"medewerker"|"ai"), auteur, tekst, tijd } ]
+    vragen: [],
     aangemaaktOp: new Date().toISOString(),
     aangemaaktDoor: aangemaaktDoor || "",
     regels: (Array.isArray(regels) ? regels : []).map((r) => ({
@@ -123,6 +126,17 @@ async function haalVoorAccounts(accountIds) {
   return (await haalAlle()).filter((v) => set.has(v.accountId));
 }
 
+/** Maakt een bericht voor de vraag-/berichtenreeks van een verzoek. */
+function maakBericht(rol, auteur, tekst) {
+  return {
+    id: crypto.randomUUID(),
+    rol: rol === "medewerker" ? "medewerker" : rol === "ai" ? "ai" : "klant",
+    auteur: String(auteur || "").slice(0, 200),
+    tekst: String(tekst || "").slice(0, 4000),
+    tijd: new Date().toISOString(),
+  };
+}
+
 /** Herberekent de verzoekstatus: 'afgerond' zodra alle verplichte regels zijn aangeleverd. */
 function herberekenStatus(verzoek) {
   const verplicht = verzoek.regels.filter((r) => r.verplicht !== false);
@@ -132,4 +146,4 @@ function herberekenStatus(verzoek) {
   return verzoek.status;
 }
 
-module.exports = { haalAlle, maakVerzoek, voegToe, werkBij, verwijder, haalVoorAccounts, herberekenStatus };
+module.exports = { haalAlle, maakVerzoek, maakBericht, voegToe, werkBij, verwijder, haalVoorAccounts, herberekenStatus };

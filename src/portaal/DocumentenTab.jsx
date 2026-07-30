@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { FileText, Folder, ChevronRight, ChevronDown, Circle, Download, Upload, CheckCircle2, Loader2, ArrowLeft, RefreshCw, X, ClipboardList } from "lucide-react";
+import { FileText, Folder, ChevronRight, ChevronDown, Circle, Download, Upload, CheckCircle2, Loader2, ArrowLeft, RefreshCw, X, ClipboardList, MessageCircle } from "lucide-react";
 
 /** Zelfde palet als het klantportaal (bewust hier herhaald zodat dit bestand op zichzelf staat). */
 const KLEUR = {
@@ -48,6 +48,8 @@ export default function DocumentenTab() {
   const [openRegels, setOpenRegels] = useState(() => new Set());
   const [opmerkingDraft, setOpmerkingDraft] = useState({});
   const [bezigOpm, setBezigOpm] = useState("");
+  const [vraagDraft, setVraagDraft] = useState({}); // verzoekId -> tekst
+  const [bezigVraag, setBezigVraag] = useState("");
 
   const toggleRegel = (id) => setOpenRegels((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
@@ -144,6 +146,28 @@ export default function DocumentenTab() {
     }
   };
 
+  // ── Een vraag stellen bij een vragenlijst (verzoek-niveau) ──
+  const stelVraag = async (verzoek) => {
+    const tekst = (vraagDraft[verzoek.id] || "").trim();
+    if (!tekst) return;
+    setBezigVraag(verzoek.id);
+    try {
+      const r = await fetch("/api/mijn-aanleververzoeken", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "vraag", verzoekId: verzoek.id, tekst }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      const d = await r.json();
+      if (d.verzoek) setVerzoeken((huidig) => huidig.map((v) => (v.id === d.verzoek.id ? d.verzoek : v)));
+      setVraagDraft((h) => ({ ...h, [verzoek.id]: "" }));
+    } catch (e) {
+      alert("Vraag versturen mislukt: " + (e.message || e));
+    } finally {
+      setBezigVraag("");
+    }
+  };
+
   const kaart = { border: `1px solid ${KLEUR.rand}`, borderRadius: 12, padding: 18, marginBottom: 16 };
   const itemRij = (accountId, item) => (
     <button
@@ -236,6 +260,38 @@ export default function DocumentenTab() {
                     </div>
                   );
                 })}
+              </div>
+
+              {/* Vragen / berichten over deze vragenlijst */}
+              <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${KLEUR.rand}` }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+                  <MessageCircle size={14} /> Vragen over deze lijst
+                </div>
+                {(v.vragen || []).length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+                    {v.vragen.map((m) => (
+                      <div key={m.id} style={{ alignSelf: m.rol === "klant" ? "flex-end" : "flex-start", maxWidth: "85%", background: m.rol === "klant" ? KLEUR.lichtblauw : "#F4F1EA", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "6px 10px" }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 700, color: m.rol === "klant" ? KLEUR.blauw : KLEUR.goud, marginBottom: 2 }}>
+                          {m.rol === "klant" ? "Jij" : (m.rol === "ai" ? "Assistent" : (m.auteur || "Activaa"))}
+                          <span style={{ color: KLEUR.mutedTekst, fontWeight: 400 }}>{m.tijd ? ` · ${tijd(m.tijd)}` : ""}</span>
+                        </div>
+                        <div style={{ fontSize: 12.5, color: KLEUR.tekst, whiteSpace: "pre-wrap" }}>{m.tekst}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input
+                    value={vraagDraft[v.id] || ""}
+                    onChange={(e) => setVraagDraft((h) => ({ ...h, [v.id]: e.target.value }))}
+                    onKeyDown={(e) => { if (e.key === "Enter") stelVraag(v); }}
+                    placeholder="Stel een vraag aan je accountant…"
+                    style={{ flex: 1, boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 12.5, outline: "none" }}
+                  />
+                  <button onClick={() => stelVraag(v)} disabled={bezigVraag === v.id || !(vraagDraft[v.id] || "").trim()} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+                    {bezigVraag === v.id ? "Versturen…" : "Versturen"}
+                  </button>
+                </div>
               </div>
             </div>
           ))}

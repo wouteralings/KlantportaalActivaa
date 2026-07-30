@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2 } from "lucide-react";
 import { startMeekijken } from "../meekijken";
 import OffertesModule from "./OffertesModule";
+import Vragenlijsten from "./Vragenlijsten";
 import ContactpersonenOverzicht from "./klanten/ContactpersonenOverzicht";
 import NogInTeRichten from "./klanten/NogInTeRichten";
 import Logboek from "./klanten/Logboek";
@@ -2586,6 +2587,7 @@ export default function MedewerkerPortaal() {
 
   const tabs = [
     ["klantoverzicht", "Klantoverzicht", 0],
+    ["vragenlijsten", "Vragenlijsten", 0],
     ["verzoeken", "Wijzigingsverzoeken", tellingen.openWijzigingen],
     ["reacties", "Log klantreacties", 0],
     ["ondertekeningen", "Ondertekeningen", 0],
@@ -2649,6 +2651,7 @@ export default function MedewerkerPortaal() {
       </div>
 
       {tab === "klantoverzicht" && <KlantenModule />}
+      {tab === "vragenlijsten" && <Vragenlijsten />}
       {tab === "verzoeken" && <WijzigingsverzoekBeheer onAfgehandeld={laadTellingen} />}
       {tab === "reacties" && <AkkoordenLog />}
       {tab === "ondertekeningen" && <OndertekeningenLog />}
