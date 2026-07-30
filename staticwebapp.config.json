@@ -176,6 +176,13 @@
       ]
     },
     {
+      "route": "/api/medewerker-aanleververzoeken",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
       "route": "/api/medewerker-klant",
       "allowedRoles": [
         "beheerder"

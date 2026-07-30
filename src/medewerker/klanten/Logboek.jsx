@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { History, Link2, Unlink, Pencil, Plus, Trash2, ShieldCheck } from "lucide-react";
+import { History, Link2, Unlink, Pencil, Plus, Trash2, ShieldCheck, Send, Upload } from "lucide-react";
 
 /** Zelfde palet als de rest van het medewerkersportaal (bewust hier herhaald zodat dit bestand
  *  op zichzelf staat). */
@@ -13,8 +13,8 @@ const KLEUR = {
   rood: "#B23B3B",
 };
 
-const ICOON = { koppel: Link2, ontkoppel: Unlink, bewerken: Pencil, toevoegen: Plus, verwijderen: Trash2, rechten: ShieldCheck };
-const KLEUR_ACTIE = { koppel: KLEUR.blauw, ontkoppel: KLEUR.rood, bewerken: KLEUR.subtekst, toevoegen: KLEUR.blauw, verwijderen: KLEUR.rood, rechten: KLEUR.blauw };
+const ICOON = { koppel: Link2, ontkoppel: Unlink, bewerken: Pencil, toevoegen: Plus, verwijderen: Trash2, rechten: ShieldCheck, aanleververzoek: Send, aanlevering: Upload };
+const KLEUR_ACTIE = { koppel: KLEUR.blauw, ontkoppel: KLEUR.rood, bewerken: KLEUR.subtekst, toevoegen: KLEUR.blauw, verwijderen: KLEUR.rood, rechten: KLEUR.blauw, aanleververzoek: KLEUR.blauw, aanlevering: KLEUR.groen };
 
 function tijdstip(iso) {
   if (!iso) return "";
