@@ -746,12 +746,18 @@ function Documentrechten({ contactId, onGewijzigd }) {
 
 /* ── Aanlever-verzoeken uitzetten naar deze contactpersoon (kies cliënt + aanleverlijst) en de
    lopende verzoeken volgen. Beschikbaar voor medewerkers/beheerders (route dwingt de rol af). ── */
+const rid = () => Math.random().toString(36).slice(2, 9);
+
 function AanleverVerzoeken({ contact, onGewijzigd }) {
-  const [data, setData] = useState(null); // { verzoeken, lijsten } | null = laden
+  const [data, setData] = useState(null); // { verzoeken } | null = laden
   const [nieuw, setNieuw] = useState(false);
   const [accountId, setAccountId] = useState("");
-  const [lijstId, setLijstId] = useState("");
+  const [onderwerpId, setOnderwerpId] = useState("");
+  const [jaar, setJaar] = useState("");
+  const [gebruikAlgemeen, setGebruikAlgemeen] = useState(false);
+  const [extraRegels, setExtraRegels] = useState([]);
   const [notitie, setNotitie] = useState("");
+  const [klant, setKlant] = useState(null); // { onderwerpen, lijsten, config } voor gekozen account
   const [bezig, setBezig] = useState(false);
   const [fout, setFout] = useState("");
   const [openId, setOpenId] = useState("");
@@ -761,8 +767,8 @@ function AanleverVerzoeken({ contact, onGewijzigd }) {
   const laad = () =>
     fetch("/api/medewerker-aanleververzoeken")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => setData({ verzoeken: (d.verzoeken || []).filter((v) => v.contactId === contact.contactId), lijsten: d.lijsten || [] }))
-      .catch(() => setData({ verzoeken: [], lijsten: [] }));
+      .then((d) => setData({ verzoeken: (d.verzoeken || []).filter((v) => v.contactId === contact.contactId) }))
+      .catch(() => setData({ verzoeken: [] }));
 
   useEffect(() => {
     setData(null);
@@ -771,16 +777,41 @@ function AanleverVerzoeken({ contact, onGewijzigd }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contact.contactId]);
 
+  // Onderwerpen/lijsten/config van de gekozen cliënt laden.
+  useEffect(() => {
+    if (!accountId) { setKlant(null); return; }
+    let a = true;
+    setKlant(null); setOnderwerpId(""); setGebruikAlgemeen(false); setExtraRegels([]);
+    fetch("/api/medewerker-klant-onderwerpen?accountId=" + encodeURIComponent(accountId))
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => { if (a) setKlant({ onderwerpen: d.onderwerpen || [], lijsten: d.lijsten || [], config: d.config || {} }); })
+      .catch(() => { if (a) setKlant({ onderwerpen: [], lijsten: [], config: {} }); });
+    return () => { a = false; };
+  }, [accountId]);
+
+  const onderwerp = klant ? (klant.onderwerpen || []).find((o) => o.id === onderwerpId) : null;
+  const conf = klant && onderwerpId ? klant.config[onderwerpId] : null;
+  const klantSpecifiek = !!(conf && Array.isArray(conf.regels));
+  const basisRegels = (() => {
+    if (!onderwerp) return [];
+    if (klantSpecifiek && !gebruikAlgemeen) return conf.regels || [];
+    if (onderwerp.standaardLijstId) return ((klant.lijsten || []).find((l) => l.id === onderwerp.standaardLijstId) || {}).regels || [];
+    return [];
+  })();
+
   const uitzetten = async () => {
-    if (!accountId || !lijstId) { setFout("Kies een cliënt en een lijst."); return; }
+    if (!accountId) { setFout("Kies een cliënt."); return; }
+    const extra = extraRegels.filter((r) => r.naam.trim());
+    const regels = [...basisRegels, ...extra];
+    if (!onderwerpId && regels.length === 0) { setFout("Kies een onderwerp of voeg minimaal één regel toe."); return; }
     setBezig(true); setFout("");
     try {
       const r = await fetch("/api/medewerker-aanleververzoeken", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ actie: "uitzetten", accountId, contactId: contact.contactId, lijstId, notitie }),
+        body: JSON.stringify({ actie: "uitzetten", accountId, contactId: contact.contactId, onderwerpId, jaar, gebruikAlgemeen, regels, notitie }),
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
-      setNieuw(false); setLijstId(""); setNotitie("");
+      setNieuw(false); setOnderwerpId(""); setJaar(""); setExtraRegels([]); setNotitie(""); setGebruikAlgemeen(false);
       await laad();
       onGewijzigd && onGewijzigd();
     } catch (e) {
@@ -795,6 +826,7 @@ function AanleverVerzoeken({ contact, onGewijzigd }) {
   };
 
   const veld = { width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 9px", fontSize: 13, background: "#fff" };
+  const mini = { boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "5px 7px", fontSize: 12, background: "#fff" };
 
   return (
     <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${KLEUR.rand}` }}>
@@ -814,7 +846,7 @@ function AanleverVerzoeken({ contact, onGewijzigd }) {
 
       {nieuw && (
         <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 12, marginBottom: 10, background: "#FBFBF9" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.4fr 0.7fr", gap: 10 }}>
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Cliënt</div>
               <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={veld}>
@@ -823,19 +855,58 @@ function AanleverVerzoeken({ contact, onGewijzigd }) {
               </select>
             </div>
             <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Aanleverlijst</div>
-              <select value={lijstId} onChange={(e) => setLijstId(e.target.value)} style={veld}>
-                <option value="">— kies lijst —</option>
-                {(data && data.lijsten || []).map((l) => <option key={l.id} value={l.id}>{l.naam}{l.aantalRegels != null ? ` (${l.aantalRegels})` : ""}</option>)}
+              <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Onderwerp</div>
+              <select value={onderwerpId} onChange={(e) => { setOnderwerpId(e.target.value); setGebruikAlgemeen(false); }} disabled={!klant} style={veld}>
+                <option value="">— kies onderwerp —</option>
+                {(klant && klant.onderwerpen || []).map((o) => <option key={o.id} value={o.id}>{o.naam}</option>)}
               </select>
             </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Jaar</div>
+              <input value={jaar} onChange={(e) => setJaar(e.target.value)} placeholder="2025" style={veld} />
+            </div>
           </div>
-          <div style={{ marginTop: 8 }}>
+
+          {accountId && klant && (klant.onderwerpen || []).length === 0 && (
+            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8 }}>Er zijn nog geen onderwerpen ingericht (Beheer → Onderwerpen). Je kunt hieronder wel losse regels toevoegen.</div>
+          )}
+
+          {onderwerp && (
+            <div style={{ marginTop: 10, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: 10, background: "#fff" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.subtekst }}>
+                  Documenten uit {klantSpecifiek && !gebruikAlgemeen ? "de klant-specifieke lijst" : "de algemene lijst"} ({basisRegels.length})
+                </span>
+                {klantSpecifiek && (
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: KLEUR.subtekst, cursor: "pointer" }}>
+                    <input type="checkbox" checked={gebruikAlgemeen} onChange={(e) => setGebruikAlgemeen(e.target.checked)} /> Algemene lijst gebruiken
+                  </label>
+                )}
+              </div>
+              {basisRegels.length === 0
+                ? <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Geen documenten in deze lijst — voeg hieronder losse regels toe.</div>
+                : basisRegels.map((r, i) => <div key={r.id || i} style={{ fontSize: 12.5 }}>• {r.naam}{r.verplicht === false ? <span style={{ color: KLEUR.mutedTekst }}> · optioneel</span> : null}</div>)}
+            </div>
+          )}
+
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 4 }}>Extra losse documenten (optioneel)</div>
+            {extraRegels.map((r) => (
+              <div key={r.id} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.2fr auto", gap: 6, marginBottom: 5 }}>
+                <input value={r.naam} onChange={(e) => setExtraRegels((h) => h.map((x) => (x.id === r.id ? { ...x, naam: e.target.value } : x)))} placeholder="Document" style={{ ...mini, width: "100%" }} />
+                <input value={r.bestandsnaam} onChange={(e) => setExtraRegels((h) => h.map((x) => (x.id === r.id ? { ...x, bestandsnaam: e.target.value } : x)))} placeholder="Vaste bestandsnaam (optioneel)" style={{ ...mini, width: "100%" }} />
+                <button onClick={() => setExtraRegels((h) => h.filter((x) => x.id !== r.id))} title="Verwijderen" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, background: "#fff", color: KLEUR.rood, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, cursor: "pointer" }}><Trash2 size={12} /></button>
+              </div>
+            ))}
+            <button onClick={() => setExtraRegels((h) => [...h, { id: rid(), naam: "", bestandsnaam: "", toelichting: "", verplicht: true }])} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 10px", background: KLEUR.lichtblauw, color: KLEUR.blauw, border: "none", borderRadius: 6, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}><Plus size={12} /> Regel toevoegen</button>
+          </div>
+
+          <div style={{ marginTop: 10 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Notitie voor de klant (optioneel)</div>
             <input value={notitie} onChange={(e) => setNotitie(e.target.value)} placeholder="bv. Graag vóór 1 april aanleveren" style={veld} />
           </div>
+
           {fout && <div style={{ fontSize: 12, color: KLEUR.rood, marginTop: 8 }}>{fout}</div>}
-          {data && (data.lijsten || []).length === 0 && <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8 }}>Er zijn nog geen aanleverlijsten. Maak er eerst een in het beheerdersportaal (tab Aanleverlijsten).</div>}
           <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
             <button onClick={uitzetten} disabled={bezig} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 13px", background: KLEUR.groen, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
               <Send size={13} /> {bezig ? "Uitzetten…" : "Uitzetten"}
@@ -859,7 +930,7 @@ function AanleverVerzoeken({ contact, onGewijzigd }) {
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", padding: "8px 12px" }}>
                   <button onClick={() => setOpenId(open ? "" : v.id)} style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, background: "none", border: "none", textAlign: "left", cursor: "pointer", padding: 0 }}>
                     <ChevronDown size={14} color={KLEUR.mutedTekst} style={{ transform: open ? "rotate(180deg)" : "none", flexShrink: 0 }} />
-                    <span style={{ fontSize: 12.5, fontWeight: 600 }}>{v.lijstNaam || "Aanlever-verzoek"}</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 600 }}>{v.onderwerp || v.lijstNaam || "Aanlever-verzoek"}{v.jaar ? ` ${v.jaar}` : ""}</span>
                     <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{v.klantnaam}{" · "}{klaar}/{v.regels.length} aangeleverd</span>
                   </button>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

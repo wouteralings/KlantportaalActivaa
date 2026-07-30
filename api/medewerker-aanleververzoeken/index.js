@@ -9,6 +9,8 @@
  */
 const { haalDynamicsToken, haalEmailUitPrincipal } = require("../_gedeeld/identiteit");
 const { haalLijsten } = require("../_gedeeld/aanleverlijsten");
+const { haalOnderwerpen, resolvePad } = require("../_gedeeld/aanleveronderwerpen");
+const klantonderwerpen = require("../_gedeeld/klantonderwerpen");
 const verzoeken = require("../_gedeeld/aanleververzoeken");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
 
@@ -59,7 +61,7 @@ module.exports = async function (context, req) {
       return;
     }
 
-    const { actie, id, accountId, contactId, lijstId, regels, notitie } = req.body || {};
+    const { actie, id, accountId, contactId, lijstId, onderwerpId, jaar, gebruikAlgemeen, regels, notitie } = req.body || {};
 
     if (actie === "verwijderen") {
       if (!id) { context.res = { status: 400, body: { error: "Geef 'id' mee." } }; return; }
@@ -73,18 +75,36 @@ module.exports = async function (context, req) {
         context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'accountId' en 'contactId' mee." } };
         return;
       }
-      // Regels: uit een gekozen lijst, of vrij meegegeven.
+
+      // Onderwerp bepaalt de opslagmap (via {jaar}/{onderwerp} in het pad).
+      let onderwerp = null;
+      let map = [];
+      if (onderwerpId) {
+        onderwerp = (await haalOnderwerpen()).find((o) => o.id === onderwerpId) || null;
+        if (!onderwerp) { context.res = { status: 404, body: { error: "Gekozen onderwerp niet gevonden." } }; return; }
+        map = resolvePad(onderwerp.pad, { jaar, onderwerp: onderwerp.naam });
+      }
+
+      // Regels: de frontend stuurt de effectieve lijst (voorgevuld + vrije regels). Ontbreekt die,
+      // dan leiden we ze hier af: klant-specifiek (voorrang) of de algemene lijst van het onderwerp.
       let bronRegels = Array.isArray(regels) ? regels : [];
-      let lijstNaam = "";
-      if (lijstId) {
-        const lijsten = await haalLijsten();
-        const lijst = lijsten.find((l) => l.id === lijstId);
+      let lijstNaam = onderwerp ? onderwerp.naam : "";
+      if (!bronRegels.length && onderwerp) {
+        const klantConfig = (await klantonderwerpen.haalVoorKlant(accountId))[onderwerpId];
+        if (klantConfig && Array.isArray(klantConfig.regels) && !gebruikAlgemeen) {
+          bronRegels = klantConfig.regels;
+        } else if (onderwerp.standaardLijstId) {
+          const lijst = (await haalLijsten()).find((l) => l.id === onderwerp.standaardLijstId);
+          if (lijst) bronRegels = lijst.regels;
+        }
+      }
+      if (!bronRegels.length && lijstId) {
+        const lijst = (await haalLijsten()).find((l) => l.id === lijstId);
         if (!lijst) { context.res = { status: 404, body: { error: "Gekozen aanleverlijst niet gevonden." } }; return; }
-        lijstNaam = lijst.naam;
-        if (bronRegels.length === 0) bronRegels = lijst.regels;
+        bronRegels = lijst.regels; lijstNaam = lijst.naam;
       }
       if (!bronRegels.length) {
-        context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Kies een lijst of geef minimaal één regel mee." } };
+        context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Kies een onderwerp of lijst, of geef minimaal één regel mee." } };
         return;
       }
 
@@ -102,12 +122,17 @@ module.exports = async function (context, req) {
         contactNaam,
         lijstId: lijstId || "",
         lijstNaam,
+        onderwerpId: onderwerpId || "",
+        onderwerp: onderwerp ? onderwerp.naam : "",
+        jaar,
+        map,
         notitie: notitie || "",
         regels: bronRegels,
         aangemaaktDoor: email || "onbekend",
       });
       await verzoeken.voegToe(verzoek);
 
+      const waar = onderwerp ? ` — onderwerp "${onderwerp.naam}"${jaar ? ` ${jaar}` : ""}` : (lijstNaam ? ` (lijst: ${lijstNaam})` : "");
       await logGebeurtenis({
         door: email || "onbekend",
         actie: "aanleververzoek",
@@ -117,7 +142,7 @@ module.exports = async function (context, req) {
         klantnummer: verzoek.klantnummer,
         contactId,
         contactNaam,
-        tekst: `Aanlever-verzoek uitgezet naar ${contactNaam || "de contactpersoon"}${lijstNaam ? ` (lijst: ${lijstNaam})` : ""} — ${verzoek.regels.length} document(en) gevraagd.`,
+        tekst: `Aanlever-verzoek uitgezet naar ${contactNaam || "de contactpersoon"}${waar} — ${verzoek.regels.length} document(en) gevraagd.`,
       });
 
       context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek } };

@@ -105,8 +105,10 @@ module.exports = async function (context, req) {
     const spUrl = await haalSharePointUrl(resource, dynToken, verzoek.accountId);
     if (!spUrl) { context.res = { status: 404, body: { error: "Voor deze cliënt is geen documentmap ingesteld." } }; return; }
     const { driveId, itemId } = await resolveFolder(appToken, spUrl);
-    const aanleverenId = await ensureFolderPath(appToken, driveId, itemId, [AANLEVEREN_MAP]);
-    const geupload = await uploadBestand(appToken, driveId, aanleverenId, doelnaam, buffer, b.contentType || "application/octet-stream");
+    // Doelmap: het pad van het verzoek (uit onderwerp + jaar); anders de vaste 'Aanleveren'-map.
+    const segmenten = Array.isArray(verzoek.map) && verzoek.map.length ? verzoek.map : [AANLEVEREN_MAP];
+    const doelmapId = await ensureFolderPath(appToken, driveId, itemId, segmenten);
+    const geupload = await uploadBestand(appToken, driveId, doelmapId, doelnaam, buffer, b.contentType || "application/octet-stream");
 
     // Regel bijwerken + status herberekenen.
     const bijgewerkt = await verzoeken.werkBij(verzoekId, (v) => {

@@ -55,7 +55,7 @@ async function schrijfAlle(verzoeken) {
 }
 
 /** Maakt een nieuw verzoek uit een set regels (bv. gekopieerd uit een aanleverlijst). */
-function maakVerzoek({ accountId, klantnaam, klantnummer, contactId, contactNaam, lijstId, lijstNaam, notitie, regels, aangemaaktDoor }) {
+function maakVerzoek({ accountId, klantnaam, klantnummer, contactId, contactNaam, lijstId, lijstNaam, onderwerpId, onderwerp, jaar, map, notitie, regels, aangemaaktDoor }) {
   return {
     id: crypto.randomUUID(),
     accountId: accountId || "",
@@ -65,6 +65,10 @@ function maakVerzoek({ accountId, klantnaam, klantnummer, contactId, contactNaam
     contactNaam: contactNaam || "",
     lijstId: lijstId || "",
     lijstNaam: lijstNaam || "",
+    onderwerpId: onderwerpId || "",
+    onderwerp: onderwerp || "",
+    jaar: jaar != null ? String(jaar) : "",
+    map: Array.isArray(map) ? map.filter(Boolean).map((s) => String(s).slice(0, 100)).slice(0, 8) : [],
     notitie: notitie || "",
     status: "open",
     aangemaaktOp: new Date().toISOString(),
