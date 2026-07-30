@@ -4,7 +4,8 @@
  *
  * Route is beveiligd via staticwebapp.config.json (rol 'medewerker' of 'beheerder'). Geen
  * klant-filter: een medewerker ziet in één lijst per soort wat er open staat en bij wie het ligt.
- * Deelt de query/veldnamen met de klantweergave via api/_gedeeld/dossiers.js.
+ * Deelt de query/veldnamen met de klantweergave via api/_gedeeld/dossiers.js. Stuurt ook de
+ * status-keuzelijst (statusOpties) mee, zodat het bewerken van een dossier de juiste opties toont.
  */
 const { haalDynamicsToken } = require("../_gedeeld/identiteit");
 const { SOORTEN, haalDossiersVoorSoort } = require("../_gedeeld/dossiers");
@@ -35,7 +36,7 @@ module.exports = async function (context, req) {
       return (a.klantnaam || "").localeCompare(b.klantnaam || "");
     });
 
-    context.res = { headers: { "Content-Type": "application/json" }, body: { soort: soort.key, dossiers } };
+    context.res = { headers: { "Content-Type": "application/json" }, body: { soort: soort.key, dossiers, statusOpties: soort.statusOpties } };
   } catch (err) {
     if (err.message === "MISSING_CONFIG") {
       context.res = { status: 501, headers: { "Content-Type": "application/json" }, body: { error: "Dynamics-koppeling is nog niet volledig geconfigureerd." } };
