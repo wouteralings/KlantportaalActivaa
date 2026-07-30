@@ -1,3 +1,4 @@
+const { metOffertesRecht } = require("../_gedeeld/offertesRecht");
 const { haalGraphToken, genereerOffertePdf, genereerOpdrachtbevestigingPdf } = require("../_gedeeld/offertesOnboarding.js");
 const { haalDocumentRecord } = require("../_gedeeld/offertesOpslag.js");
 
@@ -27,7 +28,7 @@ function tekstNaarHtml(tekst) {
   return metLinks.replace(/\n/g, "<br/>");
 }
 
-module.exports = async function (context, req) {
+const handler = async function (context, req) {
   if (req.method !== "POST") {
     context.res = { status: 405, body: { error: "Methode niet ondersteund." } };
     return;
@@ -147,3 +148,8 @@ module.exports = async function (context, req) {
     };
   }
 };
+
+// Alleen bereikbaar voor medewerkers met het offertes-recht (en voor beheerders) — zie
+// api/_gedeeld/offertesRecht.js. Het verbergen van de tab in het portaal is cosmetisch;
+// dit is de plek waar het daadwerkelijk wordt tegengehouden.
+module.exports = metOffertesRecht(handler);

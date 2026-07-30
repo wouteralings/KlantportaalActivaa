@@ -1,7 +1,8 @@
+const { metOffertesRecht } = require("../_gedeeld/offertesRecht");
 const { lijstRuweOpdrachtbevestigingen } = require("../_gedeeld/offertesOpslag");
 const { verwerkVerlopenTarieven } = require("../_gedeeld/offertesOnboarding");
 
-module.exports = async function (context, req) {
+const handler = async function (context, req) {
   try {
     const alle = await lijstRuweOpdrachtbevestigingen();
 
@@ -77,3 +78,8 @@ module.exports = async function (context, req) {
     };
   }
 };
+
+// Alleen bereikbaar voor medewerkers met het offertes-recht (en voor beheerders) — zie
+// api/_gedeeld/offertesRecht.js. Het verbergen van de tab in het portaal is cosmetisch;
+// dit is de plek waar het daadwerkelijk wordt tegengehouden.
+module.exports = metOffertesRecht(handler);

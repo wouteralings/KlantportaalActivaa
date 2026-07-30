@@ -1138,12 +1138,12 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
   const [categorieen, setCategorieen] = useState(CATEGORIEEN_STANDAARD);
   const [categorieenGeladen, setCategorieenGeladen] = useState(false);
 
-  // Medewerkers (naam/e-mail/telefoonnummer/functie/rol) — bepaalt via de rol "beheerder" wie
-  // toegang heeft tot het Instellingen-scherm, zie "Medewerkers beheren" onder Instellingen en
-  // isBeheerder in api/_gedeeld/onboarding.js. automatisering@activaa.nl en alings@activaa.nl
-  // zijn daar altijd beheerder, ook als ze niet (meer) in deze lijst staan.
-  const [medewerkers, setMedewerkers] = useState([]);
-  const [medewerkersGeladen, setMedewerkersGeladen] = useState(false);
+  // Er is hier géén eigen medewerkers-/beheerderslijst meer. Wie beheerder is komt sinds de
+  // integratie in het Klantportaal uit de Azure-rol 'beheerder' (zie isBeheerder in
+  // api/_gedeeld/offertesOnboarding.js), en de rechten per medewerker worden beheerd in het
+  // beheersportaal onder Beheer → Medewerkers → "Medewerkers — wijzig-rechten". Die lijst komt
+  // rechtstreeks uit Dynamics, dus er hoeft niets met de hand te worden bijgehouden — en er is
+  // maar één plek waar rechten staan in plaats van twee die uit elkaar kunnen gaan lopen.
 
   const [zoekKlant, setZoekKlant] = useState("");
   const [gekozenKlanten, setGekozenKlanten] = useState([]); // array van klant-objecten
@@ -2456,43 +2456,6 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
     if (!categorieenGeladen) return;
     opslagSetDebounced("diensten-categorieen", JSON.stringify(categorieen));
   }, [categorieen, categorieenGeladen]);
-
-  // Medewerkers laden — alleen zinvol voor beheerders (de server wijst een GET hierop af
-  // voor niet-beheerders, zie BEHEERDER_ALLEEN_LEZEN_SLEUTELS in api/instellingen), dus voor
-  // een normale gebruiker blijft dit gewoon een lege lijst zonder foutmelding in de UI.
-  useEffect(() => {
-    let actief = true;
-    (async () => {
-      try {
-        const waarde = await opslagGet("medewerkers");
-        if (actief && waarde) setMedewerkers(JSON.parse(waarde));
-      } catch (e) {
-        // nog niets opgeslagen, of geen toegang (niet-beheerder) — lege lijst blijft staan
-      }
-      if (actief) setMedewerkersGeladen(true);
-    })();
-    return () => {
-      actief = false;
-    };
-  }, []);
-
-  // Alleen daadwerkelijk opslaan als deze gebruiker beheerder is — de server wijst een PUT
-  // hierop hoe dan ook af voor niet-beheerders, maar zo voorkomen we ook een gegarandeerd
-  // mislukkende aanroep (en de bijbehorende console-foutmelding) voor iedere andere gebruiker.
-  useEffect(() => {
-    if (!medewerkersGeladen || !benIkBeheerder) return;
-    opslagSetDebounced("medewerkers", JSON.stringify(medewerkers));
-  }, [medewerkers, medewerkersGeladen, benIkBeheerder]);
-
-  function voegMedewerkerToe() {
-    setMedewerkers((prev) => [...prev, { id: nieuwId("mw"), naam: "", email: "", telefoonnummer: "", functie: "", rol: "normaal" }]);
-  }
-  function bijwerkMedewerker(id, veld, waarde) {
-    setMedewerkers((prev) => prev.map((m) => (m.id === id ? { ...m, [veld]: waarde } : m)));
-  }
-  function verwijderMedewerker(id) {
-    setMedewerkers((prev) => prev.filter((m) => m.id !== id));
-  }
 
   // Standaardteksten laden uit persistente opslag.
   useEffect(() => {
@@ -4464,73 +4427,6 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
               )}
             </div>
 
-            <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
-              <span>Medewerkers &amp; beheerders</span>
-              <button className="ot-btn-ghost" onClick={voegMedewerkerToe}>
-                <PlusCircle size={14} />
-                Medewerker toevoegen
-              </button>
-            </div>
-            <div className="ot-card" style={{ padding: 24 }}>
-              <p style={{ fontSize: 12.5, color: "#5B6259", margin: "0 0 16px" }}>
-                Bepaalt wie het Instellingen-scherm mag zien en wie op verzoek een eigen Dataverse-kolom mag
-                aanmaken (rol "Beheerder"). automatisering@activaa.nl en alings@activaa.nl zijn altijd beheerder,
-                ook als ze hieronder niet (meer) voorkomen.
-              </p>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: "#8A9089", borderBottom: "1px solid #E2E4DF" }}>Naam</th>
-                    <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: "#8A9089", borderBottom: "1px solid #E2E4DF" }}>E-mail</th>
-                    <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: "#8A9089", borderBottom: "1px solid #E2E4DF" }}>Telefoonnummer</th>
-                    <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: "#8A9089", borderBottom: "1px solid #E2E4DF" }}>Functie</th>
-                    <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, textTransform: "uppercase", letterSpacing: ".04em", color: "#8A9089", borderBottom: "1px solid #E2E4DF" }}>Rol</th>
-                    <th style={{ borderBottom: "1px solid #E2E4DF" }}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {medewerkers.map((mw) => (
-                    <tr key={mw.id} style={{ borderBottom: "1px solid #F0EEE6" }}>
-                      <td style={{ padding: "8px 4px" }}>
-                        <input type="text" className="ot-input" value={mw.naam} onChange={(e) => bijwerkMedewerker(mw.id, "naam", e.target.value)} placeholder="Naam" />
-                      </td>
-                      <td style={{ padding: "8px 4px" }}>
-                        <input type="email" className="ot-input" value={mw.email} onChange={(e) => bijwerkMedewerker(mw.id, "email", e.target.value)} placeholder="naam@activaa.nl" />
-                      </td>
-                      <td style={{ padding: "8px 4px" }}>
-                        <input type="text" className="ot-input" value={mw.telefoonnummer} onChange={(e) => bijwerkMedewerker(mw.id, "telefoonnummer", e.target.value)} placeholder="06-12345678" />
-                      </td>
-                      <td style={{ padding: "8px 4px" }}>
-                        <input type="text" className="ot-input" value={mw.functie} onChange={(e) => bijwerkMedewerker(mw.id, "functie", e.target.value)} placeholder="Functie" />
-                      </td>
-                      <td style={{ padding: "8px 4px" }}>
-                        <select className="ot-input" value={mw.rol} onChange={(e) => bijwerkMedewerker(mw.id, "rol", e.target.value)}>
-                          <option value="normaal">Normaal</option>
-                          <option value="beheerder">Beheerder</option>
-                        </select>
-                      </td>
-                      <td style={{ padding: "8px 4px" }}>
-                        <button
-                          onClick={() => verwijderMedewerker(mw.id)}
-                          title="Medewerker verwijderen"
-                          style={{ border: "1px solid #E2C4B0", background: "#FBF2EC", color: "#B14A2E", borderRadius: 8, padding: 9, cursor: "pointer", display: "flex" }}
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {medewerkers.length === 0 && (
-                    <tr>
-                      <td colSpan={6} style={{ padding: "10px 4px", fontSize: 12.5, color: "#8A9089" }}>
-                        Nog geen medewerkers toegevoegd — alleen de vaste noodbeheerders (automatisering@activaa.nl,
-                        alings@activaa.nl) hebben op dit moment toegang.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
               </>
             )}
 

@@ -1,3 +1,4 @@
+const { metOffertesRecht } = require("../_gedeeld/offertesRecht");
 const { BlobServiceClient } = require("@azure/storage-blob");
 const { isBeheerder } = require("../_gedeeld/offertesOnboarding");
 
@@ -104,7 +105,7 @@ const TOEGESTANE_SLEUTELS = new Set([
 // vul aan als een toekomstige sleutel ook bij het lezen al beheerder-only moet zijn.
 const BEHEERDER_ALLEEN_LEZEN_SLEUTELS = new Set([]);
 
-module.exports = async function (context, req) {
+const handler = async function (context, req) {
   const sleutel = context.bindingData.sleutel;
 
   if (!sleutel) {
@@ -221,3 +222,8 @@ module.exports = async function (context, req) {
     };
   }
 };
+
+// Alleen bereikbaar voor medewerkers met het offertes-recht (en voor beheerders) — zie
+// api/_gedeeld/offertesRecht.js. Het verbergen van de tab in het portaal is cosmetisch;
+// dit is de plek waar het daadwerkelijk wordt tegengehouden.
+module.exports = metOffertesRecht(handler);

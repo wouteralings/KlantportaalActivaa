@@ -1,3 +1,4 @@
+const { metOffertesRecht } = require("../_gedeeld/offertesRecht");
 const { isBeheerder, maakTariefKolommenVoorDienst } = require("../_gedeeld/offertesOnboarding");
 
 // Op verzoek (knop "Kolom aanmaken in Dataverse" bij "Tarieven — kolom-koppeling" in
@@ -7,7 +8,7 @@ const { isBeheerder, maakTariefKolommenVoorDienst } = require("../_gedeeld/offer
 // dat de Application User permanent de systeemrol "System Customizer" (of hoger) heeft,
 // een bredere/standing bevoegdheid dan voor gewoon dagelijks gebruik nodig is — vandaar
 // de extra toegangsdrempel bovenop de normale "authenticated"-routeregel.
-module.exports = async function (context, req) {
+const handler = async function (context, req) {
   // CSRF-drempel, zelfde patroon als bij api/instellingen en api/dataverse-schema-setup.
   if (req.headers["x-requested-with"] !== "offertetool") {
     context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Ongeldig verzoek." } };
@@ -56,3 +57,8 @@ module.exports = async function (context, req) {
     };
   }
 };
+
+// Alleen bereikbaar voor medewerkers met het offertes-recht (en voor beheerders) — zie
+// api/_gedeeld/offertesRecht.js. Het verbergen van de tab in het portaal is cosmetisch;
+// dit is de plek waar het daadwerkelijk wordt tegengehouden.
+module.exports = metOffertesRecht(handler);

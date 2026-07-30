@@ -1996,6 +1996,10 @@ export default function MedewerkerPortaal() {
   const [gebruiker, setGebruiker] = useState(null);
   const [isBeheerder, setIsBeheerder] = useState(false);
   const [magAlsKlant, setMagAlsKlant] = useState(false);
+  // Mag deze medewerker offertes/opdrachtbevestigingen maken? Beheert een beheerder via
+  // Beheer → Medewerkers. Dit bepaalt alleen of de tab "Offertes" verschijnt; de offerte-API's
+  // controleren het recht zelf ook (api/_gedeeld/offertesRecht.js), dus dit is geen slot.
+  const [magOffertes, setMagOffertes] = useState(false);
   const [tab, setTab] = useState("klantoverzicht"); // klantoverzicht | verzoeken | reacties | ondertekeningen | reviews | offertes | meekijken
   const [tellingen, setTellingen] = useState({ openWijzigingen: 0, nieuweReviews: 0 });
   const [logoUrl, setLogoUrl] = useState("");
@@ -2033,7 +2037,7 @@ export default function MedewerkerPortaal() {
       .catch(() => {});
     fetch("/api/medewerker-rechten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => setMagAlsKlant(!!d.magAlsKlant))
+      .then((d) => { setMagAlsKlant(!!d.magAlsKlant); setMagOffertes(!!d.magOffertes); })
       .catch(() => setMagAlsKlant(false));
   }, [status]);
 
@@ -2097,7 +2101,7 @@ export default function MedewerkerPortaal() {
     ["reacties", "Log klantreacties", 0],
     ["ondertekeningen", "Ondertekeningen", 0],
     ["reviews", "Reviews", tellingen.nieuweReviews],
-    ["offertes", "Offertes", 0],
+    ...(magOffertes || isBeheerder ? [["offertes", "Offertes", 0]] : []),
     ...(magAlsKlant || isBeheerder ? [["meekijken", "Meekijken als klant", 0]] : []),
   ];
 
@@ -2160,7 +2164,7 @@ export default function MedewerkerPortaal() {
       {tab === "reacties" && <AkkoordenLog />}
       {tab === "ondertekeningen" && <OndertekeningenLog />}
       {tab === "reviews" && <ReviewBeheer />}
-      {tab === "offertes" && <OffertesModule isBeheerder={isBeheerder} />}
+      {tab === "offertes" && (magOffertes || isBeheerder) && <OffertesModule />}
       {tab === "meekijken" && <MeekijkenAlsKlant gebruiker={gebruiker} />}
     </div>
   );

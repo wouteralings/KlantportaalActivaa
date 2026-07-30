@@ -1,3 +1,4 @@
+const { metOffertesRecht } = require("../_gedeeld/offertesRecht");
 const { haalDataverseToken } = require("../_gedeeld/offertesOnboarding.js");
 
 // ---------------------------------------------------------------------------
@@ -7,7 +8,7 @@ const { haalDataverseToken } = require("../_gedeeld/offertesOnboarding.js");
 // in App.jsx, die als terugvaloptie blijft dienen als deze aanroep mislukt of de
 // Dynamics-koppeling nog niet is geconfigureerd).
 // ---------------------------------------------------------------------------
-module.exports = async function (context, req) {
+const handler = async function (context, req) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   if (!resource) {
     context.res = {
@@ -75,3 +76,8 @@ module.exports = async function (context, req) {
     };
   }
 };
+
+// Alleen bereikbaar voor medewerkers met het offertes-recht (en voor beheerders) — zie
+// api/_gedeeld/offertesRecht.js. Het verbergen van de tab in het portaal is cosmetisch;
+// dit is de plek waar het daadwerkelijk wordt tegengehouden.
+module.exports = metOffertesRecht(handler);

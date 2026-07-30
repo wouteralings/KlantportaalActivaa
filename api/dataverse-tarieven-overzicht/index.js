@@ -1,3 +1,4 @@
+const { metOffertesRecht } = require("../_gedeeld/offertesRecht");
 const { haalTarievenOverzicht, haalTariefKolomMapping, isBeheerder } = require("../_gedeeld/offertesOnboarding");
 
 // Leesbaar overzicht van de weggeschreven cr283_tarief-rijen, optioneel gefilterd op klant
@@ -6,7 +7,7 @@ const { haalTarievenOverzicht, haalTariefKolomMapping, isBeheerder } = require("
 // toegang loopt via de normale "authenticated"-routeregel in staticwebapp.config.json.
 // Beheerders-only, want dit hoort bij het (nu beheerders-only) Instellingen-scherm — zie
 // isBeheerder — en toont bovendien daadwerkelijke prijsafspraken per klant.
-module.exports = async function (context, req) {
+const handler = async function (context, req) {
   try {
     if (!(await isBeheerder(req))) {
       context.res = {
@@ -32,3 +33,8 @@ module.exports = async function (context, req) {
     };
   }
 };
+
+// Alleen bereikbaar voor medewerkers met het offertes-recht (en voor beheerders) — zie
+// api/_gedeeld/offertesRecht.js. Het verbergen van de tab in het portaal is cosmetisch;
+// dit is de plek waar het daadwerkelijk wordt tegengehouden.
+module.exports = metOffertesRecht(handler);

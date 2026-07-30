@@ -1,3 +1,4 @@
+const { metOffertesRecht } = require("../_gedeeld/offertesRecht");
 const { BlobServiceClient } = require("@azure/storage-blob");
 
 // Zelfde opzet als api/offerte — eigen container zodat opdrachtbevestigingen los blijven
@@ -36,7 +37,7 @@ function veiligeBlobNaam(id) {
   return `${id.replace(/[^a-zA-Z0-9-_]/g, "_")}.json`;
 }
 
-module.exports = async function (context, req) {
+const handler = async function (context, req) {
   const id = context.bindingData.id;
 
   if (!id) {
@@ -160,3 +161,8 @@ module.exports = async function (context, req) {
     };
   }
 };
+
+// Alleen bereikbaar voor medewerkers met het offertes-recht (en voor beheerders) — zie
+// api/_gedeeld/offertesRecht.js. Het verbergen van de tab in het portaal is cosmetisch;
+// dit is de plek waar het daadwerkelijk wordt tegengehouden.
+module.exports = metOffertesRecht(handler);

@@ -1,3 +1,4 @@
+const { metOffertesRecht } = require("../_gedeeld/offertesRecht");
 /**
  * Haalt een app-only toegangstoken op bij Entra ID (client credentials flow),
  * met de App Registration die rechten heeft op de Dynamics 365 Web API.
@@ -37,7 +38,7 @@ async function haalDynamicsToken() {
   return data.access_token;
 }
 
-module.exports = async function (context, req) {
+const handler = async function (context, req) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
 
   if (!resource) {
@@ -143,3 +144,8 @@ module.exports = async function (context, req) {
     };
   }
 };
+
+// Alleen bereikbaar voor medewerkers met het offertes-recht (en voor beheerders) — zie
+// api/_gedeeld/offertesRecht.js. Het verbergen van de tab in het portaal is cosmetisch;
+// dit is de plek waar het daadwerkelijk wordt tegengehouden.
+module.exports = metOffertesRecht(handler);

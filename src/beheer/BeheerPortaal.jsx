@@ -158,6 +158,9 @@ export default function BeheerPortaal() {
   const [bulk, setBulk] = useState([]);
   // Als-klant-recht: lijst met e-mailadressen die (alleen-lezen) mogen meekijken als klant.
   const [alsKlant, setAlsKlant] = useState([]);
+  // Offertes-recht: lijst met e-mailadressen die offertes/opdrachtbevestigingen mogen maken.
+  // Let op: leeg = niemand (net als bulk en als-klant); beheerders mogen altijd.
+  const [offertes, setOffertes] = useState([]);
   const [wijzigrechtenStatus, setWijzigrechtenStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [medewerkers, setMedewerkers] = useState(null); // null = laden; alle Activaa-medewerkers
   const [medewerkerZoek, setMedewerkerZoek] = useState("");
@@ -273,7 +276,7 @@ export default function BeheerPortaal() {
       .catch(() => setCategorieen([]));
     fetch("/api/beheer-wijzigrechten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { setNiveaus(d.niveaus || {}); setBulk(Array.isArray(d.bulk) ? d.bulk : []); setAlsKlant(Array.isArray(d.alsKlant) ? d.alsKlant : []); })
+      .then((d) => { setNiveaus(d.niveaus || {}); setBulk(Array.isArray(d.bulk) ? d.bulk : []); setAlsKlant(Array.isArray(d.alsKlant) ? d.alsKlant : []); setOffertes(Array.isArray(d.offertes) ? d.offertes : []); })
       .catch(() => {});
     fetch("/api/beheer-medewerkers")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
@@ -801,24 +804,31 @@ export default function BeheerPortaal() {
     setWijzigrechtenStatus("idle");
   }, []);
 
+  const zetOffertes = useCallback((email, aan) => {
+    const laag = String(email).toLowerCase();
+    setOffertes((h) => (aan ? [...new Set([...h, laag])] : h.filter((e) => e !== laag)));
+    setWijzigrechtenStatus("idle");
+  }, []);
+
   const slaWijzigrechtenOp = useCallback(async () => {
     setWijzigrechtenStatus("bezig");
     try {
       const res = await fetch("/api/beheer-wijzigrechten", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ niveaus, bulk, alsKlant }),
+        body: JSON.stringify({ niveaus, bulk, alsKlant, offertes }),
       });
       if (!res.ok) throw new Error(await res.text());
       const d = await res.json();
       setNiveaus(d.niveaus || {});
       setBulk(Array.isArray(d.bulk) ? d.bulk : []);
       setAlsKlant(Array.isArray(d.alsKlant) ? d.alsKlant : []);
+      setOffertes(Array.isArray(d.offertes) ? d.offertes : []);
       setWijzigrechtenStatus("gelukt");
     } catch {
       setWijzigrechtenStatus("fout");
     }
-  }, [niveaus, bulk, alsKlant]);
+  }, [niveaus, bulk, alsKlant, offertes]);
 
   const slaKlantoverzichtOp = useCallback(async () => {
     setKoStatus("bezig");
@@ -2079,7 +2089,10 @@ export default function BeheerPortaal() {
           <strong> niveau</strong> (wijzigen van klantgegevens), vink aan wie <strong>bulk-aanpassingen</strong>
           {" "}op meerdere klanten tegelijk mag doen, en vink aan wie <strong>als klant mag meekijken</strong>
           {" "}(alleen-lezen het klantportaal bekijken namens een gekozen klant, via de tab "Meekijken als klant"
-          {" "}in het medewerkersportaal). Beheerders mogen dit alle drie sowieso altijd.
+          {" "}in het medewerkersportaal), en vink aan wie <strong>offertes</strong> mag maken (de tab "Offertes":
+          {" "}offertes en opdrachtbevestigingen opstellen en versturen). Beheerders mogen dit alle vier sowieso
+          {" "}altijd. Wie het offertes-recht niet heeft, ziet de tab niet en kan de bijbehorende API ook niet
+          {" "}aanroepen.
         </div>
 
         {medewerkers === null ? (
@@ -2100,7 +2113,7 @@ export default function BeheerPortaal() {
               />
             </div>
             <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 8 }}>
-              {Object.values(niveaus).filter((n) => n === "manager" || n === "beheerder").length} met wijzig-recht · {bulk.length} met bulk-recht · {alsKlant.length} met als-klant-recht · {medewerkers.length} medewerkers
+              {Object.values(niveaus).filter((n) => n === "manager" || n === "beheerder").length} met wijzig-recht · {bulk.length} met bulk-recht · {alsKlant.length} met als-klant-recht · {offertes.length} met offertes-recht · {medewerkers.length} medewerkers
             </div>
             <div style={{ display: "flex", flexDirection: "column", maxHeight: 460, overflowY: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
               {medewerkers
@@ -2126,6 +2139,14 @@ export default function BeheerPortaal() {
                         onChange={(e) => zetAlsKlant(m.email, e.target.checked)}
                       />
                       Als klant
+                    </label>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: KLEUR.subtekst, cursor: "pointer", whiteSpace: "nowrap" }} title="Mag offertes en opdrachtbevestigingen maken (de tab 'Offertes' in het medewerkersportaal)">
+                      <input
+                        type="checkbox"
+                        checked={offertes.includes(String(m.email).toLowerCase())}
+                        onChange={(e) => zetOffertes(m.email, e.target.checked)}
+                      />
+                      Offertes
                     </label>
                     <select
                       value={niveaus[m.email] || "medewerker"}
