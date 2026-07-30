@@ -47,6 +47,7 @@ export default function Vragenlijsten() {
   const [klantNamen, setKlantNamen] = useState(null); // Map accountId -> Set(namen) | null = (nog) niet geladen
   const [fout, setFout] = useState("");
   const [zoek, setZoek] = useState("");
+  const [soort, setSoort] = useState(""); // filter op soort vragenlijst (lijstNaam)
   const [scope, setScope] = useState("mijn"); // "mijn" | "alle"
   const [toonAantal, setToonAantal] = useState(25);
   const [openId, setOpenId] = useState("");
@@ -76,10 +77,13 @@ export default function Vragenlijsten() {
     return !!(set && set.has(mijnNaam.trim().toLowerCase()));
   };
 
+  const soorten = useMemo(() => [...new Set((rijen || []).map((r) => r.lijstNaam).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [rijen]);
+
   const gefilterd = useMemo(() => {
     const q = zoek.trim().toLowerCase();
     return (rijen || []).filter((r) => {
       if (scope === "mijn" && !isVanMij(r.accountId)) return false;
+      if (soort && r.lijstNaam !== soort) return false;
       if (q) {
         const hooi = `${r.klantnaam} ${r.klantnummer} ${r.lijstNaam} ${r.contactNaam}`.toLowerCase();
         if (!hooi.includes(q)) return false;
@@ -87,7 +91,7 @@ export default function Vragenlijsten() {
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rijen, zoek, scope, mijnNaam, klantNamen]);
+  }, [rijen, zoek, soort, scope, mijnNaam, klantNamen]);
 
   const zichtbaar = toonAantal === Infinity ? gefilterd : gefilterd.slice(0, toonAantal);
   const openVragenTotaal = (rijen || []).reduce((s, r) => s + (r.openVragen || 0), 0);
@@ -146,6 +150,10 @@ export default function Vragenlijsten() {
           <button onClick={() => setScope("mijn")} disabled={!mijnNaam} title={mijnNaam ? "" : "Je naam is niet bekend; toon kantoorbreed"} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", border: "none", cursor: mijnNaam ? "pointer" : "default", fontSize: 12.5, fontWeight: 600, background: scope === "mijn" ? KLEUR.blauw : "#fff", color: scope === "mijn" ? "#fff" : KLEUR.subtekst }}><User size={13} /> Mijn cliënten</button>
           <button onClick={() => setScope("alle")} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", border: "none", borderLeft: `1px solid ${KLEUR.rand}`, cursor: "pointer", fontSize: 12.5, fontWeight: 600, background: scope === "alle" ? KLEUR.blauw : "#fff", color: scope === "alle" ? "#fff" : KLEUR.subtekst }}><Users size={13} /> Kantoorbreed</button>
         </div>
+        <select value={soort} onChange={(e) => setSoort(e.target.value)} title="Filter op soort vragenlijst" style={{ boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 9px", fontSize: 12.5, background: "#fff", maxWidth: 240 }}>
+          <option value="">Alle soorten vragenlijst</option>
+          {soorten.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
         <div style={{ position: "relative", flex: "1 1 220px", minWidth: 180 }}>
           <Search size={13} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)" }} />
           <input value={zoek} onChange={(e) => setZoek(e.target.value)} placeholder="Zoek op cliënt, nummer, lijst of contactpersoon…" style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 9px 8px 28px", fontSize: 12.5, outline: "none" }} />
