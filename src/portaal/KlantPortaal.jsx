@@ -81,6 +81,9 @@ const TABS = [
 // (facturatiemodule, urenregistratie, …); de tab zelf is zichtbaar zodra er gekoppelde
 // klant-accounts zijn — de module toont dan zelf per account/onderdeel een aanvraagkaart.
 const FACTUREN_TAB = { key: "facturen", label: "Administratie", icon: FileText, nieuw: true };
+// Fiscale dossiers (Inkomstenbelasting/Vennootschapsbelasting) uit Dynamics — zichtbaar zodra er
+// gekoppelde klant-accounts zijn; de tab toont zelf een lege staat als er (nog) geen dossiers zijn.
+const DOSSIERS_TAB = { key: "dossiers", label: "Dossiers", icon: Folder };
 
 export default function KlantPortaal() {
   const [ingelogd, setIngelogd] = useState(null); // null = nog aan het checken
@@ -432,7 +435,7 @@ export default function KlantPortaal() {
   const kanUrenSnel = !meekijkSessie && alleAccounts.some((a) => a.urenIngeschakeld && a.toonUrenOpHome);
   const gaNaarUrenRegistratie = () => { setAdminInitieelSubtab("uren"); setTab("facturen"); };
   const zichtbareTabs = (alleAccounts.length > 0
-    ? [...TABS.slice(0, 3), FACTUREN_TAB, ...TABS.slice(3)]
+    ? [...TABS.slice(0, 3), DOSSIERS_TAB, FACTUREN_TAB, ...TABS.slice(3)]
     : TABS
   // Documenten werkt via de eigen Microsoft Graph-rechten van de ingelogde gebruiker
   // (on-behalf-of) — dat kan technisch niet "namens een andere klant" getoond worden, dus
@@ -535,6 +538,7 @@ export default function KlantPortaal() {
           onEntiteitWijzigen={wijzigEntiteit}
         />
       )}
+      {tab === "dossiers" && <TabDossiers />}
       {tab === "facturen" && <FacturatieModule accounts={alleAccounts} prijs={facturatiemodulePrijs} alleenLezen={!!meekijkSessie} initieelSubtab={adminInitieelSubtab} />}
       {tab === "faq" && <TabFaq content={content} teamsChatUrl={teamsChatUrl} whatsappUrl={whatsappUrl} copilotEmbedUrl={copilotEmbedUrl} />}
       {tab === "review" && <TabReview onVerzenden={verstuurReview} alleenLezen={!!meekijkSessie} />}
@@ -1782,6 +1786,115 @@ function isPreviewbaar(naam) {
 }
 function previewFormaat(naam) {
   return OFFICE_PREVIEW.includes(bestandsExtensie(naam)) ? "pdf" : "";
+}
+
+/* ── Dossiers (fiscale dossiers uit Dynamics: Inkomstenbelasting / Vennootschapsbelasting) ── */
+
+function dossierPeriode(d) {
+  if (d.jaar != null && d.jaar !== "") return `Aangifte ${d.jaar}`;
+  if (d.begindatum || d.einddatum) {
+    const jr = (x) => (x ? new Date(x).getFullYear() : "");
+    const van = jr(d.begindatum);
+    const tot = jr(d.einddatum);
+    if (van && tot && van !== tot) return `Boekjaar ${van}–${tot}`;
+    return `Boekjaar ${van || tot || ""}`.trim();
+  }
+  return d.soortLabel || "Dossier";
+}
+
+function dossierBehandelaar(d) {
+  const delen = [];
+  if (d.accountant) delen.push(`Accountant: ${d.accountant}`);
+  if (d.assistent) delen.push(`Assistent: ${d.assistent}`);
+  return delen.join("  ·  ");
+}
+
+function DossierRij({ dossier: d, eerste }) {
+  return (
+    <div style={{ padding: "14px 18px", borderTop: eerste ? "none" : `1px solid ${KLEUR.rand}` }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>
+            {dossierPeriode(d)}
+            {d.klantnaam ? <span style={{ fontWeight: 500, color: KLEUR.subtekst }}> — {d.klantnaam}</span> : null}
+          </div>
+          {dossierBehandelaar(d) && (
+            <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginTop: 2 }}>{dossierBehandelaar(d)}</div>
+          )}
+        </div>
+        {d.statusLabel && (
+          <span style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 20, padding: "4px 11px", whiteSpace: "nowrap" }}>
+            {d.statusLabel}
+          </span>
+        )}
+      </div>
+      {d.reviewNotitie && (
+        <div style={{ marginTop: 10, padding: "10px 12px", background: "#FBF6EC", border: `1px solid ${KLEUR.goud}44`, borderRadius: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.goud, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 4 }}>Opmerking van je accountant</div>
+          <div style={{ fontSize: 13, color: KLEUR.tekst }} dangerouslySetInnerHTML={{ __html: d.reviewNotitie }} />
+        </div>
+      )}
+      {d.reactie && (
+        <div style={{ marginTop: 8, padding: "10px 12px", background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.blauw, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 4 }}>Jouw reactie</div>
+          <div style={{ fontSize: 13, color: KLEUR.tekst }} dangerouslySetInnerHTML={{ __html: d.reactie }} />
+        </div>
+      )}
+      {d.documentUrl && (
+        <a href={d.documentUrl} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10, fontSize: 12.5, fontWeight: 600, color: KLEUR.blauw, textDecoration: "none" }}>
+          <ExternalLink size={13} /> Documenten bekijken
+        </a>
+      )}
+    </div>
+  );
+}
+
+function TabDossiers() {
+  const [status, setStatus] = useState("laden"); // laden | klaar | fout
+  const [dossiers, setDossiers] = useState([]);
+
+  useEffect(() => {
+    let actief = true;
+    fetch("/api/dossiers")
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((d) => { if (actief) { setDossiers(d.dossiers || []); setStatus("klaar"); } })
+      .catch(() => { if (actief) setStatus("fout"); });
+    return () => { actief = false; };
+  }, []);
+
+  if (status === "laden") {
+    return (
+      <div style={{ ...kaartStijl, display: "flex", alignItems: "center", gap: 8, color: KLEUR.mutedTekst, fontSize: 13 }}>
+        <Loader2 size={15} style={{ animation: "spin 1s linear infinite" }} /> Dossiers ophalen…
+      </div>
+    );
+  }
+  if (status === "fout") {
+    return <div style={{ ...kaartStijl, textAlign: "center", padding: 32, color: KLEUR.rood, fontSize: 13.5 }}>Er ging iets mis bij het ophalen van je dossiers. Probeer het later opnieuw.</div>;
+  }
+  if (dossiers.length === 0) {
+    return <div style={{ ...kaartStijl, textAlign: "center", padding: 36, color: KLEUR.mutedTekst, fontSize: 13.5 }}>Je hebt op dit moment geen fiscale dossiers in het portaal.</div>;
+  }
+
+  const perSoort = [];
+  dossiers.forEach((d) => {
+    let groep = perSoort.find((g) => g.label === d.soortLabel);
+    if (!groep) { groep = { label: d.soortLabel, items: [] }; perSoort.push(groep); }
+    groep.items.push(d);
+  });
+
+  return (
+    <div>
+      {perSoort.map((groep) => (
+        <div key={groep.label} style={{ marginBottom: 28 }}>
+          <Kopje tekst={groep.label} />
+          <div style={{ ...kaartStijl, padding: 0, overflow: "hidden" }}>
+            {groep.items.map((d, i) => <DossierRij key={d.id || i} dossier={d} eerste={i === 0} />)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function TabDocumenten({ status, data, foutmelding, pad = [], onOphalen, onOpenMap, onNavigeer, onLabelWijzigen, onEntiteitWijzigen }) {
