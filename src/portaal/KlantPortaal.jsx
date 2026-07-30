@@ -33,6 +33,7 @@ import {
   Clock,
 } from "lucide-react";
 import { haalApiToken } from "./msal";
+import DocumentenTab from "./DocumentenTab";
 import FacturatieModule from "./FacturatieModule";
 import { haalMeekijkSessie, activeerMeekijkFetch, deactiveerMeekijkFetch, stopMeekijken } from "../meekijken";
 
@@ -525,19 +526,7 @@ export default function KlantPortaal() {
       {tab === "gegevens" && (
         <TabGegevens data={mijnGegevens} verzoeken={mijnVerzoeken} onWijzigen={dienWijzigingIn} alleenLezen={!!meekijkSessie} />
       )}
-      {tab === "documenten" && (
-        <TabDocumenten
-          status={documentenStatus}
-          data={documenten}
-          foutmelding={documentenFoutmelding}
-          pad={documentenPad}
-          onOphalen={haalDocumentenOp}
-          onOpenMap={openMap}
-          onNavigeer={gaNaarPad}
-          onLabelWijzigen={wijzigLabel}
-          onEntiteitWijzigen={wijzigEntiteit}
-        />
-      )}
+      {tab === "documenten" && <DocumentenTab />}
       {tab === "dossiers" && <TabDossiers />}
       {tab === "facturen" && <FacturatieModule accounts={alleAccounts} prijs={facturatiemodulePrijs} alleenLezen={!!meekijkSessie} initieelSubtab={adminInitieelSubtab} />}
       {tab === "faq" && <TabFaq content={content} teamsChatUrl={teamsChatUrl} whatsappUrl={whatsappUrl} copilotEmbedUrl={copilotEmbedUrl} />}

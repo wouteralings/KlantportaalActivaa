@@ -47,7 +47,10 @@ module.exports = async function (context, req) {
       let lijst = await verzoeken.haalAlle();
       if (accountId) lijst = lijst.filter((v) => v.accountId === accountId);
       lijst.sort((a, b) => String(b.aangemaaktOp).localeCompare(String(a.aangemaaktOp)));
-      context.res = { headers: { "Content-Type": "application/json" }, body: { verzoeken: lijst } };
+      // Ook de beschikbare aanleverlijsten meesturen, zodat een medewerker (zonder beheerrecht op
+      // /api/beheer-aanleverlijsten) een verzoek kan samenstellen.
+      const lijsten = (await haalLijsten()).map((l) => ({ id: l.id, naam: l.naam, omschrijving: l.omschrijving, aantalRegels: (l.regels || []).length }));
+      context.res = { headers: { "Content-Type": "application/json" }, body: { verzoeken: lijst, lijsten } };
       return;
     }
 

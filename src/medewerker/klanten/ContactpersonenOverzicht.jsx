@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Search, ArrowLeft, Pencil, Link2, Unlink, AlertTriangle, CheckCircle2, X, Plus, Trash2 } from "lucide-react";
+import { Search, ArrowLeft, Pencil, Link2, Unlink, AlertTriangle, CheckCircle2, X, Plus, Trash2, ClipboardList, Send } from "lucide-react";
 import Logboek from "./Logboek";
 
 /** Zelfde palet als het medewerkersportaal — bewust hier herhaald zodat dit bestand
@@ -657,6 +657,133 @@ function Documentrechten({ contactId, onGewijzigd }) {
   );
 }
 
+/* ── Aanlever-verzoeken uitzetten naar deze contactpersoon (kies cliënt + aanleverlijst) en de
+   lopende verzoeken volgen. Beschikbaar voor medewerkers/beheerders (route dwingt de rol af). ── */
+function AanleverVerzoeken({ contact, onGewijzigd }) {
+  const [data, setData] = useState(null); // { verzoeken, lijsten } | null = laden
+  const [nieuw, setNieuw] = useState(false);
+  const [accountId, setAccountId] = useState("");
+  const [lijstId, setLijstId] = useState("");
+  const [notitie, setNotitie] = useState("");
+  const [bezig, setBezig] = useState(false);
+  const [fout, setFout] = useState("");
+
+  const koppelingen = (contact.klanten || []).filter((k) => k.accountId);
+
+  const laad = () =>
+    fetch("/api/medewerker-aanleververzoeken")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setData({ verzoeken: (d.verzoeken || []).filter((v) => v.contactId === contact.contactId), lijsten: d.lijsten || [] }))
+      .catch(() => setData({ verzoeken: [], lijsten: [] }));
+
+  useEffect(() => {
+    setData(null);
+    laad();
+    setAccountId(koppelingen.length === 1 ? koppelingen[0].accountId : "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contact.contactId]);
+
+  const uitzetten = async () => {
+    if (!accountId || !lijstId) { setFout("Kies een cliënt en een lijst."); return; }
+    setBezig(true); setFout("");
+    try {
+      const r = await fetch("/api/medewerker-aanleververzoeken", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "uitzetten", accountId, contactId: contact.contactId, lijstId, notitie }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      setNieuw(false); setLijstId(""); setNotitie("");
+      await laad();
+      onGewijzigd && onGewijzigd();
+    } catch (e) {
+      setFout(e.message || "Uitzetten mislukt.");
+    } finally { setBezig(false); }
+  };
+
+  const verwijder = async (id) => {
+    if (!window.confirm("Dit aanlever-verzoek verwijderen?")) return;
+    await fetch("/api/medewerker-aanleververzoeken", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "verwijderen", id }) }).catch(() => {});
+    laad();
+  };
+
+  const veld = { width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 9px", fontSize: 13, background: "#fff" };
+
+  return (
+    <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${KLEUR.rand}` }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+          <ClipboardList size={15} color={KLEUR.blauw} />
+          <span style={{ fontSize: 13, fontWeight: 700 }}>Aanlever-verzoeken</span>
+        </div>
+        {!nieuw && koppelingen.length > 0 && (
+          <button onClick={() => { setNieuw(true); setFout(""); }} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 11px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+            <Plus size={13} /> Verzoek uitzetten
+          </button>
+        )}
+      </div>
+
+      {koppelingen.length === 0 && <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Koppel deze persoon eerst aan een cliënt om een verzoek te kunnen uitzetten.</div>}
+
+      {nieuw && (
+        <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 12, marginBottom: 10, background: "#FBFBF9" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Cliënt</div>
+              <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={veld}>
+                <option value="">— kies cliënt —</option>
+                {koppelingen.map((k) => <option key={k.accountId} value={k.accountId}>{k.klantnaam}{k.klantnummer ? ` (${k.klantnummer})` : ""}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Aanleverlijst</div>
+              <select value={lijstId} onChange={(e) => setLijstId(e.target.value)} style={veld}>
+                <option value="">— kies lijst —</option>
+                {(data && data.lijsten || []).map((l) => <option key={l.id} value={l.id}>{l.naam}{l.aantalRegels != null ? ` (${l.aantalRegels})` : ""}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Notitie voor de klant (optioneel)</div>
+            <input value={notitie} onChange={(e) => setNotitie(e.target.value)} placeholder="bv. Graag vóór 1 april aanleveren" style={veld} />
+          </div>
+          {fout && <div style={{ fontSize: 12, color: KLEUR.rood, marginTop: 8 }}>{fout}</div>}
+          {data && (data.lijsten || []).length === 0 && <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8 }}>Er zijn nog geen aanleverlijsten. Maak er eerst een in het beheerdersportaal (tab Aanleverlijsten).</div>}
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button onClick={uitzetten} disabled={bezig} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 13px", background: KLEUR.groen, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+              <Send size={13} /> {bezig ? "Uitzetten…" : "Uitzetten"}
+            </button>
+            <button onClick={() => { setNieuw(false); setFout(""); }} style={{ padding: "8px 12px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Annuleren</button>
+          </div>
+        </div>
+      )}
+
+      {data === null ? (
+        <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Verzoeken ophalen…</div>
+      ) : data.verzoeken.length === 0 ? (
+        !nieuw && <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Nog geen aanlever-verzoeken uitgezet.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {data.verzoeken.map((v) => {
+            const klaar = v.regels.filter((r) => r.status === "aangeleverd").length;
+            return (
+              <div key={v.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 12px" }}>
+                <div>
+                  <span style={{ fontSize: 12.5, fontWeight: 600 }}>{v.lijstNaam || "Aanlever-verzoek"}</span>
+                  <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{" · "}{v.klantnaam}{" · "}{klaar}/{v.regels.length} aangeleverd</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: v.status === "afgerond" ? "#E7F2EA" : KLEUR.lichtblauw, color: v.status === "afgerond" ? KLEUR.groen : KLEUR.blauw }}>{v.status === "afgerond" ? "Compleet" : "Openstaand"}</span>
+                  <button onClick={() => verwijder(v.id)} title="Verwijderen" style={{ display: "inline-flex", background: "none", border: "none", color: KLEUR.mutedTekst, cursor: "pointer" }}><Trash2 size={14} /></button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ContactpersoonDetail({ contact, magWijzigen, isBeheerder, onTerug, onBewerkt, onKoppeld, onOntkoppeld, onVerwijderd }) {
   const [bewerken, setBewerken] = useState(false);
   const [koppelKlant, setKoppelKlant] = useState(null); // gekozen cliënt voor de dubbele bevestiging
@@ -817,6 +944,8 @@ function ContactpersoonDetail({ contact, magWijzigen, isBeheerder, onTerug, onBe
         </div>
 
         {isBeheerder && <Documentrechten contactId={contact.contactId} onGewijzigd={() => setLogSleutel((n) => n + 1)} />}
+
+        <AanleverVerzoeken contact={contact} onGewijzigd={() => setLogSleutel((n) => n + 1)} />
 
         <Logboek contactId={contact.contactId} sleutel={logSleutel} />
       </div>
