@@ -1964,6 +1964,7 @@ function MeekijkenAlsKlant({ gebruiker }) {
   const [zoek, setZoek] = useState("");
   const [bezigId, setBezigId] = useState(null);
   const [startFout, setStartFout] = useState("");
+  const [toonAantal, setToonAantal] = useState(25);
 
   useEffect(() => {
     fetch("/api/beheer-klanten")
@@ -2016,8 +2017,8 @@ function MeekijkenAlsKlant({ gebruiker }) {
 
   const term = zoek.trim().toLowerCase();
   const gefilterd = klanten
-    .filter((k) => !term || [k.klantnaam, String(k.klantnummer ?? ""), k.contactNaam, k.contactEmail].filter(Boolean).some((v) => v.toLowerCase().includes(term)))
-    .slice(0, 200);
+    .filter((k) => !term || [k.klantnaam, String(k.klantnummer ?? ""), k.contactNaam, k.contactEmail].filter(Boolean).some((v) => v.toLowerCase().includes(term)));
+  const zichtbaar = gefilterd.slice(0, toonAantal);
 
   return (
     <div>
@@ -2047,7 +2048,7 @@ function MeekijkenAlsKlant({ gebruiker }) {
         {gefilterd.length === 0 ? (
           <div style={{ padding: 14, fontSize: 12.5, color: KLEUR.mutedTekst }}>Geen klanten gevonden.</div>
         ) : (
-          gefilterd.map((k, i) => (
+          zichtbaar.map((k, i) => (
             <div key={k.accountId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}` }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600 }}>{k.klantnaam}{k.klantnummer ? ` (${k.klantnummer})` : ""}</div>
@@ -2072,6 +2073,31 @@ function MeekijkenAlsKlant({ gebruiker }) {
           ))
         )}
       </div>
+
+      {gefilterd.length > 0 && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+          <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>
+            {Math.min(toonAantal, gefilterd.length)} van {gefilterd.length} getoond
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, flexWrap: "wrap" }}>
+            <span style={{ color: KLEUR.mutedTekst }}>Toon:</span>
+            {[[25, "25"], [50, "50"], [100, "100"], [250, "250"], [500, "500"], [Infinity, "Alle"]].map(([n, lbl]) => (
+              <button
+                key={lbl}
+                onClick={() => setToonAantal(n)}
+                style={{
+                  padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                  border: `1px solid ${toonAantal === n ? KLEUR.blauw : KLEUR.rand}`,
+                  background: toonAantal === n ? KLEUR.blauw : "#fff",
+                  color: toonAantal === n ? "#fff" : KLEUR.subtekst,
+                }}
+              >
+                {lbl}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
