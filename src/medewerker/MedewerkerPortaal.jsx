@@ -1515,8 +1515,127 @@ function KlantenModule() {
       <div style={{ paddingTop: 24 }}>
         {sub === "klanten" && <KlantOverzicht />}
         {sub === "contactpersonen" && <ContactpersonenOverzicht />}
-        {actief.watKomtEr && <NogInTeRichten titel={actief.label} watKomtEr={actief.watKomtEr} />}
+        {(sub === "ib" || sub === "vpb") && <MedewerkerDossiers soort={sub} />}
+        {(sub === "divb" || sub === "lonen") && <NogInTeRichten titel={actief.label} watKomtEr={actief.watKomtEr} />}
       </div>
+    </div>
+  );
+}
+
+/* ── Fiscale dossiers voor de medewerker (Inkomstenbelasting / Vennootschapsbelasting) ──
+   Eén lijst per soort over alle cliënten, uit /api/medewerker-dossiers (deelt de query met de
+   klantweergave via api/_gedeeld/dossiers.js). Read-only overzicht: jaar/boekjaar, status,
+   behandelaar. */
+function dossierBoekjaar(d) {
+  const jr = (x) => (x ? new Date(x).getFullYear() : "");
+  const van = jr(d.begindatum);
+  const tot = jr(d.einddatum);
+  if (van && tot && van !== tot) return `${van}–${tot}`;
+  return String(van || tot || "");
+}
+
+function MedewerkerDossiers({ soort }) {
+  const [dossiers, setDossiers] = useState(null); // null = laden
+  const [fout, setFout] = useState(false);
+  const [zoek, setZoek] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [toonAantal, setToonAantal] = useState(25);
+
+  useEffect(() => {
+    setDossiers(null);
+    setFout(false);
+    setZoek("");
+    setStatusFilter("");
+    setToonAantal(25);
+    let actief = true;
+    fetch(`/api/medewerker-dossiers?soort=${encodeURIComponent(soort)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => { if (actief) setDossiers(d.dossiers || []); })
+      .catch(() => { if (actief) { setDossiers([]); setFout(true); } });
+    return () => { actief = false; };
+  }, [soort]);
+
+  const periodeLabel = soort === "vpb" ? "Boekjaar" : "Jaar";
+  const periode = (d) => (d.jaar != null && d.jaar !== "" ? String(d.jaar) : dossierBoekjaar(d));
+
+  if (dossiers === null) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst }}>
+        <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Dossiers ophalen…
+      </div>
+    );
+  }
+
+  const statussen = [...new Set(dossiers.map((d) => d.statusLabel).filter(Boolean))].sort();
+  const term = zoek.trim().toLowerCase();
+  const gefilterd = dossiers.filter((d) =>
+    (!statusFilter || d.statusLabel === statusFilter) &&
+    (!term || [d.klantnaam, periode(d), d.statusLabel, d.accountant, d.assistent].filter(Boolean).some((v) => String(v).toLowerCase().includes(term)))
+  );
+  const zichtbaar = gefilterd.slice(0, toonAantal);
+
+  return (
+    <div>
+      {fout && (
+        <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 12 }}>Er ging iets mis bij het ophalen van de dossiers.</div>
+      )}
+      <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ position: "relative", flex: "1 1 240px", maxWidth: 340 }}>
+          <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+          <input
+            value={zoek}
+            onChange={(e) => setZoek(e.target.value)}
+            placeholder="Zoek op cliënt, jaar, status of behandelaar…"
+            style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 32px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}
+          />
+        </div>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ padding: "8px 10px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, background: "#fff" }}>
+          <option value="">Alle statussen</option>
+          {statussen.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </div>
+
+      {dossiers.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, padding: "16px 2px" }}>Nog geen dossiers gevonden.</div>
+      ) : (
+        <>
+          <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "2fr 90px 1.6fr 1.3fr 1.3fr", gap: 0, background: KLEUR.lichtblauw, padding: "9px 14px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase", letterSpacing: ".03em" }}>
+              <div>Cliënt</div><div>{periodeLabel}</div><div>Status</div><div>Accountant</div><div>Assistent</div>
+            </div>
+            {zichtbaar.map((d, i) => (
+              <div key={d.id || i} style={{ display: "grid", gridTemplateColumns: "2fr 90px 1.6fr 1.3fr 1.3fr", gap: 0, padding: "9px 14px", borderTop: `1px solid ${KLEUR.rand}`, fontSize: 12.5, alignItems: "center" }}>
+                <div style={{ fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.klantnaam || "—"}</div>
+                <div>{periode(d) || "—"}</div>
+                <div style={{ color: KLEUR.subtekst }}>{d.statusLabel || "—"}</div>
+                <div style={{ color: KLEUR.subtekst }}>{d.accountant || "—"}</div>
+                <div style={{ color: KLEUR.subtekst }}>{d.assistent || "—"}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{Math.min(toonAantal, gefilterd.length)} van {gefilterd.length} getoond</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, flexWrap: "wrap" }}>
+              <span style={{ color: KLEUR.mutedTekst }}>Toon:</span>
+              {[[25, "25"], [50, "50"], [100, "100"], [250, "250"], [500, "500"], [Infinity, "Alle"]].map(([n, lbl]) => (
+                <button
+                  key={lbl}
+                  onClick={() => setToonAantal(n)}
+                  style={{
+                    padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                    border: `1px solid ${toonAantal === n ? KLEUR.blauw : KLEUR.rand}`,
+                    background: toonAantal === n ? KLEUR.blauw : "#fff",
+                    color: toonAantal === n ? "#fff" : KLEUR.subtekst,
+                  }}
+                >
+                  {lbl}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
