@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Search, ArrowLeft, Pencil, Link2, Unlink, AlertTriangle, CheckCircle2, X, Plus, Trash2, ClipboardList, Send } from "lucide-react";
+import { Search, ArrowLeft, Pencil, Link2, Unlink, AlertTriangle, CheckCircle2, X, Plus, Trash2, ClipboardList, Send, ShieldCheck, ChevronDown } from "lucide-react";
 import Logboek from "./Logboek";
 
 /** Zelfde palet als het medewerkersportaal — bewust hier herhaald zodat dit bestand
@@ -87,6 +87,7 @@ export default function ContactpersonenOverzicht() {
   const [isBeheerder, setIsBeheerder] = useState(false);
   const [selectie, setSelectie] = useState(() => new Set()); // geselecteerde contactId's voor bulk
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [docrechtBulkOpen, setDocrechtBulkOpen] = useState(false);
   const [toevoegenOpen, setToevoegenOpen] = useState(false);
 
   useEffect(() => {
@@ -237,6 +238,17 @@ export default function ContactpersonenOverzicht() {
     return d;
   };
 
+  const bulkDocumentrecht = async (recht, waarde) => {
+    const ids = [...selectie];
+    const res = await fetch("/api/medewerker-contactpersoon", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ actie: "bulk-documentrechten", contactIds: ids, recht, waarde }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+    return await res.json();
+  };
+
   const sorteerOp = (key) => {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else {
@@ -365,6 +377,11 @@ export default function ContactpersonenOverzicht() {
           <button onClick={() => setBulkOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
             <Pencil size={13} /> Bulk wijzigen
           </button>
+          {isBeheerder && (
+            <button onClick={() => setDocrechtBulkOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", background: "#fff", color: KLEUR.blauw, border: `1px solid ${KLEUR.blauw}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+              <ShieldCheck size={13} /> Documentrechten
+            </button>
+          )}
           <button onClick={() => setSelectie(new Set())} style={{ padding: "7px 12px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Selectie wissen</button>
         </div>
       )}
@@ -477,7 +494,77 @@ export default function ContactpersonenOverzicht() {
       {toevoegenOpen && isBeheerder && (
         <ContactpersoonToevoegen onKlaar={() => setToevoegenOpen(false)} onToegevoegd={naToevoegen} />
       )}
+
+      {docrechtBulkOpen && isBeheerder && (
+        <BulkDocumentrechten aantal={selectie.size} onKlaar={() => setDocrechtBulkOpen(false)} onToepassen={bulkDocumentrecht} />
+      )}
     </div>
+  );
+}
+
+/* ── Bulk: één documentrecht aan-/uitzetten op alle geselecteerde contactpersonen (beheerder) ── */
+function BulkDocumentrechten({ aantal, onKlaar, onToepassen }) {
+  const [recht, setRecht] = useState("aanleveren");
+  const [waarde, setWaarde] = useState(true);
+  const [status, setStatus] = useState("invoer"); // invoer | bezig | fout
+  const [resultaat, setResultaat] = useState(null);
+  const rechtLabel = (DOC_RECHTEN.find((r) => r.key === recht) || {}).label || recht;
+
+  const toepassen = async () => {
+    if (!window.confirm(`Documentrecht "${rechtLabel}" ${waarde ? "aanzetten" : "uitzetten"} bij ${aantal} contactperso${aantal === 1 ? "on" : "nen"}?`)) return;
+    setStatus("bezig");
+    try {
+      const d = await onToepassen(recht, waarde);
+      setResultaat(d);
+      setStatus("invoer");
+    } catch {
+      setStatus("fout");
+    }
+  };
+
+  const veld = { width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 9px", fontSize: 13, background: "#fff", marginBottom: 8 };
+
+  return (
+    <>
+      <div onClick={onKlaar} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 70 }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 71, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.2)", padding: 22, width: 420, maxWidth: "92vw" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <ShieldCheck size={17} color={KLEUR.blauw} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Documentrechten in bulk</span>
+        </div>
+        <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 14 }}>
+          Zet één documentrecht in één keer aan of uit bij <strong>{aantal}</strong> geselecteerde contactperso{aantal === 1 ? "on" : "nen"}. Wordt per persoon gelogd.
+        </div>
+
+        <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Recht</div>
+        <select value={recht} onChange={(e) => { setRecht(e.target.value); setResultaat(null); }} style={veld}>
+          {DOC_RECHTEN.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
+        </select>
+
+        <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Actie</div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+          {[[true, "Aanzetten"], [false, "Uitzetten"]].map(([v, lbl]) => (
+            <button key={lbl} onClick={() => setWaarde(v)} style={{ flex: 1, padding: "8px 10px", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer", border: `1px solid ${waarde === v ? KLEUR.blauw : KLEUR.rand}`, background: waarde === v ? KLEUR.blauw : "#fff", color: waarde === v ? "#fff" : KLEUR.subtekst }}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+
+        {resultaat && (
+          <div style={{ fontSize: 12.5, marginTop: 6, color: resultaat.mislukt && resultaat.mislukt.length ? KLEUR.rood : KLEUR.groen }}>
+            {resultaat.gelukt} bijgewerkt{resultaat.mislukt && resultaat.mislukt.length ? ` · ${resultaat.mislukt.length} mislukt` : ""}.
+          </div>
+        )}
+        {status === "fout" && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginTop: 6 }}>Bulk-aanpassing mislukt, probeer het nog eens.</div>}
+
+        <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+          <button onClick={toepassen} disabled={status === "bezig"} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: KLEUR.groen, color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            <CheckCircle2 size={14} /> {status === "bezig" ? "Bezig…" : "Toepassen"}
+          </button>
+          <button onClick={onKlaar} style={{ padding: "9px 14px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Sluiten</button>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -667,6 +754,7 @@ function AanleverVerzoeken({ contact, onGewijzigd }) {
   const [notitie, setNotitie] = useState("");
   const [bezig, setBezig] = useState(false);
   const [fout, setFout] = useState("");
+  const [openId, setOpenId] = useState("");
 
   const koppelingen = (contact.klanten || []).filter((k) => k.accountId);
 
@@ -765,16 +853,37 @@ function AanleverVerzoeken({ contact, onGewijzigd }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {data.verzoeken.map((v) => {
             const klaar = v.regels.filter((r) => r.status === "aangeleverd").length;
+            const open = openId === v.id;
             return (
-              <div key={v.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 12px" }}>
-                <div>
-                  <span style={{ fontSize: 12.5, fontWeight: 600 }}>{v.lijstNaam || "Aanlever-verzoek"}</span>
-                  <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{" · "}{v.klantnaam}{" · "}{klaar}/{v.regels.length} aangeleverd</span>
+              <div key={v.id} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", padding: "8px 12px" }}>
+                  <button onClick={() => setOpenId(open ? "" : v.id)} style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, background: "none", border: "none", textAlign: "left", cursor: "pointer", padding: 0 }}>
+                    <ChevronDown size={14} color={KLEUR.mutedTekst} style={{ transform: open ? "rotate(180deg)" : "none", flexShrink: 0 }} />
+                    <span style={{ fontSize: 12.5, fontWeight: 600 }}>{v.lijstNaam || "Aanlever-verzoek"}</span>
+                    <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{v.klantnaam}{" · "}{klaar}/{v.regels.length} aangeleverd</span>
+                  </button>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: v.status === "afgerond" ? "#E7F2EA" : KLEUR.lichtblauw, color: v.status === "afgerond" ? KLEUR.groen : KLEUR.blauw }}>{v.status === "afgerond" ? "Compleet" : "Openstaand"}</span>
+                    <button onClick={() => verwijder(v.id)} title="Verwijderen" style={{ display: "inline-flex", background: "none", border: "none", color: KLEUR.mutedTekst, cursor: "pointer" }}><Trash2 size={14} /></button>
+                  </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: v.status === "afgerond" ? "#E7F2EA" : KLEUR.lichtblauw, color: v.status === "afgerond" ? KLEUR.groen : KLEUR.blauw }}>{v.status === "afgerond" ? "Compleet" : "Openstaand"}</span>
-                  <button onClick={() => verwijder(v.id)} title="Verwijderen" style={{ display: "inline-flex", background: "none", border: "none", color: KLEUR.mutedTekst, cursor: "pointer" }}><Trash2 size={14} /></button>
-                </div>
+                {open && (
+                  <div style={{ padding: "0 12px 10px", display: "flex", flexDirection: "column", gap: 5 }}>
+                    {v.notitie && <div style={{ fontSize: 11.5, color: KLEUR.subtekst, fontStyle: "italic" }}>{v.notitie}</div>}
+                    {v.regels.map((r) => (
+                      <div key={r.id} style={{ fontSize: 12, padding: "6px 9px", background: "#FBFBF9", border: `1px solid ${KLEUR.rand}`, borderRadius: 6 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          {r.status === "aangeleverd"
+                            ? <CheckCircle2 size={13} color={KLEUR.groen} />
+                            : <span style={{ width: 12, height: 12, borderRadius: "50%", border: `1.5px solid ${KLEUR.mutedTekst}`, display: "inline-block" }} />}
+                          <span style={{ fontWeight: 600, color: KLEUR.tekst }}>{r.naam}</span>
+                          {r.status === "aangeleverd" && r.bestand && <span style={{ color: KLEUR.mutedTekst }}>· {r.bestand.naam}</span>}
+                        </div>
+                        {r.opmerking && <div style={{ marginLeft: 20, marginTop: 2, color: "#B98237" }}>Opmerking: {r.opmerking}</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}

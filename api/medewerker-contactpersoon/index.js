@@ -530,6 +530,54 @@ module.exports = async function (context, req) {
       return;
     }
 
+    // ── Bulk: één documentrecht op meerdere contactpersonen zetten (gate: BEHEERDER) ──────
+    if (actie === "bulk-documentrechten") {
+      if (!beheerder) {
+        context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Alleen een beheerder mag documentrechten toewijzen." } };
+        return;
+      }
+      const contactIds = Array.isArray(req.body && req.body.contactIds) ? req.body.contactIds.filter(Boolean) : [];
+      const recht = req.body && req.body.recht;
+      const waarde = !!(req.body && req.body.waarde);
+      if (contactIds.length === 0) {
+        context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'contactIds' mee." } };
+        return;
+      }
+      if (!documentrechten.RECHT_KEYS.includes(recht)) {
+        context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Onbekend documentrecht." } };
+        return;
+      }
+
+      let gelukt = 0;
+      const mislukt = [];
+      for (const cid of contactIds) {
+        try {
+          const huidig = await documentrechten.haalVoorContact(cid);
+          await documentrechten.zetVoorContact(cid, { ...huidig, [recht]: waarde });
+          gelukt++;
+          try {
+            const info = await haalContactVolledig(resource, token, cid);
+            const naam = info ? info.fullname || "" : "";
+            const accounts = await haalGekoppeldeAccounts(resource, token, cid);
+            await logGebeurtenis({
+              door: email || "onbekend",
+              actie: "rechten",
+              contactId: cid,
+              contactNaam: naam,
+              accountIds: accounts.map((a) => a.accountId),
+              klantnaam: accounts.map((a) => a.klantnaam).filter(Boolean).join(", "),
+              tekst: `Documentrecht "${DOCRECHT_LABEL[recht] || recht}" ${waarde ? "aangezet" : "uitgezet"} voor ${naam || "(onbekend)"} (bulk).`,
+            });
+          } catch { /* logging is best-effort */ }
+        } catch (e) {
+          mislukt.push({ contactId: cid, fout: String(e.message || e) });
+        }
+      }
+
+      context.res = { headers: { "Content-Type": "application/json" }, body: { gelukt, mislukt } };
+      return;
+    }
+
     context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Onbekende of ontbrekende 'actie'." } };
   } catch (err) {
     if (err.message === "MISSING_CONFIG") {

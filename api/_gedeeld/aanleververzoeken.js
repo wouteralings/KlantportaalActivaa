@@ -76,6 +76,7 @@ function maakVerzoek({ accountId, klantnaam, klantnummer, contactId, contactNaam
       toelichting: String(r && r.toelichting ? r.toelichting : "").slice(0, 600),
       verplicht: r && r.verplicht === false ? false : true,
       status: "open",
+      opmerking: "",
       aangeleverdOp: null,
       aangeleverdDoor: null,
       bestand: null,

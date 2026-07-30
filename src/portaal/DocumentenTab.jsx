@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { FileText, Folder, ChevronRight, Download, Upload, CheckCircle2, Loader2, ArrowLeft, RefreshCw, X, ClipboardList } from "lucide-react";
+import { FileText, Folder, ChevronRight, ChevronDown, Circle, Download, Upload, CheckCircle2, Loader2, ArrowLeft, RefreshCw, X, ClipboardList } from "lucide-react";
 
 /** Zelfde palet als het klantportaal (bewust hier herhaald zodat dit bestand op zichzelf staat). */
 const KLEUR = {
@@ -45,6 +45,11 @@ export default function DocumentenTab() {
   const [viewer, setViewer] = useState(null); // { titel, blobUrl, laden, fout }
   const [verzoeken, setVerzoeken] = useState([]);
   const [bezigRegel, setBezigRegel] = useState("");
+  const [openRegels, setOpenRegels] = useState(() => new Set());
+  const [opmerkingDraft, setOpmerkingDraft] = useState({});
+  const [bezigOpm, setBezigOpm] = useState("");
+
+  const toggleRegel = (id) => setOpenRegels((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   const laadDocumenten = useCallback(() => {
     setDocStatus("laden");
@@ -120,6 +125,25 @@ export default function DocumentenTab() {
     }
   };
 
+  const saveOpmerking = async (verzoek, regel) => {
+    const opmerking = opmerkingDraft[regel.id] != null ? opmerkingDraft[regel.id] : (regel.opmerking || "");
+    setBezigOpm(regel.id);
+    try {
+      const r = await fetch("/api/mijn-aanleververzoeken", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "opmerking", verzoekId: verzoek.id, regelId: regel.id, opmerking }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      const d = await r.json();
+      if (d.verzoek) setVerzoeken((huidig) => huidig.map((v) => (v.id === d.verzoek.id ? d.verzoek : v)));
+    } catch (e) {
+      alert("Opmerking opslaan mislukt: " + (e.message || e));
+    } finally {
+      setBezigOpm("");
+    }
+  };
+
   const kaart = { border: `1px solid ${KLEUR.rand}`, borderRadius: 12, padding: 18, marginBottom: 16 };
   const itemRij = (accountId, item) => (
     <button
@@ -165,25 +189,46 @@ export default function DocumentenTab() {
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {v.regels.map((r) => {
                   const klaar = r.status === "aangeleverd";
+                  const open = openRegels.has(r.id);
+                  const opmWaarde = opmerkingDraft[r.id] != null ? opmerkingDraft[r.id] : (r.opmerking || "");
                   return (
-                    <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "8px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
-                      <div style={{ flex: "1 1 200px", minWidth: 160 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: KLEUR.tekst }}>
+                    <div key={r.id} style={{ border: `1px solid ${klaar ? "#BFE0C8" : KLEUR.rand}`, borderRadius: 8, background: klaar ? "#F1F8F3" : "#fff", overflow: "hidden" }}>
+                      <button onClick={() => toggleRegel(r.id)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", background: "none", border: "none", padding: "10px 12px", cursor: "pointer" }}>
+                        {klaar ? <CheckCircle2 size={17} color={KLEUR.groen} /> : <Circle size={17} color={KLEUR.mutedTekst} />}
+                        <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: KLEUR.tekst }}>
                           {r.naam}{r.verplicht === false ? <span style={{ fontWeight: 400, color: KLEUR.mutedTekst }}> · optioneel</span> : null}
-                        </div>
-                        {r.toelichting && <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{r.toelichting}</div>}
-                        {klaar && r.bestand && <div style={{ fontSize: 11.5, color: KLEUR.groen }}>Aangeleverd: {r.bestand.naam}{r.aangeleverdOp ? ` · ${tijd(r.aangeleverdOp)}` : ""}</div>}
-                      </div>
-                      {klaar ? (
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, color: KLEUR.groen }}>
-                          <CheckCircle2 size={15} /> Aangeleverd
                         </span>
-                      ) : (
-                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", background: KLEUR.blauw, color: "#fff", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
-                          {bezigRegel === r.id ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Upload size={14} />}
-                          {bezigRegel === r.id ? "Uploaden…" : (r.bestand ? "Vervangen" : "Uploaden")}
-                          <input type="file" style={{ display: "none" }} disabled={bezigRegel === r.id} onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; uploadRegel(v, r, f); }} />
-                        </label>
+                        {klaar && <span style={{ fontSize: 11.5, color: KLEUR.groen, fontWeight: 700 }}>Aangeleverd</span>}
+                        {!klaar && r.opmerking && <span style={{ fontSize: 11, color: KLEUR.goud, fontWeight: 600 }}>opmerking</span>}
+                        <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+                      </button>
+                      {open && (
+                        <div style={{ padding: "0 12px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+                          {r.toelichting && <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>{r.toelichting}</div>}
+                          {klaar && r.bestand && <div style={{ fontSize: 12, color: KLEUR.groen }}>Aangeleverd: {r.bestand.naam}{r.aangeleverdOp ? ` · ${tijd(r.aangeleverdOp)}` : ""}</div>}
+                          <div>
+                            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", background: klaar ? "#fff" : KLEUR.blauw, color: klaar ? KLEUR.blauw : "#fff", border: klaar ? `1px solid ${KLEUR.blauw}` : "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+                              {bezigRegel === r.id ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Upload size={14} />}
+                              {bezigRegel === r.id ? "Uploaden…" : (r.bestand ? "Vervangen" : "Bestand uploaden")}
+                              <input type="file" style={{ display: "none" }} disabled={bezigRegel === r.id} onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; uploadRegel(v, r, f); }} />
+                            </label>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Opmerking (zichtbaar voor je accountant)</div>
+                            <textarea
+                              value={opmWaarde}
+                              onChange={(e) => setOpmerkingDraft((d) => ({ ...d, [r.id]: e.target.value }))}
+                              rows={2}
+                              placeholder="bv. zit in de bijlage / niet van toepassing"
+                              style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 12.5, resize: "vertical", outline: "none" }}
+                            />
+                            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4 }}>
+                              <button onClick={() => saveOpmerking(v, r)} disabled={bezigOpm === r.id} style={{ padding: "5px 11px", background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 11.5, fontWeight: 600, color: KLEUR.blauw, cursor: "pointer" }}>
+                                {bezigOpm === r.id ? "Opslaan…" : "Opmerking opslaan"}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
                       )}
                     </div>
                   );

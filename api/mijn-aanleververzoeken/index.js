@@ -62,12 +62,10 @@ module.exports = async function (context, req) {
 
     if (methode !== "POST") { context.res = { status: 405, body: { error: "Methode niet toegestaan." } }; return; }
 
-    const { actie, verzoekId, regelId, origineleNaam, contentBase64, contentType } = req.body || {};
-    if (actie !== "upload") { context.res = { status: 400, body: { error: "Onbekende of ontbrekende 'actie'." } }; return; }
-    if (!verzoekId || !regelId || !contentBase64) {
-      context.res = { status: 400, body: { error: "Geef 'verzoekId', 'regelId' en 'contentBase64' mee." } };
-      return;
-    }
+    const b = req.body || {};
+    const { actie, verzoekId, regelId } = b;
+    if (actie !== "upload" && actie !== "opmerking") { context.res = { status: 400, body: { error: "Onbekende of ontbrekende 'actie'." } }; return; }
+    if (!verzoekId || !regelId) { context.res = { status: 400, body: { error: "Geef 'verzoekId' en 'regelId' mee." } }; return; }
 
     // Verzoek ophalen + controleren dat het van deze ingelogde klant is.
     const alle = await verzoeken.haalAlle();
@@ -85,11 +83,22 @@ module.exports = async function (context, req) {
     const regel = verzoek.regels.find((r) => r.id === regelId);
     if (!regel) { context.res = { status: 404, body: { error: "Regel niet gevonden." } }; return; }
 
-    // Bytes + doelnaam.
+    // ── Alleen een opmerking opslaan (zonder upload) ──
+    if (actie === "opmerking") {
+      const bijgewerkt = await verzoeken.werkBij(verzoekId, (v) => {
+        const r = v.regels.find((x) => x.id === regelId);
+        if (r) r.opmerking = String(b.opmerking || "").slice(0, 1000);
+      });
+      context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek: bijgewerkt } };
+      return;
+    }
+
+    // ── Upload ──
+    if (!b.contentBase64) { context.res = { status: 400, body: { error: "Geef 'contentBase64' mee." } }; return; }
     let buffer;
-    try { buffer = Buffer.from(String(contentBase64), "base64"); } catch { buffer = null; }
+    try { buffer = Buffer.from(String(b.contentBase64), "base64"); } catch { buffer = null; }
     if (!buffer || buffer.length === 0) { context.res = { status: 400, body: { error: "Leeg of ongeldig bestand." } }; return; }
-    const doelnaam = veiligeBestandsnaam(regel.bestandsnaam || regel.naam, origineleNaam);
+    const doelnaam = veiligeBestandsnaam(regel.bestandsnaam || regel.naam, b.origineleNaam);
 
     // App-only upload naar <basismap>/Aanleveren.
     const appToken = await haalGraphAppToken();
@@ -97,7 +106,7 @@ module.exports = async function (context, req) {
     if (!spUrl) { context.res = { status: 404, body: { error: "Voor deze cliënt is geen documentmap ingesteld." } }; return; }
     const { driveId, itemId } = await resolveFolder(appToken, spUrl);
     const aanleverenId = await ensureFolderPath(appToken, driveId, itemId, [AANLEVEREN_MAP]);
-    const geupload = await uploadBestand(appToken, driveId, aanleverenId, doelnaam, buffer, contentType || "application/octet-stream");
+    const geupload = await uploadBestand(appToken, driveId, aanleverenId, doelnaam, buffer, b.contentType || "application/octet-stream");
 
     // Regel bijwerken + status herberekenen.
     const bijgewerkt = await verzoeken.werkBij(verzoekId, (v) => {
@@ -107,6 +116,7 @@ module.exports = async function (context, req) {
         r.aangeleverdOp = new Date().toISOString();
         r.aangeleverdDoor = haalEmailUitPrincipal(req) || "";
         r.bestand = { naam: doelnaam, url: (geupload && geupload.webUrl) || "", driveId, itemId: (geupload && geupload.id) || "" };
+        if (b.opmerking != null) r.opmerking = String(b.opmerking).slice(0, 1000);
       }
       verzoeken.herberekenStatus(v);
     });
