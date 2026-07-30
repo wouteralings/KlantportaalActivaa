@@ -3,6 +3,7 @@ import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, Lay
 import { startMeekijken } from "../meekijken";
 import OffertesModule from "./OffertesModule";
 import Vragenlijsten from "./Vragenlijsten";
+import ScopeToggle, { useMijnNaam, isKlantVanMij } from "./MijnFilter";
 import ContactpersonenOverzicht from "./klanten/ContactpersonenOverzicht";
 import NogInTeRichten from "./klanten/NogInTeRichten";
 import Logboek from "./klanten/Logboek";
@@ -1678,6 +1679,8 @@ function MedewerkerDossiers({ soort }) {
   const [zoek, setZoek] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [toonAantal, setToonAantal] = useState(25);
+  const { mijnNaam, geladen: naamGeladen } = useMijnNaam();
+  const [scope, setScope] = useState("mijn"); // "mijn" | "alle"
 
   useEffect(() => {
     setDossiers(null);
@@ -1706,7 +1709,10 @@ function MedewerkerDossiers({ soort }) {
 
   const statussen = [...new Set(dossiers.map((d) => d.statusLabel).filter(Boolean))].sort();
   const term = zoek.trim().toLowerCase();
+  const mijnLc = mijnNaam.trim().toLowerCase();
+  const isDossierVanMij = (d) => !!mijnLc && [d.accountant, d.assistent].some((v) => String(v || "").trim().toLowerCase() === mijnLc);
   const gefilterd = dossiers.filter((d) =>
+    (scope !== "mijn" || !mijnNaam || isDossierVanMij(d)) &&
     (!statusFilter || d.statusLabel === statusFilter) &&
     (!term || [d.klantnaam, periode(d), d.statusLabel, d.accountant, d.assistent].filter(Boolean).some((v) => String(v).toLowerCase().includes(term)))
   );
@@ -1718,6 +1724,7 @@ function MedewerkerDossiers({ soort }) {
         <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 12 }}>Er ging iets mis bij het ophalen van de dossiers.</div>
       )}
       <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+        <ScopeToggle scope={scope} setScope={setScope} />
         <div style={{ position: "relative", flex: "1 1 240px", maxWidth: 340 }}>
           <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
           <input
@@ -1732,6 +1739,9 @@ function MedewerkerDossiers({ soort }) {
           {statussen.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
       </div>
+      {scope === "mijn" && naamGeladen && !mijnNaam && (
+        <div style={{ fontSize: 12, color: KLEUR.goud, marginBottom: 8 }}>Je naam kon niet automatisch worden bepaald; gebruik <strong>Kantoorbreed</strong>.</div>
+      )}
 
       {dossiers.length === 0 ? (
         <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, padding: "16px 2px" }}>Nog geen dossiers gevonden.</div>
@@ -1807,6 +1817,8 @@ function KlantOverzicht() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkVragenlijstOpen, setBulkVragenlijstOpen] = useState(false);
   const [klantToevoegenOpen, setKlantToevoegenOpen] = useState(false);
+  const { mijnNaam, geladen: naamGeladen } = useMijnNaam();
+  const [scope, setScope] = useState("mijn"); // "mijn" | "alle"
 
   useEffect(() => {
     fetch("/api/beheer-klanten")
@@ -1903,6 +1915,7 @@ function KlantOverzicht() {
   const kolomVan = (key) => KOLOMMEN.find((c) => c.key === key);
   const term = zoek.trim().toLowerCase();
   const gefilterd = klanten.filter((k) => {
+    if (scope === "mijn" && mijnNaam && !isKlantVanMij(k, mijnNaam)) return false;
     for (const [key, val] of Object.entries(kolomFilters)) {
       if (!val) continue;
       const kol = kolomVan(key);
@@ -2027,6 +2040,7 @@ function KlantOverzicht() {
       </div>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10, alignItems: "center" }}>
+        <ScopeToggle scope={scope} setScope={setScope} />
         <div style={{ position: "relative", flex: "1 1 240px", minWidth: 200 }}>
           <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
           <input
@@ -2108,6 +2122,10 @@ function KlantOverzicht() {
           <button onClick={() => setBulkVragenlijstOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px", background: "#fff", color: KLEUR.blauw, border: `1px solid ${KLEUR.blauw}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><Mail size={13} /> Vragenlijst versturen</button>
           <button onClick={() => setSelectie(new Set())} style={{ padding: "7px 12px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Selectie wissen</button>
         </div>
+      )}
+
+      {scope === "mijn" && naamGeladen && !mijnNaam && (
+        <div style={{ fontSize: 12, color: KLEUR.goud, marginBottom: 8 }}>Je naam kon niet automatisch worden bepaald, dus we kunnen niet zien welke cliënten van jou zijn. Gebruik <strong>Kantoorbreed</strong>.</div>
       )}
 
       <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10 }}>

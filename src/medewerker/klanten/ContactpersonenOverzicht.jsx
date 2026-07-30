@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Search, ArrowLeft, Pencil, Link2, Unlink, AlertTriangle, CheckCircle2, X, Plus, Trash2, ClipboardList, Send, ShieldCheck, ChevronDown } from "lucide-react";
 import Logboek from "./Logboek";
+import ScopeToggle, { useMijnNaam, isKlantVanMij } from "../MijnFilter";
 
 /** Zelfde palet als het medewerkersportaal — bewust hier herhaald zodat dit bestand
  *  op zichzelf staat. Wijzigt de huisstijl, pas dan beide plekken aan. */
@@ -89,6 +90,9 @@ export default function ContactpersonenOverzicht() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [docrechtBulkOpen, setDocrechtBulkOpen] = useState(false);
   const [toevoegenOpen, setToevoegenOpen] = useState(false);
+  const { mijnNaam, geladen: naamGeladen } = useMijnNaam();
+  const [scope, setScope] = useState("mijn"); // "mijn" | "alle"
+  const [mijnAccountIds, setMijnAccountIds] = useState(null); // Set van accountId's waar ik behandelaar ben
 
   useEffect(() => {
     let actief = true;
@@ -111,6 +115,21 @@ export default function ContactpersonenOverzicht() {
       actief = false;
     };
   }, []);
+
+  // Voor het 'mijn cliënten'-filter: bepaal bij welke klanten ik behandelaar ben (via de klantenlijst).
+  useEffect(() => {
+    if (!mijnNaam) { setMijnAccountIds(new Set()); return; }
+    let actief = true;
+    fetch("/api/beheer-klanten")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => {
+        if (!actief) return;
+        const ids = new Set((d.klanten || []).filter((k) => isKlantVanMij(k, mijnNaam)).map((k) => k.accountId));
+        setMijnAccountIds(ids);
+      })
+      .catch(() => { if (actief) setMijnAccountIds(new Set()); });
+    return () => { actief = false; };
+  }, [mijnNaam]);
 
   // Rechten: mag deze medewerker contactgegevens wijzigen, en is hij beheerder (koppelen)?
   useEffect(() => {
@@ -187,6 +206,10 @@ export default function ContactpersonenOverzicht() {
     const lijst = contactpersonen || [];
     const term = zoek.trim().toLowerCase();
     return lijst.filter((c) => {
+      if (scope === "mijn" && mijnNaam && mijnAccountIds) {
+        const vanMij = (c.klanten || []).some((k) => mijnAccountIds.has(k.accountId));
+        if (!vanMij) return false;
+      }
       if (term) {
         const raak = zichtKols.some((kol) => String(kol.waarde(c) || "").toLowerCase().includes(term));
         if (!raak) return false;
@@ -199,7 +222,7 @@ export default function ContactpersonenOverzicht() {
       }
       return true;
     });
-  }, [contactpersonen, zoek, kolomFilters, zichtbaar]);
+  }, [contactpersonen, zoek, kolomFilters, zichtbaar, scope, mijnNaam, mijnAccountIds]);
 
   const gesorteerd = useMemo(() => {
     const kol = kolomVan(sortKey) || KOLOMMEN[0];
@@ -299,6 +322,7 @@ export default function ContactpersonenOverzicht() {
       </div>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10, alignItems: "center" }}>
+        <ScopeToggle scope={scope} setScope={setScope} />
         <div style={{ position: "relative", flex: "1 1 240px", minWidth: 200 }}>
           <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
           <input
@@ -364,6 +388,10 @@ export default function ContactpersonenOverzicht() {
         <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 10 }}>
           De contactpersonen konden niet worden geladen ({fout}). Controleer de Dynamics-instellingen.
         </div>
+      )}
+
+      {scope === "mijn" && naamGeladen && !mijnNaam && (
+        <div style={{ fontSize: 12, color: "#B98237", marginBottom: 8 }}>Je naam kon niet automatisch worden bepaald; gebruik <strong>Kantoorbreed</strong>.</div>
       )}
 
       <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 8 }}>
