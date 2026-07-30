@@ -75,11 +75,16 @@ async function zetOnderwerpen(onderwerpen) {
  * plaatshouders (bv. geen jaar opgegeven) en verboden tekens vallen weg; lege segmenten worden
  * overgeslagen. Geeft een array van submapnamen terug (t.o.v. de klant-basismap).
  */
-function resolvePad(pad, { jaar, onderwerp } = {}) {
+function resolvePad(pad, { jaar, onderwerp, lijst } = {}) {
   const schoon = (s) => String(s || "").replace(/[\\:*?"<>|#%]+/g, "-").replace(/\s+/g, " ").trim();
   return String(pad || "")
     .split("/")
-    .map((seg) => seg.replace(/\{jaar\}/gi, schoon(jaar)).replace(/\{onderwerp\}/gi, schoon(onderwerp)))
+    .map((seg) =>
+      seg
+        .replace(/\{jaar\}/gi, schoon(jaar))
+        .replace(/\{onderwerp\}/gi, schoon(onderwerp))
+        .replace(/\{lijst\}/gi, schoon(lijst))
+    )
     .map((seg) => schoon(seg))
     .filter(Boolean)
     .slice(0, 8);

@@ -47,6 +47,9 @@ function normaliseer(lijsten) {
     id: tekst(l && l.id, 60) || crypto.randomUUID(),
     naam: tekst(l && l.naam, 200),
     omschrijving: tekst(l && l.omschrijving, 600),
+    // Mappad (opslaglocatie) onder de klant-basismap in SharePoint; plaatshouders {jaar} en {lijst}.
+    // Leeg = de vaste 'Aanleveren'-map van de klant.
+    pad: tekst(l && l.pad, 300),
     regels: Array.isArray(l && l.regels)
       ? l.regels.slice(0, 200).map((r) => ({
           id: tekst(r && r.id, 60) || crypto.randomUUID(),

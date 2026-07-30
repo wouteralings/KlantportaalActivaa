@@ -114,6 +114,13 @@ module.exports = async function (context, req) {
         return;
       }
 
+      // Geen onderwerp maar wél een lijst? Dan bepaalt het mappad van de lijst de opslaglocatie
+      // (plaatshouders {jaar} en {lijst}). Leeg pad → de vaste 'Aanleveren'-map (map blijft leeg).
+      if (!map.length && lijstId) {
+        const lijst = (await haalLijsten()).find((l) => l.id === lijstId);
+        if (lijst && lijst.pad) map = resolvePad(lijst.pad, { jaar, lijst: lijst.naam, onderwerp: lijst.naam });
+      }
+
       const token = await haalDynamicsToken();
       const [account, contactNaam] = await Promise.all([
         haalAccount(resource, token, accountId),

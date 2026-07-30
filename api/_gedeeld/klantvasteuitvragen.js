@@ -1,0 +1,136 @@
+/**
+ * Vaste uitvragen per klant. Een "vaste uitvraag" is een aanleverlijst die je voor één klant
+ * (accountId) hebt ingericht: eventueel aangepaste documentregels + een toegewezen contactpersoon.
+ * Zo staat de uitvraag klaar en is hij het jaar erop met één klik opnieuw uit te zetten.
+ *
+ * Opslag in Azure Blob Storage, container portaalcontent, blob klant-vaste-uitvragen.json.
+ * Structuur: { "<accountId>": { "<lijstId>": {
+ *     regels: [ { id, naam, bestandsnaam, toelichting, verplicht } ] | null,   // null = lijst uit beheer
+ *     contactId, contactNaam,                                                   // toegewezen contactpersoon
+ *     notitie,
+ *     bewerktDoor, bewerktOp                                                     // audit: wie en wanneer
+ * } } }
+ *   - regels = null  → gebruik de lijst zoals in beheer (geen klant-specifieke aanpassing)
+ *   - regels = array → klant-specifiek aangepaste lijst (voorrang bij uitzetten)
+ */
+const { BlobServiceClient } = require("@azure/storage-blob");
+const crypto = require("crypto");
+
+const CONTAINER_NAAM = "portaalcontent";
+const BLOB_NAAM = "klant-vaste-uitvragen.json";
+let cachedContainerClient = null;
+
+async function haalContainerClient() {
+  if (cachedContainerClient) return cachedContainerClient;
+  const connectionString = process.env.STORAGE_CONNECTION_STRING;
+  if (!connectionString) throw new Error("MISSING_CONFIG");
+  const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
+  const containerClient = blobServiceClient.getContainerClient(CONTAINER_NAAM);
+  await containerClient.createIfNotExists();
+  cachedContainerClient = containerClient;
+  return containerClient;
+}
+
+async function streamNaarTekst(readableStream) {
+  const stukken = [];
+  for await (const stuk of readableStream) stukken.push(Buffer.isBuffer(stuk) ? stuk : Buffer.from(stuk));
+  return Buffer.concat(stukken).toString("utf-8");
+}
+
+function tekst(v, max = 300) {
+  return String(v == null ? "" : v).slice(0, max);
+}
+
+function normaliseerRegels(regels) {
+  if (!Array.isArray(regels)) return null;
+  return regels.slice(0, 200).map((r) => ({
+    id: tekst(r && r.id, 60) || crypto.randomUUID(),
+    naam: tekst(r && r.naam, 200),
+    bestandsnaam: tekst(r && r.bestandsnaam, 200),
+    toelichting: tekst(r && r.toelichting, 600),
+    verplicht: r && r.verplicht === false ? false : true,
+  }));
+}
+
+/** Normaliseert één vaste-uitvraag-item (van één lijst voor één klant). */
+function normaliseerItem(item) {
+  if (!item || typeof item !== "object") return null;
+  return {
+    regels: item.regels == null ? null : normaliseerRegels(item.regels),
+    contactId: tekst(item.contactId, 60),
+    contactNaam: tekst(item.contactNaam, 200),
+    notitie: tekst(item.notitie, 600),
+    bewerktDoor: tekst(item.bewerktDoor, 200),
+    bewerktOp: tekst(item.bewerktOp, 40),
+  };
+}
+
+/** Normaliseert de volledige config van één klant: { lijstId: item }. */
+function normaliseerConfig(config) {
+  const uit = {};
+  if (!config || typeof config !== "object") return uit;
+  for (const [lijstId, item] of Object.entries(config)) {
+    if (!lijstId) continue;
+    const schoon = normaliseerItem(item);
+    if (schoon) uit[tekst(lijstId, 60)] = schoon;
+  }
+  return uit;
+}
+
+async function haalAlle() {
+  const containerClient = await haalContainerClient();
+  const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
+  if (!(await blobClient.exists())) return {};
+  try {
+    const data = JSON.parse(await streamNaarTekst((await blobClient.download()).readableStreamBody));
+    return data && typeof data === "object" ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+async function schrijfAlle(alle) {
+  const containerClient = await haalContainerClient();
+  const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
+  const buffer = Buffer.from(JSON.stringify(alle, null, 2), "utf-8");
+  await blobClient.upload(buffer, buffer.length, { overwrite: true });
+}
+
+/** Alle vaste uitvragen van één klant: { lijstId: item }. */
+async function haalVoorKlant(accountId) {
+  if (!accountId) return {};
+  return normaliseerConfig((await haalAlle())[accountId]);
+}
+
+/**
+ * Slaat één vaste uitvraag (lijst) voor één klant op. Stempelt automatisch bewerktDoor/bewerktOp.
+ * Geeft het opgeslagen item terug.
+ */
+async function zetItem(accountId, lijstId, item, { door } = {}) {
+  if (!accountId) throw new Error("Geen accountId opgegeven.");
+  if (!lijstId) throw new Error("Geen lijstId opgegeven.");
+  const alle = await haalAlle();
+  const klantConfig = normaliseerConfig(alle[accountId]);
+  const schoon = normaliseerItem(item) || normaliseerItem({});
+  schoon.bewerktDoor = tekst(door, 200) || schoon.bewerktDoor;
+  schoon.bewerktOp = new Date().toISOString();
+  klantConfig[tekst(lijstId, 60)] = schoon;
+  alle[accountId] = klantConfig;
+  await schrijfAlle(alle);
+  return schoon;
+}
+
+/** Verwijdert één vaste uitvraag (lijst) van één klant. */
+async function verwijderItem(accountId, lijstId) {
+  if (!accountId || !lijstId) return false;
+  const alle = await haalAlle();
+  const klantConfig = normaliseerConfig(alle[accountId]);
+  if (!klantConfig[lijstId]) return false;
+  delete klantConfig[lijstId];
+  if (Object.keys(klantConfig).length === 0) delete alle[accountId];
+  else alle[accountId] = klantConfig;
+  await schrijfAlle(alle);
+  return true;
+}
+
+module.exports = { haalVoorKlant, zetItem, verwijderItem, normaliseerConfig, normaliseerItem, normaliseerRegels };

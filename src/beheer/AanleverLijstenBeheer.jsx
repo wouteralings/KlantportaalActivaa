@@ -16,7 +16,7 @@ const KLEUR = {
 
 const nieuwId = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 const legeRegel = () => ({ id: nieuwId(), naam: "", bestandsnaam: "", toelichting: "", verplicht: true });
-const legeLijst = () => ({ id: nieuwId(), naam: "", omschrijving: "", regels: [legeRegel()] });
+const legeLijst = () => ({ id: nieuwId(), naam: "", omschrijving: "", pad: "", regels: [legeRegel()] });
 
 const AANTALLEN = [[25, "25"], [50, "50"], [100, "100"], [250, "250"], [500, "500"], [Infinity, "Alle"]];
 
@@ -147,6 +147,14 @@ export default function AanleverLijstenBeheer() {
                 <div>
                   <div style={labelStijl}>Omschrijving (optioneel)</div>
                   <input value={lijst.omschrijving} onChange={(e) => updateLijst(lijst.id, { omschrijving: e.target.value })} placeholder="Korte toelichting" style={invoerStijl} />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 10 }}>
+                <div style={labelStijl}>Opslaglocatie (map in SharePoint)</div>
+                <input value={lijst.pad || ""} onChange={(e) => updateLijst(lijst.id, { pad: e.target.value })} placeholder="bv. Aanleveren/{jaar} of Inkomstenbelasting/{jaar}" style={invoerStijl} />
+                <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 3 }}>
+                  Waar de aangeleverde documenten van deze lijst landen, onder de klantmap. Gebruik <strong>{"{jaar}"}</strong> en <strong>{"{lijst}"}</strong> als plaatshouders. Leeg = de vaste <em>Aanleveren</em>-map.
                 </div>
               </div>
 

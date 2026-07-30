@@ -6,6 +6,7 @@ import ContactpersonenOverzicht from "./klanten/ContactpersonenOverzicht";
 import NogInTeRichten from "./klanten/NogInTeRichten";
 import Logboek from "./klanten/Logboek";
 import KlantAanleverOnderwerpen from "./klanten/KlantAanleverOnderwerpen";
+import KlantVasteUitvragen from "./klanten/KlantVasteUitvragen";
 import KlantAanleverUitvraag from "./klanten/KlantAanleverUitvraag";
 
 const KLEUR = {
@@ -1268,6 +1269,8 @@ function KlantDetail({ klant, magWijzigen, isBeheerder, keuzes, medewerkers, onT
             </div>
           );
         })()}
+
+        <KlantVasteUitvragen accountId={klant.accountId} klantnaam={klant.klantnaam} defaultContact={{ id: klant.contact?.contactId || "", naam: klant.contact?.naam || "" }} magWijzigen={magWijzigen} />
 
         <KlantAanleverOnderwerpen accountId={klant.accountId} magWijzigen={magWijzigen} />
 
