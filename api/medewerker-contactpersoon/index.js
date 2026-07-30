@@ -1,11 +1,14 @@
 /**
  * /api/medewerker-contactpersoon — bewerken van één contactpersoon én het koppelen/ontkoppelen
  * van een contactpersoon aan een cliënt (Account), vanuit het contactpersonen-overzicht in het
- * medewerkersportaal.
+ * medewerkersportaal. Legt elke handeling vast in het logboek (api/_gedeeld/klantlog.js), zodat
+ * bij de cliënt én bij de contactpersoon terug te zien is wie wat wanneer heeft gedaan.
  *
  * Route is beveiligd via staticwebapp.config.json (rol 'medewerker' of 'beheerder'). Binnen dit
  * endpoint wordt per actie fijnmaziger afgedwongen:
  *   - GET  ?zoekKlant=<term>                 → cliënten zoeken om aan te koppelen (medewerker + beheerder)
+ *   - GET  ?logAccountId=<guid>              → logboek van één cliënt (medewerker + beheerder)
+ *   - GET  ?logContactId=<guid>              → logboek van één contactpersoon (medewerker + beheerder)
  *   - PATCH { actie: "bewerken", ... }        → contactvelden wijzigen  (gate: magWijzigen)
  *   - PATCH { actie: "koppel",   ... }        → primaire contactpersoon zetten (gate: BEHEERDER)
  *   - PATCH { actie: "ontkoppel",... }        → primaire contactpersoon verwijderen (gate: BEHEERDER)
@@ -18,9 +21,10 @@
  */
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const { magWijzigen } = require("../_gedeeld/wijzigrechten");
+const { logGebeurtenis, haalLog } = require("../_gedeeld/klantlog");
 
-const FV = "@OData.Community.Display.V1.FormattedValue";
 const CLIENTNUMMER_VELD = process.env.DYNAMICS_KLANT_NUMMER_VELD || "sk_clientnrauto";
+const SECUNDAIR_ATTR = process.env.DYNAMICS_KLANT_SECUNDAIRCONTACT_VELD || "cr283_secundairecontactpersoon";
 const MAX_KLANT_ZOEK = 25;
 
 // Alleen deze contactvelden mogen via het portaal gewijzigd worden — bewust dezelfde set als in
@@ -31,6 +35,14 @@ const CONTACT_VELDEN = [
   "address1_line1", "cr283_huisnummer", "cr283_huisnummertoevoeging",
   "address1_postalcode", "address1_city", "address1_country",
 ];
+
+// Leesbare labels per veld — voor de omschrijving in het logboek ("Wijzigde … : Voornaam, E-mail").
+const VELD_LABEL = {
+  firstname: "Voornaam", middlename: "Tussenvoegsel", lastname: "Achternaam", jobtitle: "Functie",
+  emailaddress1: "E-mail", mobilephone: "Mobiel", telephone1: "Telefoon",
+  address1_line1: "Straat", cr283_huisnummer: "Huisnummer", cr283_huisnummertoevoeging: "Toevoeging",
+  address1_postalcode: "Postcode", address1_city: "Plaats", address1_country: "Land",
+};
 
 function jsonHeaders(token) {
   return {
@@ -52,15 +64,9 @@ function leesHeaders(token) {
   };
 }
 
-/** Alleen de meegegeven, toegestane velden overhouden; "" wordt null (leegmaken). */
-function filterVelden(bron, toegestaan) {
-  const uit = {};
-  for (const veld of toegestaan) {
-    if (bron && Object.prototype.hasOwnProperty.call(bron, veld)) {
-      uit[veld] = bron[veld] === "" ? null : bron[veld];
-    }
-  }
-  return uit;
+/** Normaliseert een waarde voor het vergelijken van oud/nieuw ("", null, undefined → ""). */
+function norm(v) {
+  return v == null ? "" : String(v).trim();
 }
 
 async function patch(resource, token, entiteitSet, id, body) {
@@ -76,7 +82,6 @@ async function patch(resource, token, entiteitSet, id, body) {
 async function zoekKlanten(resource, token, term) {
   const veilig = String(term).replace(/'/g, "''");
   const numeriek = /^\d+$/.test(term.trim());
-  // Op naam altijd; op cliëntnummer alleen als de term een getal is (het nummerveld is tekst/among).
   const filters = [`contains(name,'${encodeURIComponent(veilig)}')`];
   if (numeriek) filters.push(`contains(${CLIENTNUMMER_VELD},'${encodeURIComponent(veilig)}')`);
   const url =
@@ -102,13 +107,55 @@ async function zoekKlanten(resource, token, term) {
   });
 }
 
-/** Eén contactpersoon licht ophalen (naam/e-mail) — voor nette meldingen en teruggave. */
-async function haalContactKort(resource, token, contactId) {
-  const url = `${resource}/api/data/v9.2/contacts(${contactId})?$select=contactid,fullname,emailaddress1`;
+/** Eén Account licht ophalen (naam, cliëntnummer, huidige primaire contactpersoon). */
+async function haalAccountKort(resource, token, accountId) {
+  const url =
+    `${resource}/api/data/v9.2/accounts(${accountId})` +
+    `?$select=accountid,name,${CLIENTNUMMER_VELD},_primarycontactid_value` +
+    `&$expand=primarycontactid($select=contactid,fullname)`;
   const res = await fetch(url, { headers: leesHeaders(token) });
   if (!res.ok) return null;
-  const c = await res.json();
-  return { contactId: c.contactid, naam: c.fullname || "", email: c.emailaddress1 || "" };
+  const a = await res.json();
+  const nummer = a[CLIENTNUMMER_VELD];
+  const p = a.primarycontactid || null;
+  return {
+    accountId: a.accountid,
+    klantnaam: a.name || "",
+    klantnummer: nummer != null && nummer !== "" ? String(nummer) : "",
+    primairContactId: p ? p.contactid : "",
+    primairNaam: p ? p.fullname || "" : "",
+  };
+}
+
+/** Eén contactpersoon met de bewerkbare velden ophalen (voor diff + naam). */
+async function haalContactVolledig(resource, token, contactId) {
+  const velden = ["contactid", "fullname", ...CONTACT_VELDEN].join(",");
+  const url = `${resource}/api/data/v9.2/contacts(${contactId})?$select=${velden}`;
+  const res = await fetch(url, { headers: leesHeaders(token) });
+  if (!res.ok) return null;
+  return await res.json();
+}
+
+/** Alle cliënten waar een contactpersoon aan hangt (primair of secundair) — voor het logboek. */
+async function haalGekoppeldeAccounts(resource, token, contactId) {
+  const url =
+    `${resource}/api/data/v9.2/accounts` +
+    `?$select=accountid,name,${CLIENTNUMMER_VELD}` +
+    `&$filter=(_primarycontactid_value eq ${contactId} or _${SECUNDAIR_ATTR}_value eq ${contactId}) and statecode eq 0`;
+  // Bestaat het secundair-veld niet onder deze naam, val dan terug op alleen primair.
+  const maakUrl = (metSecundair) => (metSecundair ? url : url.replace(` or _${SECUNDAIR_ATTR}_value eq ${contactId}`, ""));
+  let res = await fetch(maakUrl(true), { headers: leesHeaders(token) });
+  if (!res.ok) {
+    const tekst = await res.text();
+    if (!tekst.includes(SECUNDAIR_ATTR)) return [];
+    res = await fetch(maakUrl(false), { headers: leesHeaders(token) });
+    if (!res.ok) return [];
+  }
+  const data = await res.json();
+  return (data.value || []).map((a) => {
+    const nummer = a[CLIENTNUMMER_VELD];
+    return { accountId: a.accountid, klantnaam: a.name || "", klantnummer: nummer != null && nummer !== "" ? String(nummer) : "" };
+  });
 }
 
 module.exports = async function (context, req) {
@@ -123,6 +170,13 @@ module.exports = async function (context, req) {
   const methode = (req.method || "GET").toUpperCase();
 
   try {
+    // ── Logboek opvragen (medewerker + beheerder) ─────────────────────────
+    if (methode === "GET" && (req.query.logAccountId || req.query.logContactId)) {
+      const log = await haalLog({ accountId: req.query.logAccountId || undefined, contactId: req.query.logContactId || undefined });
+      context.res = { headers: { "Content-Type": "application/json" }, body: { log } };
+      return;
+    }
+
     const token = await haalDynamicsToken();
 
     // ── Cliënten zoeken (om aan te koppelen) ──────────────────────────────
@@ -154,12 +208,46 @@ module.exports = async function (context, req) {
         context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'contactId' mee." } };
         return;
       }
-      const velden = filterVelden(contact, CONTACT_VELDEN);
-      if (Object.keys(velden).length === 0) {
-        context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geen wijzigbare velden meegegeven." } };
+
+      // Huidige waarden ophalen om te bepalen wát er wijzigt (voor het logboek) en om alleen de
+      // daadwerkelijk gewijzigde velden weg te schrijven.
+      const huidig = (await haalContactVolledig(resource, token, contactId)) || {};
+      const patchBody = {};
+      const gewijzigd = [];
+      for (const veld of CONTACT_VELDEN) {
+        if (!contact || !Object.prototype.hasOwnProperty.call(contact, veld)) continue;
+        const nieuw = contact[veld];
+        if (norm(nieuw) !== norm(huidig[veld])) {
+          patchBody[veld] = nieuw === "" ? null : nieuw;
+          gewijzigd.push(VELD_LABEL[veld] || veld);
+        }
+      }
+
+      if (gewijzigd.length === 0) {
+        context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, ongewijzigd: true } };
         return;
       }
-      await patch(resource, token, "contacts", contactId, velden);
+
+      await patch(resource, token, "contacts", contactId, patchBody);
+
+      // Naam voor het logboek: uit de (nieuwe) naamvelden, anders de bestaande fullname.
+      const nieuweNaam = [
+        norm(contact.firstname) || norm(huidig.firstname),
+        norm(contact.middlename) || norm(huidig.middlename),
+        norm(contact.lastname) || norm(huidig.lastname),
+      ].filter(Boolean).join(" ").trim() || huidig.fullname || "";
+
+      const accounts = await haalGekoppeldeAccounts(resource, token, contactId);
+      await logGebeurtenis({
+        door: email || "onbekend",
+        actie: "bewerken",
+        contactId,
+        contactNaam: nieuweNaam,
+        accountIds: accounts.map((a) => a.accountId),
+        klantnaam: accounts.map((a) => a.klantnaam).filter(Boolean).join(", "),
+        tekst: `Wijzigde gegevens van contactpersoon ${nieuweNaam || "(onbekend)"}: ${gewijzigd.join(", ")}.`,
+      });
+
       context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true } };
       return;
     }
@@ -175,6 +263,11 @@ module.exports = async function (context, req) {
         return;
       }
 
+      // Situatie vóór de wijziging vastleggen (huidige primaire contactpersoon + cliëntnaam).
+      const voor = await haalAccountKort(resource, token, accountId);
+      const klantnaam = voor ? voor.klantnaam : "";
+      const klantnummer = voor ? voor.klantnummer : "";
+
       if (actie === "koppel") {
         if (!contactId) {
           context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'contactId' mee." } };
@@ -185,8 +278,25 @@ module.exports = async function (context, req) {
         await patch(resource, token, "accounts", accountId, {
           "primarycontactid@odata.bind": `/contacts(${contactId})`,
         });
-        const contactKort = await haalContactKort(resource, token, contactId);
-        context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, contact: contactKort } };
+        const nieuwContact = (await haalContactVolledig(resource, token, contactId)) || {};
+        const contactNaam = nieuwContact.fullname || "";
+        const vervangt = voor && voor.primairContactId && voor.primairContactId !== contactId ? voor.primairNaam : "";
+
+        await logGebeurtenis({
+          door: email || "onbekend",
+          actie: "koppel",
+          accountId,
+          accountIds: [accountId],
+          klantnaam,
+          klantnummer,
+          contactId,
+          contactNaam,
+          tekst:
+            `Koppelde ${contactNaam || "een contactpersoon"} als primaire contactpersoon aan ${klantnaam || "de cliënt"}` +
+            (vervangt ? ` — verving ${vervangt}, die verliest hiermee de toegang.` : `.`),
+        });
+
+        context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, contact: { contactId, naam: contactNaam } } };
         return;
       }
 
@@ -198,6 +308,20 @@ module.exports = async function (context, req) {
       if (!res.ok && res.status !== 404) {
         throw new Error(`Primaire contactpersoon loskoppelen mislukt (${res.status}): ${await res.text()}`);
       }
+
+      const losNaam = (voor && voor.primairNaam) || "";
+      await logGebeurtenis({
+        door: email || "onbekend",
+        actie: "ontkoppel",
+        accountId,
+        accountIds: [accountId],
+        klantnaam,
+        klantnummer,
+        contactId: (voor && voor.primairContactId) || contactId || null,
+        contactNaam: losNaam,
+        tekst: `Ontkoppelde ${losNaam || "de primaire contactpersoon"} van ${klantnaam || "de cliënt"} — de toegang tot het dossier is ingetrokken.`,
+      });
+
       context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true } };
       return;
     }

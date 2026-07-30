@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Search, ArrowLeft, Pencil, Link2, Unlink, AlertTriangle, CheckCircle2, X } from "lucide-react";
+import Logboek from "./Logboek";
 
 /** Zelfde palet als het medewerkersportaal — bewust hier herhaald zodat dit bestand
  *  op zichzelf staat. Wijzigt de huisstijl, pas dan beide plekken aan. */
@@ -409,13 +410,14 @@ function ContactpersoonDetail({ contact, magWijzigen, isBeheerder, onTerug, onBe
   const [koppelKlant, setKoppelKlant] = useState(null); // gekozen cliënt voor de dubbele bevestiging
   const [ontkoppelBezig, setOntkoppelBezig] = useState(""); // accountId dat bezig is
   const [fout, setFout] = useState("");
+  const [logSleutel, setLogSleutel] = useState(0); // ophogen = logboek opnieuw laden na een actie
 
   if (bewerken) {
     return (
       <ContactpersoonBewerken
         contact={contact}
         onKlaar={() => setBewerken(false)}
-        onOpgeslagen={(velden) => { onBewerkt(contact.contactId, velden); setBewerken(false); }}
+        onOpgeslagen={(velden) => { onBewerkt(contact.contactId, velden); setBewerken(false); setLogSleutel((n) => n + 1); }}
       />
     );
   }
@@ -436,6 +438,7 @@ function ContactpersoonDetail({ contact, magWijzigen, isBeheerder, onTerug, onBe
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       onOntkoppeld(contact, klant.accountId);
+      setLogSleutel((n) => n + 1);
     } catch (e) {
       setFout(e.message || "Loskoppelen mislukt.");
     } finally {
@@ -526,6 +529,8 @@ function ContactpersoonDetail({ contact, magWijzigen, isBeheerder, onTerug, onBe
             </div>
           )}
         </div>
+
+        <Logboek contactId={contact.contactId} sleutel={logSleutel} />
       </div>
 
       {koppelKlant && (
@@ -533,7 +538,7 @@ function ContactpersoonDetail({ contact, magWijzigen, isBeheerder, onTerug, onBe
           contact={contact}
           klant={koppelKlant}
           onAnnuleer={() => setKoppelKlant(null)}
-          onGekoppeld={(klant) => { onKoppeld(contact, klant); setKoppelKlant(null); }}
+          onGekoppeld={(klant) => { onKoppeld(contact, klant); setKoppelKlant(null); setLogSleutel((n) => n + 1); }}
         />
       )}
     </div>

@@ -4,6 +4,7 @@ import { startMeekijken } from "../meekijken";
 import OffertesModule from "./OffertesModule";
 import ContactpersonenOverzicht from "./klanten/ContactpersonenOverzicht";
 import NogInTeRichten from "./klanten/NogInTeRichten";
+import Logboek from "./klanten/Logboek";
 
 const KLEUR = {
   blauw: "#1C5D8C",
@@ -1233,6 +1234,8 @@ function KlantDetail({ klant, magWijzigen, keuzes, medewerkers, onTerug, onConta
             </div>
           );
         })()}
+
+        <Logboek accountId={klant.accountId} />
       </div>
     </div>
   );
