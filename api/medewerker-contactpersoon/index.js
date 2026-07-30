@@ -22,6 +22,13 @@
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const { magWijzigen, magBulk } = require("../_gedeeld/wijzigrechten");
 const { logGebeurtenis, haalLog } = require("../_gedeeld/klantlog");
+const documentrechten = require("../_gedeeld/documentrechten");
+
+// Leesbaar label per documentrecht — voor de omschrijving in het logboek.
+const DOCRECHT_LABEL = {
+  aanleveren: "Aanleveren", inzien: "Inzien", akkorderen: "Akkorderen",
+  inzienDirectie: "Inzien directie", inzienAdministratie: "Inzien administratie",
+};
 
 const CLIENTNUMMER_VELD = process.env.DYNAMICS_KLANT_NUMMER_VELD || "sk_clientnrauto";
 const SECUNDAIR_ATTR = process.env.DYNAMICS_KLANT_SECUNDAIRCONTACT_VELD || "cr283_secundairecontactpersoon";
@@ -216,6 +223,13 @@ module.exports = async function (context, req) {
     if (methode === "GET" && (req.query.logAccountId || req.query.logContactId)) {
       const log = await haalLog({ accountId: req.query.logAccountId || undefined, contactId: req.query.logContactId || undefined });
       context.res = { headers: { "Content-Type": "application/json" }, body: { log } };
+      return;
+    }
+
+    // ── Documentrechten van één contactpersoon opvragen (medewerker + beheerder) ──
+    if (methode === "GET" && req.query.documentrechten) {
+      const rechten = await documentrechten.haalVoorContact(req.query.documentrechten);
+      context.res = { headers: { "Content-Type": "application/json" }, body: { documentrechten: rechten } };
       return;
     }
 
@@ -478,6 +492,41 @@ module.exports = async function (context, req) {
       });
 
       context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true } };
+      return;
+    }
+
+    // ── Documentrechten van een contactpersoon zetten (gate: BEHEERDER) ───
+    if (actie === "documentrechten") {
+      if (!beheerder) {
+        context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Alleen een beheerder mag documentrechten toewijzen." } };
+        return;
+      }
+      if (!contactId) {
+        context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'contactId' mee." } };
+        return;
+      }
+      const opgeslagen = await documentrechten.zetVoorContact(contactId, (req.body && req.body.rechten) || {});
+
+      // Best-effort loggen (naam + betrokken cliënten), zodat het bij de contactpersoon én de
+      // gekoppelde cliënt(en) terug te zien is.
+      try {
+        const info = await haalContactVolledig(resource, token, contactId);
+        const naam = info ? info.fullname || "" : "";
+        const accounts = await haalGekoppeldeAccounts(resource, token, contactId);
+        const aan = documentrechten.RECHT_KEYS.filter((k) => opgeslagen[k]).map((k) => DOCRECHT_LABEL[k] || k);
+        const uit = documentrechten.RECHT_KEYS.filter((k) => !opgeslagen[k]).map((k) => DOCRECHT_LABEL[k] || k);
+        await logGebeurtenis({
+          door: email || "onbekend",
+          actie: "rechten",
+          contactId,
+          contactNaam: naam,
+          accountIds: accounts.map((a) => a.accountId),
+          klantnaam: accounts.map((a) => a.klantnaam).filter(Boolean).join(", "),
+          tekst: `Documentrechten van ${naam || "(onbekend)"} aangepast — aan: ${aan.length ? aan.join(", ") : "geen"}; uit: ${uit.length ? uit.join(", ") : "geen"}.`,
+        });
+      } catch { /* logging is best-effort */ }
+
+      context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, documentrechten: opgeslagen } };
       return;
     }
 

@@ -578,6 +578,85 @@ function Veld({ label, waarde, soort }) {
   );
 }
 
+/* ── Documentrechten per contactpersoon (beheerder): wat mag deze persoon in het klantportaal
+   onder Documenten. Wijzigingen worden meteen opgeslagen (server dwingt beheerder-recht af). ── */
+const DOC_RECHTEN = [
+  { key: "inzien", label: "Inzien", uitleg: "Mag de documenten van de cliënt bekijken." },
+  { key: "aanleveren", label: "Aanleveren", uitleg: "Mag bestanden aanleveren op een verzoek." },
+  { key: "akkorderen", label: "Akkorderen", uitleg: "Mag akkoord/ondertekening geven op stukken." },
+  { key: "inzienDirectie", label: "Inzien directie", uitleg: "Mag de map 'Directie' bekijken." },
+  { key: "inzienAdministratie", label: "Inzien administratie", uitleg: "Mag de map 'Administratie' bekijken." },
+];
+
+function Documentrechten({ contactId, onGewijzigd }) {
+  const [rechten, setRechten] = useState(null); // null = laden
+  const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
+  const [fout, setFout] = useState("");
+
+  useEffect(() => {
+    let actief = true;
+    setRechten(null);
+    setStatus("rust");
+    fetch("/api/medewerker-contactpersoon?documentrechten=" + encodeURIComponent(contactId))
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => { if (actief) setRechten(d.documentrechten || {}); })
+      .catch(() => { if (actief) setRechten({}); });
+    return () => { actief = false; };
+  }, [contactId]);
+
+  const toggle = async (key) => {
+    if (!rechten) return;
+    const nieuw = { ...rechten, [key]: !rechten[key] };
+    setRechten(nieuw);
+    setStatus("bezig");
+    setFout("");
+    try {
+      const r = await fetch("/api/medewerker-contactpersoon", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "documentrechten", contactId, rechten: nieuw }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      const d = await r.json();
+      setRechten(d.documentrechten || nieuw);
+      setStatus("opgeslagen");
+      onGewijzigd && onGewijzigd();
+    } catch (e) {
+      setFout(e.message || "Opslaan mislukt.");
+      setStatus("fout");
+      setRechten((h) => ({ ...(h || {}), [key]: !nieuw[key] })); // terugdraaien
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${KLEUR.rand}` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <div style={{ fontSize: 13, fontWeight: 700 }}>Documentrechten</div>
+        {status === "opgeslagen" && <span style={{ fontSize: 11.5, color: KLEUR.groen }}>Opgeslagen</span>}
+        {status === "bezig" && <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>Opslaan…</span>}
+      </div>
+      <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 8 }}>
+        Bepaalt wat deze contactpersoon in het klantportaal onder Documenten mag. Wijzigingen worden meteen opgeslagen.
+      </div>
+      {rechten === null ? (
+        <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Rechten ophalen…</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 6 }}>
+          {DOC_RECHTEN.map((r) => (
+            <label key={r.key} style={{ display: "flex", alignItems: "flex-start", gap: 9, padding: "8px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, cursor: "pointer", background: rechten[r.key] ? KLEUR.lichtblauw : "#fff" }}>
+              <input type="checkbox" checked={!!rechten[r.key]} onChange={() => toggle(r.key)} style={{ marginTop: 2 }} />
+              <span>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: KLEUR.tekst }}>{r.label}</span>
+                <span style={{ display: "block", fontSize: 11.5, color: KLEUR.mutedTekst }}>{r.uitleg}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
+      {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginTop: 8 }}>{fout}</div>}
+    </div>
+  );
+}
+
 function ContactpersoonDetail({ contact, magWijzigen, isBeheerder, onTerug, onBewerkt, onKoppeld, onOntkoppeld, onVerwijderd }) {
   const [bewerken, setBewerken] = useState(false);
   const [koppelKlant, setKoppelKlant] = useState(null); // gekozen cliënt voor de dubbele bevestiging
@@ -736,6 +815,8 @@ function ContactpersoonDetail({ contact, magWijzigen, isBeheerder, onTerug, onBe
             </div>
           )}
         </div>
+
+        {isBeheerder && <Documentrechten contactId={contact.contactId} onGewijzigd={() => setLogSleutel((n) => n + 1)} />}
 
         <Logboek contactId={contact.contactId} sleutel={logSleutel} />
       </div>
