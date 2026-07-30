@@ -168,6 +168,13 @@
       ]
     },
     {
+      "route": "/api/medewerker-klant-onderwerpen",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
       "route": "/api/medewerker-dossiers",
       "allowedRoles": [
         "beheerder",

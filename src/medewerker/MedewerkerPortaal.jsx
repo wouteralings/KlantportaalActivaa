@@ -5,6 +5,7 @@ import OffertesModule from "./OffertesModule";
 import ContactpersonenOverzicht from "./klanten/ContactpersonenOverzicht";
 import NogInTeRichten from "./klanten/NogInTeRichten";
 import Logboek from "./klanten/Logboek";
+import KlantAanleverOnderwerpen from "./klanten/KlantAanleverOnderwerpen";
 
 const KLEUR = {
   blauw: "#1C5D8C",
@@ -1266,6 +1267,8 @@ function KlantDetail({ klant, magWijzigen, isBeheerder, keuzes, medewerkers, onT
             </div>
           );
         })()}
+
+        <KlantAanleverOnderwerpen accountId={klant.accountId} magWijzigen={magWijzigen} />
 
         <Logboek accountId={klant.accountId} />
       </div>
