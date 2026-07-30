@@ -90,6 +90,12 @@
       ]
     },
     {
+      "route": "/api/beheer-aanleveronderwerpen",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
       "route": "/api/beheer-taakakkoorden",
       "allowedRoles": [
         "beheerder",
