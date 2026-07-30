@@ -2556,10 +2556,24 @@ function StandaardwaardenKaart({ accountId, bedrijfsgegevens, tarieven, artikele
 function UrenHomeKaart({ account }) {
   const [aan, setAan] = useState(!!account.toonUrenOpHome);
   const [status, setStatus] = useState("idle"); // idle | bezig | fout
+  const [foutmelding, setFoutmelding] = useState("");
+
+  // Laad de écht opgeslagen stand op (i.p.v. alleen te vertrouwen op de pagina-snapshot uit
+  // mijn-gegevens) — zo klopt de schakelaar ook na het wisselen van sub-tab of een herlaad, en
+  // "springt" hij niet terug omdat de account-prop nog de oude waarde had.
+  useEffect(() => {
+    let actief = true;
+    fetch(`/api/uren-instelling?accountId=${encodeURIComponent(account.accountId)}`)
+      .then(haalJson)
+      .then((d) => { if (actief) setAan(!!d.toonOpHome); })
+      .catch(() => {}); // stil: val terug op de snapshot-waarde
+    return () => { actief = false; };
+  }, [account.accountId]);
 
   const zet = async (nieuw) => {
     setAan(nieuw);
     setStatus("bezig");
+    setFoutmelding("");
     try {
       await haalJson(await fetch("/api/uren-instelling", {
         method: "PUT",
@@ -2567,8 +2581,9 @@ function UrenHomeKaart({ account }) {
         body: JSON.stringify({ accountId: account.accountId, toonOpHome: nieuw }),
       }));
       setStatus("idle");
-    } catch {
+    } catch (e) {
       setAan(!nieuw);
+      setFoutmelding(e.message || String(e));
       setStatus("fout");
     }
   };
@@ -2592,7 +2607,7 @@ function UrenHomeKaart({ account }) {
         </button>
         <span style={{ fontSize: 13.5 }}>Snelknop op Home tonen</span>
       </div>
-      {status === "fout" && <div style={{ fontSize: 12, color: KLEUR.rood, marginTop: 8 }}>Opslaan mislukt, probeer het nog eens.</div>}
+      {status === "fout" && <div style={{ fontSize: 12, color: KLEUR.rood, marginTop: 8 }}>Opslaan mislukt{foutmelding ? `: ${foutmelding}` : ""}, probeer het nog eens.</div>}
     </div>
   );
 }
