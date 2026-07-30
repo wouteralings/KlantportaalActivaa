@@ -439,7 +439,7 @@ function ReviewBeheer() {
   const [sel, setSel] = useState(() => new Set());
   const [uitnodigStatus, setUitnodigStatus] = useState("idle"); // idle | bezig | klaar | fout
   const [resultaat, setResultaat] = useState(null);
-  const [toonAantal, setToonAantal] = useState(50);
+  const [toonAantal, setToonAantal] = useState(25);
 
   const laadKlanten = useCallback(() => {
     fetch("/api/beheer-klanten")
@@ -1502,7 +1502,7 @@ function KlantOverzicht() {
   const [kolomFilters, setKolomFilters] = useState({}); // { kolomKey: waarde }
   const [sortKey, setSortKey] = useState("klantnaam");
   const [sortDir, setSortDir] = useState("asc"); // asc | desc
-  const [toonAantal, setToonAantal] = useState(50); // aantal getoonde regels
+  const [toonAantal, setToonAantal] = useState(25); // aantal getoonde regels
   const [config, setConfig] = useState({ extraKolommen: [], standaardVerborgen: [] });
   const [zichtbareKolommen, setZichtbareKolommen] = useState(null); // null = nog standaard bepalen
   const [weergaven, setWeergaven] = useState([]); // [{ naam, config }]

@@ -54,7 +54,7 @@ export default function ContactpersonenOverzicht() {
   const [filterRegel, setFilterRegel] = useState(false);
   const [sortKey, setSortKey] = useState("naam");
   const [sortDir, setSortDir] = useState("asc");
-  const [toonAantal, setToonAantal] = useState(50);
+  const [toonAantal, setToonAantal] = useState(25);
   const [kolomKiezerOpen, setKolomKiezerOpen] = useState(false);
   const [zichtbaar, setZichtbaar] = useState(() => new Set(KOLOMMEN.filter((k) => k.standaard).map((k) => k.key)));
 

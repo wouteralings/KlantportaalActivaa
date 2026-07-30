@@ -28,6 +28,50 @@ const KLANTOVERZICHT_BASIS = [
   ["loonadministratie", "Loonadmin."], ["belastingkantoor", "Belastingkantoor"], ["sharepoint", "SharePoint"], ["status", "Status"],
 ];
 
+// De vaste keuzes voor "hoeveel regels wil ik zien". Overal in het portaal dezelfde reeks, en
+// overal 25 als startwaarde — een beheerscherm opent zo altijd snel, ook bij duizenden regels.
+const AANTAL_KEUZES = [[25, "25"], [50, "50"], [100, "100"], [250, "250"], [500, "500"], [Infinity, "Alle"]];
+const AANTAL_STANDAARD = 25;
+
+/**
+ * Regelaantal-kiezer onder een lijst: links "x van y getoond", rechts de keuzeknoppen.
+ * Eén component voor alle lijsten in het beheersportaal, zodat ze zich hetzelfde gedragen en er
+ * hetzelfde uitzien — en zodat een wijziging aan de reeks niet op zeven plekken hoeft.
+ */
+function AantalKiezer({ aantal, setAantal, totaal, extraTekst }) {
+  const getoond = Math.min(aantal === Infinity ? totaal : aantal, totaal);
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+      <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>
+        {getoond} van {totaal} getoond{extraTekst ? ` · ${extraTekst}` : ""}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, flexWrap: "wrap" }}>
+        <span style={{ color: KLEUR.mutedTekst }}>Toon:</span>
+        {AANTAL_KEUZES.map(([n, lbl]) => (
+          <button
+            key={lbl}
+            onClick={() => setAantal(n)}
+            style={{
+              padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
+              border: `1px solid ${aantal === n ? KLEUR.blauw : KLEUR.rand}`,
+              background: aantal === n ? KLEUR.blauw : "#fff",
+              color: aantal === n ? "#fff" : KLEUR.subtekst,
+            }}
+          >
+            {lbl}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Filtert taaksoorten op de zoekterm — op één plek, zodat de lijst en de teller niet uiteenlopen. */
+function filterTaaksoorten(opties, zoek) {
+  const q = (zoek || "").trim().toLowerCase();
+  return (opties || []).filter((o) => (o.label || "").toLowerCase().includes(q));
+}
+
 // Vervangt (of maakt) de favicon in de browsertab door de opgegeven URL.
 function zetBrowserFavicon(url) {
   if (!url) return;
@@ -166,7 +210,14 @@ export default function BeheerPortaal() {
   const [medewerkerZoek, setMedewerkerZoek] = useState("");
   const [inzageLog, setInzageLog] = useState(null); // null = laden; audit-log "meekijken als klant"
   const [inzageLogZoek, setInzageLogZoek] = useState("");
-  const [inzageLogToonAantal, setInzageLogToonAantal] = useState(50);
+  const [inzageLogToonAantal, setInzageLogToonAantal] = useState(AANTAL_STANDAARD);
+  // Regelaantal per lijst — elke lijst heeft zijn eigen keuze, zodat het instellen van de ene
+  // lijst de andere niet omgooit.
+  const [medewerkerToonAantal, setMedewerkerToonAantal] = useState(AANTAL_STANDAARD);
+  const [faqToonAantal, setFaqToonAantal] = useState(AANTAL_STANDAARD);
+  const [btwToonAantal, setBtwToonAantal] = useState(AANTAL_STANDAARD);
+  const [standaardartikelToonAantal, setStandaardartikelToonAantal] = useState(AANTAL_STANDAARD);
+  const [taaksoortToonAantal, setTaaksoortToonAantal] = useState(AANTAL_STANDAARD);
 
   // Klantoverzicht-kolommen (medewerkersportaal): extra velden + standaard verborgen kolommen.
   const [koExtra, setKoExtra] = useState([]); // [{ veld, label, type }]
@@ -197,7 +248,7 @@ export default function BeheerPortaal() {
   const [facturatieStatusFilter, setFacturatieStatusFilter] = useState("alle"); // "alle" | "aan" | "uit"
   const [facturatieBezig, setFacturatieBezig] = useState({}); // accountId -> bool
   const [facturatieFout, setFacturatieFout] = useState("");
-  const [facturatieToonAantal, setFacturatieToonAantal] = useState(50);
+  const [facturatieToonAantal, setFacturatieToonAantal] = useState(AANTAL_STANDAARD);
   const [facturatiemodulePrijs, setFacturatiemodulePrijs] = useState("5");
   const [prijsOpslaanStatus, setPrijsOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
 
@@ -1687,13 +1738,18 @@ export default function BeheerPortaal() {
             {(() => {
               const term = faqZoek.trim().toLowerCase();
               const zichtbaar = faqs.filter((f) => !term || [f.vraag, f.antwoord].filter(Boolean).some((v) => v.toLowerCase().includes(term)));
+              // Welke vragen mogen op dit moment op het scherm: de eerste faqToonAantal treffers.
+              // We werken met id's en niet met slice op de map, omdat de index i hieronder de échte
+              // positie in de volledige lijst moet blijven — anders verspringt omhoog/omlaag.
+              const zichtbaarIds = new Set(zichtbaar.slice(0, faqToonAantal).map((f) => f.id));
               if (zichtbaar.length === 0) {
                 return <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Geen vragen gevonden voor “{faqZoek}”.</div>;
               }
               return (
+                <>
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {faqs.map((f, i) => {
-                    if (term && ![f.vraag, f.antwoord].filter(Boolean).some((v) => v.toLowerCase().includes(term))) return null;
+                    if (!zichtbaarIds.has(f.id)) return null;
 
                     if (faqBewerken === f.id) {
                       return (
@@ -1788,6 +1844,8 @@ export default function BeheerPortaal() {
                     );
                   })}
                 </div>
+                <AantalKiezer aantal={faqToonAantal} setAantal={setFaqToonAantal} totaal={zichtbaar.length} />
+                </>
               );
             })()}
           </div>
@@ -2115,9 +2173,14 @@ export default function BeheerPortaal() {
             <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 8 }}>
               {Object.values(niveaus).filter((n) => n === "manager" || n === "beheerder").length} met wijzig-recht · {bulk.length} met bulk-recht · {alsKlant.length} met als-klant-recht · {offertes.length} met offertes-recht · {medewerkers.length} medewerkers
             </div>
+            {(() => {
+            const gefilterdeMedewerkers = medewerkers
+              .filter((m) => { const q = medewerkerZoek.trim().toLowerCase(); return !q || m.naam.toLowerCase().includes(q) || m.email.toLowerCase().includes(q) || (m.functie || "").toLowerCase().includes(q); });
+            return (
+            <>
             <div style={{ display: "flex", flexDirection: "column", maxHeight: 460, overflowY: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
-              {medewerkers
-                .filter((m) => { const q = medewerkerZoek.trim().toLowerCase(); return !q || m.naam.toLowerCase().includes(q) || m.email.toLowerCase().includes(q) || (m.functie || "").toLowerCase().includes(q); })
+              {gefilterdeMedewerkers
+                .slice(0, medewerkerToonAantal)
                 .map((m, i) => (
                   <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}` }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -2160,6 +2223,10 @@ export default function BeheerPortaal() {
                   </div>
                 ))}
             </div>
+            <AantalKiezer aantal={medewerkerToonAantal} setAantal={setMedewerkerToonAantal} totaal={gefilterdeMedewerkers.length} />
+            </>
+            );
+            })()}
             <div style={{ marginTop: 14 }}>
               <button
                 onClick={slaWijzigrechtenOp}
@@ -2240,28 +2307,7 @@ export default function BeheerPortaal() {
                     ))}
                   </div>
 
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
-                    <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>
-                      {Math.min(inzageLogToonAantal, gefilterdInzageLog.length)} van {gefilterdInzageLog.length} getoond
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, flexWrap: "wrap" }}>
-                      <span style={{ color: KLEUR.mutedTekst }}>Toon:</span>
-                      {[[25, "25"], [50, "50"], [100, "100"], [250, "250"], [500, "500"], [Infinity, "Alle"]].map(([n, lbl]) => (
-                        <button
-                          key={lbl}
-                          onClick={() => setInzageLogToonAantal(n)}
-                          style={{
-                            padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
-                            border: `1px solid ${inzageLogToonAantal === n ? KLEUR.blauw : KLEUR.rand}`,
-                            background: inzageLogToonAantal === n ? KLEUR.blauw : "#fff",
-                            color: inzageLogToonAantal === n ? "#fff" : KLEUR.subtekst,
-                          }}
-                        >
-                          {lbl}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  <AantalKiezer aantal={inzageLogToonAantal} setAantal={setInzageLogToonAantal} totaal={gefilterdInzageLog.length} />
                 </>
               );
             })()}
@@ -2426,28 +2472,7 @@ export default function BeheerPortaal() {
                     })}
                   </div>
 
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
-                    <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>
-                      {Math.min(facturatieToonAantal, gefilterdFacturatie.length)} van {gefilterdFacturatie.length} getoond
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, flexWrap: "wrap" }}>
-                      <span style={{ color: KLEUR.mutedTekst }}>Toon:</span>
-                      {[[25, "25"], [50, "50"], [100, "100"], [250, "250"], [500, "500"], [Infinity, "Alle"]].map(([n, lbl]) => (
-                        <button
-                          key={lbl}
-                          onClick={() => setFacturatieToonAantal(n)}
-                          style={{
-                            padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
-                            border: `1px solid ${facturatieToonAantal === n ? KLEUR.blauw : KLEUR.rand}`,
-                            background: facturatieToonAantal === n ? KLEUR.blauw : "#fff",
-                            color: facturatieToonAantal === n ? "#fff" : KLEUR.subtekst,
-                          }}
-                        >
-                          {lbl}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  <AantalKiezer aantal={facturatieToonAantal} setAantal={setFacturatieToonAantal} totaal={gefilterdFacturatie.length} />
                 </>
               );
             })()}
@@ -2510,7 +2535,7 @@ export default function BeheerPortaal() {
               <div style={{ padding: "12px", fontSize: 12.5, color: KLEUR.mutedTekst }}>Nog geen tarieven.</div>
             )}
 
-            {btwTarieven.map((t, i) => (
+            {btwTarieven.slice(0, btwToonAantal).map((t, i) => (
               btwBewerken === t.id ? (
                 <BtwTariefFormulierRij
                   key={t.id}
@@ -2535,6 +2560,7 @@ export default function BeheerPortaal() {
               )
             ))}
           </div>
+          <AantalKiezer aantal={btwToonAantal} setAantal={setBtwToonAantal} totaal={btwTarieven.length} />
         )}
         </>)}
       </div>
@@ -2591,7 +2617,7 @@ export default function BeheerPortaal() {
               <div style={{ padding: "12px", fontSize: 12.5, color: KLEUR.mutedTekst }}>Nog geen standaardartikelen.</div>
             )}
 
-            {standaardartikelen.map((a, i) => (
+            {standaardartikelen.slice(0, standaardartikelToonAantal).map((a, i) => (
               standaardartikelBewerken === a.id ? (
                 <StandaardartikelFormulierRij
                   key={a.id}
@@ -2617,6 +2643,7 @@ export default function BeheerPortaal() {
               )
             ))}
           </div>
+          <AantalKiezer aantal={standaardartikelToonAantal} setAantal={setStandaardartikelToonAantal} totaal={standaardartikelen.length} />
         )}
         </>)}
       </div>
@@ -2668,8 +2695,8 @@ export default function BeheerPortaal() {
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Zichtbaar</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Mag goedkeuren</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Vereist handtekening</div>
-                {taaksoortenOpties
-                  .filter((optie) => (optie.label || "").toLowerCase().includes(taaksoortenZoek.trim().toLowerCase()))
+                {filterTaaksoorten(taaksoortenOpties, taaksoortenZoek)
+                  .slice(0, taaksoortToonAantal)
                   .map((optie) => {
                   const cfg = taaksoortenConfig[String(optie.waarde)] || {};
                   return (
@@ -2703,6 +2730,7 @@ export default function BeheerPortaal() {
                   );
                 })}
               </div>
+              <AantalKiezer aantal={taaksoortToonAantal} setAantal={setTaaksoortToonAantal} totaal={filterTaaksoorten(taaksoortenOpties, taaksoortenZoek).length} />
 
               <div style={{ marginTop: 18 }}>
                 <button
