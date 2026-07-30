@@ -1465,12 +1465,25 @@ function KlantenModule() {
 
   return (
     <div>
-      {/* Zelfde balk als de stappenbalk in de Offertes-tab: een lichte band over de volle breedte
-          met platte pillen erin. De negatieve marge van 32px heft de horizontale padding van het
-          medewerkersportaal op zodat de band echt tot de rand loopt — verandert die padding, dan
-          moet deze waarde mee. */}
-      <div style={{ borderBottom: `1px solid ${KLEUR.rand}`, background: "#FBFBF9", margin: "-24px -32px 22px", padding: "14px 32px" }}>
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+      {/* Exact dezelfde balk als de stappenbalk in de Offertes-tab: dezelfde opbouw (een band met
+          onderrand en lichte achtergrond, daarin een rij van maximaal 1600px die meecentreert),
+          dezelfde maten en dezelfde pilstijl. Beide balken hangen op dezelfde plek in het portaal,
+          dus door de opbouw identiek te houden zien ze er ook echt identiek uit — zonder trucs met
+          negatieve marges, die bij een andere paginapadding weer zouden gaan schuiven. */}
+      <div style={{ borderBottom: `1px solid ${KLEUR.rand}`, background: "#FBFBF9" }}>
+        <div
+          style={{
+            maxWidth: 1600,
+            margin: "0 auto",
+            padding: "14px 24px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
           {KLANTEN_SUBTABS.map((s) => {
             const aan = s.key === sub;
             const Icon = s.icon;
@@ -1495,12 +1508,15 @@ function KlantenModule() {
               </button>
             );
           })}
+          </div>
         </div>
       </div>
 
-      {sub === "klanten" && <KlantOverzicht />}
-      {sub === "contactpersonen" && <ContactpersonenOverzicht />}
-      {actief.watKomtEr && <NogInTeRichten titel={actief.label} watKomtEr={actief.watKomtEr} />}
+      <div style={{ paddingTop: 24 }}>
+        {sub === "klanten" && <KlantOverzicht />}
+        {sub === "contactpersonen" && <ContactpersonenOverzicht />}
+        {actief.watKomtEr && <NogInTeRichten titel={actief.label} watKomtEr={actief.watKomtEr} />}
+      </div>
     </div>
   );
 }
