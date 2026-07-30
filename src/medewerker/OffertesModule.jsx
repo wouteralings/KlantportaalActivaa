@@ -2,7 +2,7 @@ import OffertetoolApp from "./offertes/OffertetoolApp";
 
 /** Offertes-module: de Offertetool, geïntegreerd als tab in het medewerkersportaal.
  *
- * Stap 4 van het integratieplan: in plaats van de Offertetool scherm voor schern te
+ * Stap 4 van het integratieplan: in plaats van de Offertetool scherm voor scherm te
  * herbouwen in een eigen sub-tab-structuur, is `OffertetoolApp` (voorheen `App.jsx` in de
  * losstaande offerte-tool-activaa-repo) vrijwel ongewijzigd hierheen verhuisd — dat bleek bij
  * nader inzien één hecht verweven component van ruim 8500 regels met een eigen interne
@@ -16,10 +16,16 @@ import OffertetoolApp from "./offertes/OffertetoolApp";
  * voor de details): de hernoemde API-paden uit Stap 2 (offertes-instellingen/-klanten/
  * -verstuur-mail), het startscherm slaat de eigen inlogstap over (het Klantportaal heeft al
  * ingelogd), en de eigen "Topbalk" (logo/naam/avatar/uitloggen) is verwijderd omdat
- * MedewerkerPortaal.jsx die al toont. De rechtencheck (Instellingen-sub-scherm beheerders-only)
- * bepaalt de tool zelf, via zijn eigen /api/ben-ik-beheerder-aanroep — die gebruikt sinds
- * Stap 3 dezelfde Azure-rol 'beheerder' als de rest van het Klantportaal.
+ * MedewerkerPortaal.jsx die al toont.
+ *
+ * Sinds de verhuizing van het beheer draait dit component hier in modus "medewerker": alleen het
+ * werk zelf, dus de wizard (Klant → Diensten → Prijzen → Bijlage → Offerte →
+ * Opdrachtbevestiging) en de overzichten van offertes en opdrachtbevestigingen. Het beheer van de
+ * offertetool — afzendergegevens, dienstencatalogus, teksten, voorwaarden, roadmap en
+ * opdrachtbevestiging-teksten — staat nu in het beheersportaal, onder Beheer → Offertes, waar
+ * hetzelfde component wordt gerenderd met modus "beheer". Eén component, twee modi: geen
+ * gedupliceerde code en geen tweede plek waar dezelfde instellingen te wijzigen zijn.
  */
 export default function OffertesModule() {
-  return <OffertetoolApp />;
+  return <OffertetoolApp modus="medewerker" />;
 }

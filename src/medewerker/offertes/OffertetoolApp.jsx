@@ -829,9 +829,17 @@ function genereerStandaardLogo() {
   return ACTIVAA_LOGO;
 }
 
-export default function OffertetoolApp() {
-  const [stap, setStap] = useState("klant");
-  const [terugNaarStap, setTerugNaarStap] = useState("klant");
+export default function OffertetoolApp({ modus = "medewerker" }) {
+  // modus "medewerker" (standaard) = het echte werk in het medewerkersportaal: de wizard plus de
+  // overzichten van offertes en opdrachtbevestigingen. modus "beheer" = het beheersportaal, waar
+  // alleen de beheerschermen van de offertetool staan: Instellingen als startpunt, met daarnaast
+  // Diensten, Teksten, Voorwaarden, Roadmap en Opdrachtbevestiging-teksten. Zo staat het beheer
+  // van de offertetool op dezelfde plek als al het andere beheer, en blijft de Offertes-tab bij
+  // Medewerker opgeruimd. Beide modi gebruiken hetzelfde component en dus dezelfde state en
+  // API-aanroepen — er is niets gedupliceerd.
+  const beheerModus = modus === "beheer";
+  const [stap, setStap] = useState(beheerModus ? "instellingen" : "klant");
+  const [terugNaarStap, setTerugNaarStap] = useState(beheerModus ? "instellingen" : "klant");
   const [ingelogd, setIngelogd] = useState(false);
   const [bezigMetInloggen, setBezigMetInloggen] = useState(false);
 
@@ -3730,8 +3738,9 @@ export default function OffertetoolApp() {
         }
       `}</style>
 
-      {/* Stappenbalk */}
-      {ingelogd && (
+      {/* Stappenbalk — alleen in het medewerkersportaal. In beheer-modus zijn er geen
+          wizardstappen, dus zou deze balk daar alleen maar verwarren. */}
+      {ingelogd && !beheerModus && (
         <div style={{ borderBottom: "1px solid #E2E4DF", background: "#FBFBF9" }}>
           <div
             style={{
@@ -4525,12 +4534,16 @@ export default function OffertetoolApp() {
               </>
             )}
 
-            <div style={{ display: "flex", justifyContent: "flex-start", marginTop: 22 }}>
-              <button className="ot-btn-secondary" onClick={() => setStap(terugNaarStap)}>
-                <ChevronLeft size={15} />
-                Terug
-              </button>
-            </div>
+            {/* In beheer-modus is Instellingen het startpunt, dus is er geen scherm om naar terug
+                te gaan — dan laten we deze knop weg. */}
+            {!beheerModus && (
+              <div style={{ display: "flex", justifyContent: "flex-start", marginTop: 22 }}>
+                <button className="ot-btn-secondary" onClick={() => setStap(terugNaarStap)}>
+                  <ChevronLeft size={15} />
+                  Terug
+                </button>
+              </div>
+            )}
           </StapWrapper>
         )}
 
@@ -7632,10 +7645,24 @@ export default function OffertetoolApp() {
               <div style={{ textAlign: "center", padding: 40, color: "#8A9089", fontSize: 13.5 }}>
                 Er zijn nog geen opdrachttypes ingericht.
                 <div style={{ marginTop: 12 }}>
-                  <button className="ot-btn-primary" onClick={openOpdrachtbevestigingTeksten}>
-                    <ScrollText size={15} />
-                    Opdrachtbevestiging-teksten beheren
-                  </button>
+                  {/* Het inrichten van opdrachttypes is beheer, en beheer zit in het beheersportaal.
+                      Vanuit beheer-modus openen we het scherm direct; in het medewerkersportaal
+                      wijzen we de weg (met een link als je zelf beheerder bent). */}
+                  {beheerModus ? (
+                    <button className="ot-btn-primary" onClick={openOpdrachtbevestigingTeksten}>
+                      <ScrollText size={15} />
+                      Opdrachtbevestiging-teksten beheren
+                    </button>
+                  ) : benIkBeheerder ? (
+                    <a className="ot-btn-primary" href="/beheer" style={{ textDecoration: "none" }}>
+                      <ScrollText size={15} />
+                      Inrichten in Beheer → Offertes
+                    </a>
+                  ) : (
+                    <span style={{ fontSize: 12.5 }}>
+                      Vraag een beheerder om dit in te richten via Beheer → Offertes.
+                    </span>
+                  )}
                 </div>
               </div>
             ) : (
@@ -8231,10 +8258,14 @@ export default function OffertetoolApp() {
         )}
       </div>
 
-      {ingelogd && stap !== "login" && (
+      {/* Vaste Instellingen-knop: dit is in beheer-modus de weg terug naar het Instellingen-
+          scherm vanaf Diensten/Teksten/Voorwaarden/Roadmap (de balk "Overig beheer" wijst alleen
+          naar de andere beheerschermen, niet naar Instellingen zelf). In het medewerkersportaal is
+          deze knop weg: het offertetool-beheer zit nu in het beheersportaal. */}
+      {ingelogd && stap !== "login" && beheerModus && (
         <button
           onClick={openAfzender}
-          title="Afzendergegevens beheren"
+          title="Terug naar Instellingen"
           style={{
             position: "fixed",
             left: 20,

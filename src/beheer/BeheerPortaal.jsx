@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import OffertetoolApp from "../medewerker/offertes/OffertetoolApp";
 import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Search, ArrowUp, ArrowDown, HelpCircle, ChevronDown, Plus, Pencil, Check, X, Clock } from "lucide-react";
 
 const KLEUR = {
@@ -1007,6 +1008,7 @@ export default function BeheerPortaal() {
           ["taken", "Taken"],
           ["medewerkers", "Medewerkers"],
           ["facturatie", "Facturatie"],
+          ["offertes", "Offertes"],
           ["instellingen", "Instellingen"],
         ].map(([k, label]) => (
           <button
@@ -2703,6 +2705,13 @@ export default function BeheerPortaal() {
           </>)}
         </div>
       </>)}
+
+      {/* Offertes — het beheer van de offertetool: afzendergegevens, dienstencatalogus, teksten,
+          voorwaarden, roadmap en opdrachtbevestiging-teksten. Dit stond eerder in de Offertes-tab
+          van het medewerkersportaal; daar blijft nu alleen het werk zelf staan (de wizard en de
+          overzichten). Het component doet zijn eigen beheerderscheck via /api/ben-ik-beheerder,
+          bovenop het feit dat dit hele portaal al achter de rol 'beheerder' zit. */}
+      {tab === "offertes" && <OffertetoolApp modus="beheer" />}
 
     </div>
   );
