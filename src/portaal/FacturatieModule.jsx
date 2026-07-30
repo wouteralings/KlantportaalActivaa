@@ -2612,11 +2612,70 @@ function UrenHomeKaart({ account }) {
   );
 }
 
+/** Klant-voorkeur: een snelknop "Factuur maken" op de homepagina tonen. Alleen relevant (en getoond)
+ * als de facturatiemodule voor dit account aan staat. Slaat direct op via /api/facturatie-instelling. */
+function FacturenHomeKaart({ account }) {
+  const [aan, setAan] = useState(!!account.toonFacturenOpHome);
+  const [status, setStatus] = useState("idle"); // idle | bezig | fout
+  const [foutmelding, setFoutmelding] = useState("");
+
+  useEffect(() => {
+    let actief = true;
+    fetch(`/api/facturatie-instelling?accountId=${encodeURIComponent(account.accountId)}`)
+      .then(haalJson)
+      .then((d) => { if (actief) setAan(!!d.toonOpHome); })
+      .catch(() => {}); // stil: val terug op de snapshot-waarde
+    return () => { actief = false; };
+  }, [account.accountId]);
+
+  const zet = async (nieuw) => {
+    setAan(nieuw);
+    setStatus("bezig");
+    setFoutmelding("");
+    try {
+      await haalJson(await fetch("/api/facturatie-instelling", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId: account.accountId, toonOpHome: nieuw }),
+      }));
+      setStatus("idle");
+    } catch (e) {
+      setAan(!nieuw);
+      setFoutmelding(e.message || String(e));
+      setStatus("fout");
+    }
+  };
+
+  return (
+    <div style={kaartStijl}>
+      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Facturen op de homepagina</div>
+      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 12, maxWidth: 620 }}>
+        Toon een snelknop <strong>"Factuur maken"</strong> op je Home-pagina, zodat je snel een factuur kunt opstellen
+        zonder eerst naar deze tab te gaan.
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <button
+          type="button"
+          onClick={() => zet(!aan)}
+          disabled={status === "bezig"}
+          title={aan ? "Snelknop verbergen" : "Snelknop tonen"}
+          style={{ position: "relative", width: 40, height: 22, borderRadius: 20, border: "none", cursor: status === "bezig" ? "default" : "pointer", background: aan ? KLEUR.blauw : KLEUR.rand, flexShrink: 0, transition: "background .15s" }}
+        >
+          <span style={{ position: "absolute", top: 2, left: aan ? 20 : 2, width: 18, height: 18, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 2px rgba(0,0,0,.25)", transition: "left .15s" }} />
+        </button>
+        <span style={{ fontSize: 13.5 }}>Snelknop op Home tonen</span>
+      </div>
+      {status === "fout" && <div style={{ fontSize: 12, color: KLEUR.rood, marginTop: 8 }}>Opslaan mislukt{foutmelding ? `: ${foutmelding}` : ""}, probeer het nog eens.</div>}
+    </div>
+  );
+}
+
 function InstellingenTab({ accountId, bedrijfsgegevens, andereAccounts, account, eigenVerzoeken, verversVerzoeken, tarieven, artikelen }) {
   return (
     <div>
       <BedrijfsgegevensKaart accountId={accountId} bedrijfsgegevens={bedrijfsgegevens} andereAccounts={andereAccounts} account={account} eigenVerzoeken={eigenVerzoeken} verversVerzoeken={verversVerzoeken} />
       <StandaardwaardenKaart accountId={accountId} bedrijfsgegevens={bedrijfsgegevens} tarieven={tarieven} artikelen={artikelen} />
+      {account.facturatieIngeschakeld && <FacturenHomeKaart account={account} />}
       {account.urenIngeschakeld && <UrenHomeKaart account={account} />}
       <NogNietGebouwdKaart icon={CreditCard} titel="Mollie & betalingen" tekst="Koppeling met Mollie zodat klanten van jouw klanten direct kunnen betalen vanaf de factuur." />
       <NogNietGebouwdKaart icon={Bell} titel="Herinneringen & e-mailsjablonen" tekst="Automatische betalingsherinneringen; de teksten worden centraal beheerd door Activaa." />

@@ -435,6 +435,10 @@ export default function KlantPortaal() {
   // aan heeft én de klant die snelknop daar heeft aangezet (Administratie → Instellingen).
   const kanUrenSnel = !meekijkSessie && alleAccounts.some((a) => a.urenIngeschakeld && a.toonUrenOpHome);
   const gaNaarUrenRegistratie = () => { setAdminInitieelSubtab("uren"); setTab("facturen"); };
+  // Snelknop "Factuur maken" op Home: alleen als minstens één administratie de facturatiemodule aan
+  // heeft én de klant die snelknop daar heeft aangezet (Administratie → Instellingen).
+  const kanFacturenSnel = !meekijkSessie && alleAccounts.some((a) => a.facturatieIngeschakeld && a.toonFacturenOpHome);
+  const gaNaarFacturen = () => { setAdminInitieelSubtab("facturen"); setTab("facturen"); };
   const zichtbareTabs = (alleAccounts.length > 0
     ? [...TABS.slice(0, 3), DOSSIERS_TAB, FACTUREN_TAB, ...TABS.slice(3)]
     : TABS
@@ -487,17 +491,30 @@ export default function KlantPortaal() {
 
       {tab === "home" && (
         <>
-          {kanUrenSnel && (
-            <div style={{ marginBottom: 22 }}>
-              <button
-                onClick={gaNaarUrenRegistratie}
-                style={{
-                  display: "inline-flex", alignItems: "center", gap: 8, padding: "11px 18px", borderRadius: 9,
-                  background: KLEUR.blauw, color: "#fff", border: "none", cursor: "pointer", fontSize: 14, fontWeight: 700,
-                }}
-              >
-                <Clock size={17} /> Uren registreren
-              </button>
+          {(kanFacturenSnel || kanUrenSnel) && (
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 22 }}>
+              {kanFacturenSnel && (
+                <button
+                  onClick={gaNaarFacturen}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 8, padding: "11px 18px", borderRadius: 9,
+                    background: KLEUR.blauw, color: "#fff", border: "none", cursor: "pointer", fontSize: 14, fontWeight: 700,
+                  }}
+                >
+                  <FileText size={17} /> Factuur maken
+                </button>
+              )}
+              {kanUrenSnel && (
+                <button
+                  onClick={gaNaarUrenRegistratie}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 8, padding: "11px 18px", borderRadius: 9,
+                    background: KLEUR.blauw, color: "#fff", border: "none", cursor: "pointer", fontSize: 14, fontWeight: 700,
+                  }}
+                >
+                  <Clock size={17} /> Uren registreren
+                </button>
+              )}
             </div>
           )}
           <Kopje tekst="Open taken" />

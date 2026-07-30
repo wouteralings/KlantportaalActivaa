@@ -62,6 +62,8 @@ module.exports = async function (context, req) {
           accountant,
           facturatieIngeschakeld: !!(facturatieStatussen[accountId] && facturatieStatussen[accountId].ingeschakeld),
           facturatieAangevraagdOp: (facturatieStatussen[accountId] && facturatieStatussen[accountId].aangevraagdOp) || null,
+          // Klant-voorkeur: snelknop "Factuur maken" op de homepagina tonen (zie /api/facturatie-instelling).
+          toonFacturenOpHome: !!(facturatieStatussen[accountId] && facturatieStatussen[accountId].toonOpHome),
           urenIngeschakeld: !!(urenStatussen[accountId] && urenStatussen[accountId].ingeschakeld),
           urenAangevraagdOp: (urenStatussen[accountId] && urenStatussen[accountId].aangevraagdOp) || null,
           // Klant-voorkeur: snelknop "Uren registreren" op de homepagina tonen (zie /api/uren-instelling).
