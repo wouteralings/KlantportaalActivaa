@@ -2038,11 +2038,150 @@ function UurFormulier({ accountId, bestaand, klanten, artikelen, standaardUurArt
   );
 }
 
+/* Weekregistratie: registreer uren voor een hele week (Ma t/m Zo) in één raster. Per rij kies je
+   klant + artikel + omschrijving en vul je per dag de uren in; bij opslaan wordt per dag met uren>0
+   één uur-regel aangemaakt (zelfde /api/uren-klanten als het losse formulier). */
+const WEEKDAGEN = ["Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"];
+
+function isoVanDatum(d) {
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), dd = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
+}
+function parseIsoDatum(iso) { const [y, m, d] = String(iso).split("-").map(Number); return new Date(y, (m || 1) - 1, d || 1); }
+function maandagVan(iso) {
+  const d = parseIsoDatum(iso);
+  const dag = d.getDay(); // 0=zo..6=za
+  d.setDate(d.getDate() + (dag === 0 ? -6 : 1 - dag));
+  return isoVanDatum(d);
+}
+function dagPlus(iso, n) { const d = parseIsoDatum(iso); d.setDate(d.getDate() + n); return isoVanDatum(d); }
+
+function WeekUurFormulier({ accountId, klanten, artikelen, standaardUurArtikelId, onKlaar, onOpgeslagen }) {
+  const [weekStart, setWeekStart] = useState(() => maandagVan(new Date().toISOString().slice(0, 10)));
+  const legeRij = () => ({ id: Math.random().toString(36).slice(2, 9), klantKlantId: "", artikelId: standaardUurArtikelId || "", omschrijving: "", uren: ["", "", "", "", "", "", ""] });
+  const [rijen, setRijen] = useState(() => [legeRij()]);
+  const [status, setStatus] = useState("invoer"); // invoer | bezig | fout
+  const [foutmelding, setFoutmelding] = useState("");
+  const [resultaat, setResultaat] = useState("");
+
+  const dagen = WEEKDAGEN.map((_, i) => dagPlus(weekStart, i));
+  const zetRij = (id, patch) => setRijen((h) => h.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  const zetUur = (id, i, val) => setRijen((h) => h.map((r) => (r.id === id ? { ...r, uren: r.uren.map((u, j) => (j === i ? val : u)) } : r)));
+  const rijTotaal = (r) => r.uren.reduce((s, u) => s + (Number(u) || 0), 0);
+  const totaal = rijen.reduce((s, r) => s + rijTotaal(r), 0);
+
+  const opslaan = async () => {
+    const teMaken = [];
+    for (const r of rijen) {
+      if (!r.uren.some((u) => Number(u) > 0)) continue;
+      if (!r.klantKlantId) { setFoutmelding("Kies bij elke regel met uren een klant."); setStatus("fout"); return; }
+      r.uren.forEach((u, i) => {
+        const aantal = Number(u);
+        if (aantal > 0) teMaken.push({ accountId, klantKlantId: r.klantKlantId, artikelId: r.artikelId || null, datum: dagen[i], aantalUren: aantal, omschrijving: r.omschrijving });
+      });
+    }
+    if (teMaken.length === 0) { setFoutmelding("Vul ergens uren in (groter dan 0)."); setStatus("fout"); return; }
+    setStatus("bezig"); setFoutmelding(""); setResultaat("");
+    try {
+      let ok = 0;
+      for (const payload of teMaken) {
+        await haalJson(await fetch("/api/uren-klanten", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }));
+        ok++;
+      }
+      setResultaat(`${ok} uren-regel(s) opgeslagen.`);
+      onOpgeslagen && onOpgeslagen();
+      setRijen((h) => h.map((r) => ({ ...r, uren: ["", "", "", "", "", "", ""] })));
+      setStatus("invoer");
+    } catch (e) {
+      setFoutmelding(e.message || String(e)); setStatus("fout");
+    }
+  };
+
+  const cel = { border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "6px 7px", fontSize: 12.5, boxSizing: "border-box", width: "100%", background: "#fff" };
+  const kop = { fontSize: 10.5, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase", padding: "6px", whiteSpace: "nowrap" };
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+        <div style={{ fontSize: 15, fontWeight: 700 }}>Uren registreren — per week</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button onClick={() => setWeekStart(dagPlus(weekStart, -7))} style={{ ...cel, width: "auto", cursor: "pointer", fontWeight: 600 }}>◀</button>
+          <span style={{ fontSize: 12.5, fontWeight: 600 }}>Week van {datum(weekStart)} t/m {datum(dagen[6])}</span>
+          <button onClick={() => setWeekStart(dagPlus(weekStart, 7))} style={{ ...cel, width: "auto", cursor: "pointer", fontWeight: 600 }}>▶</button>
+        </div>
+      </div>
+
+      <Melding tekst={foutmelding} />
+      {resultaat && <div style={{ fontSize: 12.5, color: KLEUR.groen, marginBottom: 8 }}>{resultaat}</div>}
+
+      <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10 }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 940 }}>
+          <thead>
+            <tr style={{ background: KLEUR.lichtblauw }}>
+              <th style={{ ...kop, textAlign: "left", minWidth: 150 }}>Klant</th>
+              <th style={{ ...kop, textAlign: "left", minWidth: 130 }}>Artikel</th>
+              <th style={{ ...kop, textAlign: "left", minWidth: 160 }}>Omschrijving</th>
+              {WEEKDAGEN.map((d, i) => <th key={d} style={{ ...kop, textAlign: "center", minWidth: 54 }}>{d}<div style={{ fontWeight: 400, color: KLEUR.mutedTekst }}>{dagen[i].slice(8)}-{dagen[i].slice(5, 7)}</div></th>)}
+              <th style={{ ...kop, textAlign: "right" }}>Tot.</th>
+              <th style={kop}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rijen.map((r) => (
+              <tr key={r.id} style={{ borderTop: `1px solid ${KLEUR.rand}` }}>
+                <td style={{ padding: 4 }}>
+                  <select value={r.klantKlantId} onChange={(e) => zetRij(r.id, { klantKlantId: e.target.value })} style={cel}>
+                    <option value="">— kies —</option>
+                    {klanten.filter((k) => k.actief || k.id === r.klantKlantId).map((k) => <option key={k.id} value={k.id}>{k.naam}</option>)}
+                  </select>
+                </td>
+                <td style={{ padding: 4 }}>
+                  <select value={r.artikelId} onChange={(e) => zetRij(r.id, { artikelId: e.target.value })} style={cel}>
+                    <option value="">—</option>
+                    {artikelen.map((a) => <option key={a.id} value={a.id}>{a.omschrijving}</option>)}
+                  </select>
+                </td>
+                <td style={{ padding: 4 }}><input value={r.omschrijving} onChange={(e) => zetRij(r.id, { omschrijving: e.target.value })} placeholder="Wat is er gedaan?" style={cel} /></td>
+                {r.uren.map((u, i) => (
+                  <td key={i} style={{ padding: 4 }}><input type="number" step="0.25" min="0" value={u} onChange={(e) => zetUur(r.id, i, e.target.value)} style={{ ...cel, textAlign: "center", padding: "6px 4px" }} /></td>
+                ))}
+                <td style={{ padding: 4, textAlign: "right", fontWeight: 600, fontSize: 12.5 }}>{rijTotaal(r) || ""}</td>
+                <td style={{ padding: 4, textAlign: "center" }}>
+                  <button onClick={() => setRijen((h) => (h.length > 1 ? h.filter((x) => x.id !== r.id) : h))} title="Regel verwijderen" style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.rood }}><Trash2 size={14} /></button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+        <button onClick={() => setRijen((h) => [...h, legeRij()])} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", background: KLEUR.lichtblauw, color: KLEUR.blauw, border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><Plus size={14} /> Regel toevoegen</button>
+        <div style={{ fontSize: 13, fontWeight: 700 }}>Totaal deze week: {totaal} uur</div>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+        <Knop variant="primair" icon={Check} disabled={status === "bezig"} onClick={opslaan}>{status === "bezig" ? "Opslaan…" : "Week opslaan"}</Knop>
+        <Knop onClick={onKlaar}>Terug</Knop>
+      </div>
+    </div>
+  );
+}
+
 function UrenTab({ accountId, uren, klanten, artikelen, klantenMap, status, foutmelding, verversen, standaardUurArtikelId }) {
   const [weergave, setWeergave] = useState("lijst");
   const [actief, setActief] = useState(null);
   const [klantFilter, setKlantFilter] = useState("");
   const [actieFout, setActieFout] = useState("");
+  // Weekregistratie is een aan/uit-functie (onthouden per administratie in deze browser). Aan =
+  // "Uren registreren" opent het weekraster (Ma t/m Zo) i.p.v. het losse dagformulier.
+  const [weekmodus, setWeekmodus] = useState(() => {
+    try { return localStorage.getItem("uren-weekmodus-" + accountId) === "1"; } catch { return false; }
+  });
+  const zetWeekmodus = (aan) => {
+    setWeekmodus(aan);
+    try { localStorage.setItem("uren-weekmodus-" + accountId, aan ? "1" : "0"); } catch { /* stil */ }
+  };
 
   const verwijderen = async (u) => {
     if (!window.confirm(`Uren van ${datum(u.datum)} verwijderen?`)) return;
@@ -2056,6 +2195,7 @@ function UrenTab({ accountId, uren, klanten, artikelen, klantenMap, status, fout
   };
 
   if (weergave === "nieuw") return <UurFormulier accountId={accountId} klanten={klanten} artikelen={artikelen} standaardUurArtikelId={standaardUurArtikelId} onKlaar={() => setWeergave("lijst")} onOpgeslagen={verversen} />;
+  if (weergave === "week") return <WeekUurFormulier accountId={accountId} klanten={klanten} artikelen={artikelen} standaardUurArtikelId={standaardUurArtikelId} onKlaar={() => setWeergave("lijst")} onOpgeslagen={verversen} />;
   if (weergave === "bewerken" && actief) return <UurFormulier accountId={accountId} bestaand={actief} klanten={klanten} artikelen={artikelen} standaardUurArtikelId={standaardUurArtikelId} onKlaar={() => setWeergave("lijst")} onOpgeslagen={verversen} />;
 
   const artikelNaam = (id) => (artikelen.find((a) => a.id === id) || {}).omschrijving || "—";
@@ -2098,7 +2238,19 @@ function UrenTab({ accountId, uren, klanten, artikelen, klantenMap, status, fout
           <option value="">Alle klanten</option>
           {klanten.map((k) => <option key={k.id} value={k.id}>{k.naam}</option>)}
         </select>
-        <Knop variant="primair" icon={Plus} onClick={() => setWeergave("nieuw")}>Uren registreren</Knop>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.subtekst, cursor: "pointer" }} title="Registreer uren voor een hele week (Ma t/m Zo) in één raster">
+            <button
+              type="button"
+              onClick={() => zetWeekmodus(!weekmodus)}
+              style={{ position: "relative", width: 40, height: 22, borderRadius: 20, border: "none", cursor: "pointer", background: weekmodus ? KLEUR.blauw : KLEUR.rand, flexShrink: 0, transition: "background .15s" }}
+            >
+              <span style={{ position: "absolute", top: 2, left: weekmodus ? 20 : 2, width: 18, height: 18, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 2px rgba(0,0,0,.25)", transition: "left .15s" }} />
+            </button>
+            Per week
+          </label>
+          <Knop variant="primair" icon={Plus} onClick={() => setWeergave(weekmodus ? "week" : "nieuw")}>Uren registreren</Knop>
+        </div>
       </div>
       <Melding tekst={foutmelding || actieFout} />
       {status === "laden" && <LegeStaat tekst="Laden…" />}
