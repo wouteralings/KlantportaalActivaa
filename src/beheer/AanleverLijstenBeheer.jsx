@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Trash2, CheckCircle2, ListChecks, FileText } from "lucide-react";
+import { Plus, Trash2, CheckCircle2, ListChecks, FileText, ChevronDown } from "lucide-react";
 
 /** Zelfde palet als de rest van het beheerdersportaal (bewust hier herhaald zodat dit bestand op
  *  zichzelf staat). */
@@ -18,6 +18,8 @@ const nieuwId = () => Math.random().toString(36).slice(2, 10) + Date.now().toStr
 const legeRegel = () => ({ id: nieuwId(), naam: "", bestandsnaam: "", toelichting: "", verplicht: true });
 const legeLijst = () => ({ id: nieuwId(), naam: "", omschrijving: "", regels: [legeRegel()] });
 
+const AANTALLEN = [[25, "25"], [50, "50"], [100, "100"], [250, "250"], [500, "500"], [Infinity, "Alle"]];
+
 const invoerStijl = { width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 9px", fontSize: 13, outline: "none" };
 const labelStijl = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3 };
 
@@ -32,6 +34,10 @@ export default function AanleverLijstenBeheer() {
   const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
   const [fout, setFout] = useState("");
   const [vuil, setVuil] = useState(false); // onopgeslagen wijzigingen
+  const [open, setOpen] = useState(() => new Set()); // ingeklapte/uitgeklapte lijsten (id's die open zijn)
+  const [toonAantal, setToonAantal] = useState(25);
+
+  const toggle = (id) => setOpen((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   useEffect(() => {
     let actief = true;
@@ -45,7 +51,7 @@ export default function AanleverLijstenBeheer() {
   const wijzig = (fn) => { setLijsten((h) => fn(h || [])); setVuil(true); setStatus("rust"); };
   const updateLijst = (id, patch) => wijzig((h) => h.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   const verwijderLijst = (id) => wijzig((h) => h.filter((l) => l.id !== id));
-  const voegLijstToe = () => wijzig((h) => [...h, legeLijst()]);
+  const voegLijstToe = () => { const l = legeLijst(); wijzig((h) => [l, ...h]); setOpen((o) => new Set(o).add(l.id)); };
   const updateRegel = (lijstId, regelId, patch) =>
     wijzig((h) => h.map((l) => (l.id === lijstId ? { ...l, regels: l.regels.map((r) => (r.id === regelId ? { ...r, ...patch } : r)) } : l)));
   const voegRegelToe = (lijstId) =>
@@ -103,24 +109,47 @@ export default function AanleverLijstenBeheer() {
         </div>
       )}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 12 }}>
-        {lijsten.map((lijst) => (
-          <div key={lijst.id} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 16 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 12, alignItems: "end" }}>
-              <div>
-                <div style={labelStijl}>Naam van de lijst</div>
-                <input value={lijst.naam} onChange={(e) => updateLijst(lijst.id, { naam: e.target.value })} placeholder="bv. Jaarwerk IB" style={invoerStijl} />
-              </div>
-              <div>
-                <div style={labelStijl}>Omschrijving (optioneel)</div>
-                <input value={lijst.omschrijving} onChange={(e) => updateLijst(lijst.id, { omschrijving: e.target.value })} placeholder="Korte toelichting" style={invoerStijl} />
-              </div>
-              <button onClick={() => verwijderLijst(lijst.id)} title="Lijst verwijderen" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", background: "#fff", color: KLEUR.rood, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer", height: 36 }}>
+      {lijsten.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+          <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>{lijsten.length} lijst{lijsten.length === 1 ? "" : "en"}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, flexWrap: "wrap" }}>
+            <span style={{ color: KLEUR.mutedTekst }}>Toon:</span>
+            {AANTALLEN.map(([n, lbl]) => (
+              <button key={lbl} onClick={() => setToonAantal(n)} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", border: `1px solid ${toonAantal === n ? KLEUR.blauw : KLEUR.rand}`, background: toonAantal === n ? KLEUR.blauw : "#fff", color: toonAantal === n ? "#fff" : KLEUR.subtekst }}>{lbl}</button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
+        {(toonAantal === Infinity ? lijsten : lijsten.slice(0, toonAantal)).map((lijst) => {
+          const isOpen = open.has(lijst.id);
+          return (
+          <div key={lijst.id} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: isOpen ? 16 : "10px 14px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button onClick={() => toggle(lijst.id)} style={{ display: "flex", alignItems: "center", gap: 9, flex: 1, minWidth: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: 0 }}>
+                <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ flexShrink: 0, transform: isOpen ? "none" : "rotate(-90deg)", transition: "transform .15s" }} />
+                <span style={{ fontSize: 14, fontWeight: 700, color: KLEUR.tekst, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{lijst.naam || "Naamloze lijst"}</span>
+                <span style={{ fontSize: 12, color: KLEUR.mutedTekst, flexShrink: 0 }}>{lijst.regels.length} document{lijst.regels.length === 1 ? "" : "en"}</span>
+              </button>
+              <button onClick={() => verwijderLijst(lijst.id)} title="Lijst verwijderen" style={{ display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0, padding: "7px 11px", background: "#fff", color: KLEUR.rood, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                 <Trash2 size={13} /> Lijst
               </button>
             </div>
 
+            {isOpen && (
             <div style={{ marginTop: 14 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
+                <div>
+                  <div style={labelStijl}>Naam van de lijst</div>
+                  <input value={lijst.naam} onChange={(e) => updateLijst(lijst.id, { naam: e.target.value })} placeholder="bv. Jaarwerk IB" style={invoerStijl} />
+                </div>
+                <div>
+                  <div style={labelStijl}>Omschrijving (optioneel)</div>
+                  <input value={lijst.omschrijving} onChange={(e) => updateLijst(lijst.id, { omschrijving: e.target.value })} placeholder="Korte toelichting" style={invoerStijl} />
+                </div>
+              </div>
+
               <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 6 }}>
                 <FileText size={13} /> Uit te vragen documenten ({lijst.regels.length})
               </div>
@@ -155,8 +184,10 @@ export default function AanleverLijstenBeheer() {
                 <Plus size={13} /> Regel toevoegen
               </button>
             </div>
+            )}
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 18, position: "sticky", bottom: 0, background: "#fff", paddingTop: 8 }}>
