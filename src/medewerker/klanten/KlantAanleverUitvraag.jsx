@@ -106,6 +106,11 @@ export default function KlantAanleverUitvraag({ accountId, klantnaam, defaultCon
     laad();
   };
 
+  const vrijgeven = async (id) => {
+    await fetch("/api/medewerker-aanleververzoeken", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "vrijgeven", id }) }).catch(() => {});
+    laad();
+  };
+
   const veld = { width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 9px", fontSize: 13, background: "#fff" };
   const mini = { boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "5px 7px", fontSize: 12, background: "#fff" };
 
@@ -238,9 +243,11 @@ export default function KlantAanleverUitvraag({ accountId, klantnaam, defaultCon
                   <button onClick={() => setOpenId(open ? "" : v.id)} style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, background: "none", border: "none", textAlign: "left", cursor: "pointer", padding: 0 }}>
                     <ChevronDown size={14} color={KLEUR.mutedTekst} style={{ transform: open ? "rotate(180deg)" : "none", flexShrink: 0 }} />
                     <span style={{ fontSize: 12.5, fontWeight: 600 }}>{v.onderwerp || v.lijstNaam || "Aanlever-verzoek"}{v.jaar ? ` ${v.jaar}` : ""}</span>
-                    <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{v.contactNaam}{" · "}{klaar}/{v.regels.length} aangeleverd</span>
+                    <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{v.contactNaam}{" · "}{klaar}/{v.regels.length} aangeleverd{v.deadline ? ` · deadline ${v.deadline}` : ""}</span>
                   </button>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {v.zichtbaar === false && <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "#FBF3E4", color: "#B98237" }}>Concept</span>}
+                    {v.zichtbaar === false && magWijzigen && <button onClick={() => vrijgeven(v.id)} title="Vrijgeven — zichtbaar maken voor de klant" style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", background: KLEUR.groen, color: "#fff", border: "none", borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: "pointer" }}><Send size={11} /> Vrijgeven</button>}
                     <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: v.status === "afgerond" ? "#E7F2EA" : KLEUR.lichtblauw, color: v.status === "afgerond" ? KLEUR.groen : KLEUR.blauw }}>{v.status === "afgerond" ? "Compleet" : "Openstaand"}</span>
                     {magWijzigen && <button onClick={() => verwijder(v.id)} title="Verwijderen" style={{ display: "inline-flex", background: "none", border: "none", color: KLEUR.mutedTekst, cursor: "pointer" }}><Trash2 size={14} /></button>}
                   </div>

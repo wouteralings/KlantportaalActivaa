@@ -50,6 +50,7 @@ module.exports = async function (context, req) {
       for (const v of alle) {
         const acc = perAccount.get(v.accountId);
         if (!acc) continue;
+        if (v.zichtbaar === false) continue; // concept: nog niet vrijgegeven door een medewerker
         if (v.contactId && acc.contactId && v.contactId !== acc.contactId) continue; // niet aan mij gericht
         const rechten = await haalVoorContact(acc.contactId);
         if (!rechten.aanleveren) continue;
@@ -71,6 +72,7 @@ module.exports = async function (context, req) {
     const alle = await verzoeken.haalAlle();
     const verzoek = alle.find((v) => v.id === verzoekId);
     if (!verzoek) { context.res = { status: 404, body: { error: "Verzoek niet gevonden." } }; return; }
+    if (verzoek.zichtbaar === false) { context.res = { status: 404, body: { error: "Verzoek niet gevonden." } }; return; } // concept: nog niet vrijgegeven
     const acc = perAccount.get(verzoek.accountId);
     if (!acc) { context.res = { status: 403, body: { error: "Dit verzoek hoort niet bij jou." } }; return; }
     if (verzoek.contactId && acc.contactId && verzoek.contactId !== acc.contactId) {

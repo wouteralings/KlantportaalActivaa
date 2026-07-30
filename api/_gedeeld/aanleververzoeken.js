@@ -55,7 +55,7 @@ async function schrijfAlle(verzoeken) {
 }
 
 /** Maakt een nieuw verzoek uit een set regels (bv. gekopieerd uit een aanleverlijst). */
-function maakVerzoek({ accountId, klantnaam, klantnummer, contactId, contactNaam, lijstId, lijstNaam, onderwerpId, onderwerp, jaar, map, notitie, regels, aangemaaktDoor }) {
+function maakVerzoek({ accountId, klantnaam, klantnummer, contactId, contactNaam, lijstId, lijstNaam, onderwerpId, onderwerp, jaar, map, notitie, regels, aangemaaktDoor, zichtbaar, deadline, bron }) {
   return {
     id: crypto.randomUUID(),
     accountId: accountId || "",
@@ -71,6 +71,11 @@ function maakVerzoek({ accountId, klantnaam, klantnummer, contactId, contactNaam
     map: Array.isArray(map) ? map.filter(Boolean).map((s) => String(s).slice(0, 100)).slice(0, 8) : [],
     notitie: notitie || "",
     status: "open",
+    // zichtbaar=false → 'concept': wel klaargezet, maar nog niet zichtbaar voor de klant totdat een
+    // medewerker hem vrijgeeft. deadline (YYYY-MM-DD) = uiterste aanleverdatum. bron: bv. "abonnement".
+    zichtbaar: zichtbaar === false ? false : true,
+    deadline: deadline ? String(deadline).slice(0, 10) : "",
+    bron: bron || "",
     aangemaaktOp: new Date().toISOString(),
     aangemaaktDoor: aangemaaktDoor || "",
     regels: (Array.isArray(regels) ? regels : []).map((r) => ({

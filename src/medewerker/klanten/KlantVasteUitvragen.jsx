@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import { ClipboardCheck, Plus, Trash2, Send, CheckCircle2, Search, ChevronDown, User, Clock, ShieldAlert, ShieldCheck } from "lucide-react";
+import { ClipboardCheck, Plus, Trash2, Send, CheckCircle2, Search, ChevronDown, User, Clock, ShieldAlert, ShieldCheck, RefreshCw } from "lucide-react";
+
+const FREQ_OPTIES = [["eenmalig", "Eenmalig"], ["wekelijks", "Wekelijks"], ["maandelijks", "Maandelijks"], ["kwartaal", "Per kwartaal"], ["halfjaarlijks", "Halfjaarlijks"], ["jaarlijks", "Jaarlijks"]];
+const LEEG_ABONNEMENT = { actief: true, frequentie: "jaarlijks", startDatum: "", deadlineDagen: 30, modus: "concept", email: false, laatsteRun: "" };
 
 /** Zelfde palet als het medewerkersportaal (bewust hier herhaald zodat dit bestand op zichzelf staat). */
 const KLEUR = {
@@ -65,6 +68,7 @@ export default function KlantVasteUitvragen({ accountId, klantnaam, defaultConta
   const toggle = (id) => setOpen((o) => { const n = new Set(o); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const ingericht = (id) => !!werk[id];
   const zetItem = (id, patch) => { setWerk((w) => ({ ...w, [id]: { ...(w[id] || {}), ...patch } })); setStatus((s) => ({ ...s, [id]: "rust" })); setFout((f) => ({ ...f, [id]: "" })); };
+  const zetAb = (id, patch) => zetItem(id, { abonnement: { ...LEEG_ABONNEMENT, ...((werk[id] && werk[id].abonnement) || {}), ...patch } });
   const effRegels = (lijst) => (Array.isArray(werk[lijst.id] && werk[lijst.id].regels) ? werk[lijst.id].regels : (lijst.regels || []));
 
   const checkRecht = async (contactId) => {
@@ -254,6 +258,55 @@ export default function KlantVasteUitvragen({ accountId, klantnaam, defaultConta
                         <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Notitie voor de klant (optioneel)</div>
                         <input value={item.notitie || ""} disabled={!magWijzigen} onChange={(e) => zetItem(lijst.id, { notitie: e.target.value })} placeholder="bv. Graag vóór 1 april aanleveren" style={veld} />
                       </div>
+
+                      {/* Abonnement (automatisch herhalen) */}
+                      {(() => {
+                        const ab = item.abonnement;
+                        const aan = !!(ab && ab.actief);
+                        return (
+                          <div style={{ marginTop: 12, border: `1px solid ${aan ? KLEUR.blauw : KLEUR.rand}`, borderRadius: 8, padding: 10, background: aan ? "#F5F9FC" : "#fff" }}>
+                            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: magWijzigen ? "pointer" : "default" }}>
+                              <input type="checkbox" checked={aan} disabled={!magWijzigen} onChange={(e) => (e.target.checked ? zetAb(lijst.id, { actief: true }) : zetItem(lijst.id, { abonnement: ab ? { ...ab, actief: false } : null }))} />
+                              <RefreshCw size={13} color={KLEUR.blauw} />
+                              <span style={{ fontSize: 12.5, fontWeight: 700 }}>Abonnement — automatisch herhalen</span>
+                            </label>
+                            {aan && (
+                              <div style={{ marginTop: 10, marginLeft: 24 }}>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                                  <div>
+                                    <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Frequentie</div>
+                                    <select value={ab.frequentie} disabled={!magWijzigen} onChange={(e) => zetAb(lijst.id, { frequentie: e.target.value })} style={veld}>
+                                      {FREQ_OPTIES.map(([w, l]) => <option key={w} value={w}>{l}</option>)}
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Startdatum</div>
+                                    <input type="date" value={ab.startDatum || ""} disabled={!magWijzigen} onChange={(e) => zetAb(lijst.id, { startDatum: e.target.value })} style={veld} />
+                                  </div>
+                                  <div>
+                                    <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Deadline (dagen na start)</div>
+                                    <input type="number" min={0} value={ab.deadlineDagen} disabled={!magWijzigen} onChange={(e) => zetAb(lijst.id, { deadlineDagen: e.target.value })} style={veld} />
+                                  </div>
+                                  <div>
+                                    <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Bij de startdatum</div>
+                                    <select value={ab.modus} disabled={!magWijzigen} onChange={(e) => zetAb(lijst.id, { modus: e.target.value })} style={veld}>
+                                      <option value="concept">Concept klaarzetten (medewerker geeft vrij)</option>
+                                      <option value="versturen">Direct zichtbaar voor de klant</option>
+                                    </select>
+                                  </div>
+                                </div>
+                                <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12, color: KLEUR.subtekst, marginTop: 8, cursor: magWijzigen ? "pointer" : "default" }}>
+                                  <input type="checkbox" checked={!!ab.email} disabled={!magWijzigen} onChange={(e) => zetAb(lijst.id, { email: e.target.checked })} /> Ook een e-mail naar de contactpersoon sturen (alleen bij “direct zichtbaar”)
+                                </label>
+                                <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 6 }}>
+                                  {ab.startDatum ? <>Eerstvolgende: <strong>{ab.laatsteRun ? "na " + ab.laatsteRun : ab.startDatum}</strong>{ab.deadlineDagen ? ` · deadline = start + ${ab.deadlineDagen} dagen` : ""}.</> : "Vul een startdatum in."}
+                                  {ab.laatsteRun ? ` Laatst klaargezet: ${ab.laatsteRun}.` : ""}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       {/* Audit + acties */}
                       {(item.bewerktDoor || item.bewerktOp) && (

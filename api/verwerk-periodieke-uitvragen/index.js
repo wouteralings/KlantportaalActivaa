@@ -22,6 +22,7 @@ const { haalLijsten } = require("../_gedeeld/aanleverlijsten");
 const klantonderwerpen = require("../_gedeeld/klantonderwerpen");
 const verzoeken = require("../_gedeeld/aanleververzoeken");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
+const { verwerkAbonnementen } = require("../_gedeeld/abonnementenVerwerker");
 
 const CLIENTNUMMER_VELD = process.env.DYNAMICS_KLANT_NUMMER_VELD || "sk_clientnrauto";
 const SYSTEEM = "systeem (periodieke uitvraag)";
@@ -135,7 +136,17 @@ module.exports = async function (context, req) {
     // Laatst-verwerkte-periodes wegschrijven zodat een volgende run niet dubbel doet.
     if (verwerkteSchemas.length) await zetSchemas(schemas);
 
-    context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, aangemaakt, verwerkteSchemas, overgeslagen } };
+    // Meteen ook de abonnementen op vaste uitvragen verwerken (zelfde dagelijkse aanroep). Fouten
+    // hierin mogen de periodieke uitvragen niet omvergooien.
+    let abonnementen = null;
+    try {
+      abonnementen = await verwerkAbonnementen(resource);
+    } catch (e) {
+      context.log.error(`abonnementen verwerken mislukt: ${e && e.message ? e.message : e}`);
+      abonnementen = { fout: String(e && e.message ? e.message : e) };
+    }
+
+    context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, aangemaakt, verwerkteSchemas, overgeslagen, abonnementen } };
   } catch (err) {
     if (err.message === "MISSING_CONFIG") { context.res = { status: 501, body: { error: "Opslag/Dynamics is nog niet geconfigureerd." } }; return; }
     context.log.error(err);

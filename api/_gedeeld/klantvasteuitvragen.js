@@ -52,6 +52,42 @@ function normaliseerRegels(regels) {
   }));
 }
 
+const FREQUENTIES = ["eenmalig", "wekelijks", "maandelijks", "kwartaal", "halfjaarlijks", "jaarlijks"];
+
+function getal(v, min, max, standaard) {
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n)) return standaard;
+  return Math.min(max, Math.max(min, n));
+}
+
+/** ISO-datum (YYYY-MM-DD) of leeg; kapt eventuele tijd weg. */
+function datum(v) {
+  const s = String(v == null ? "" : v).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : "";
+}
+
+/**
+ * Normaliseert het abonnement (de herhaling) van een vaste uitvraag. Leeg/uit → null.
+ *   - frequentie   : eenmalig | wekelijks | maandelijks | kwartaal | halfjaarlijks | jaarlijks
+ *   - startDatum   : YYYY-MM-DD, de eerste (of enige) datum waarop het verzoek klaargezet wordt
+ *   - deadlineDagen: de deadline = startdatum + zoveel dagen
+ *   - modus        : "versturen" (direct zichtbaar voor de klant) of "concept" (medewerker geeft vrij)
+ *   - email        : ook een e-mail naar de contactpersoon sturen
+ *   - laatsteRun   : YYYY-MM-DD van de laatst klaargezette periode (dubbel-preventie)
+ */
+function normaliseerAbonnement(ab) {
+  if (!ab || typeof ab !== "object") return null;
+  return {
+    actief: ab.actief === true,
+    frequentie: FREQUENTIES.includes(ab.frequentie) ? ab.frequentie : "jaarlijks",
+    startDatum: datum(ab.startDatum),
+    deadlineDagen: getal(ab.deadlineDagen, 0, 3650, 30),
+    modus: ab.modus === "versturen" ? "versturen" : "concept",
+    email: ab.email === true,
+    laatsteRun: datum(ab.laatsteRun),
+  };
+}
+
 /** Normaliseert één vaste-uitvraag-item (van één lijst voor één klant). */
 function normaliseerItem(item) {
   if (!item || typeof item !== "object") return null;
@@ -60,6 +96,7 @@ function normaliseerItem(item) {
     contactId: tekst(item.contactId, 60),
     contactNaam: tekst(item.contactNaam, 200),
     notitie: tekst(item.notitie, 600),
+    abonnement: normaliseerAbonnement(item.abonnement),
     bewerktDoor: tekst(item.bewerktDoor, 200),
     bewerktOp: tekst(item.bewerktOp, 40),
   };
@@ -102,6 +139,28 @@ async function haalVoorKlant(accountId) {
   return normaliseerConfig((await haalAlle())[accountId]);
 }
 
+/** Alle klanten met hun (genormaliseerde) vaste uitvragen: { accountId: { lijstId: item } }. Voor de verwerker. */
+async function haalAlleGenormaliseerd() {
+  const alle = await haalAlle();
+  const uit = {};
+  for (const [accountId, config] of Object.entries(alle || {})) {
+    if (!accountId) continue;
+    uit[accountId] = normaliseerConfig(config);
+  }
+  return uit;
+}
+
+/** Schrijft de volledige (genormaliseerde) set terug; lege klant-records worden weggelaten. Voor de verwerker. */
+async function schrijfAlleGenormaliseerd(alle) {
+  const uit = {};
+  for (const [accountId, config] of Object.entries(alle || {})) {
+    const schoon = normaliseerConfig(config);
+    if (Object.keys(schoon).length) uit[accountId] = schoon;
+  }
+  await schrijfAlle(uit);
+  return uit;
+}
+
 /**
  * Slaat één vaste uitvraag (lijst) voor één klant op. Stempelt automatisch bewerktDoor/bewerktOp.
  * Geeft het opgeslagen item terug.
@@ -133,4 +192,4 @@ async function verwijderItem(accountId, lijstId) {
   return true;
 }
 
-module.exports = { haalVoorKlant, zetItem, verwijderItem, normaliseerConfig, normaliseerItem, normaliseerRegels };
+module.exports = { haalVoorKlant, haalAlleGenormaliseerd, schrijfAlleGenormaliseerd, zetItem, verwijderItem, normaliseerConfig, normaliseerItem, normaliseerRegels, normaliseerAbonnement, FREQUENTIES };

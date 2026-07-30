@@ -70,6 +70,20 @@ module.exports = async function (context, req) {
       return;
     }
 
+    // Een concept-verzoek (bv. door een abonnement klaargezet) vrijgeven → zichtbaar voor de klant.
+    if (actie === "vrijgeven") {
+      if (!id) { context.res = { status: 400, body: { error: "Geef 'id' mee." } }; return; }
+      const v = await verzoeken.werkBij(id, (x) => { x.zichtbaar = true; });
+      if (!v) { context.res = { status: 404, body: { error: "Verzoek niet gevonden." } }; return; }
+      await logGebeurtenis({
+        door: email || "onbekend", actie: "aanleververzoek", accountId: v.accountId, accountIds: [v.accountId],
+        klantnaam: v.klantnaam, klantnummer: v.klantnummer, contactId: v.contactId, contactNaam: v.contactNaam,
+        tekst: `Concept aanlever-verzoek vrijgegeven (nu zichtbaar voor ${v.contactNaam || "de klant"})${v.lijstNaam ? ` — ${v.lijstNaam}` : ""}.`,
+      });
+      context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek: v } };
+      return;
+    }
+
     if (actie === "uitzetten") {
       if (!accountId || !contactId) {
         context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'accountId' en 'contactId' mee." } };

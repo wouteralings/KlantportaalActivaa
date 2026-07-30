@@ -181,9 +181,12 @@ export default function DocumentenTab() {
             <div key={v.id} style={{ background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14, marginBottom: 10 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
                 <span style={{ fontSize: 13.5, fontWeight: 700 }}>{v.lijstNaam || "Aanlever-verzoek"}{v.klantnaam ? ` · ${v.klantnaam}` : ""}</span>
-                <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: v.status === "afgerond" ? "#E7F2EA" : "#FBF3E4", color: v.status === "afgerond" ? KLEUR.groen : KLEUR.goud }}>
-                  {v.status === "afgerond" ? "Compleet" : "Openstaand"}
-                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {v.deadline && <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "#F6E9E9", color: KLEUR.rood }}>Deadline {v.deadline}</span>}
+                  <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: v.status === "afgerond" ? "#E7F2EA" : "#FBF3E4", color: v.status === "afgerond" ? KLEUR.groen : KLEUR.goud }}>
+                    {v.status === "afgerond" ? "Compleet" : "Openstaand"}
+                  </span>
+                </div>
               </div>
               {v.notitie && <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 8 }}>{v.notitie}</div>}
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
