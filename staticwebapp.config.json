@@ -14,187 +14,311 @@
   "routes": [
     {
       "route": "/api/beheer-content",
-      "allowedRoles": ["beheerder"]
+      "allowedRoles": [
+        "beheerder"
+      ]
     },
     {
       "route": "/api/beheer-instellingen",
-      "allowedRoles": ["beheerder"]
+      "allowedRoles": [
+        "beheerder"
+      ]
     },
     {
       "route": "/api/beheer-klantcategorieen",
-      "allowedRoles": ["beheerder"]
+      "allowedRoles": [
+        "beheerder"
+      ]
     },
     {
       "route": "/api/beheer-logo",
-      "allowedRoles": ["beheerder"]
+      "allowedRoles": [
+        "beheerder"
+      ]
     },
     {
       "route": "/api/beheer-favicon",
-      "allowedRoles": ["beheerder"]
+      "allowedRoles": [
+        "beheerder"
+      ]
     },
     {
       "route": "/api/beheer-klanten",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/beheer-contactpersonen",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/beheer-review-uitnodiging",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/beheer-wijzigingen",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/beheer-tellingen",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/beheer-taaksoorten",
-      "allowedRoles": ["beheerder"]
+      "allowedRoles": [
+        "beheerder"
+      ]
     },
     {
       "route": "/api/beheer-taakakkoorden",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/beheer-handtekeningen",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/beheer-wijzigrechten",
-      "allowedRoles": ["beheerder"]
+      "allowedRoles": [
+        "beheerder"
+      ]
     },
     {
       "route": "/api/beheer-facturatie-klanten",
-      "allowedRoles": ["beheerder"]
+      "allowedRoles": [
+        "beheerder"
+      ]
     },
     {
       "route": "/api/beheer-uren-klanten",
-      "allowedRoles": ["beheerder"]
+      "allowedRoles": [
+        "beheerder"
+      ]
     },
     {
       "route": "/api/beheer-btw-tarieven",
-      "allowedRoles": ["beheerder"]
+      "allowedRoles": [
+        "beheerder"
+      ]
     },
     {
       "route": "/api/beheer-artikelen-algemeen",
-      "allowedRoles": ["beheerder"]
+      "allowedRoles": [
+        "beheerder"
+      ]
     },
     {
       "route": "/api/beheer-medewerkers",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/klant-contacten",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/medewerker-rechten",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/medewerker-klant-inzage",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/medewerker-dossiers",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
+      "route": "/api/medewerker-contactpersoon",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/medewerker-klant-wijzigen",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/medewerker-bulk-wijzigen",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/medewerker-weergaven",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/klant-keuzelijsten",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/instellingen",
-      "allowedRoles": ["anonymous"]
+      "allowedRoles": [
+        "anonymous"
+      ]
     },
     {
       "route": "/api/verwerk-terugkerende-facturen",
-      "allowedRoles": ["anonymous"]
+      "allowedRoles": [
+        "anonymous"
+      ]
     },
     {
       "route": "/api/media/*",
-      "allowedRoles": ["anonymous"]
+      "allowedRoles": [
+        "anonymous"
+      ]
     },
     {
       "route": "/tekenen/*",
-      "allowedRoles": ["anonymous"]
+      "allowedRoles": [
+        "anonymous"
+      ]
     },
     {
       "route": "/api/teken/*",
-      "allowedRoles": ["anonymous"]
+      "allowedRoles": [
+        "anonymous"
+      ]
     },
     {
       "route": "/api/offertes-instellingen/*",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/offertes-klanten",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/offertes-verstuur-mail",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/offerte/*",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/offertes",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/opdrachtbevestiging/*",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/opdrachtbevestigingen",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/ben-ik-beheerder",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/taakcategorieen",
-      "allowedRoles": ["beheerder", "medewerker"]
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
     },
     {
       "route": "/api/dataverse-schema-setup",
-      "allowedRoles": ["beheerder"]
+      "allowedRoles": [
+        "beheerder"
+      ]
     },
     {
       "route": "/api/dataverse-kolom-aanmaken",
-      "allowedRoles": ["beheerder"]
+      "allowedRoles": [
+        "beheerder"
+      ]
     },
     {
       "route": "/api/dataverse-status",
-      "allowedRoles": ["beheerder"]
+      "allowedRoles": [
+        "beheerder"
+      ]
     },
     {
       "route": "/api/dataverse-tarieven-overzicht",
-      "allowedRoles": ["beheerder"]
+      "allowedRoles": [
+        "beheerder"
+      ]
     },
     {
       "route": "/*",
-      "allowedRoles": ["authenticated"]
+      "allowedRoles": [
+        "authenticated"
+      ]
     }
   ],
   "globalHeaders": {
@@ -202,7 +326,11 @@
   },
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/api/*", "/assets/*", "/blank.html"]
+    "exclude": [
+      "/api/*",
+      "/assets/*",
+      "/blank.html"
+    ]
   },
   "responseOverrides": {
     "401": {
