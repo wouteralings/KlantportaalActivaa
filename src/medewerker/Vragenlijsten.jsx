@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { ClipboardList, Search, MessageCircle, ChevronDown, Send, RefreshCw, Users, User } from "lucide-react";
+import { ClipboardList, Search, MessageCircle, ChevronDown, Send, RefreshCw, Users, User, CheckCircle2, Circle, FileText } from "lucide-react";
 
 /** Zelfde palet als de rest van het medewerkersportaal (bewust hier herhaald zodat dit bestand op
  *  zichzelf staat). */
@@ -205,6 +205,36 @@ export default function Vragenlijsten() {
                   {open && (
                     <tr>
                       <td style={{ ...td, background: "#fff" }} colSpan={7}>
+                        {/* Inhoud van de vragenlijst: de gevraagde documenten */}
+                        <div style={{ maxWidth: 720, marginBottom: 14 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 6 }}>
+                            <FileText size={14} /> Documenten ({r.aangeleverd}/{r.aantalDocumenten})
+                          </div>
+                          {r.notitie && <div style={{ fontSize: 12, color: KLEUR.subtekst, fontStyle: "italic", marginBottom: 6 }}>{r.notitie}</div>}
+                          {(r.documenten || []).length === 0 ? (
+                            <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Geen documenten in deze vragenlijst.</div>
+                          ) : (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                              {r.documenten.map((d) => {
+                                const klaar = d.status === "aangeleverd";
+                                return (
+                                  <div key={d.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, padding: "6px 9px", border: `1px solid ${klaar ? "#BFE0C8" : KLEUR.rand}`, borderRadius: 7, background: klaar ? "#F1F8F3" : "#fff" }}>
+                                    {klaar ? <CheckCircle2 size={15} color={KLEUR.groen} style={{ flexShrink: 0, marginTop: 1 }} /> : <Circle size={15} color={KLEUR.mutedTekst} style={{ flexShrink: 0, marginTop: 1 }} />}
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                      <div><span style={{ fontWeight: 600 }}>{d.naam}</span>{d.verplicht === false && <span style={{ color: KLEUR.mutedTekst }}> · optioneel</span>}</div>
+                                      {klaar && d.bestandNaam && <div style={{ fontSize: 11.5, color: KLEUR.groen }}>Aangeleverd: {d.bestandNaam}{d.aangeleverdOp ? ` · ${tijd(d.aangeleverdOp)}` : ""}</div>}
+                                      {d.opmerking && <div style={{ fontSize: 11.5, color: KLEUR.goud }}>Opmerking klant: {d.opmerking}</div>}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 6 }}>
+                          <MessageCircle size={14} /> Vragen
+                        </div>
                         <div style={{ display: "flex", flexDirection: "column", gap: 6, maxWidth: 720 }}>
                           {(r.vragen || []).length === 0 ? (
                             <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Nog geen vragen bij deze vragenlijst.</div>
