@@ -2699,7 +2699,7 @@ const SUBTABS = [
   { key: "instellingen", label: "Instellingen", icon: Settings },
 ];
 
-function FacturatieAccountInhoud({ account, andereAccounts, alleenLezen = false, initieelSubtab }) {
+function FacturatieAccountInhoud({ account, andereAccounts, alleenLezen = false, initieelSubtab, urenPrijs = UREN_MODULE_PRIJS }) {
   const accountId = account.accountId;
   const [subtab, setSubtab] = useState(initieelSubtab || "facturen");
 
@@ -2846,7 +2846,7 @@ function FacturatieAccountInhoud({ account, andereAccounts, alleenLezen = false,
             standaardUurArtikelId={bedrijfsgegevensData.data?.standaardUurArtikelId || ""}
           />
         ) : (
-          <UrenNietActief account={account} prijs={UREN_MODULE_PRIJS} />
+          <UrenNietActief account={account} prijs={urenPrijs != null ? urenPrijs : UREN_MODULE_PRIJS} />
         )
       )}
       {subtab === "instellingen" && (
@@ -2921,7 +2921,7 @@ function BetaaldeFunctieRij({ account, functie }) {
  * status (actief / aangevraagd / aan te vragen). Getoond zodra de Facturatiemodule voor dit account
  * nog niet aan staat — zo weet de klant altijd wélke functies er zijn en kan hij ze aanvragen, ook
  * als er nog niets aan staat. */
-function FunctiesOverzicht({ account, facturatiePrijs }) {
+function FunctiesOverzicht({ account, facturatiePrijs, urenPrijs = UREN_MODULE_PRIJS }) {
   const functies = [
     {
       id: "facturatie",
@@ -2937,7 +2937,7 @@ function FunctiesOverzicht({ account, facturatiePrijs }) {
       id: "uren",
       naam: "Urenregistratie",
       icon: Clock,
-      prijs: UREN_MODULE_PRIJS,
+      prijs: urenPrijs != null ? urenPrijs : UREN_MODULE_PRIJS,
       beschrijving: "Registreer losse uren per klant en zet je openstaande uren in één klik op een factuur.",
       aanvraagUrl: "/api/uren-aanvraag",
       ingeschakeld: account.urenIngeschakeld,
@@ -3029,7 +3029,7 @@ function UrenNietActief({ account, prijs }) {
 /* bij "Mijn gegevens"), met de volle module of een aanvraagkaart erin.    */
 /* ---------------------------------------------------------------------- */
 
-export default function FacturatieModule({ accounts, prijs = 5, alleenLezen = false, initieelSubtab }) {
+export default function FacturatieModule({ accounts, prijs = 5, urenPrijs = 2.5, alleenLezen = false, initieelSubtab }) {
   const [openAccountId, setOpenAccountId] = useState(accounts.length === 1 ? accounts[0].accountId : null);
   const [zoek, setZoek] = useState("");
 
@@ -3051,8 +3051,8 @@ export default function FacturatieModule({ accounts, prijs = 5, alleenLezen = fa
   if (accounts.length === 1) {
     const acc = accounts[0];
     return acc.facturatieIngeschakeld
-      ? <FacturatieAccountInhoud account={acc} andereAccounts={[]} alleenLezen={alleenLezen} initieelSubtab={initieelSubtab} />
-      : <FunctiesOverzicht account={acc} facturatiePrijs={prijs} />;
+      ? <FacturatieAccountInhoud account={acc} andereAccounts={[]} alleenLezen={alleenLezen} initieelSubtab={initieelSubtab} urenPrijs={urenPrijs} />
+      : <FunctiesOverzicht account={acc} facturatiePrijs={prijs} urenPrijs={urenPrijs} />;
   }
 
   // Meerdere gekoppelde klantaccounts: opsplitsen in "Actief" en "Niet actief", met de
@@ -3081,8 +3081,8 @@ export default function FacturatieModule({ accounts, prijs = 5, alleenLezen = fa
         </button>
         {open && (
           acc.facturatieIngeschakeld
-            ? <div style={{ padding: "16px" }}><FacturatieAccountInhoud account={acc} andereAccounts={andereAccounts} alleenLezen={alleenLezen} initieelSubtab={initieelSubtab} /></div>
-            : <div style={{ padding: "16px" }}><FunctiesOverzicht account={acc} facturatiePrijs={prijs} /></div>
+            ? <div style={{ padding: "16px" }}><FacturatieAccountInhoud account={acc} andereAccounts={andereAccounts} alleenLezen={alleenLezen} initieelSubtab={initieelSubtab} urenPrijs={urenPrijs} /></div>
+            : <div style={{ padding: "16px" }}><FunctiesOverzicht account={acc} facturatiePrijs={prijs} urenPrijs={urenPrijs} /></div>
         )}
       </div>
     );

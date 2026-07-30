@@ -264,6 +264,8 @@ export default function BeheerPortaal() {
   const [facturatieToonAantal, setFacturatieToonAantal] = useState(AANTAL_STANDAARD);
   const [facturatiemodulePrijs, setFacturatiemodulePrijs] = useState("5");
   const [prijsOpslaanStatus, setPrijsOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
+  const [urenmodulePrijs, setUrenmodulePrijs] = useState("2.5");
+  const [urenPrijsOpslaanStatus, setUrenPrijsOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
 
   // BTW-tarieven met geldigheidsperiode (Facturatie → BTW-tarieven) — zelfde bewerk-per-rij
   // patroon als Standaardartikelen: "nieuw" voegt een tarief toe (sluit het vorige van die
@@ -330,6 +332,7 @@ export default function BeheerPortaal() {
         setTaakAfwijzingWebhookUrl(d.taakAfwijzingWebhookUrl || "");
         setReviewWebhookUrl(d.reviewWebhookUrl || "");
         setFacturatiemodulePrijs(d.facturatiemodulePrijs != null ? String(d.facturatiemodulePrijs) : "5");
+        setUrenmodulePrijs(d.urenmodulePrijs != null ? String(d.urenmodulePrijs) : "2.5");
         setKoExtra((d.klantoverzicht && d.klantoverzicht.extraKolommen) || []);
         setKoVerborgen((d.klantoverzicht && d.klantoverzicht.standaardVerborgen) || []);
       })
@@ -715,6 +718,27 @@ export default function BeheerPortaal() {
       setPrijsOpslaanStatus("fout");
     }
   }, [facturatiemodulePrijs]);
+
+  const slaUrenmodulePrijsOp = useCallback(async () => {
+    const bedrag = Number(String(urenmodulePrijs).replace(",", "."));
+    if (!Number.isFinite(bedrag) || bedrag < 0) {
+      setUrenPrijsOpslaanStatus("fout");
+      return;
+    }
+    setUrenPrijsOpslaanStatus("bezig");
+    try {
+      const res = await fetch("/api/beheer-instellingen", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urenmodulePrijs: bedrag }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setUrenmodulePrijs(String(bedrag));
+      setUrenPrijsOpslaanStatus("gelukt");
+    } catch {
+      setUrenPrijsOpslaanStatus("fout");
+    }
+  }, [urenmodulePrijs]);
 
   // Facturatiemodule per klant aan/uit — direct opslaan (geen aparte "Opslaan"-knop), met
   // optimistische update en terugdraaien bij een fout.
@@ -2517,6 +2541,40 @@ export default function BeheerPortaal() {
           )}
           <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, width: "100%" }}>
             Deze prijs wordt getoond aan klanten bij wie de module nog niet actief is (klantportaal, tab "Facturen").
+          </div>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 10, flexWrap: "wrap", marginBottom: 18, padding: 14, background: KLEUR.lichtblauw, borderRadius: 8 }}>
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Prijs urenregistratie per maand, per klantaccount</div>
+            <div style={{ position: "relative", maxWidth: 160 }}>
+              <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: KLEUR.mutedTekst }}>€</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={urenmodulePrijs}
+                onChange={(e) => setUrenmodulePrijs(e.target.value)}
+                style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 24px", fontSize: 13, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}
+              />
+            </div>
+          </div>
+          <button
+            onClick={slaUrenmodulePrijsOp}
+            disabled={urenPrijsOpslaanStatus === "bezig"}
+            style={{ padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+          >
+            {urenPrijsOpslaanStatus === "bezig" ? "Opslaan..." : "Opslaan"}
+          </button>
+          {urenPrijsOpslaanStatus === "gelukt" && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: KLEUR.blauw }}>
+              <CheckCircle2 size={14} /> Opgeslagen.
+            </span>
+          )}
+          {urenPrijsOpslaanStatus === "fout" && (
+            <span style={{ fontSize: 12.5, color: KLEUR.rood }}>Ongeldig bedrag of opslaan mislukt.</span>
+          )}
+          <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, width: "100%" }}>
+            De losse urenregistratie-module (werkt samen met de facturatiemodule). Deze prijs wordt getoond aan klanten bij wie de urenregistratie nog niet actief is.
           </div>
         </div>
 

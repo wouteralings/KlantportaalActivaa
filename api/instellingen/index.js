@@ -5,14 +5,14 @@ const { haalInstellingen } = require("../_gedeeld/instellingen");
  * endpoint voor elke ingelogde klant leesbaar — puur om instellingen te tonen die in de
  * portal-UI gebruikt worden, zoals de Teams-chatlink en de wijzigingsformulier-links.
  */
-const LEGE_INSTELLINGEN = { teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", facturatiemodulePrijs: 5, klantoverzicht: { extraKolommen: [], standaardVerborgen: [] } };
+const LEGE_INSTELLINGEN = { teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", facturatiemodulePrijs: 5, urenmodulePrijs: 2.5, klantoverzicht: { extraKolommen: [], standaardVerborgen: [] } };
 
 module.exports = async function (context, req) {
   try {
-    const { teamsChatUrl, whatsappUrl, copilotEmbedUrl, logoUrl, faviconUrl, wijzigingFormNawUrl, wijzigingFormContactUrl, facturatiemodulePrijs, klantoverzicht } = await haalInstellingen();
+    const { teamsChatUrl, whatsappUrl, copilotEmbedUrl, logoUrl, faviconUrl, wijzigingFormNawUrl, wijzigingFormContactUrl, facturatiemodulePrijs, urenmodulePrijs, klantoverzicht } = await haalInstellingen();
     context.res = {
       headers: { "Content-Type": "application/json" },
-      body: { teamsChatUrl, whatsappUrl, copilotEmbedUrl, logoUrl, faviconUrl, wijzigingFormNawUrl, wijzigingFormContactUrl, facturatiemodulePrijs: facturatiemodulePrijs != null ? facturatiemodulePrijs : 5, klantoverzicht: klantoverzicht || { extraKolommen: [], standaardVerborgen: [] } },
+      body: { teamsChatUrl, whatsappUrl, copilotEmbedUrl, logoUrl, faviconUrl, wijzigingFormNawUrl, wijzigingFormContactUrl, facturatiemodulePrijs: facturatiemodulePrijs != null ? facturatiemodulePrijs : 5, urenmodulePrijs: urenmodulePrijs != null ? urenmodulePrijs : 2.5, klantoverzicht: klantoverzicht || { extraKolommen: [], standaardVerborgen: [] } },
     };
   } catch (err) {
     context.log.error(err);
