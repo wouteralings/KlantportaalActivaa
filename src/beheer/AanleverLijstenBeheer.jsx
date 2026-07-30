@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Trash2, CheckCircle2, ListChecks, FileText, ChevronDown } from "lucide-react";
+import { Plus, Trash2, CheckCircle2, ListChecks, FileText, ChevronDown, Search } from "lucide-react";
 
 /** Zelfde palet als de rest van het beheerdersportaal (bewust hier herhaald zodat dit bestand op
  *  zichzelf staat). */
@@ -36,8 +36,16 @@ export default function AanleverLijstenBeheer() {
   const [vuil, setVuil] = useState(false); // onopgeslagen wijzigingen
   const [open, setOpen] = useState(() => new Set()); // ingeklapte/uitgeklapte lijsten (id's die open zijn)
   const [toonAantal, setToonAantal] = useState(25);
+  const [zoek, setZoek] = useState("");
 
   const toggle = (id) => setOpen((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+
+  const gefilterd = (lijsten || []).filter((l) => {
+    const q = zoek.trim().toLowerCase();
+    if (!q) return true;
+    const hooi = `${l.naam} ${l.omschrijving || ""} ${l.pad || ""} ${(l.regels || []).map((r) => r.naam).join(" ")}`.toLowerCase();
+    return hooi.includes(q);
+  });
 
   useEffect(() => {
     let actief = true;
@@ -111,18 +119,19 @@ export default function AanleverLijstenBeheer() {
 
       {lijsten.length > 0 && (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
-          <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>{lijsten.length} lijst{lijsten.length === 1 ? "" : "en"}</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, flexWrap: "wrap" }}>
-            <span style={{ color: KLEUR.mutedTekst }}>Toon:</span>
-            {AANTALLEN.map(([n, lbl]) => (
-              <button key={lbl} onClick={() => setToonAantal(n)} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", border: `1px solid ${toonAantal === n ? KLEUR.blauw : KLEUR.rand}`, background: toonAantal === n ? KLEUR.blauw : "#fff", color: toonAantal === n ? "#fff" : KLEUR.subtekst }}>{lbl}</button>
-            ))}
+          <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>{gefilterd.length} lijst{gefilterd.length === 1 ? "" : "en"}{gefilterd.length !== lijsten.length ? ` van ${lijsten.length}` : ""}</div>
+          <div style={{ position: "relative", flex: "0 1 300px", minWidth: 180 }}>
+            <Search size={13} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)" }} />
+            <input value={zoek} onChange={(e) => setZoek(e.target.value)} placeholder="Zoek op naam, omschrijving, map of document…" style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px 7px 28px", fontSize: 12.5, outline: "none" }} />
           </div>
         </div>
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
-        {(toonAantal === Infinity ? lijsten : lijsten.slice(0, toonAantal)).map((lijst) => {
+        {gefilterd.length === 0 && lijsten.length > 0 && (
+          <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, padding: "8px 2px" }}>Geen lijsten die aan de zoekopdracht voldoen.</div>
+        )}
+        {(toonAantal === Infinity ? gefilterd : gefilterd.slice(0, toonAantal)).map((lijst) => {
           const isOpen = open.has(lijst.id);
           return (
           <div key={lijst.id} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: isOpen ? 16 : "10px 14px" }}>
@@ -197,6 +206,15 @@ export default function AanleverLijstenBeheer() {
           );
         })}
       </div>
+
+      {lijsten.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, marginTop: 12, fontSize: 12, flexWrap: "wrap" }}>
+          <span style={{ color: KLEUR.mutedTekst }}>Toon:</span>
+          {AANTALLEN.map(([n, lbl]) => (
+            <button key={lbl} onClick={() => setToonAantal(n)} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", border: `1px solid ${toonAantal === n ? KLEUR.blauw : KLEUR.rand}`, background: toonAantal === n ? KLEUR.blauw : "#fff", color: toonAantal === n ? "#fff" : KLEUR.subtekst }}>{lbl}</button>
+          ))}
+        </div>
+      )}
 
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 18, position: "sticky", bottom: 0, background: "#fff", paddingTop: 8 }}>
         <button onClick={opslaan} disabled={status === "bezig" || !vuil} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 18px", background: vuil ? KLEUR.groen : "#9DB4A5", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: vuil ? "pointer" : "default" }}>

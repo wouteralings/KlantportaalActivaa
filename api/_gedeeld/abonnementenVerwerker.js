@@ -66,7 +66,7 @@ async function verwerkAbonnementen(resource) {
     let accountKort = null; // lazy: pas ophalen als er echt iets vervalt
     for (const [lijstId, item] of Object.entries(config)) {
       const ab = item.abonnement;
-      if (!ab || ab.actief !== true) continue;
+      if (!ab || ab.actief !== true || ab.gepauzeerd === true) continue;
       const due = bepaalDue(ab, vandaag);
       if (!due) continue;
 

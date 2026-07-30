@@ -268,7 +268,7 @@ export default function KlantVasteUitvragen({ accountId, klantnaam, defaultConta
                             <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: magWijzigen ? "pointer" : "default" }}>
                               <input type="checkbox" checked={aan} disabled={!magWijzigen} onChange={(e) => (e.target.checked ? zetAb(lijst.id, { actief: true }) : zetItem(lijst.id, { abonnement: ab ? { ...ab, actief: false } : null }))} />
                               <RefreshCw size={13} color={KLEUR.blauw} />
-                              <span style={{ fontSize: 12.5, fontWeight: 700 }}>Abonnement — automatisch herhalen</span>
+                              <span style={{ fontSize: 12.5, fontWeight: 700 }}>Automatische uitvraag — herhalen</span>
                             </label>
                             {aan && (
                               <div style={{ marginTop: 10, marginLeft: 24 }}>

@@ -55,7 +55,7 @@ module.exports = async function (context, req) {
 
   try {
     if (methode === "POST") {
-      const { actie, naam, filter, id } = req.body || {};
+      const { actie, naam, filter, id, accountId, lijstId, patch, gepauzeerd } = req.body || {};
       if (actie === "filterOpslaan") {
         const lijst = await filters.bewaar(email, naam, filter);
         context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, filters: lijst } };
@@ -64,6 +64,26 @@ module.exports = async function (context, req) {
       if (actie === "filterVerwijderen") {
         const lijst = await filters.verwijder(email, id);
         context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, filters: lijst } };
+        return;
+      }
+      if (actie === "abonnementBijwerken") {
+        if (!accountId || !lijstId) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'accountId' en 'lijstId' mee." } }; return; }
+        const ab = await vasteUitvragen.patchAbonnement(accountId, lijstId, patch || {});
+        if (!ab) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Abonnement niet gevonden." } }; return; }
+        context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, abonnement: ab } };
+        return;
+      }
+      if (actie === "abonnementPauzeren") {
+        if (!accountId || !lijstId) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'accountId' en 'lijstId' mee." } }; return; }
+        const ab = await vasteUitvragen.patchAbonnement(accountId, lijstId, { gepauzeerd: gepauzeerd === true });
+        if (!ab) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Abonnement niet gevonden." } }; return; }
+        context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, abonnement: ab } };
+        return;
+      }
+      if (actie === "abonnementVerwijderen") {
+        if (!accountId || !lijstId) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'accountId' en 'lijstId' mee." } }; return; }
+        const weg = await vasteUitvragen.verwijderAbonnement(accountId, lijstId);
+        context.res = { headers: { "Content-Type": "application/json" }, body: { ok: weg } };
         return;
       }
       context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Onbekende actie." } };
@@ -109,6 +129,7 @@ module.exports = async function (context, req) {
         lijstNaam: lijstNaam.get(lijstId) || "(verwijderde lijst)",
         contactNaam: item.contactNaam || "",
         actief: !!ab.actief,
+        gepauzeerd: !!ab.gepauzeerd,
         frequentie: ab.frequentie,
         startDatum: ab.startDatum,
         deadlineDagen: ab.deadlineDagen,

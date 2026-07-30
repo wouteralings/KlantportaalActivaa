@@ -79,6 +79,7 @@ function normaliseerAbonnement(ab) {
   if (!ab || typeof ab !== "object") return null;
   return {
     actief: ab.actief === true,
+    gepauzeerd: ab.gepauzeerd === true, // tijdelijk uit: de verwerker slaat het over, maar het blijft bestaan
     frequentie: FREQUENTIES.includes(ab.frequentie) ? ab.frequentie : "jaarlijks",
     startDatum: datum(ab.startDatum),
     deadlineDagen: getal(ab.deadlineDagen, 0, 3650, 30),
@@ -179,6 +180,38 @@ async function zetItem(accountId, lijstId, item, { door } = {}) {
   return schoon;
 }
 
+/**
+ * Past het abonnement van één vaste uitvraag aan (merge van 'patch' in het bestaande abonnement) en
+ * geeft het bijgewerkte abonnement terug, of null als het item niet bestaat.
+ */
+async function patchAbonnement(accountId, lijstId, patch) {
+  if (!accountId || !lijstId) return null;
+  const alle = await haalAlle();
+  const klantConfig = normaliseerConfig(alle[accountId]);
+  const item = klantConfig[lijstId];
+  if (!item) return null;
+  const huidig = item.abonnement || { actief: true, frequentie: "jaarlijks", startDatum: "", deadlineDagen: 30, modus: "concept", email: false, laatsteRun: "" };
+  item.abonnement = normaliseerAbonnement({ ...huidig, ...(patch || {}) });
+  klantConfig[lijstId] = item;
+  alle[accountId] = klantConfig;
+  await schrijfAlle(alle);
+  return item.abonnement;
+}
+
+/** Verwijdert alleen het abonnement van een vaste uitvraag (de uitvraag zelf blijft bestaan). */
+async function verwijderAbonnement(accountId, lijstId) {
+  if (!accountId || !lijstId) return false;
+  const alle = await haalAlle();
+  const klantConfig = normaliseerConfig(alle[accountId]);
+  const item = klantConfig[lijstId];
+  if (!item || !item.abonnement) return false;
+  item.abonnement = null;
+  klantConfig[lijstId] = item;
+  alle[accountId] = klantConfig;
+  await schrijfAlle(alle);
+  return true;
+}
+
 /** Verwijdert één vaste uitvraag (lijst) van één klant. */
 async function verwijderItem(accountId, lijstId) {
   if (!accountId || !lijstId) return false;
@@ -192,4 +225,4 @@ async function verwijderItem(accountId, lijstId) {
   return true;
 }
 
-module.exports = { haalVoorKlant, haalAlleGenormaliseerd, schrijfAlleGenormaliseerd, zetItem, verwijderItem, normaliseerConfig, normaliseerItem, normaliseerRegels, normaliseerAbonnement, FREQUENTIES };
+module.exports = { haalVoorKlant, haalAlleGenormaliseerd, schrijfAlleGenormaliseerd, zetItem, verwijderItem, patchAbonnement, verwijderAbonnement, normaliseerConfig, normaliseerItem, normaliseerRegels, normaliseerAbonnement, FREQUENTIES };
