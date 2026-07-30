@@ -25,6 +25,10 @@
       "allowedRoles": ["beheerder", "medewerker"]
     },
     {
+      "route": "/api/beheer-contactpersonen",
+      "allowedRoles": ["beheerder", "medewerker"]
+    },
+    {
       "route": "/api/beheer-review-uitnodiging",
       "allowedRoles": ["beheerder", "medewerker"]
     },

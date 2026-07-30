@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye } from "lucide-react";
 import { startMeekijken } from "../meekijken";
 import OffertesModule from "./OffertesModule";
+import ContactpersonenOverzicht from "./klanten/ContactpersonenOverzicht";
+import NogInTeRichten from "./klanten/NogInTeRichten";
 
 const KLEUR = {
   blauw: "#1C5D8C",
@@ -1438,6 +1440,60 @@ const BASIS_KOLOMMEN = [
   { key: "status", label: "Status", cel: (k) => k.status || "" },
 ];
 
+// De sub-tabbladen onder "Klantoverzicht". Klantoverzicht en Contactpersonen zijn echte
+// overzichten; de vier fiscale tabbladen zijn nog leeg en worden één voor één gevuld zodra
+// duidelijk is in welke Dynamics-tabellen en -velden die gegevens staan.
+const KLANTEN_SUBTABS = [
+  { key: "klanten", label: "Klantoverzicht" },
+  { key: "contactpersonen", label: "Contactpersonen" },
+  { key: "ib", label: "Inkomstenbelasting", watKomtEr: "Per kliënt de inkomstenbelasting-aangiftes: jaar, status, behandelaar en deadline, zodat je in één lijst ziet wat nog open staat en bij wie het ligt." },
+  { key: "vpb", label: "Vennootschapsbelasting", watKomtEr: "Per kliënt de vennootschapsbelasting-aangiftes: jaar, status, behandelaar en deadline, inclusief fiscale eenheden waar die van toepassing zijn." },
+  { key: "divb", label: "Dividendbelasting", watKomtEr: "Per kliënt de dividendbelasting-aangiftes: aangiftedatum, uitgekeerd dividend, status en behandelaar." },
+  { key: "lonen", label: "Lonen", watKomtEr: "De loonadministratie per kliënt: aangifteperiode, status, verantwoordelijke loonadministratie en aantal werknemers." },
+];
+
+/**
+ * Verzamelscherm achter de tab "Klantoverzicht": één sub-tabbalk met alle kliënt-gerichte
+ * overzichten. Dezelfde opzet als de stappenbalk in de Offertes-tab, zodat het portaal
+ * consistent aanvoelt. Elk sub-tabblad houdt zijn eigen state; door van tabblad te wisselen
+ * gaan filters en sortering van het andere tabblad dus niet verloren zolang je in het portaal
+ * blijft — behalve dat een leeg tabblad niets te onthouden heeft.
+ */
+function KlantenModule() {
+  const [sub, setSub] = useState("klanten");
+  const actief = KLANTEN_SUBTABS.find((s) => s.key === sub) || KLANTEN_SUBTABS[0];
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18, paddingBottom: 14, borderBottom: `1px solid ${KLEUR.rand}` }}>
+        {KLANTEN_SUBTABS.map((s) => {
+          const aan = s.key === sub;
+          return (
+            <button
+              key={s.key}
+              onClick={() => setSub(s.key)}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "7px 14px", borderRadius: 20, cursor: "pointer",
+                fontSize: 12.5, fontWeight: 600,
+                border: `1px solid ${aan ? KLEUR.blauw : KLEUR.rand}`,
+                background: aan ? KLEUR.blauw : "#fff",
+                color: aan ? "#fff" : KLEUR.subtekst,
+              }}
+            >
+              {s.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {sub === "klanten" && <KlantOverzicht />}
+      {sub === "contactpersonen" && <ContactpersonenOverzicht />}
+      {actief.watKomtEr && <NogInTeRichten titel={actief.label} watKomtEr={actief.watKomtEr} />}
+    </div>
+  );
+}
+
 function KlantOverzicht() {
   const [klanten, setKlanten] = useState(null); // null = laden
   const [afgekapt, setAfgekapt] = useState(false);
@@ -2159,7 +2215,7 @@ export default function MedewerkerPortaal() {
         ))}
       </div>
 
-      {tab === "klantoverzicht" && <KlantOverzicht />}
+      {tab === "klantoverzicht" && <KlantenModule />}
       {tab === "verzoeken" && <WijzigingsverzoekBeheer onAfgehandeld={laadTellingen} />}
       {tab === "reacties" && <AkkoordenLog />}
       {tab === "ondertekeningen" && <OndertekeningenLog />}
