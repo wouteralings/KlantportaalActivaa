@@ -103,6 +103,12 @@ module.exports = async function (context, req) {
         if (!lijst) { context.res = { status: 404, body: { error: "Gekozen aanleverlijst niet gevonden." } }; return; }
         bronRegels = lijst.regels; lijstNaam = lijst.naam;
       }
+      // De frontend stuurt vaak zelf de regels mee (bronRegels al gevuld); zet dan alsnog de
+      // lijstnaam als er een lijst is gekozen maar (nog) geen onderwerp/naam bekend is.
+      if (lijstId && !lijstNaam) {
+        const lijst = (await haalLijsten()).find((l) => l.id === lijstId);
+        if (lijst) lijstNaam = lijst.naam;
+      }
       if (!bronRegels.length) {
         context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Kies een onderwerp of lijst, of geef minimaal één regel mee." } };
         return;

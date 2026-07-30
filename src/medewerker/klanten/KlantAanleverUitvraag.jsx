@@ -29,6 +29,7 @@ export default function KlantAanleverUitvraag({ accountId, klantnaam, defaultCon
   const [cTerm, setCTerm] = useState("");
   const [cRes, setCRes] = useState([]);
   const [onderwerpId, setOnderwerpId] = useState("");
+  const [lijstId, setLijstId] = useState("");
   const [jaar, setJaar] = useState("");
   const [gebruikAlgemeen, setGebruikAlgemeen] = useState(false);
   const [extraRegels, setExtraRegels] = useState([]);
@@ -70,7 +71,10 @@ export default function KlantAanleverUitvraag({ accountId, klantnaam, defaultCon
   const onderwerp = klant ? (klant.onderwerpen || []).find((o) => o.id === onderwerpId) : null;
   const conf = klant && onderwerpId ? klant.config[onderwerpId] : null;
   const klantSpecifiek = !!(conf && Array.isArray(conf.regels));
+  const gekozenLijst = klant && lijstId ? (klant.lijsten || []).find((l) => l.id === lijstId) : null;
+  const bronLabel = gekozenLijst ? `de lijst "${gekozenLijst.naam}"` : (klantSpecifiek && !gebruikAlgemeen ? "de klant-specifieke lijst" : "de algemene lijst");
   const basisRegels = (() => {
+    if (gekozenLijst) return gekozenLijst.regels || [];
     if (!onderwerp) return [];
     if (klantSpecifiek && !gebruikAlgemeen) return conf.regels || [];
     if (onderwerp.standaardLijstId) return ((klant.lijsten || []).find((l) => l.id === onderwerp.standaardLijstId) || {}).regels || [];
@@ -81,15 +85,15 @@ export default function KlantAanleverUitvraag({ accountId, klantnaam, defaultCon
     if (!contact.id) { setFout("Kies een contactpersoon."); return; }
     const extra = extraRegels.filter((r) => r.naam.trim());
     const regels = [...basisRegels, ...extra];
-    if (!onderwerpId && regels.length === 0) { setFout("Kies een onderwerp of voeg minimaal één regel toe."); return; }
+    if (!onderwerpId && !lijstId && regels.length === 0) { setFout("Kies een onderwerp of lijst, of voeg minimaal één regel toe."); return; }
     setBezig(true); setFout("");
     try {
       const r = await fetch("/api/medewerker-aanleververzoeken", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ actie: "uitzetten", accountId, contactId: contact.id, onderwerpId, jaar, gebruikAlgemeen, regels, notitie }),
+        body: JSON.stringify({ actie: "uitzetten", accountId, contactId: contact.id, onderwerpId, lijstId, jaar, gebruikAlgemeen, regels, notitie }),
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
-      setNieuw(false); setOnderwerpId(""); setJaar(""); setExtraRegels([]); setNotitie(""); setGebruikAlgemeen(false);
+      setNieuw(false); setOnderwerpId(""); setLijstId(""); setJaar(""); setExtraRegels([]); setNotitie(""); setGebruikAlgemeen(false);
       await laad();
     } catch (e) {
       setFout(e.message || "Uitzetten mislukt.");
@@ -149,12 +153,19 @@ export default function KlantAanleverUitvraag({ accountId, klantnaam, defaultCon
             )}
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1.6fr 0.7fr", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1.5fr 0.6fr", gap: 10 }}>
             <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Onderwerp</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Onderwerp <span style={{ fontWeight: 400 }}>(map)</span></div>
               <select value={onderwerpId} onChange={(e) => { setOnderwerpId(e.target.value); setGebruikAlgemeen(false); }} disabled={!klant} style={veld}>
-                <option value="">— kies onderwerp —</option>
+                <option value="">— geen / algemeen —</option>
                 {(klant && klant.onderwerpen || []).map((o) => <option key={o.id} value={o.id}>{o.naam}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Lijst <span style={{ fontWeight: 400 }}>(leeg = van onderwerp)</span></div>
+              <select value={lijstId} onChange={(e) => setLijstId(e.target.value)} disabled={!klant} style={veld}>
+                <option value="">{onderwerp ? "— lijst van het onderwerp —" : "— kies lijst —"}</option>
+                {(klant && klant.lijsten || []).map((l) => <option key={l.id} value={l.id}>{l.naam}</option>)}
               </select>
             </div>
             <div>
@@ -167,13 +178,13 @@ export default function KlantAanleverUitvraag({ accountId, klantnaam, defaultCon
             <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8 }}>Er zijn nog geen onderwerpen ingericht (Beheer → Onderwerpen). Je kunt hieronder wel losse regels toevoegen.</div>
           )}
 
-          {onderwerp && (
+          {(onderwerp || gekozenLijst) && (
             <div style={{ marginTop: 10, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: 10, background: "#fff" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.subtekst }}>
-                  Documenten uit {klantSpecifiek && !gebruikAlgemeen ? "de klant-specifieke lijst" : "de algemene lijst"} ({basisRegels.length})
+                  Documenten uit {bronLabel} ({basisRegels.length})
                 </span>
-                {klantSpecifiek && (
+                {klantSpecifiek && !gekozenLijst && (
                   <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: KLEUR.subtekst, cursor: "pointer" }}>
                     <input type="checkbox" checked={gebruikAlgemeen} onChange={(e) => setGebruikAlgemeen(e.target.checked)} /> Algemene lijst gebruiken
                   </label>
