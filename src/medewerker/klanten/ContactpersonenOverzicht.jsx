@@ -41,6 +41,17 @@ const KOLOMMEN = [
 
 const AANTALLEN = [[25, "25"], [50, "50"], [100, "100"], [250, "250"], [500, "500"], [Infinity, "Alle"]];
 
+/** Velden die in bulk (op meerdere contactpersonen tegelijk) gewijzigd kunnen worden. `key` = het
+ *  weergaveveld in het overzicht-object, `dyn` = de Dynamics-veldnaam die de backend verwacht. */
+const BULK_VELDEN = [
+  { key: "functie", dyn: "jobtitle", label: "Functie" },
+  { key: "straat", dyn: "address1_line1", label: "Straat" },
+  { key: "huisnummer", dyn: "cr283_huisnummer", label: "Huisnummer" },
+  { key: "toevoeging", dyn: "cr283_huisnummertoevoeging", label: "Toevoeging" },
+  { key: "postcode", dyn: "address1_postalcode", label: "Postcode" },
+  { key: "plaats", dyn: "address1_city", label: "Plaats" },
+];
+
 /** Herberekent de platgeslagen cliënt-kolommen (voor tabel: zoeken/sorteren/filteren) nadat de
  *  koppelingen van een contactpersoon veranderd zijn. Module-niveau zodat het veilig in
  *  setState-updaters gebruikt kan worden. */
@@ -72,7 +83,10 @@ export default function ContactpersonenOverzicht() {
   const [zichtbaar, setZichtbaar] = useState(() => new Set(KOLOMMEN.filter((k) => k.standaard).map((k) => k.key)));
   const [detail, setDetail] = useState(null); // gekozen contactpersoon → detailweergave
   const [magWijzigen, setMagWijzigen] = useState(false);
+  const [magBulk, setMagBulk] = useState(false);
   const [isBeheerder, setIsBeheerder] = useState(false);
+  const [selectie, setSelectie] = useState(() => new Set()); // geselecteerde contactId's voor bulk
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   useEffect(() => {
     let actief = true;
@@ -100,8 +114,8 @@ export default function ContactpersonenOverzicht() {
   useEffect(() => {
     fetch("/api/medewerker-rechten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => setMagWijzigen(!!d.magWijzigen))
-      .catch(() => setMagWijzigen(false));
+      .then((d) => { setMagWijzigen(!!d.magWijzigen); setMagBulk(!!d.magBulk); })
+      .catch(() => { setMagWijzigen(false); setMagBulk(false); });
     fetch("/.auth/me")
       .then((r) => r.json())
       .then((d) => {
@@ -180,6 +194,28 @@ export default function ContactpersonenOverzicht() {
 
   const zichtbareRijen = gesorteerd.slice(0, toonAantal === Infinity ? undefined : toonAantal);
   const actieveFilters = Object.entries(kolomFilters).filter(([, v]) => v);
+
+  // ── Bulk-selectie (op contactId). "Alles" werkt op de gefilterde lijst. ──
+  const gefilterdeIds = gefilterd.map((c) => c.contactId);
+  const allesGeselecteerd = gefilterdeIds.length > 0 && gefilterdeIds.every((id) => selectie.has(id));
+  const toggleSelectie = (id) => setSelectie((h) => { const n = new Set(h); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggleAlles = () => setSelectie(() => (allesGeselecteerd ? new Set() : new Set(gefilterdeIds)));
+
+  const bulkToepassen = async (veld, waarde) => {
+    const ids = [...selectie];
+    const res = await fetch("/api/medewerker-contactpersoon", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ actie: "bulk-bewerken", contactIds: ids, veld: veld.dyn, waarde }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+    const d = await res.json();
+    const mislukteIds = new Set((d.mislukt || []).map((m) => m.contactId));
+    const geluktIds = new Set(ids.filter((id) => !mislukteIds.has(id)));
+    // Weergave lokaal bijwerken voor de gelukte contactpersonen.
+    setContactpersonen((huidig) => (huidig || []).map((c) => (geluktIds.has(c.contactId) ? { ...c, [veld.key]: waarde } : c)));
+    return d;
+  };
 
   const sorteerOp = (key) => {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -297,10 +333,25 @@ export default function ContactpersonenOverzicht() {
         {afgekapt ? " · lijst afgekapt, verfijn je zoekopdracht" : ""}
       </div>
 
+      {magBulk && selectie.size > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10, padding: "8px 12px", background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: KLEUR.blauw }}>{selectie.size} geselecteerd</span>
+          <button onClick={() => setBulkOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+            <Pencil size={13} /> Bulk wijzigen
+          </button>
+          <button onClick={() => setSelectie(new Set())} style={{ padding: "7px 12px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Selectie wissen</button>
+        </div>
+      )}
+
       <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10 }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: Math.max(600, zichtKols.length * 110) }}>
           <thead>
             <tr>
+              {magBulk && (
+                <th style={{ ...th, width: 34, cursor: "default" }}>
+                  <input type="checkbox" checked={allesGeselecteerd} onChange={toggleAlles} title="Alles op deze lijst selecteren" />
+                </th>
+              )}
               {zichtKols.map((kol) => {
                 const actief = sortKey === kol.key || kolomFilters[kol.key];
                 return (
@@ -317,6 +368,7 @@ export default function ContactpersonenOverzicht() {
             </tr>
             {filterRegel && (
               <tr>
+                {magBulk && <th style={{ ...th, padding: "4px 6px", width: 34 }} />}
                 {zichtKols.map((kol) => (
                   <th key={kol.key} style={{ ...th, padding: "4px 6px", textTransform: "none" }}>
                     <input
@@ -331,23 +383,31 @@ export default function ContactpersonenOverzicht() {
             )}
           </thead>
           <tbody>
-            {zichtbareRijen.map((c) => (
-              <tr
-                key={c.contactId}
-                onClick={() => setDetail(c)}
-                title="Klik om te openen"
-                style={{ cursor: "pointer" }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = KLEUR.lichtblauw)}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-              >
-                {zichtKols.map((kol) => (
-                  <td key={kol.key} style={td}>{cel(kol, c)}</td>
-                ))}
-              </tr>
-            ))}
+            {zichtbareRijen.map((c) => {
+              const gekozen = selectie.has(c.contactId);
+              return (
+                <tr
+                  key={c.contactId}
+                  onClick={() => setDetail(c)}
+                  title="Klik om te openen"
+                  style={{ cursor: "pointer", background: gekozen ? KLEUR.lichtblauw : "transparent" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = KLEUR.lichtblauw)}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = gekozen ? KLEUR.lichtblauw : "transparent")}
+                >
+                  {magBulk && (
+                    <td style={{ ...td, width: 34 }} onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" checked={gekozen} onChange={() => toggleSelectie(c.contactId)} />
+                    </td>
+                  )}
+                  {zichtKols.map((kol) => (
+                    <td key={kol.key} style={td}>{cel(kol, c)}</td>
+                  ))}
+                </tr>
+              );
+            })}
             {zichtbareRijen.length === 0 && (
               <tr>
-                <td colSpan={Math.max(1, zichtKols.length)} style={{ ...td, color: KLEUR.mutedTekst, whiteSpace: "normal" }}>
+                <td colSpan={Math.max(1, zichtKols.length + (magBulk ? 1 : 0))} style={{ ...td, color: KLEUR.mutedTekst, whiteSpace: "normal" }}>
                   Geen contactpersonen gevonden met deze zoekopdracht of filters.
                 </td>
               </tr>
@@ -379,7 +439,90 @@ export default function ContactpersonenOverzicht() {
           ))}
         </div>
       </div>
+
+      {bulkOpen && magBulk && (
+        <BulkContactBewerken
+          aantal={selectie.size}
+          onKlaar={() => setBulkOpen(false)}
+          onToepassen={bulkToepassen}
+        />
+      )}
     </div>
+  );
+}
+
+/* ── Bulk-bewerken van meerdere contactpersonen: kies één veld + waarde en pas toe op de selectie ── */
+function BulkContactBewerken({ aantal, onKlaar, onToepassen }) {
+  const [veldKey, setVeldKey] = useState("");
+  const [waarde, setWaarde] = useState("");
+  const [leeg, setLeeg] = useState(false); // veld leegmaken i.p.v. een waarde zetten
+  const [status, setStatus] = useState("invoer"); // invoer | bezig | fout
+  const [resultaat, setResultaat] = useState(null); // { gelukt, mislukt }
+  const veld = BULK_VELDEN.find((v) => v.key === veldKey) || null;
+  const klaar = !!veld && (leeg || waarde.trim() !== "");
+  const lbl = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3, marginTop: 6 };
+
+  const toepassen = async () => {
+    if (!klaar) return;
+    const teZetten = leeg ? "" : waarde;
+    const omschrijving = leeg ? "leegmaken" : `wijzigen naar "${teZetten}"`;
+    if (!window.confirm(`Weet je zeker dat je "${veld.label}" bij ${aantal} contactperso${aantal === 1 ? "on" : "nen"} wilt ${omschrijving}?`)) return;
+    setStatus("bezig");
+    try {
+      const d = await onToepassen(veld, teZetten);
+      setResultaat(d);
+      setStatus("invoer");
+    } catch {
+      setStatus("fout");
+    }
+  };
+
+  return (
+    <>
+      <div onClick={onKlaar} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 70 }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 71, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.2)", padding: 22, width: 420, maxWidth: "92vw", maxHeight: "88vh", overflowY: "auto" }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Bulk-aanpassing contactpersonen</div>
+        <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 14 }}>
+          De gekozen waarde wordt toegepast op <strong>{aantal}</strong> geselecteerde contactperso{aantal === 1 ? "on" : "nen"}. Wijzigingen gaan rechtstreeks naar Dynamics en komen in het logboek.
+        </div>
+
+        <div style={lbl}>Veld</div>
+        <select value={veldKey} onChange={(e) => { setVeldKey(e.target.value); setResultaat(null); }} style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 9px", fontSize: 13, marginBottom: 8, background: "#fff" }}>
+          <option value="">— kies een veld —</option>
+          {BULK_VELDEN.map((v) => <option key={v.key} value={v.key}>{v.label}</option>)}
+        </select>
+
+        {veld && (
+          <div>
+            <div style={lbl}>Nieuwe waarde</div>
+            <input
+              value={leeg ? "" : waarde}
+              disabled={leeg}
+              onChange={(e) => setWaarde(e.target.value)}
+              placeholder={leeg ? "(leegmaken)" : `Nieuwe ${veld.label.toLowerCase()}…`}
+              style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 9px", fontSize: 13, background: leeg ? "#F4F4F1" : "#fff" }}
+            />
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: 12.5, color: KLEUR.subtekst, cursor: "pointer" }}>
+              <input type="checkbox" checked={leeg} onChange={(e) => setLeeg(e.target.checked)} /> Veld leegmaken
+            </label>
+          </div>
+        )}
+
+        {resultaat && (
+          <div style={{ fontSize: 12.5, marginTop: 10, color: resultaat.mislukt && resultaat.mislukt.length ? KLEUR.rood : KLEUR.groen }}>
+            {resultaat.gelukt} gewijzigd{resultaat.mislukt && resultaat.mislukt.length ? ` · ${resultaat.mislukt.length} mislukt (mogelijk onvoldoende schrijfrechten in Dynamics)` : ""}.
+          </div>
+        )}
+        {status === "fout" && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginTop: 10 }}>Bulk-aanpassing mislukt, probeer het nog eens.</div>}
+
+        <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+          <button onClick={toepassen} disabled={!klaar || status === "bezig"} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: klaar ? KLEUR.groen : "#9DB4A5", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: klaar ? "pointer" : "default" }}>
+            <CheckCircle2 size={14} /> {status === "bezig" ? "Bezig…" : "Toepassen"}
+          </button>
+          <button onClick={onKlaar} style={{ padding: "9px 14px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Sluiten</button>
+        </div>
+      </div>
+    </>
   );
 }
 

@@ -20,7 +20,7 @@
  * Daarom is dit een bewuste, beveiligde en dubbel te bevestigen handeling.
  */
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
-const { magWijzigen } = require("../_gedeeld/wijzigrechten");
+const { magWijzigen, magBulk } = require("../_gedeeld/wijzigrechten");
 const { logGebeurtenis, haalLog } = require("../_gedeeld/klantlog");
 
 const CLIENTNUMMER_VELD = process.env.DYNAMICS_KLANT_NUMMER_VELD || "sk_clientnrauto";
@@ -34,6 +34,14 @@ const CONTACT_VELDEN = [
   "emailaddress1", "mobilephone", "telephone1",
   "address1_line1", "cr283_huisnummer", "cr283_huisnummertoevoeging",
   "address1_postalcode", "address1_city", "address1_country",
+];
+
+// Velden die in bulk (op meerdere contactpersonen tegelijk) gewijzigd mogen worden. Bewuste
+// subset van CONTACT_VELDEN: alleen velden die zinvol op meerdere personen tegelijk te zetten zijn
+// (functie + adres). Naam/e-mail zijn per persoon uniek en zitten er dus bewust NIET bij.
+const BULK_TOEGESTAAN = [
+  "jobtitle", "address1_line1", "cr283_huisnummer", "cr283_huisnummertoevoeging",
+  "address1_postalcode", "address1_city",
 ];
 
 // Leesbare labels per veld — voor de omschrijving in het logboek ("Wijzigde … : Voornaam, E-mail").
@@ -323,6 +331,56 @@ module.exports = async function (context, req) {
       });
 
       context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true } };
+      return;
+    }
+
+    // ── Bulk bewerken: één veld op meerdere contactpersonen tegelijk (gate: magBulk) ──────
+    if (actie === "bulk-bewerken") {
+      if (!(await magBulk(email, beheerder))) {
+        context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Je hebt geen rechten om meerdere contactpersonen tegelijk te wijzigen." } };
+        return;
+      }
+      const contactIds = Array.isArray(req.body && req.body.contactIds) ? req.body.contactIds.filter(Boolean) : [];
+      const veld = req.body && req.body.veld;
+      const waarde = req.body ? req.body.waarde : undefined;
+      if (contactIds.length === 0) {
+        context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'contactIds' mee." } };
+        return;
+      }
+      if (!BULK_TOEGESTAAN.includes(veld)) {
+        context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Dit veld mag niet in bulk gewijzigd worden." } };
+        return;
+      }
+      const nieuweWaarde = waarde === "" || waarde == null ? null : waarde;
+      const label = VELD_LABEL[veld] || veld;
+
+      let gelukt = 0;
+      const mislukt = [];
+      for (const cid of contactIds) {
+        try {
+          await patch(resource, token, "contacts", cid, { [veld]: nieuweWaarde });
+          gelukt++;
+          // Best-effort per contactpersoon loggen (mag de bulk niet laten mislukken).
+          try {
+            const info = await haalContactVolledig(resource, token, cid);
+            const naam = info ? info.fullname || "" : "";
+            const accounts = await haalGekoppeldeAccounts(resource, token, cid);
+            await logGebeurtenis({
+              door: email || "onbekend",
+              actie: "bewerken",
+              contactId: cid,
+              contactNaam: naam,
+              accountIds: accounts.map((a) => a.accountId),
+              klantnaam: accounts.map((a) => a.klantnaam).filter(Boolean).join(", "),
+              tekst: `Wijzigde ${label} van contactpersoon ${naam || "(onbekend)"} (bulk) → ${nieuweWaarde == null ? "leeggemaakt" : `"${nieuweWaarde}"`}.`,
+            });
+          } catch { /* logging is best-effort */ }
+        } catch (e) {
+          mislukt.push({ contactId: cid, fout: String(e.message || e) });
+        }
+      }
+
+      context.res = { headers: { "Content-Type": "application/json" }, body: { gelukt, mislukt } };
       return;
     }
 
