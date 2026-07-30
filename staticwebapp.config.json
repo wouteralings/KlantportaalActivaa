@@ -170,6 +170,12 @@
       ]
     },
     {
+      "route": "/api/medewerker-klant",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
       "route": "/api/medewerker-klant-wijzigen",
       "allowedRoles": [
         "beheerder",

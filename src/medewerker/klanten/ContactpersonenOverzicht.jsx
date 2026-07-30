@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Search, ArrowLeft, Pencil, Link2, Unlink, AlertTriangle, CheckCircle2, X } from "lucide-react";
+import { Search, ArrowLeft, Pencil, Link2, Unlink, AlertTriangle, CheckCircle2, X, Plus, Trash2 } from "lucide-react";
 import Logboek from "./Logboek";
 
 /** Zelfde palet als het medewerkersportaal — bewust hier herhaald zodat dit bestand
@@ -87,6 +87,7 @@ export default function ContactpersonenOverzicht() {
   const [isBeheerder, setIsBeheerder] = useState(false);
   const [selectie, setSelectie] = useState(() => new Set()); // geselecteerde contactId's voor bulk
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [toevoegenOpen, setToevoegenOpen] = useState(false);
 
   useEffect(() => {
     let actief = true;
@@ -157,6 +158,25 @@ export default function ContactpersonenOverzicht() {
     const strip = (c) => herbereken(c, (c.klanten || []).filter((k) => !(k.accountId === accountId && k.rol === "Primair")));
     setContactpersonen((huidig) => (huidig || []).map((c) => (c.contactId === contact.contactId ? strip(c) : c)));
     setDetail((huidig) => (huidig && huidig.contactId === contact.contactId ? strip(huidig) : huidig));
+  };
+
+  const naToevoegen = (nieuw) => {
+    const contact = {
+      contactId: nieuw.contactId, naam: nieuw.naam || "",
+      voornaam: nieuw.voornaam || "", tussenvoegsel: nieuw.tussenvoegsel || "", achternaam: nieuw.achternaam || "",
+      functie: nieuw.functie || "", email: nieuw.email || "", mobiel: nieuw.mobiel || "", telefoon: "",
+      aanhef: "", straat: "", huisnummer: "", toevoeging: "", postcode: "", plaats: "", land: "",
+      geboortedatum: "", aangemaakt: "", klanten: [], klantnamen: "", klantnummers: "", rollen: "",
+    };
+    setContactpersonen((huidig) => [contact, ...(huidig || [])]);
+    setToevoegenOpen(false);
+    setDetail(contact); // meteen openen zodat je kunt koppelen/aanvullen
+  };
+
+  const naVerwijderen = (contactId) => {
+    setContactpersonen((huidig) => (huidig || []).filter((c) => c.contactId !== contactId));
+    setSelectie((h) => { const n = new Set(h); n.delete(contactId); return n; });
+    setDetail(null);
   };
 
   const zichtKols = KOLOMMEN.filter((k) => zichtbaar.has(k.key));
@@ -248,6 +268,7 @@ export default function ContactpersonenOverzicht() {
         onBewerkt={naBewerken}
         onKoppeld={naKoppelen}
         onOntkoppeld={naOntkoppelen}
+        onVerwijderd={naVerwijderen}
       />
     );
   }
@@ -307,6 +328,11 @@ export default function ContactpersonenOverzicht() {
             style={{ padding: "8px 12px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
           >
             Filters wissen
+          </button>
+        )}
+        {isBeheerder && (
+          <button onClick={() => setToevoegenOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: "auto", padding: "8px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+            <Plus size={14} /> Nieuwe contactpersoon
           </button>
         )}
       </div>
@@ -447,6 +473,10 @@ export default function ContactpersonenOverzicht() {
           onToepassen={bulkToepassen}
         />
       )}
+
+      {toevoegenOpen && isBeheerder && (
+        <ContactpersoonToevoegen onKlaar={() => setToevoegenOpen(false)} onToegevoegd={naToevoegen} />
+      )}
     </div>
   );
 }
@@ -548,12 +578,35 @@ function Veld({ label, waarde, soort }) {
   );
 }
 
-function ContactpersoonDetail({ contact, magWijzigen, isBeheerder, onTerug, onBewerkt, onKoppeld, onOntkoppeld }) {
+function ContactpersoonDetail({ contact, magWijzigen, isBeheerder, onTerug, onBewerkt, onKoppeld, onOntkoppeld, onVerwijderd }) {
   const [bewerken, setBewerken] = useState(false);
   const [koppelKlant, setKoppelKlant] = useState(null); // gekozen cliënt voor de dubbele bevestiging
   const [ontkoppelBezig, setOntkoppelBezig] = useState(""); // accountId dat bezig is
   const [fout, setFout] = useState("");
+  const [verwijderBezig, setVerwijderBezig] = useState(false);
   const [logSleutel, setLogSleutel] = useState(0); // ophogen = logboek opnieuw laden na een actie
+
+  const verwijder = async () => {
+    const aantalKoppelingen = (contact.klanten || []).length;
+    const extra = aantalKoppelingen > 0
+      ? `\n\nLet op: deze persoon is gekoppeld aan ${aantalKoppelingen} cliënt(en). Die koppeling(en) worden verbroken en de portaal-toegang vervalt.`
+      : "";
+    if (!window.confirm(`Contactpersoon "${contact.naam || ""}" verwijderen?\n\nDe persoon wordt op inactief gezet en verdwijnt uit het portaal. Dit is terug te draaien in Dynamics.${extra}`)) return;
+    setVerwijderBezig(true);
+    setFout("");
+    try {
+      const r = await fetch("/api/medewerker-contactpersoon", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "verwijderen", contactId: contact.contactId }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      onVerwijderd(contact.contactId);
+    } catch (e) {
+      setFout(e.message || "Verwijderen mislukt.");
+      setVerwijderBezig(false);
+    }
+  };
 
   if (bewerken) {
     return (
@@ -601,14 +654,25 @@ function ContactpersoonDetail({ contact, magWijzigen, isBeheerder, onTerug, onBe
             <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 2 }}>{contact.naam || "—"}</div>
             <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>{contact.functie || "Geen functie bekend"}</div>
           </div>
-          {magWijzigen && (
-            <button
-              onClick={() => setBewerken(true)}
-              style={{ display: "inline-flex", alignItems: "center", gap: 7, flexShrink: 0, padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
-            >
-              <Pencil size={13} /> Bewerken
-            </button>
-          )}
+          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            {magWijzigen && (
+              <button
+                onClick={() => setBewerken(true)}
+                style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+              >
+                <Pencil size={13} /> Bewerken
+              </button>
+            )}
+            {isBeheerder && (
+              <button
+                onClick={verwijder}
+                disabled={verwijderBezig}
+                style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px", background: "#fff", color: KLEUR.rood, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+              >
+                <Trash2 size={13} /> {verwijderBezig ? "Verwijderen…" : "Verwijderen"}
+              </button>
+            )}
+          </div>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0 24px", marginTop: 6 }}>
@@ -849,6 +913,77 @@ function KoppelBevestiging({ contact, klant, onAnnuleer, onGekoppeld }) {
               </button>
             </>
           )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* ── Nieuwe contactpersoon toevoegen (beknopt: naam + e-mail + mobiel + functie) ── */
+function ContactpersoonToevoegen({ onKlaar, onToegevoegd }) {
+  const [f, setF] = useState({ voornaam: "", tussenvoegsel: "", achternaam: "", functie: "", email: "", mobiel: "" });
+  const [status, setStatus] = useState("invoer"); // invoer | bezig | fout
+  const [fout, setFout] = useState("");
+  const zet = (k) => (v) => setF((h) => ({ ...h, [k]: v }));
+  const klaar = f.voornaam.trim() !== "" || f.achternaam.trim() !== "";
+  const lbl = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3, marginTop: 8 };
+  const inp = (waarde, onZet, extra) => (
+    <input value={waarde} onChange={(e) => onZet(e.target.value)} {...(extra || {})}
+      style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 9px", fontSize: 13, outline: "none" }} />
+  );
+
+  const opslaan = async () => {
+    if (!klaar) return;
+    setStatus("bezig");
+    setFout("");
+    try {
+      const contact = {
+        firstname: f.voornaam, middlename: f.tussenvoegsel, lastname: f.achternaam,
+        jobtitle: f.functie, emailaddress1: f.email, mobilephone: f.mobiel,
+      };
+      const r = await fetch("/api/medewerker-contactpersoon", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "toevoegen", contact }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      const d = await r.json();
+      const naam = [f.voornaam, f.tussenvoegsel, f.achternaam].filter(Boolean).join(" ").trim();
+      onToegevoegd({ contactId: d.contactId, naam: d.naam || naam, voornaam: f.voornaam, tussenvoegsel: f.tussenvoegsel, achternaam: f.achternaam, functie: f.functie, email: f.email, mobiel: f.mobiel });
+    } catch (e) {
+      setFout(e.message || "Aanmaken mislukt.");
+      setStatus("fout");
+    }
+  };
+
+  return (
+    <>
+      <div onClick={onKlaar} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 70 }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 71, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.2)", padding: 22, width: 460, maxWidth: "92vw", maxHeight: "88vh", overflowY: "auto" }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Nieuwe contactpersoon</div>
+        <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 10 }}>
+          De persoon wordt in Dynamics aangemaakt. Koppelen aan een cliënt en de overige velden doe je daarna.
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div><div style={lbl}>Voornaam</div>{inp(f.voornaam, zet("voornaam"))}</div>
+          <div><div style={lbl}>Achternaam</div>{inp(f.achternaam, zet("achternaam"))}</div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 10 }}>
+          <div><div style={lbl}>Tussenvoegsel</div>{inp(f.tussenvoegsel, zet("tussenvoegsel"))}</div>
+          <div><div style={lbl}>Functie</div>{inp(f.functie, zet("functie"))}</div>
+        </div>
+        <div style={lbl}>E-mail</div>{inp(f.email, zet("email"), { type: "email" })}
+        <div style={lbl}>Mobiel</div>{inp(f.mobiel, zet("mobiel"))}
+
+        {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginTop: 10 }}>Aanmaken mislukt: {fout}</div>}
+        {!klaar && <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8 }}>Vul minimaal een voor- of achternaam in.</div>}
+
+        <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+          <button onClick={opslaan} disabled={!klaar || status === "bezig"} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: klaar ? KLEUR.groen : "#9DB4A5", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: klaar ? "pointer" : "default" }}>
+            <CheckCircle2 size={14} /> {status === "bezig" ? "Aanmaken…" : "Contactpersoon aanmaken"}
+          </button>
+          <button onClick={onKlaar} style={{ padding: "9px 14px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Annuleren</button>
         </div>
       </div>
     </>

@@ -86,6 +86,40 @@ async function patch(resource, token, entiteitSet, id, body) {
   if (!res.ok) throw new Error(`${entiteitSet} bijwerken mislukt (${res.status}): ${await res.text()}`);
 }
 
+async function maakEntiteit(resource, token, entiteitSet, body, selectVelden) {
+  const sel = selectVelden ? `?$select=${selectVelden}` : "";
+  const res = await fetch(`${resource}/api/data/v9.2/${entiteitSet}${sel}`, {
+    method: "POST",
+    headers: { ...jsonHeaders(token), Prefer: "return=representation" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${entiteitSet} aanmaken mislukt (${res.status}): ${await res.text()}`);
+  return await res.json();
+}
+
+/** Verwijdert een lookup-verwijzing (bijv. primaire contactpersoon) van een Account. 404 = was al leeg. */
+async function verwijderRef(resource, token, accountId, nav) {
+  const res = await fetch(`${resource}/api/data/v9.2/accounts(${accountId})/${nav}/$ref`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}`, "OData-MaxVersion": "4.0", "OData-Version": "4.0" },
+  });
+  if (!res.ok && res.status !== 404) throw new Error(`${nav} loskoppelen mislukt (${res.status}): ${await res.text()}`);
+}
+
+/** Actieve accounts waar een contactpersoon op het gegeven lookup-value-veld staat (primair/secundair). */
+async function accountsMetLookup(resource, token, lookupValueVeld, contactId) {
+  const url =
+    `${resource}/api/data/v9.2/accounts?$select=accountid,name,${CLIENTNUMMER_VELD}` +
+    `&$filter=${lookupValueVeld} eq ${contactId} and statecode eq 0`;
+  const res = await fetch(url, { headers: leesHeaders(token) });
+  if (!res.ok) return [];
+  const d = await res.json();
+  return (d.value || []).map((a) => {
+    const nummer = a[CLIENTNUMMER_VELD];
+    return { accountId: a.accountid, klantnaam: a.name || "", klantnummer: nummer != null && nummer !== "" ? String(nummer) : "" };
+  });
+}
+
 /** Cliënten zoeken op naam of cliëntnummer, met de huidige primaire contactpersoon erbij. */
 async function zoekKlanten(resource, token, term) {
   const veilig = String(term).replace(/'/g, "''");
@@ -381,6 +415,69 @@ module.exports = async function (context, req) {
       }
 
       context.res = { headers: { "Content-Type": "application/json" }, body: { gelukt, mislukt } };
+      return;
+    }
+
+    // ── Contactpersoon toevoegen (gate: BEHEERDER) ────────────────────────
+    if (actie === "toevoegen") {
+      if (!beheerder) {
+        context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Alleen een beheerder mag contactpersonen toevoegen." } };
+        return;
+      }
+      const naam = [norm(contact && contact.firstname), norm(contact && contact.middlename), norm(contact && contact.lastname)].filter(Boolean).join(" ").trim();
+      if (!naam) {
+        context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef minimaal een voor- of achternaam." } };
+        return;
+      }
+      const velden = {};
+      for (const veld of CONTACT_VELDEN) {
+        if (contact && Object.prototype.hasOwnProperty.call(contact, veld) && contact[veld] !== "") velden[veld] = contact[veld];
+      }
+      const nieuw = await maakEntiteit(resource, token, "contacts", velden, "contactid,fullname");
+      await logGebeurtenis({
+        door: email || "onbekend", actie: "toevoegen",
+        contactId: nieuw.contactid, contactNaam: nieuw.fullname || naam, accountIds: [],
+        tekst: `Nieuwe contactpersoon aangemaakt: ${nieuw.fullname || naam}.`,
+      });
+      context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, contactId: nieuw.contactid, naam: nieuw.fullname || naam } };
+      return;
+    }
+
+    // ── Contactpersoon verwijderen = deactiveren (gate: BEHEERDER) ─────────
+    if (actie === "verwijderen") {
+      if (!beheerder) {
+        context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Alleen een beheerder mag contactpersonen verwijderen." } };
+        return;
+      }
+      if (!contactId) {
+        context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'contactId' mee." } };
+        return;
+      }
+      const info = await haalContactVolledig(resource, token, contactId);
+      const naam = info ? info.fullname || "" : "";
+
+      // Koppelingen verbreken zodat de portaal-toegang echt vervalt (toegang loopt via het
+      // Account → primaire contactpersoon; enkel deactiveren van het Contact haalt die koppeling
+      // niet weg). Primair verbreekt de toegang; secundair verbreken we ook voor de netheid.
+      const primair = await accountsMetLookup(resource, token, "_primarycontactid_value", contactId);
+      for (const a of primair) { try { await verwijderRef(resource, token, a.accountId, "primarycontactid"); } catch (e) { context.log.warn ? context.log.warn(String(e)) : context.log(String(e)); } }
+      let secundair = [];
+      try { secundair = await accountsMetLookup(resource, token, `_${SECUNDAIR_ATTR}_value`, contactId); } catch { secundair = []; }
+      for (const a of secundair) { try { await verwijderRef(resource, token, a.accountId, "cr283_Secundairecontactpersoon"); } catch (e) { context.log.warn ? context.log.warn(String(e)) : context.log(String(e)); } }
+
+      // Deactiveren (op inactief). statecode 1 = Inactief, statuscode 2 = Inactief (standaard).
+      await patch(resource, token, "contacts", contactId, { statecode: 1, statuscode: 2 });
+
+      const betrokken = [...primair, ...secundair];
+      const accountIds = [...new Set(betrokken.map((a) => a.accountId))];
+      await logGebeurtenis({
+        door: email || "onbekend", actie: "verwijderen",
+        contactId, contactNaam: naam, accountIds,
+        klantnaam: [...new Set(betrokken.map((a) => a.klantnaam).filter(Boolean))].join(", "),
+        tekst: `Contactpersoon ${naam || "(onbekend)"} gedeactiveerd — verwijderd uit het portaal${betrokken.length ? ` en losgekoppeld van ${accountIds.length} cliënt(en) (toegang ingetrokken)` : ""}.`,
+      });
+
+      context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true } };
       return;
     }
 

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet } from "lucide-react";
+import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2 } from "lucide-react";
 import { startMeekijken } from "../meekijken";
 import OffertesModule from "./OffertesModule";
 import ContactpersonenOverzicht from "./klanten/ContactpersonenOverzicht";
@@ -1129,11 +1129,31 @@ function KlantBewerken({ klant, keuzes, medewerkers, onKlaar, onOpgeslagen }) {
   );
 }
 
-function KlantDetail({ klant, magWijzigen, keuzes, medewerkers, onTerug, onContact, onMedewerker, onOpgeslagen }) {
+function KlantDetail({ klant, magWijzigen, isBeheerder, keuzes, medewerkers, onTerug, onContact, onMedewerker, onOpgeslagen, onVerwijderd }) {
   const [bewerken, setBewerken] = useState(false);
+  const [verwijderBezig, setVerwijderBezig] = useState(false);
+  const [verwijderFout, setVerwijderFout] = useState("");
   if (bewerken) {
     return <KlantBewerken klant={klant} keuzes={keuzes} medewerkers={medewerkers} onKlaar={() => setBewerken(false)} onOpgeslagen={onOpgeslagen} />;
   }
+
+  const verwijder = async () => {
+    if (!window.confirm(`Cliënt "${klant.klantnaam || ""}" verwijderen?\n\nDe cliënt wordt op inactief gezet en verdwijnt uit het portaal; de portaal-toegang van de contactpersoon vervalt. Dit is terug te draaien in Dynamics.`)) return;
+    setVerwijderBezig(true);
+    setVerwijderFout("");
+    try {
+      const r = await fetch("/api/medewerker-klant", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "verwijderen", accountId: klant.accountId }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      onVerwijderd && onVerwijderd(klant.accountId);
+    } catch (e) {
+      setVerwijderFout(e.message || "Verwijderen mislukt.");
+      setVerwijderBezig(false);
+    }
+  };
   const MedewerkerRegel = ({ label, persoon, rol }) => {
     if (!persoon || !persoon.naam) return null;
     return (
@@ -1157,15 +1177,27 @@ function KlantDetail({ klant, magWijzigen, keuzes, medewerkers, onTerug, onConta
               Cliëntnr {klant.klantnummer || "—"}{klant.status ? " · " + klant.status : ""}
             </div>
           </div>
-          {magWijzigen && (
-            <button
-              onClick={() => setBewerken(true)}
-              style={{ display: "inline-flex", alignItems: "center", gap: 7, flexShrink: 0, padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
-            >
-              Bewerken
-            </button>
-          )}
+          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            {magWijzigen && (
+              <button
+                onClick={() => setBewerken(true)}
+                style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+              >
+                Bewerken
+              </button>
+            )}
+            {isBeheerder && (
+              <button
+                onClick={verwijder}
+                disabled={verwijderBezig}
+                style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px", background: "#fff", color: KLEUR.rood, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+              >
+                <Trash2 size={13} /> {verwijderBezig ? "Verwijderen…" : "Verwijderen"}
+              </button>
+            )}
+          </div>
         </div>
+        {verwijderFout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginTop: 8 }}>Verwijderen mislukt: {verwijderFout}</div>}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0 24px" }}>
           <div>
             <Veld label="Groep" waarde={klant.groepsnaam} />
@@ -1667,8 +1699,10 @@ function KlantOverzicht() {
   const [detailMedewerker, setDetailMedewerker] = useState(null); // { persoon, rol, klantnaam }
   const [magWijzigen, setMagWijzigen] = useState(false);
   const [magBulk, setMagBulk] = useState(false);
+  const [isBeheerder, setIsBeheerder] = useState(false);
   const [selectie, setSelectie] = useState(() => new Set()); // geselecteerde accountId's voor bulk
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [klantToevoegenOpen, setKlantToevoegenOpen] = useState(false);
 
   useEffect(() => {
     fetch("/api/beheer-klanten")
@@ -1679,6 +1713,10 @@ function KlantOverzicht() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => { setMagWijzigen(!!d.magWijzigen); setMagBulk(!!d.magBulk); })
       .catch(() => { setMagWijzigen(false); setMagBulk(false); });
+    fetch("/.auth/me")
+      .then((r) => r.json())
+      .then((d) => setIsBeheerder(((d.clientPrincipal && d.clientPrincipal.userRoles) || []).includes("beheerder")))
+      .catch(() => setIsBeheerder(false));
     fetch("/api/instellingen")
       .then((r) => r.json())
       .then((d) => setConfig(d.klantoverzicht && typeof d.klantoverzicht === "object" ? { extraKolommen: d.klantoverzicht.extraKolommen || [], standaardVerborgen: d.klantoverzicht.standaardVerborgen || [] } : { extraKolommen: [], standaardVerborgen: [] }))
@@ -1721,6 +1759,20 @@ function KlantOverzicht() {
     setDetailContact((huidig) => (huidig && huidig.accountId === accountId ? { ...huidig, ...patch } : huidig));
   };
 
+  const naKlantToevoegen = (nieuw) => {
+    // nieuw: { accountId, klantnaam, klantnummer }
+    const klant = { accountId: nieuw.accountId, klantnaam: nieuw.klantnaam || "", klantnummer: nieuw.klantnummer || "", adres: {}, contact: {}, groepsnaam: "", klantcategorieen: [] };
+    setKlanten((huidig) => [klant, ...(huidig || [])]);
+    setKlantToevoegenOpen(false);
+    setDetailKlant(klant); // meteen openen zodat je verder kunt vullen/koppelen
+  };
+
+  const naKlantVerwijderen = (accountId) => {
+    setKlanten((huidig) => (huidig || []).filter((k) => k.accountId !== accountId));
+    setSelectie((h) => { const n = new Set(h); n.delete(accountId); return n; });
+    setDetailKlant(null);
+  };
+
   if (klanten === null) {
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst }}>
@@ -1735,7 +1787,7 @@ function KlantOverzicht() {
     return <MedewerkerDetail persoon={detailMedewerker.persoon} rol={detailMedewerker.rol} klantnaam={detailMedewerker.klantnaam} onTerug={() => setDetailMedewerker(null)} />;
   }
   if (detailKlant) {
-    return <KlantDetail klant={detailKlant} magWijzigen={magWijzigen} keuzes={keuzes} medewerkers={medewerkers} onTerug={() => setDetailKlant(null)} onContact={(k) => { setDetailKlant(null); setDetailContact(k); }} onMedewerker={openMedewerker} onOpgeslagen={verwerkKlantWijziging} />;
+    return <KlantDetail klant={detailKlant} magWijzigen={magWijzigen} isBeheerder={isBeheerder} keuzes={keuzes} medewerkers={medewerkers} onTerug={() => setDetailKlant(null)} onContact={(k) => { setDetailKlant(null); setDetailContact(k); }} onMedewerker={openMedewerker} onOpgeslagen={verwerkKlantWijziging} onVerwijderd={naKlantVerwijderen} />;
   }
   if (detailContact) {
     return <ContactDetail klant={detailContact} magWijzigen={magWijzigen} onTerug={() => setDetailContact(null)} onOpgeslagen={verwerkKlantWijziging} />;
@@ -1916,6 +1968,11 @@ function KlantOverzicht() {
             Filters wissen
           </button>
         )}
+        {isBeheerder && (
+          <button onClick={() => setKlantToevoegenOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: "auto", padding: "8px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+            <Plus size={14} /> Nieuwe klant
+          </button>
+        )}
       </div>
 
       {Object.entries(kolomFilters).filter(([, v]) => v).length > 0 && (
@@ -2070,7 +2127,87 @@ function KlantOverzicht() {
           onKlaar={() => setBulkOpen(false)}
         />
       )}
+
+      {klantToevoegenOpen && isBeheerder && (
+        <KlantToevoegen onKlaar={() => setKlantToevoegenOpen(false)} onToegevoegd={naKlantToevoegen} />
+      )}
     </div>
+  );
+}
+
+/* ── Nieuwe klant toevoegen (beknopt: naam + adres + e-mail/telefoon) ── */
+function KlantToevoegen({ onKlaar, onToegevoegd }) {
+  const [f, setF] = useState({ name: "", straat: "", huisnummer: "", toevoeging: "", postcode: "", plaats: "", land: "", telefoon: "", email: "" });
+  const [status, setStatus] = useState("invoer"); // invoer | bezig | fout
+  const [fout, setFout] = useState("");
+  const zet = (k) => (v) => setF((h) => ({ ...h, [k]: v }));
+  const klaar = f.name.trim() !== "";
+  const lbl = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3, marginTop: 8 };
+  const inp = (waarde, onZet, extra) => (
+    <input value={waarde} onChange={(e) => onZet(e.target.value)} {...(extra || {})}
+      style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 9px", fontSize: 13, outline: "none" }} />
+  );
+
+  const opslaan = async () => {
+    if (!klaar) return;
+    setStatus("bezig");
+    setFout("");
+    try {
+      const account = {
+        name: f.name, address1_line1: f.straat, cr283_huisnummer: f.huisnummer, cr283_huisnummertoevoeging: f.toevoeging,
+        address1_postalcode: f.postcode, address1_city: f.plaats, address1_country: f.land,
+        telephone1: f.telefoon, emailaddress1: f.email,
+      };
+      const r = await fetch("/api/medewerker-klant", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "toevoegen", account }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      const d = await r.json();
+      onToegevoegd({ accountId: d.accountId, klantnaam: d.klantnaam || f.name, klantnummer: d.klantnummer || "" });
+    } catch (e) {
+      setFout(e.message || "Aanmaken mislukt.");
+      setStatus("fout");
+    }
+  };
+
+  return (
+    <>
+      <div onClick={onKlaar} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 70 }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 71, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.2)", padding: 22, width: 480, maxWidth: "92vw", maxHeight: "88vh", overflowY: "auto" }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Nieuwe klant</div>
+        <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 10 }}>
+          De cliënt wordt in Dynamics aangemaakt. Cliënttype/team en de contactpersoon (koppelen) doe je daarna via Bewerken.
+        </div>
+
+        <div style={lbl}>Naam *</div>{inp(f.name, zet("name"))}
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 10 }}>
+          <div><div style={lbl}>Straat</div>{inp(f.straat, zet("straat"))}</div>
+          <div><div style={lbl}>Nr.</div>{inp(f.huisnummer, zet("huisnummer"))}</div>
+          <div><div style={lbl}>Toev.</div>{inp(f.toevoeging, zet("toevoeging"))}</div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+          <div><div style={lbl}>Postcode</div>{inp(f.postcode, zet("postcode"))}</div>
+          <div><div style={lbl}>Plaats</div>{inp(f.plaats, zet("plaats"))}</div>
+          <div><div style={lbl}>Land</div>{inp(f.land, zet("land"))}</div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div><div style={lbl}>Telefoon</div>{inp(f.telefoon, zet("telefoon"))}</div>
+          <div><div style={lbl}>E-mail</div>{inp(f.email, zet("email"), { type: "email" })}</div>
+        </div>
+
+        {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginTop: 10 }}>Aanmaken mislukt: {fout}</div>}
+        {!klaar && <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8 }}>De naam is verplicht.</div>}
+
+        <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+          <button onClick={opslaan} disabled={!klaar || status === "bezig"} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: klaar ? "#2E7D46" : "#9DB4A5", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: klaar ? "pointer" : "default" }}>
+            <CheckCircle2 size={14} /> {status === "bezig" ? "Aanmaken…" : "Klant aanmaken"}
+          </button>
+          <button onClick={onKlaar} style={{ padding: "9px 14px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Annuleren</button>
+        </div>
+      </div>
+    </>
   );
 }
 
