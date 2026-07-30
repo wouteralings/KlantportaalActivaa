@@ -61,6 +61,10 @@
       "allowedRoles": ["beheerder"]
     },
     {
+      "route": "/api/beheer-uren-klanten",
+      "allowedRoles": ["beheerder"]
+    },
+    {
       "route": "/api/beheer-btw-tarieven",
       "allowedRoles": ["beheerder"]
     },

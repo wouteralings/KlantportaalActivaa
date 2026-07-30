@@ -76,9 +76,11 @@ const TABS = [
   { key: "faq", label: "Veelgestelde vragen", icon: HelpCircle },
   { key: "review", label: "Review geven", icon: Star },
 ];
-// Alleen zichtbaar zodra een beheerder de facturatiemodule voor minstens één van de
-// gekoppelde klant-accounts heeft aangezet (beheerdersportaal, tab "Facturatie").
-const FACTUREN_TAB = { key: "facturen", label: "Facturen", icon: FileText, nieuw: true };
+// Verzameltab voor de zakelijke administratie (facturen, offertes, creditnota's, abonnementen,
+// klanten, producten, uren, …). De onderliggende functies zijn elk apart per klant aan te zetten
+// (facturatiemodule, urenregistratie, …); de tab zelf is zichtbaar zodra er gekoppelde
+// klant-accounts zijn — de module toont dan zelf per account/onderdeel een aanvraagkaart.
+const FACTUREN_TAB = { key: "facturen", label: "Administratie", icon: FileText, nieuw: true };
 
 export default function KlantPortaal() {
   const [ingelogd, setIngelogd] = useState(null); // null = nog aan het checken

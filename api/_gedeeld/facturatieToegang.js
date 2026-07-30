@@ -44,7 +44,7 @@ function afhandelFout(context, err) {
     context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: err.message } };
     return;
   }
-  if (err.code === "GEEN_ACCOUNT_ID" || err.code === "GEEN_TOEGANG" || err.code === "MODULE_UITGESCHAKELD") {
+  if (err.code === "GEEN_ACCOUNT_ID" || err.code === "GEEN_TOEGANG" || err.code === "MODULE_UITGESCHAKELD" || err.code === "UREN_MODULE_UITGESCHAKELD") {
     context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: err.message } };
     return;
   }

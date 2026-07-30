@@ -208,6 +208,15 @@ export default function BeheerPortaal() {
   const [wijzigrechtenStatus, setWijzigrechtenStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [medewerkers, setMedewerkers] = useState(null); // null = laden; alle Activaa-medewerkers
   const [medewerkerZoek, setMedewerkerZoek] = useState("");
+  // Toegang tot het portaal via een Entra-groep. entraLeden is de set e-mailadressen die in de
+  // gekozen groep zitten; daarmee kan de lijst hieronder per medewerker laten zien of hij
+  // daadwerkelijk binnenkomt. null = nog niet geladen (dan tonen we geen conclusie, want
+  // "niet gevonden" en "nog niet geladen" mogen er niet hetzelfde uitzien).
+  const [entraGroepen, setEntraGroepen] = useState(null);
+  const [entraGroepId, setEntraGroepId] = useState("");
+  const [entraLeden, setEntraLeden] = useState(null);
+  const [entraFout, setEntraFout] = useState("");
+  const [entraStatus, setEntraStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [inzageLog, setInzageLog] = useState(null); // null = laden; audit-log "meekijken als klant"
   const [inzageLogZoek, setInzageLogZoek] = useState("");
   const [inzageLogToonAantal, setInzageLogToonAantal] = useState(AANTAL_STANDAARD);
@@ -248,6 +257,9 @@ export default function BeheerPortaal() {
   const [facturatieStatusFilter, setFacturatieStatusFilter] = useState("alle"); // "alle" | "aan" | "uit"
   const [facturatieBezig, setFacturatieBezig] = useState({}); // accountId -> bool
   const [facturatieFout, setFacturatieFout] = useState("");
+  // Losse urenregistratie-schakelaar (€2,50), naast de facturatiemodule — zelfde lijst klanten.
+  const [urenStatussen, setUrenStatussen] = useState({}); // accountId -> { ingeschakeld, aangevraagdOp, ... }
+  const [urenBezig, setUrenBezig] = useState({}); // accountId -> bool
   const [facturatieToonAantal, setFacturatieToonAantal] = useState(AANTAL_STANDAARD);
   const [facturatiemodulePrijs, setFacturatiemodulePrijs] = useState("5");
   const [prijsOpslaanStatus, setPrijsOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
@@ -329,6 +341,15 @@ export default function BeheerPortaal() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => { setNiveaus(d.niveaus || {}); setBulk(Array.isArray(d.bulk) ? d.bulk : []); setAlsKlant(Array.isArray(d.alsKlant) ? d.alsKlant : []); setOffertes(Array.isArray(d.offertes) ? d.offertes : []); })
       .catch(() => {});
+    fetch("/api/beheer-entra-groepen")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => {
+        setEntraGroepen(d.groepen || []);
+        setEntraGroepId(d.gekozenGroepId || "");
+        setEntraLeden(new Set((d.leden || []).map((e) => String(e).toLowerCase())));
+        setEntraFout(d.fout || "");
+      })
+      .catch(() => { setEntraGroepen([]); setEntraLeden(new Set()); setEntraFout("De Entra-groepen konden niet worden opgehaald."); });
     fetch("/api/beheer-medewerkers")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setMedewerkers(d.medewerkers || []))
@@ -356,6 +377,10 @@ export default function BeheerPortaal() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setFacturatieStatussen(d.statussen || {}))
       .catch(() => setFacturatieStatussen({}));
+    fetch("/api/beheer-uren-klanten")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setUrenStatussen(d.statussen || {}))
+      .catch(() => setUrenStatussen({}));
     laadBtwTarieven();
     laadStandaardartikelen();
     haalMededelingen();
@@ -713,6 +738,28 @@ export default function BeheerPortaal() {
     }
   }, []);
 
+  // Urenregistratie per klant aan/uit — zelfde patroon als zetFacturatieStatus, eigen endpoint.
+  const zetUrenStatus = useCallback(async (accountId, ingeschakeld) => {
+    setFacturatieFout("");
+    setUrenBezig((h) => ({ ...h, [accountId]: true }));
+    setUrenStatussen((h) => ({ ...h, [accountId]: { ...(h[accountId] || {}), ingeschakeld } }));
+    try {
+      const res = await fetch("/api/beheer-uren-klanten", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId, ingeschakeld }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const d = await res.json();
+      setUrenStatussen((h) => ({ ...h, [accountId]: d }));
+    } catch {
+      setUrenStatussen((h) => ({ ...h, [accountId]: { ...(h[accountId] || {}), ingeschakeld: !ingeschakeld } }));
+      setFacturatieFout("Opslaan is niet gelukt, probeer het nog eens.");
+    } finally {
+      setUrenBezig((h) => ({ ...h, [accountId]: false }));
+    }
+  }, []);
+
   // BTW-tarieven — "nieuw" voegt een tarief toe (de server sluit automatisch het vorige
   // tarief van diezelfde code af); een bestaand tarief bewerken corrigeert dat ene tarief
   // via PUT (bijv. typefout in percentage of datum), zonder iets anders af te sluiten.
@@ -881,6 +928,29 @@ export default function BeheerPortaal() {
     }
   }, [niveaus, bulk, alsKlant, offertes]);
 
+  const slaEntraGroepOp = useCallback(async () => {
+    setEntraStatus("bezig");
+    try {
+      const gekozen = (entraGroepen || []).find((g) => g.id === entraGroepId);
+      const res = await fetch("/api/beheer-instellingen", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ medewerkersGroepId: entraGroepId, medewerkersGroepNaam: gekozen ? gekozen.naam : "" }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      // Direct de ledenlijst van de nieuwe groep ophalen (met ?vernieuw=1, zodat de cache aan de
+      // serverkant niet het oude beeld teruggeeft) — dan zie je meteen wie er wel en niet in zit.
+      const verse = await fetch("/api/beheer-entra-groepen?vernieuw=1").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      if (verse) {
+        setEntraLeden(new Set((verse.leden || []).map((e) => String(e).toLowerCase())));
+        setEntraFout(verse.fout || "");
+      }
+      setEntraStatus("gelukt");
+    } catch {
+      setEntraStatus("fout");
+    }
+  }, [entraGroepId, entraGroepen]);
+
   const slaKlantoverzichtOp = useCallback(async () => {
     setKoStatus("bezig");
     try {
@@ -1037,7 +1107,8 @@ export default function BeheerPortaal() {
 
   // Aantal openstaande facturatiemodule-aanvragen (module nog uit, wel aangevraagd) — voor het
   // rode badge-rondje op de tab "Facturatie", zodat een beheerder dit niet over het hoofd ziet.
-  const facturatieAanvragenCount = Object.values(facturatieStatussen).filter((s) => s && !s.ingeschakeld && s.aangevraagdOp).length;
+  const facturatieAanvragenCount = Object.values(facturatieStatussen).filter((s) => s && !s.ingeschakeld && s.aangevraagdOp).length
+    + Object.values(urenStatussen).filter((s) => s && !s.ingeschakeld && s.aangevraagdOp).length;
 
   return (
     <div style={{ maxWidth: "none", width: "100%", margin: "0 auto", padding: "24px 32px", boxSizing: "border-box", fontFamily: "system-ui, -apple-system, sans-serif", color: KLEUR.tekst }}>
@@ -2132,6 +2203,74 @@ export default function BeheerPortaal() {
       </>)}
 
       {tab === "medewerkers" && (
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginBottom: 20 }}>
+        <button
+          onClick={() => toggleRubriek("entraGroep")}
+          aria-expanded={rubriekIsOpen("entraGroep")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("entraGroep") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Toegang tot het portaal — Entra-groep</span>
+        </button>
+        {rubriekIsOpen("entraGroep") && (<>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 14px", lineHeight: 1.6 }}>
+          Dit bepaalt <strong>wie er binnenkomt</strong>. Wie in de gekozen Entra-groep zit, krijgt bij
+          het inloggen automatisch toegang tot het medewerkersportaal — je hoeft niemand meer per
+          persoon in Azure uit te nodigen. Wie hieronder bij de wijzig-rechten op niveau
+          {" "}<strong>Beheerder</strong> staat, krijgt daarnaast toegang tot dit beheersportaal.
+          De rubriek daaronder bepaalt alleen wát iemand mag zodra hij binnen is, niet óf hij binnenkomt.
+        </div>
+
+        {entraFout && (
+          <div style={{ marginBottom: 12, fontSize: 12.5, color: KLEUR.rood, lineHeight: 1.5 }}>{entraFout}</div>
+        )}
+
+        {entraGroepen === null ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst }}>
+            <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Groepen ophalen…
+          </div>
+        ) : (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <select
+                value={entraGroepId}
+                onChange={(e) => { setEntraGroepId(e.target.value); setEntraStatus("idle"); }}
+                style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, background: "#fff", minWidth: 280 }}
+              >
+                <option value="">Geen groep — niemand krijgt toegang via een groep</option>
+                {entraGroepen.map((g) => (
+                  <option key={g.id} value={g.id}>{g.naam}{g.email ? ` (${g.email})` : ""}</option>
+                ))}
+              </select>
+              <button
+                onClick={slaEntraGroepOp}
+                disabled={entraStatus === "bezig"}
+                style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+              >
+                {entraStatus === "bezig" ? "Opslaan..." : "Opslaan"}
+              </button>
+              {entraStatus === "gelukt" && (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: KLEUR.blauw }}>
+                  <CheckCircle2 size={14} /> Opgeslagen.
+                </span>
+              )}
+              {entraStatus === "fout" && (
+                <span style={{ fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
+              )}
+            </div>
+            <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginTop: 10 }}>
+              {entraGroepId
+                ? `${entraLeden ? entraLeden.size : 0} leden gevonden in deze groep.`
+                : "Nog geen groep gekozen."}
+              {" "}Een wijziging geldt bij de volgende keer dat iemand inlogt; wie nu is ingelogd houdt zijn huidige rollen tot hij uit- en weer inlogt.
+            </div>
+          </>
+        )}
+        </>)}
+      </div>
+      )}
+
+      {tab === "medewerkers" && (
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
         <button
           onClick={() => toggleRubriek("medewerkers")}
@@ -2186,6 +2325,16 @@ export default function BeheerPortaal() {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 600 }}>{m.naam || m.email}</div>
                       <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{m.functie ? m.functie + " · " : ""}{m.email}</div>
+                      {/* Waarschuwing als iemand hier wel rechten heeft maar niet in de Entra-groep
+                          zit: dan komt hij het portaal helemaal niet in en doen die rechten niets.
+                          Alleen tonen als we de groepsleden echt hebben opgehaald (entraLeden is
+                          dan een Set) en er een groep is gekozen — anders zou "niet gevonden" ook
+                          "nog niet geladen" kunnen betekenen. */}
+                      {entraGroepId && entraLeden && !entraLeden.has(String(m.email).toLowerCase()) && niveaus[m.email] !== "beheerder" && (
+                        <div style={{ fontSize: 11, color: KLEUR.rood, marginTop: 2 }}>
+                          Zit niet in de Entra-groep — komt het portaal niet in
+                        </div>
+                      )}
                     </div>
                     <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: KLEUR.subtekst, cursor: "pointer", whiteSpace: "nowrap" }} title="Mag bulk-aanpassingen op meerdere klanten tegelijk doen">
                       <input
@@ -2325,7 +2474,7 @@ export default function BeheerPortaal() {
           style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
         >
           <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("facturatieKlanten") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
-          <span style={{ fontSize: 15, fontWeight: 700 }}>Facturatiemodule — per klant aan/uit</span>
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Facturatie &amp; uren — per klant aan/uit</span>
         </button>
         {rubriekIsOpen("facturatieKlanten") && (<>
         <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 14px" }}>
@@ -2441,32 +2590,58 @@ export default function BeheerPortaal() {
                       const aan = !!status.ingeschakeld;
                       const bezig = !!facturatieBezig[k.accountId];
                       const aangevraagd = !aan && !!status.aangevraagdOp;
+                      const urenStatus = urenStatussen[k.accountId] || {};
+                      const urenAan = !!urenStatus.ingeschakeld;
+                      const urenBezigRow = !!urenBezig[k.accountId];
+                      const urenAangevraagd = !urenAan && !!urenStatus.aangevraagdOp;
                       return (
-                        <div key={k.accountId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, background: aangevraagd ? KLEUR.lichtblauw : "transparent" }}>
+                        <div key={k.accountId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, background: (aangevraagd || urenAangevraagd) ? KLEUR.lichtblauw : "transparent" }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 13, fontWeight: 600 }}>{k.klantnaam || "(geen naam)"}</div>
                             <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>Cliëntnr {k.klantnummer || "—"}</div>
                             {aangevraagd && (
                               <div style={{ fontSize: 11, fontWeight: 600, color: KLEUR.blauw, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
-                                <Clock size={11} /> Aangevraagd op {new Date(status.aangevraagdOp).toLocaleDateString("nl-NL")}
+                                <Clock size={11} /> Facturen aangevraagd op {new Date(status.aangevraagdOp).toLocaleDateString("nl-NL")}
                                 {status.aangevraagdDoor ? ` door ${status.aangevraagdDoor}` : ""}
                               </div>
                             )}
+                            {urenAangevraagd && (
+                              <div style={{ fontSize: 11, fontWeight: 600, color: KLEUR.blauw, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                                <Clock size={11} /> Uren aangevraagd op {new Date(urenStatus.aangevraagdOp).toLocaleDateString("nl-NL")}
+                                {urenStatus.aangevraagdDoor ? ` door ${urenStatus.aangevraagdDoor}` : ""}
+                              </div>
+                            )}
                           </div>
-                          <button
-                            onClick={() => zetFacturatieStatus(k.accountId, !aan)}
-                            disabled={bezig}
-                            title={aan ? "Facturatiemodule uitzetten" : "Facturatiemodule aanzetten"}
-                            style={{
-                              position: "relative", width: 40, height: 22, borderRadius: 20, border: "none", cursor: bezig ? "default" : "pointer",
-                              background: aan ? KLEUR.blauw : KLEUR.rand, opacity: bezig ? 0.6 : 1, flexShrink: 0, transition: "background .15s",
-                            }}
-                          >
-                            <span style={{
-                              position: "absolute", top: 2, left: aan ? 20 : 2, width: 18, height: 18, borderRadius: "50%",
-                              background: "#fff", boxShadow: "0 1px 2px rgba(0,0,0,.25)", transition: "left .15s",
-                            }} />
-                          </button>
+                          <div style={{ display: "flex", gap: 18, flexShrink: 0 }}>
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                              <span style={{ fontSize: 9.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>Facturen</span>
+                              <button
+                                onClick={() => zetFacturatieStatus(k.accountId, !aan)}
+                                disabled={bezig}
+                                title={aan ? "Facturatiemodule uitzetten" : "Facturatiemodule aanzetten"}
+                                style={{
+                                  position: "relative", width: 40, height: 22, borderRadius: 20, border: "none", cursor: bezig ? "default" : "pointer",
+                                  background: aan ? KLEUR.blauw : KLEUR.rand, opacity: bezig ? 0.6 : 1, transition: "background .15s",
+                                }}
+                              >
+                                <span style={{ position: "absolute", top: 2, left: aan ? 20 : 2, width: 18, height: 18, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 2px rgba(0,0,0,.25)", transition: "left .15s" }} />
+                              </button>
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                              <span style={{ fontSize: 9.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>Uren</span>
+                              <button
+                                onClick={() => zetUrenStatus(k.accountId, !urenAan)}
+                                disabled={urenBezigRow || !aan}
+                                title={!aan ? "Zet eerst de facturatiemodule aan — uren werkt daarbovenop" : urenAan ? "Urenregistratie uitzetten" : "Urenregistratie aanzetten"}
+                                style={{
+                                  position: "relative", width: 40, height: 22, borderRadius: 20, border: "none", cursor: (urenBezigRow || !aan) ? "default" : "pointer",
+                                  background: urenAan ? KLEUR.blauw : KLEUR.rand, opacity: (urenBezigRow || !aan) ? 0.45 : 1, transition: "background .15s",
+                                }}
+                              >
+                                <span style={{ position: "absolute", top: 2, left: urenAan ? 20 : 2, width: 18, height: 18, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 2px rgba(0,0,0,.25)", transition: "left .15s" }} />
+                              </button>
+                            </div>
+                          </div>
                         </div>
                       );
                     })}

@@ -13,7 +13,7 @@
  * factuurscherm ("Openstaande uren ophalen") + api/_gedeeld/facturenKlanten.js, dat de uren aan
  * de factuur koppelt (factuur_id) zodra die wordt opgeslagen.
  */
-const { controleerToegang, afhandelFout } = require("../_gedeeld/facturatieToegang");
+const { controleerUrenToegang, afhandelFout } = require("../_gedeeld/urenToegang");
 const {
   haalUren,
   haalUur,
@@ -24,7 +24,7 @@ const {
 
 module.exports = async function (context, req) {
   try {
-    const { email, accountId } = await controleerToegang(req);
+    const { email, accountId } = await controleerUrenToegang(req);
 
     if (req.method === "GET") {
       if (req.query.id) {

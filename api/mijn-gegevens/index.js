@@ -1,5 +1,6 @@
 const { haalDynamicsToken, herleidAccounts, IBAN_VELD, IBAN_TENAAMSTELLING_VELD, CC_EMAIL_VELD } = require("../_gedeeld/identiteit");
 const { haalStatussen } = require("../_gedeeld/facturatieInstellingen");
+const { haalStatussen: haalUrenStatussen } = require("../_gedeeld/urenInstellingen");
 
 module.exports = async function (context, req) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
@@ -17,6 +18,9 @@ module.exports = async function (context, req) {
     // aangevraagd? (beheerd in het beheerdersportaal, tab "Facturatie"). Best-effort: als
     // de opslag nog niet geconfigureerd is, gewoon uit / geen aanvraag.
     const facturatieStatussen = await haalStatussen().catch(() => ({}));
+    // Aparte, losse schakelaar voor de urenregistratie (€2,50 per administratie) — zelfde
+    // blob-patroon, los van de facturatiemodule. Best-effort: nog niet geconfigureerd => uit.
+    const urenStatussen = await haalUrenStatussen().catch(() => ({}));
 
     context.res = {
       headers: { "Content-Type": "application/json" },
@@ -58,6 +62,8 @@ module.exports = async function (context, req) {
           accountant,
           facturatieIngeschakeld: !!(facturatieStatussen[accountId] && facturatieStatussen[accountId].ingeschakeld),
           facturatieAangevraagdOp: (facturatieStatussen[accountId] && facturatieStatussen[accountId].aangevraagdOp) || null,
+          urenIngeschakeld: !!(urenStatussen[accountId] && urenStatussen[accountId].ingeschakeld),
+          urenAangevraagdOp: (urenStatussen[accountId] && urenStatussen[accountId].aangevraagdOp) || null,
         })),
       },
     };

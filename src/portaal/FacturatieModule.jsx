@@ -354,6 +354,18 @@ const LEGE_REGEL = (standaardBtwCode, tarieven) => {
 };
 const BETALINGSTERMIJN_OPTIES = [7, 14, 21, 30];
 
+// Prijs van de losse urenregistratie-schakelaar (per administratie/maand). Zelfde soort als de
+// facturatiemodule-prijs, maar apart — de urenregistratie is een eigen aan te zetten functie.
+const UREN_MODULE_PRIJS = 2.5;
+
+// Alleen artikelen met eenheid "uur" gelden als uur-artikel; hun prijs is het uurtarief waarmee
+// bij het factureren van uren gerekend wordt. Zo kies je in de urenregistratie alleen artikelen
+// die écht een uurtarief voorstellen (zie ook ArtikelFormulier, dat het prijsveld dan "Uurtarief"
+// noemt).
+function isUurArtikel(a) {
+  return !!a && (a.eenheid || "").trim().toLowerCase() === "uur";
+}
+
 const FREQUENTIE_OPTIES = [
   { code: "wekelijks", label: "Wekelijks" },
   { code: "maandelijks", label: "Maandelijks" },
@@ -521,7 +533,7 @@ function DocumentVoorbeeld({ bedrijfsgegevens, documenttype, klant, document }) 
   );
 }
 
-function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tarieven, bedrijfsgegevens, bedrijfsgegevensInBehandeling, onGaNaarInstellingen, bestaand, onKlaar, onOpgeslagen, onVerstuurd }) {
+function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tarieven, bedrijfsgegevens, bedrijfsgegevensInBehandeling, onGaNaarInstellingen, urenIngeschakeld, bestaand, onKlaar, onOpgeslagen, onVerstuurd }) {
   // Het laatst opgeslagen document (concept) — zodra dit gezet is, kunnen Download PDF en
   // Versturen getoond worden náást Opslaan, op hetzelfde scherm (geen aparte detailpagina meer
   // nodig). Start met `bestaand` (bij het bewerken van een reeds opgeslagen concept) of leeg
@@ -596,7 +608,7 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
   // de gekozen klant op en zet ze om in factuurregels (aantal = uren, tarief uit het gekoppelde
   // artikel). Elke regel houdt zijn urenId vast, zodat de uren bij het opslaan aan deze factuur
   // gekoppeld worden en niet dubbel gefactureerd kunnen worden (zie facturenKlanten.js).
-  const kanUrenOphalen = documenttype === "factuur";
+  const kanUrenOphalen = documenttype === "factuur" && urenIngeschakeld;
   const [urenStatus, setUrenStatus] = useState("idle"); // idle | bezig
   const [urenMelding, setUrenMelding] = useState("");
   const haalOpenUrenOp = async () => {
@@ -1129,7 +1141,7 @@ function DocumentDetail({ accountId, document, klantenMap, bedrijfsgegevens, onT
   );
 }
 
-function DocumentenTab({ accountId, documenttype, klanten, artikelen, tarieven, klantenMap, alleFacturen, bedrijfsgegevens, bedrijfsgegevensInBehandeling, onGaNaarInstellingen }) {
+function DocumentenTab({ accountId, documenttype, klanten, artikelen, tarieven, klantenMap, alleFacturen, bedrijfsgegevens, bedrijfsgegevensInBehandeling, onGaNaarInstellingen, urenIngeschakeld }) {
   const { status, items, foutmelding, verversen } = useDocumenten(accountId, documenttype);
   const [weergave, setWeergave] = useState("lijst"); // lijst | nieuw | bewerken | detail
   const [actief, setActief] = useState(null);
@@ -1206,7 +1218,7 @@ function DocumentenTab({ accountId, documenttype, klanten, artikelen, tarieven, 
     return (
       <DocumentFormulier
         accountId={accountId} documenttype={documenttype} klanten={klanten} artikelen={artikelen} tarieven={tarieven} bedrijfsgegevens={bedrijfsgegevens}
-        bedrijfsgegevensInBehandeling={bedrijfsgegevensInBehandeling} onGaNaarInstellingen={onGaNaarInstellingen}
+        bedrijfsgegevensInBehandeling={bedrijfsgegevensInBehandeling} onGaNaarInstellingen={onGaNaarInstellingen} urenIngeschakeld={urenIngeschakeld}
         onKlaar={() => setWeergave("lijst")}
         onOpgeslagen={() => verversen()}
         onVerstuurd={naVersturenVanuitFormulier}
@@ -1217,7 +1229,7 @@ function DocumentenTab({ accountId, documenttype, klanten, artikelen, tarieven, 
     return (
       <DocumentFormulier
         accountId={accountId} documenttype={documenttype} klanten={klanten} artikelen={artikelen} tarieven={tarieven} bedrijfsgegevens={bedrijfsgegevens} bestaand={actief}
-        bedrijfsgegevensInBehandeling={bedrijfsgegevensInBehandeling} onGaNaarInstellingen={onGaNaarInstellingen}
+        bedrijfsgegevensInBehandeling={bedrijfsgegevensInBehandeling} onGaNaarInstellingen={onGaNaarInstellingen} urenIngeschakeld={urenIngeschakeld}
         onKlaar={() => setWeergave("lijst")}
         onOpgeslagen={() => verversen()}
         onVerstuurd={naVersturenVanuitFormulier}
@@ -1824,7 +1836,7 @@ function ArtikelFormulier({ accountId, bestaand, tarieven, onKlaar, onOpgeslagen
       <div style={labelStijl}>Omschrijving *</div><input value={f.omschrijving} onChange={zet("omschrijving")} style={inputStijl} />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
         <div><div style={labelStijl}>Eenheid</div><input value={f.eenheid} onChange={zet("eenheid")} style={inputStijl} placeholder="uur, stuk, ..." /></div>
-        <div><div style={labelStijl}>Prijs (excl. btw)</div><input type="number" value={f.prijs} onChange={zet("prijs")} style={inputStijl} /></div>
+        <div><div style={labelStijl}>{(f.eenheid || "").trim().toLowerCase() === "uur" ? "Uurtarief (excl. btw)" : "Prijs (excl. btw)"}</div><input type="number" value={f.prijs} onChange={zet("prijs")} style={inputStijl} /></div>
         <div>
           <div style={labelStijl}>BTW</div>
           <select value={f.btwCode} onChange={zet("btwCode")} style={inputStijl}>
@@ -2001,10 +2013,15 @@ function UurFormulier({ accountId, bestaand, klanten, artikelen, standaardUurArt
       <div style={labelStijl}>Artikel (bepaalt het uurtarief)</div>
       <select value={f.artikelId} onChange={zet("artikelId")} style={inputStijl}>
         <option value="">— geen (tarief pas op de factuur invullen) —</option>
-        {artikelen.filter((a) => a.actief).map((a) => (
+        {artikelen.filter((a) => a.actief && isUurArtikel(a)).map((a) => (
           <option key={a.id} value={a.id}>{a.omschrijving}{a.prijs != null ? ` — ${geld(a.prijs)}${a.eenheid ? "/" + a.eenheid : ""}` : ""}</option>
         ))}
       </select>
+      {artikelen.filter((a) => a.actief && isUurArtikel(a)).length === 0 && (
+        <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginTop: 4 }}>
+          Nog geen artikel met eenheid "uur". Maak er één aan bij de tab "Producten" (eenheid = uur) om een uurtarief te kunnen kiezen.
+        </div>
+      )}
       {gekozenArtikel && (
         <div style={{ fontSize: 12, color: KLEUR.subtekst, marginTop: 4 }}>
           Tarief: {geld(gekozenArtikel.prijs)}{gekozenArtikel.eenheid ? ` per ${gekozenArtikel.eenheid}` : ""} · {gekozenArtikel.btwPercentage}% btw.
@@ -2500,7 +2517,7 @@ function StandaardwaardenKaart({ accountId, bedrijfsgegevens, tarieven, artikele
           <div style={labelStijl}>Standaard uur-artikel</div>
           <select value={f.standaardUurArtikelId} onChange={zet("standaardUurArtikelId")} style={inputStijl}>
             <option value="">Geen voorkeur</option>
-            {(artikelen || []).filter((a) => a.actief).map((a) => (
+            {(artikelen || []).filter((a) => a.actief && isUurArtikel(a)).map((a) => (
               <option key={a.id} value={a.id}>{a.omschrijving}{a.prijs != null ? ` — ${geld(a.prijs)}${a.eenheid ? "/" + a.eenheid : ""}` : ""}</option>
             ))}
           </select>
@@ -2662,7 +2679,7 @@ function FacturatieAccountInhoud({ account, andereAccounts, alleenLezen = false 
       {subtab === "facturen" && (
         <DocumentenTab
           accountId={accountId} documenttype="factuur" klanten={klantenData.items} artikelen={alleArtikelen} tarieven={btwTarievenData.items} klantenMap={klantenMap}
-          bedrijfsgegevens={effectieveBedrijfsgegevens} bedrijfsgegevensInBehandeling={bedrijfsgegevensInBehandeling} onGaNaarInstellingen={gaNaarInstellingen}
+          bedrijfsgegevens={effectieveBedrijfsgegevens} bedrijfsgegevensInBehandeling={bedrijfsgegevensInBehandeling} onGaNaarInstellingen={gaNaarInstellingen} urenIngeschakeld={account.urenIngeschakeld}
         />
       )}
       {subtab === "offertes" && (
@@ -2695,17 +2712,21 @@ function FacturatieAccountInhoud({ account, andereAccounts, alleenLezen = false 
         />
       )}
       {subtab === "uren" && (
-        <UrenTab
-          accountId={accountId}
-          uren={urenData.items}
-          klanten={klantenData.items}
-          artikelen={alleArtikelen}
-          klantenMap={klantenMap}
-          status={urenData.status}
-          foutmelding={urenData.foutmelding}
-          verversen={urenData.verversen}
-          standaardUurArtikelId={bedrijfsgegevensData.data?.standaardUurArtikelId || ""}
-        />
+        account.urenIngeschakeld ? (
+          <UrenTab
+            accountId={accountId}
+            uren={urenData.items}
+            klanten={klantenData.items}
+            artikelen={alleArtikelen}
+            klantenMap={klantenMap}
+            status={urenData.status}
+            foutmelding={urenData.foutmelding}
+            verversen={urenData.verversen}
+            standaardUurArtikelId={bedrijfsgegevensData.data?.standaardUurArtikelId || ""}
+          />
+        ) : (
+          <UrenNietActief account={account} prijs={UREN_MODULE_PRIJS} />
+        )
       )}
       {subtab === "instellingen" && (
         <InstellingenTab
@@ -2781,6 +2802,52 @@ function FacturatieNietActief({ account, prijs, toonUitleg = true }) {
       ) : (
         <Knop variant="primair" onClick={vraagAan} disabled={status === "bezig"}>
           {status === "bezig" ? "Bezig…" : "Vraag facturatiemodule aan"}
+        </Knop>
+      )}
+      {status === "fout" && <div style={{ marginTop: 10 }}><Melding tekst="Aanvragen is niet gelukt, probeer het nog eens." /></div>}
+    </div>
+  );
+}
+
+/** Aanvraagkaart voor de losse urenregistratie (€2,50) — getoond in de Uren-sub-tab zolang de
+ * urenregistratie voor dit account nog niet aan staat. Zelfde opzet als FacturatieNietActief,
+ * maar tegen /api/uren-aanvraag. De facturatiemodule staat hier per definitie al aan (anders zou
+ * deze hele sub-tab niet zichtbaar zijn). */
+function UrenNietActief({ account, prijs }) {
+  const [status, setStatus] = useState(account.urenAangevraagdOp ? "aangevraagd" : "idle"); // idle | bezig | aangevraagd | fout
+
+  const vraagAan = async () => {
+    setStatus("bezig");
+    try {
+      await haalJson(await fetch("/api/uren-aanvraag", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId: account.accountId }),
+      }));
+      setStatus("aangevraagd");
+    } catch {
+      setStatus("fout");
+    }
+  };
+
+  return (
+    <div style={{ padding: "4px 2px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <Lock size={15} color={KLEUR.mutedTekst} />
+        <div style={{ fontSize: 14, fontWeight: 700 }}>Urenregistratie nog niet actief voor dit klantaccount</div>
+      </div>
+      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 16, maxWidth: 560 }}>
+        Hiermee registreer je losse uren per klant en zet je openstaande uren in één klik op een factuur. Deze
+        functie kost <strong>{geld(prijs)} per maand</strong> per administratie, naast de facturatiemodule.
+      </div>
+      {status === "aangevraagd" ? (
+        <div style={{ fontSize: 12.5, color: KLEUR.blauw, display: "flex", alignItems: "center", gap: 6 }}>
+          <Clock size={13} />
+          Aangevraagd{account.urenAangevraagdOp ? ` op ${datum(account.urenAangevraagdOp)}` : ""} — we nemen contact met je op.
+        </div>
+      ) : (
+        <Knop variant="primair" onClick={vraagAan} disabled={status === "bezig"}>
+          {status === "bezig" ? "Bezig…" : "Vraag urenregistratie aan"}
         </Knop>
       )}
       {status === "fout" && <div style={{ marginTop: 10 }}><Melding tekst="Aanvragen is niet gelukt, probeer het nog eens." /></div>}
