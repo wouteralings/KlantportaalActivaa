@@ -1,4 +1,16 @@
 {
+  "auth": {
+    "rolesSource": "/api/rollen",
+    "identityProviders": {
+      "azureActiveDirectory": {
+        "registration": {
+          "openIdIssuer": "https://login.microsoftonline.com/a7b1bd7a-fc04-41b0-97d3-be7577d96616/v2.0",
+          "clientIdSettingName": "AAD_CLIENT_ID",
+          "clientSecretSettingName": "AAD_CLIENT_SECRET"
+        }
+      }
+    }
+  },
   "routes": [
     {
       "route": "/api/beheer-content",
@@ -193,8 +205,5 @@
       "redirect": "/.auth/login/aad",
       "statusCode": 302
     }
-  },
-  "platform": {
-    "apiRuntime": "node:20"
   }
 }

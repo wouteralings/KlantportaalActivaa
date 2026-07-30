@@ -1,5 +1,19 @@
 name: Azure Static Web Apps CI/CD
 
+# Sinds 30-07-2026 deployt deze workflow naar de nieuwe omgeving in West-Europa:
+#   - de site naar de statische web-app  klantportaal-activaa-we  (Standard-plan)
+#   - de API naar de eigen functie-app   func-klantportaal-activaa-we  (West-Europa)
+#
+# Waarom gesplitst: de regio van een statische web-app is niet te wijzigen, en die regio
+# bepaalt waar de beheerde Functions draaien. Met "bring your own functions" hangt de API nu
+# als eigen functie-app onder de app, in dezelfde regio als de opslag, de SQL-database en
+# Dynamics. Daarom staat api_location hieronder bewust op een lege string: de statische
+# web-app deployt de API niet meer, dat doet de tweede job.
+#
+# De oude app (klantportaal-activaa, Central US) krijgt geen builds meer en blijft op zijn
+# laatste versie draaien tot mijn.activaa.nl is omgezet. Moet er in de tussentijd toch nog een
+# spoedfix naar de oude omgeving, zet dan tijdelijk het oude token en api_location: "api" terug.
+
 on:
   push:
     branches:
@@ -27,15 +41,37 @@ jobs:
           VITE_AAD_CLIENT_ID: ${{ secrets.VITE_AAD_CLIENT_ID }}
           VITE_AAD_TENANT_ID: ${{ secrets.VITE_AAD_TENANT_ID }}
         with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_BLUE_TREE_084D8B510 }}
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_WE }}
           repo_token: ${{ secrets.GITHUB_TOKEN }} # Used for Github integrations (i.e. PR comments)
           action: "upload"
           ###### Repository/Build Configurations - These values can be configured to match your app requirements. ######
           # For more information regarding Static Web App workflow configurations, please visit: https://aka.ms/swaworkflowconfig
           app_location: "/" # App source code path
-          api_location: "api" # Api source code path - optional
+          api_location: "" # Leeg: de API draait als eigen functie-app, zie deploy_api_job
           output_location: "dist" # Built app content directory - optional
           ###### End of Repository/Build Configurations ######
+
+  deploy_api_job:
+    # Alleen bij een echte push naar main. Pull request-omgevingen van Static Web Apps
+    # ondersteunen een gekoppelde back-end niet, dus daar heeft dit geen zin.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    name: Deploy API naar functie-app (West-Europa)
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Dependencies installeren
+        working-directory: api
+        # --omit=dev: alleen wat de functies bij het draaien nodig hebben, geen ontwikkeltooling.
+        run: npm install --omit=dev
+      - name: Deployen naar de functie-app
+        uses: Azure/functions-action@v1
+        with:
+          app-name: func-klantportaal-activaa-we
+          package: api
+          publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
 
   close_pull_request_job:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
@@ -46,5 +82,5 @@ jobs:
         id: closepullrequest
         uses: Azure/static-web-apps-deploy@v1
         with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_BLUE_TREE_084D8B510 }}
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_WE }}
           action: "close"

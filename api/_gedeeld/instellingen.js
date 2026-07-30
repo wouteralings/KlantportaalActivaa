@@ -30,11 +30,19 @@ async function haalInstellingen() {
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
 
   const bestaat = await blobClient.exists();
-  if (!bestaat) return { googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "", reviewWebhookUrl: "", facturatiemodulePrijs: 5, klantoverzicht: { extraKolommen: [], standaardVerborgen: [] } };
+  if (!bestaat) return { medewerkersGroepId: "", medewerkersGroepNaam: "", googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "", reviewWebhookUrl: "", facturatiemodulePrijs: 5, klantoverzicht: { extraKolommen: [], standaardVerborgen: [] } };
 
   const downloadResponse = await blobClient.download();
   const tekst = await streamNaarTekst(downloadResponse.readableStreamBody);
   return {
+    // Entra-groep waarvan het lidmaatschap de rol 'medewerker' geeft (Beheer → Medewerkers →
+    // "Toegang via Entra-groep"). Wordt gelezen door api/rollen, de rolesSource van de Static
+    // Web App. Leeg = niemand krijgt de rol via een groep; dan gelden alleen de noodbeheerders
+    // uit de Application Setting ROLLEN_NOODBEHEERDERS en de beheerders uit wijzigrechten.json.
+    medewerkersGroepId: "",
+    // Alleen om de gekozen groep in het beheersportaal bij naam te kunnen tonen zonder eerst
+    // Graph te hoeven bevragen.
+    medewerkersGroepNaam: "",
     googleReviewUrl: "",
     teamsChatUrl: "",
     whatsappUrl: "",
