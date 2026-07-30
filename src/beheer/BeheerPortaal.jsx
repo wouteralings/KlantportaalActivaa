@@ -2515,6 +2515,7 @@ export default function BeheerPortaal() {
             <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Tarieven ophalen…
           </div>
         ) : (
+          <>
           <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, overflow: "hidden" }}>
             <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.6fr 100px 120px 120px 90px", background: KLEUR.lichtblauw, padding: "7px 12px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
               <div>Code</div><div>Label</div><div>Percentage</div><div>Geldig vanaf</div><div>Geldig tot</div><div>Acties</div>
@@ -2561,6 +2562,7 @@ export default function BeheerPortaal() {
             ))}
           </div>
           <AantalKiezer aantal={btwToonAantal} setAantal={setBtwToonAantal} totaal={btwTarieven.length} />
+          </>
         )}
         </>)}
       </div>
@@ -2598,6 +2600,7 @@ export default function BeheerPortaal() {
             <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Artikelen ophalen…
           </div>
         ) : (
+          <>
           <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, overflow: "hidden" }}>
             <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 90px 90px", background: KLEUR.lichtblauw, padding: "7px 12px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
               <div>Omschrijving</div><div>Eenheid</div><div>Prijs</div><div>BTW</div><div>Actief</div><div>Acties</div>
@@ -2644,6 +2647,7 @@ export default function BeheerPortaal() {
             ))}
           </div>
           <AantalKiezer aantal={standaardartikelToonAantal} setAantal={setStandaardartikelToonAantal} totaal={standaardartikelen.length} />
+          </>
         )}
         </>)}
       </div>
