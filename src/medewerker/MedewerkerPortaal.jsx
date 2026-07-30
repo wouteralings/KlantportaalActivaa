@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye } from "lucide-react";
+import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet } from "lucide-react";
 import { startMeekijken } from "../meekijken";
 import OffertesModule from "./OffertesModule";
 import ContactpersonenOverzicht from "./klanten/ContactpersonenOverzicht";
@@ -1444,16 +1444,16 @@ const BASIS_KOLOMMEN = [
 // overzichten; de vier fiscale tabbladen zijn nog leeg en worden één voor één gevuld zodra
 // duidelijk is in welke Dynamics-tabellen en -velden die gegevens staan.
 const KLANTEN_SUBTABS = [
-  { key: "klanten", label: "Klantoverzicht" },
-  { key: "contactpersonen", label: "Contactpersonen" },
-  { key: "ib", label: "Inkomstenbelasting", watKomtEr: "Per kliënt de inkomstenbelasting-aangiftes: jaar, status, behandelaar en deadline, zodat je in één lijst ziet wat nog open staat en bij wie het ligt." },
-  { key: "vpb", label: "Vennootschapsbelasting", watKomtEr: "Per kliënt de vennootschapsbelasting-aangiftes: jaar, status, behandelaar en deadline, inclusief fiscale eenheden waar die van toepassing zijn." },
-  { key: "divb", label: "Dividendbelasting", watKomtEr: "Per kliënt de dividendbelasting-aangiftes: aangiftedatum, uitgekeerd dividend, status en behandelaar." },
-  { key: "lonen", label: "Lonen", watKomtEr: "De loonadministratie per kliënt: aangifteperiode, status, verantwoordelijke loonadministratie en aantal werknemers." },
+  { key: "klanten", label: "Klantoverzicht", icon: LayoutGrid },
+  { key: "contactpersonen", label: "Contactpersonen", icon: Users },
+  { key: "ib", label: "Inkomstenbelasting", icon: FileText, watKomtEr: "Per cliënt de inkomstenbelasting-aangiftes: jaar, status, behandelaar en deadline, zodat je in één lijst ziet wat nog open staat en bij wie het ligt." },
+  { key: "vpb", label: "Vennootschapsbelasting", icon: Building2, watKomtEr: "Per cliënt de vennootschapsbelasting-aangiftes: jaar, status, behandelaar en deadline, inclusief fiscale eenheden waar die van toepassing zijn." },
+  { key: "divb", label: "Dividendbelasting", icon: Coins, watKomtEr: "Per cliënt de dividendbelasting-aangiftes: aangiftedatum, uitgekeerd dividend, status en behandelaar." },
+  { key: "lonen", label: "Lonen", icon: Wallet, watKomtEr: "De loonadministratie per cliënt: aangifteperiode, status, verantwoordelijke loonadministratie en aantal werknemers." },
 ];
 
 /**
- * Verzamelscherm achter de tab "Klantoverzicht": één sub-tabbalk met alle kliënt-gerichte
+ * Verzamelscherm achter de tab "Klantoverzicht": één sub-tabbalk met alle cliënt-gerichte
  * overzichten. Dezelfde opzet als de stappenbalk in de Offertes-tab, zodat het portaal
  * consistent aanvoelt. Elk sub-tabblad houdt zijn eigen state; door van tabblad te wisselen
  * gaan filters en sortering van het andere tabblad dus niet verloren zolang je in het portaal
@@ -1465,26 +1465,37 @@ function KlantenModule() {
 
   return (
     <div>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18, paddingBottom: 14, borderBottom: `1px solid ${KLEUR.rand}` }}>
-        {KLANTEN_SUBTABS.map((s) => {
-          const aan = s.key === sub;
-          return (
-            <button
-              key={s.key}
-              onClick={() => setSub(s.key)}
-              style={{
-                display: "inline-flex", alignItems: "center", gap: 6,
-                padding: "7px 14px", borderRadius: 20, cursor: "pointer",
-                fontSize: 12.5, fontWeight: 600,
-                border: `1px solid ${aan ? KLEUR.blauw : KLEUR.rand}`,
-                background: aan ? KLEUR.blauw : "#fff",
-                color: aan ? "#fff" : KLEUR.subtekst,
-              }}
-            >
-              {s.label}
-            </button>
-          );
-        })}
+      {/* Zelfde balk als de stappenbalk in de Offertes-tab: een lichte band over de volle breedte
+          met platte pillen erin. De negatieve marge van 32px heft de horizontale padding van het
+          medewerkersportaal op zodat de band echt tot de rand loopt — verandert die padding, dan
+          moet deze waarde mee. */}
+      <div style={{ borderBottom: `1px solid ${KLEUR.rand}`, background: "#FBFBF9", margin: "-24px -32px 22px", padding: "14px 32px" }}>
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+          {KLANTEN_SUBTABS.map((s) => {
+            const aan = s.key === sub;
+            const Icon = s.icon;
+            return (
+              <button
+                key={s.key}
+                onClick={() => setSub(s.key)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  border: "none",
+                  background: aan ? KLEUR.blauw : "transparent",
+                  color: aan ? "#fff" : KLEUR.blauw,
+                  padding: "7px 12px",
+                  borderRadius: 20,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                <Icon size={14} />
+                {s.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {sub === "klanten" && <KlantOverzicht />}
@@ -1699,7 +1710,10 @@ function KlantOverzicht() {
   const menuItem = { display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: "6px 8px", borderRadius: 6, cursor: "pointer", fontSize: 12.5, color: KLEUR.tekst };
   const th = { textAlign: "left", fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", padding: "6px 10px", borderBottom: `1px solid ${KLEUR.rand}`, whiteSpace: "nowrap" };
   const td = { fontSize: 12.5, padding: "8px 10px", borderBottom: `1px solid ${KLEUR.rand}`, whiteSpace: "nowrap" };
-  const linkStijl = { color: KLEUR.blauw, fontWeight: 600, cursor: "pointer", background: "none", border: "none", padding: 0, fontSize: 12.5, textAlign: "left" };
+  // Bewust geen fontWeight: de klikbare kolommen (cliëntnaam, groep, contactpersoon, manager,
+  // accountant, assistent, fiscaal medewerker, loonadministratie) waren alle acht vet, wat de
+  // tabel onrustig maakte. De blauwe kleur maakt al duidelijk dat het aanklikbaar is.
+  const linkStijl = { color: KLEUR.blauw, cursor: "pointer", background: "none", border: "none", padding: 0, fontSize: 12.5, textAlign: "left" };
 
   const renderCel = (kol, k) => {
     const tekst = kol.cel(k);

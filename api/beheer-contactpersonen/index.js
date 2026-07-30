@@ -11,9 +11,9 @@ const { haalDynamicsToken } = require("../_gedeeld/identiteit");
  * (parentcustomerid is leeg — zie de uitleg bij herleidAccounts in _gedeeld/identiteit.js).
  * De koppeling loopt vanaf het Account: primarycontactid (primaire contactpersoon) en het
  * eigen lookupveld voor de secundaire contactpersoon. Om per contactpersoon te kunnen tonen
- * bij welke kliënt(en) hij hoort, halen we daarom ook een lichte accountlijst op (alleen id,
- * naam, nummer en de twee contactlookups) en draaien we die om naar contactid → kliënten.
- * Eén contactpersoon kan bij meerdere kliënten horen; dan staan ze er allemaal bij.
+ * bij welke cliënt(en) hij hoort, halen we daarom ook een lichte accountlijst op (alleen id,
+ * naam, nummer en de twee contactlookups) en draaien we die om naar contactid → cliënten.
+ * Eén contactpersoon kan bij meerdere cliënten horen; dan staan ze er allemaal bij.
  */
 
 const FV = "@OData.Community.Display.V1.FormattedValue";
@@ -93,9 +93,9 @@ async function haalContactpersonen(resource, token) {
 }
 
 /**
- * Lichte accountlijst om contactid → kliënt(en) te kunnen bepalen. Bestaat het lookupveld voor
+ * Lichte accountlijst om contactid → cliënt(en) te kunnen bepalen. Bestaat het lookupveld voor
  * de secundaire contactpersoon niet onder de verwachte naam, dan halen we alleen de primaire op.
- * Best-effort: mislukt dit helemaal, dan komt het overzicht er gewoon zonder kliëntkolom.
+ * Best-effort: mislukt dit helemaal, dan komt het overzicht er gewoon zonder cliëntkolom.
  */
 async function haalKlantKoppelingen(resource, token) {
   const headers = maakHeaders(token);
@@ -147,7 +147,7 @@ module.exports = async function (context, req) {
     const [{ rijen, afgekapt }, perContact] = await Promise.all([
       haalContactpersonen(resource, token),
       haalKlantKoppelingen(resource, token).catch((err) => {
-        context.log.warn ? context.log.warn(`Kliëntkoppelingen ophalen mislukt: ${err}`) : context.log(`Kliëntkoppelingen ophalen mislukt: ${err}`);
+        context.log.warn ? context.log.warn(`Cliëntkoppelingen ophalen mislukt: ${err}`) : context.log(`Cliëntkoppelingen ophalen mislukt: ${err}`);
         return new Map();
       }),
     ]);

@@ -27,8 +27,8 @@ const KOLOMMEN = [
   { key: "email", label: "E-mail", waarde: (c) => c.email, standaard: true, soort: "email" },
   { key: "mobiel", label: "Mobiel", waarde: (c) => c.mobiel, standaard: true, soort: "tel" },
   { key: "telefoon", label: "Telefoon", waarde: (c) => c.telefoon, soort: "tel" },
-  { key: "klantnamen", label: "Kliënt(en)", waarde: (c) => c.klantnamen, standaard: true },
-  { key: "klantnummers", label: "Kliëntnr", waarde: (c) => c.klantnummers },
+  { key: "klantnamen", label: "Cliënt(en)", waarde: (c) => c.klantnamen, standaard: true },
+  { key: "klantnummers", label: "Cliëntnr", waarde: (c) => c.klantnummers },
   { key: "rollen", label: "Rol", waarde: (c) => c.rollen, standaard: true },
   { key: "plaats", label: "Plaats", waarde: (c) => c.plaats, standaard: true },
   { key: "postcode", label: "Postcode", waarde: (c) => c.postcode },
@@ -43,7 +43,7 @@ const AANTALLEN = [[25, "25"], [50, "50"], [100, "100"], [250, "250"], [500, "50
  * Contactpersonen-overzicht: dezelfde opzet als het klantoverzicht (zoeken, kolommen kiezen,
  * sorteren door op een kop te klikken, per kolom filteren en het aantal regels kiezen), maar op
  * de Dataverse-tabel `contacts`. Zie api/beheer-contactpersonen voor waar de gegevens vandaan
- * komen en waarom de kliënt-kolom via de accounts wordt bepaald en niet via het contact zelf.
+ * komen en waarom de cliënt-kolom via de accounts wordt bepaald en niet via het contact zelf.
  */
 export default function ContactpersonenOverzicht() {
   const [contactpersonen, setContactpersonen] = useState(null); // null = laden
@@ -147,9 +147,9 @@ export default function ContactpersonenOverzicht() {
     <div>
       <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Contactpersonen</div>
       <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 14 }}>
-        Alle contactpersonen uit Dynamics. Bij welke kliënt iemand hoort wordt bepaald vanaf de
-        kliënt (primaire en secundaire contactpersoon); staat een contactpersoon bij meerdere
-        kliënten, dan staan ze er allemaal bij.
+        Alle contactpersonen uit Dynamics. Bij welke cliënt iemand hoort wordt bepaald vanaf de
+        cliënt (primaire en secundaire contactpersoon); staat een contactpersoon bij meerdere
+        cliënten, dan staan ze er allemaal bij.
       </div>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10, alignItems: "center" }}>
@@ -158,7 +158,7 @@ export default function ContactpersonenOverzicht() {
           <input
             value={zoek}
             onChange={(e) => setZoek(e.target.value)}
-            placeholder="Zoek op naam, functie, e-mail, kliënt…"
+            placeholder="Zoek op naam, functie, e-mail, cliënt…"
             style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 32px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, outline: "none" }}
           />
         </div>

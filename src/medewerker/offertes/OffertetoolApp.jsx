@@ -3627,10 +3627,12 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
   const kanNaarOfferte = geselecteerdeEntries.length > 0;
 
   return (
+    // className "ot-portaal" is de hook voor het stijlblok onderaan dit component, dat de
+    // typografie en maten van de oude losstaande app gelijktrekt met de rest van het portaal.
     <div
+      className="ot-portaal"
       style={{
-        fontFamily:
-          "'Source Sans 3', 'Segoe UI', system-ui, -apple-system, sans-serif",
+        fontFamily: "system-ui, -apple-system, sans-serif",
         background: "#FFFFFF",
         color: "#1C2321",
         minHeight: "100%",
@@ -3699,6 +3701,32 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
           .offerte-doc { break-after: page; page-break-after: always; margin-bottom: 0 !important; }
           .offerte-doc:last-of-type { break-after: auto; page-break-after: auto; }
         }
+      `}</style>
+
+      {/* Aansluiting op de rest van het portaal.
+          De offertetool komt uit een eigen app met een eigen typografie (Source Sans 3) en een
+          gouden accentkleur. Nu hij een tab in het Klantportaal is — zowel bij Medewerker als bij
+          Beheer — trekken we die af op de huisstijl van het portaal: dezelfde systeemletter, blauw
+          als accent, dezelfde randkleur en dezelfde maten voor knoppen, velden en koppen als in
+          het klantoverzicht en het beheersportaal.
+
+          Bewust NIET aangeraakt: .offertetool-serif en .offerte-doc. Dat is het document zelf —
+          de offerte en de opdrachtbevestiging zoals de klant die krijgt. Die moet er blijven
+          uitzien zoals hij is, ongeacht in welk portaal hij wordt samengesteld.
+
+          De paar !important-regels zijn nodig omdat die maten in de oude app als inline-stijl
+          zijn geschreven; anders zou het hele component herschreven moeten worden. */}
+      <style>{`
+        .ot-portaal .ot-btn-primary { border-radius:7px; padding:9px 16px; font-size:13px; color:#fff; }
+        .ot-portaal .ot-btn-secondary { border-radius:7px; padding:9px 16px; font-size:13px; border-color:#E2E4DF; }
+        .ot-portaal .ot-btn-ghost { font-size:12.5px; }
+        .ot-portaal .ot-input { border-color:#E2E4DF; padding:8px 10px; font-size:12.5px; }
+        .ot-portaal .ot-input:focus { outline:2px solid #1C5D8C; }
+        .ot-portaal .ot-label { font-size:11.5px; letter-spacing:.03em; color:#8A9089; }
+        .ot-portaal .ot-pill { border-width:1px; border-color:#E2E4DF; font-size:12.5px; }
+        .ot-portaal .ot-cat-koptekst { color:#1C5D8C; letter-spacing:.03em; margin:22px 0 10px; }
+        .ot-portaal .ot-scherm-titel { font-size:15px !important; font-weight:700 !important; margin-bottom:4px !important; }
+        .ot-portaal .ot-scherm-uitleg { font-size:13px !important; margin-bottom:16px !important; }
       `}</style>
 
       {/* Stappenbalk — alleen in het medewerkersportaal. In beheer-modus zijn er geen
@@ -3789,7 +3817,9 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
         </div>
       )}
 
-      <div style={{ maxWidth: 1600, margin: "0 auto", padding: "36px 24px 60px" }}>
+      {/* Geen eigen maxWidth/centrering meer: het omliggende portaal bepaalt de marges, net als
+          bij het klantoverzicht en de beheerschermen. Alleen onderaan wat lucht. */}
+      <div style={{ padding: "0 0 32px" }}>
         {/* -------------------- LOGIN -------------------- */}
         {stap === "login" && !authGecontroleerd && (
           <div style={{ display: "flex", justifyContent: "center", paddingTop: 80, color: "#8A9089", fontSize: 13.5 }}>
@@ -8204,8 +8234,10 @@ const stapKnopStyle = {
 function StapWrapper({ titel, toelichting, children }) {
   return (
     <div>
-      <h2 style={{ fontSize: 22, fontWeight: 600, marginBottom: 4 }}>{titel}</h2>
-      <p style={{ fontSize: 13.5, color: "#5B6259", marginBottom: 22 }}>{toelichting}</p>
+      {/* De classes hieronder zijn de aangrijpingspunten voor het portaal-stijlblok, dat deze
+          kop op dezelfde maat zet als de sectiekoppen elders in het portaal. */}
+      <h2 className="ot-scherm-titel" style={{ fontSize: 22, fontWeight: 600, marginBottom: 4 }}>{titel}</h2>
+      <p className="ot-scherm-uitleg" style={{ fontSize: 13.5, color: "#5B6259", marginBottom: 22 }}>{toelichting}</p>
       {children}
     </div>
   );
