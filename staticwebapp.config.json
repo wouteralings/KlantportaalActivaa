@@ -96,6 +96,12 @@
       ]
     },
     {
+      "route": "/api/beheer-periodieke-uitvragen",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
       "route": "/api/beheer-taakakkoorden",
       "allowedRoles": [
         "beheerder",
@@ -237,6 +243,12 @@
     },
     {
       "route": "/api/verwerk-terugkerende-facturen",
+      "allowedRoles": [
+        "anonymous"
+      ]
+    },
+    {
+      "route": "/api/verwerk-periodieke-uitvragen",
       "allowedRoles": [
         "anonymous"
       ]
