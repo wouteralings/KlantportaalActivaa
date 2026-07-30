@@ -1,0 +1,257 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Clock, Plus, Trash2, Pencil, X, Check, ChevronLeft, ChevronRight, Lock, RefreshCw, CheckSquare, BarChart3, Wallet, Loader2 } from "lucide-react";
+import {
+  KLEUR, SOORTEN, soortVan, isDeclarabel, TARIEF_SOORTEN, euro, uur, datumNL,
+  WEEKDAG_VOL, maandagVan, voegDagenToe, vandaagIso, useKlanten, KlantPicker, SoortBadge,
+  knopStijl, veldStijl,
+} from "./urenGedeeld";
+import UrenControle from "./UrenControle";
+import UrenFacturatie from "./UrenFacturatie";
+import UrenRapportage from "./UrenRapportage";
+
+/**
+ * Interne urenregistratie voor medewerkers. Sub-tabs:
+ *   - Schrijven   : je eigen uren per week schrijven/bewerken (4 soorten)
+ *   - Controle    : maandcontrole van je cliënten (manager)
+ *   - Facturatie  : OHW + facturatiestatus, gesplitst in UXT en abonnement
+ *   - Rapportage  : declarabel-% en indirecte uren per medewerker
+ */
+export default function Urenregistratie({ isBeheerder }) {
+  const [sub, setSub] = useState("schrijven");
+  const subs = [
+    ["schrijven", "Schrijven", Clock],
+    ["controle", "Controle", CheckSquare],
+    ["facturatie", "Facturatie", Wallet],
+    ["rapportage", "Rapportage", BarChart3],
+  ];
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700, marginBottom: 4 }}>
+        <Clock size={17} color={KLEUR.blauw} /> Urenregistratie
+      </div>
+      <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 14, maxWidth: 780 }}>
+        Schrijf je uren op abonnement, UXT, indirect of kantoor. Managers controleren maandelijks per cliënt,
+        boeken af of factureren extra, en zien het onderhanden werk gesplitst in UXT en abonnement.
+      </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+        {subs.map(([k, label, Icon]) => (
+          <button key={k} onClick={() => setSub(k)} style={knopStijl(sub === k)}><Icon size={14} /> {label}</button>
+        ))}
+      </div>
+
+      {sub === "schrijven" && <Schrijven />}
+      {sub === "controle" && <UrenControle isBeheerder={isBeheerder} />}
+      {sub === "facturatie" && <UrenFacturatie isBeheerder={isBeheerder} />}
+      {sub === "rapportage" && <UrenRapportage />}
+    </div>
+  );
+}
+
+const LEEG = { id: "", datum: "", soort: "abonnement", accountId: "", klantnaam: "", omschrijving: "", uren: "", tariefSoort: "normaal" };
+
+function Schrijven() {
+  const klanten = useKlanten();
+  const [weekStart, setWeekStart] = useState(maandagVan(vandaagIso()));
+  const [boekingen, setBoekingen] = useState(null); // null = laden
+  const [tarief, setTarief] = useState(null);
+  const [fout, setFout] = useState("");
+  const [form, setForm] = useState({ ...LEEG, datum: vandaagIso() });
+  const [bezig, setBezig] = useState(false);
+
+  const weekEinde = voegDagenToe(weekStart, 6);
+
+  const laad = useCallback(() => {
+    setBoekingen(null); setFout("");
+    fetch(`/api/mw-uren-boekingen?vanaf=${weekStart}&tot=${weekEinde}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => { setBoekingen(d.boekingen || []); setTarief(d.tarief || null); })
+      .catch(() => { setBoekingen([]); setFout("Kon je uren niet laden. Controleer of de database-koppeling is ingesteld."); });
+  }, [weekStart, weekEinde]);
+  useEffect(() => { laad(); }, [laad]);
+
+  const zet = (veld) => (e) => setForm((f) => ({ ...f, [veld]: e && e.target ? e.target.value : e }));
+  const kiesSoort = (key) => setForm((f) => ({ ...f, soort: key, ...(isDeclarabel(key) ? {} : { accountId: "", klantnaam: "" }) }));
+  const bewerk = (b) => setForm({ id: b.id, datum: b.datum, soort: b.soort, accountId: b.accountId || "", klantnaam: b.klantnaam || "", omschrijving: b.omschrijving || "", uren: String(b.uren), tariefSoort: b.tariefSoort || "normaal" });
+  const annuleer = () => setForm({ ...LEEG, datum: form.datum || vandaagIso() });
+
+  const bewaar = async () => {
+    setFout("");
+    const decl = isDeclarabel(form.soort);
+    if (decl && !form.accountId) { setFout("Kies een cliënt voor abonnement/UXT."); return; }
+    const aantal = Number(String(form.uren).replace(",", "."));
+    if (!(aantal > 0)) { setFout("Vul een aantal uren in (groter dan 0)."); return; }
+    setBezig(true);
+    try {
+      const payload = { datum: form.datum, soort: form.soort, accountId: decl ? form.accountId : undefined, omschrijving: form.omschrijving, uren: aantal, tariefSoort: decl ? form.tariefSoort : undefined };
+      const res = await fetch("/api/mw-uren-boekingen", {
+        method: form.id ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form.id ? { id: form.id, ...payload } : payload),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+      annuleer();
+      laad();
+    } catch (e) { setFout(String(e.message || e)); }
+    finally { setBezig(false); }
+  };
+
+  const verwijder = async (b) => {
+    if (b.status !== "open") return;
+    setBezig(true);
+    try {
+      const res = await fetch(`/api/mw-uren-boekingen?id=${encodeURIComponent(b.id)}`, { method: "DELETE" });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `HTTP ${res.status}`); }
+      if (form.id === b.id) annuleer();
+      laad();
+    } catch (e) { setFout(String(e.message || e)); }
+    finally { setBezig(false); }
+  };
+
+  const perDag = useMemo(() => {
+    const map = {};
+    for (let i = 0; i < 7; i++) map[voegDagenToe(weekStart, i)] = [];
+    (boekingen || []).forEach((b) => { if (map[b.datum]) map[b.datum].push(b); });
+    return map;
+  }, [boekingen, weekStart]);
+
+  const totalen = useMemo(() => {
+    let totaal = 0, declU = 0, indU = 0;
+    (boekingen || []).forEach((b) => { totaal += b.uren; if (b.declarabel) declU += b.uren; else indU += b.uren; });
+    return { totaal, declU, indU, pct: totaal ? Math.round((declU / totaal) * 1000) / 10 : 0 };
+  }, [boekingen]);
+
+  const decl = isDeclarabel(form.soort);
+  const dezeWeek = () => setWeekStart(maandagVan(vandaagIso()));
+
+  return (
+    <div>
+      {/* Weeknavigatie + totalen */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button onClick={() => setWeekStart(voegDagenToe(weekStart, -7))} style={pijl}><ChevronLeft size={16} /></button>
+          <div style={{ fontSize: 13.5, fontWeight: 700, minWidth: 210, textAlign: "center" }}>{datumNL(weekStart)} – {datumNL(weekEinde)}</div>
+          <button onClick={() => setWeekStart(voegDagenToe(weekStart, 7))} style={pijl}><ChevronRight size={16} /></button>
+          <button onClick={dezeWeek} style={{ ...knopStijl(false), padding: "6px 10px" }}>Deze week</button>
+          <button onClick={laad} style={{ ...knopStijl(false), padding: "6px 10px" }}><RefreshCw size={13} /></button>
+        </div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12.5 }}>
+          <Kpi label="Totaal deze week" waarde={`${uur(totalen.totaal)} u`} />
+          <Kpi label="Declarabel" waarde={`${uur(totalen.declU)} u`} kleur={KLEUR.groen} />
+          <Kpi label="Indirect/kantoor" waarde={`${uur(totalen.indU)} u`} kleur={KLEUR.goud} />
+          <Kpi label="Declarabel-%" waarde={`${totalen.pct}%`} kleur={KLEUR.blauw} />
+        </div>
+      </div>
+
+      {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 10 }}>{fout}</div>}
+
+      {/* Boekingsformulier */}
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14, marginBottom: 16, background: "#FBFBF9" }}>
+        <div style={{ fontSize: 12.5, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 8 }}>{form.id ? "Boeking bewerken" : "Nieuwe boeking"}</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+          {SOORTEN.map((s) => (
+            <button key={s.key} onClick={() => kiesSoort(s.key)} title={s.uitleg} style={{ ...knopStijl(form.soort === s.key), borderColor: form.soort === s.key ? s.kleur : KLEUR.rand, background: form.soort === s.key ? s.kleur : "#fff" }}>{s.label}</button>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <Veld label="Datum">
+            <input type="date" value={form.datum} min={weekStart} max={weekEinde} onChange={zet("datum")} style={{ ...veldStijl, width: 150 }} />
+          </Veld>
+          {decl && (
+            <Veld label="Cliënt">
+              <div style={{ width: 240 }}>
+                <KlantPicker klanten={klanten} waarde={form.accountId} onKies={(k) => setForm((f) => ({ ...f, accountId: k.accountId, klantnaam: k.klantnaam }))} />
+              </div>
+            </Veld>
+          )}
+          {decl && (
+            <Veld label="Tarief">
+              <select value={form.tariefSoort} onChange={zet("tariefSoort")} style={{ ...veldStijl, width: 120 }}>
+                {TARIEF_SOORTEN.map((t) => <option key={t.key} value={t.key}>{t.label}{tariefBedrag(tarief, t.key) != null ? ` · ${euro(tariefBedrag(tarief, t.key))}` : ""}</option>)}
+              </select>
+            </Veld>
+          )}
+          <Veld label="Uren">
+            <input value={form.uren} onChange={zet("uren")} placeholder="0,00" inputMode="decimal" style={{ ...veldStijl, width: 80 }} />
+          </Veld>
+          <Veld label="Omschrijving" groei>
+            <input value={form.omschrijving} onChange={zet("omschrijving")} placeholder="Waar heb je aan gewerkt?" style={{ ...veldStijl, width: "100%" }} />
+          </Veld>
+          <button onClick={bewaar} disabled={bezig} style={{ ...knopStijl(true), padding: "9px 14px" }}>
+            {bezig ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : (form.id ? <Check size={14} /> : <Plus size={14} />)} {form.id ? "Opslaan" : "Toevoegen"}
+          </button>
+          {form.id && <button onClick={annuleer} style={{ ...knopStijl(false), padding: "9px 12px" }}><X size={14} /> Annuleren</button>}
+        </div>
+        {decl && tarief == null && <div style={{ fontSize: 11.5, color: KLEUR.goud, marginTop: 8 }}>Je hebt nog geen uurtarief ingesteld — vraag beheer om je tarieven (hoog/laag/normaal) toe te voegen. Je kunt wel alvast uren schrijven.</div>}
+      </div>
+
+      {/* Uren per dag */}
+      {boekingen === null ? (
+        <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Uren ophalen…</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {Object.keys(perDag).map((dag, i) => {
+            const rijen = perDag[dag];
+            const dagtotaal = rijen.reduce((s, b) => s + b.uren, 0);
+            return (
+              <div key={dag} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: dag === vandaagIso() ? KLEUR.lichtblauw : "#FBFBF9" }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700 }}>{WEEKDAG_VOL[i]} <span style={{ color: KLEUR.mutedTekst, fontWeight: 500 }}>· {datumNL(dag)}</span></div>
+                  <div style={{ fontSize: 12, color: KLEUR.subtekst, fontWeight: 600 }}>{dagtotaal > 0 ? `${uur(dagtotaal)} u` : ""}</div>
+                </div>
+                {rijen.length > 0 && (
+                  <div>
+                    {rijen.map((b) => (
+                      <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: `1px solid ${KLEUR.rand}` }}>
+                        <SoortBadge soort={b.soort} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12.5, color: KLEUR.tekst, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {b.declarabel && <span style={{ fontWeight: 600 }}>{b.klantnaam || "—"}</span>}
+                            {b.declarabel && b.omschrijving ? " · " : ""}
+                            {b.omschrijving || (!b.declarabel ? soortVan(b.soort).uitleg : "")}
+                          </div>
+                          {b.declarabel && b.tariefSoort && <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>Tarief {b.tariefSoort}{b.tariefBedrag != null ? ` · ${euro(b.tariefBedrag)}/u` : ""}</div>}
+                        </div>
+                        <div style={{ fontSize: 12.5, fontWeight: 700, minWidth: 52, textAlign: "right" }}>{uur(b.uren)} u</div>
+                        {b.status === "open" ? (
+                          <div style={{ display: "flex", gap: 4 }}>
+                            <button onClick={() => bewerk(b)} title="Bewerken" style={ikoonKnop}><Pencil size={13} color={KLEUR.subtekst} /></button>
+                            <button onClick={() => verwijder(b)} title="Verwijderen" style={ikoonKnop}><Trash2 size={13} color={KLEUR.rood} /></button>
+                          </div>
+                        ) : (
+                          <span title={b.status === "gefactureerd" ? "Gefactureerd" : "Gecontroleerd"} style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst }}><Lock size={11} /> {b.status}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function tariefBedrag(tarief, key) { return tarief ? tarief[key] : null; }
+
+const pijl = { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 8, border: `1px solid ${KLEUR.rand}`, background: "#fff", cursor: "pointer", color: KLEUR.subtekst };
+const ikoonKnop = { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 7, border: `1px solid ${KLEUR.rand}`, background: "#fff", cursor: "pointer" };
+
+function Veld({ label, children, groei }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: groei ? "1 1 200px" : "0 0 auto", minWidth: groei ? 180 : undefined }}>
+      <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>{label}</span>
+      {children}
+    </div>
+  );
+}
+function Kpi({ label, waarde, kleur }) {
+  return (
+    <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "5px 10px", background: "#fff", minWidth: 90 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>{label}</div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: kleur || KLEUR.tekst }}>{waarde}</div>
+    </div>
+  );
+}

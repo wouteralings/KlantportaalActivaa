@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import OffertetoolApp from "../medewerker/offertes/OffertetoolApp";
 import UitvraagBeheer from "./UitvraagBeheer";
+import UrenTarievenBeheer from "./UrenTarievenBeheer";
 import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Search, ArrowUp, ArrowDown, HelpCircle, ChevronDown, Plus, Pencil, Check, X, Clock } from "lucide-react";
 
 const KLEUR = {
@@ -1167,6 +1168,7 @@ export default function BeheerPortaal() {
           ["facturatie", "Facturatie"],
           ["offertes", "Offertes"],
           ["aanleveren", "Uitvraag"],
+          ["uren", "Uren"],
           ["instellingen", "Instellingen"],
         ].map(([k, label]) => (
           <button
@@ -1195,6 +1197,7 @@ export default function BeheerPortaal() {
       </div>
 
       {tab === "aanleveren" && <UitvraagBeheer />}
+      {tab === "uren" && <UrenTarievenBeheer />}
 
       {tab === "uitstraling" && (<>
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>

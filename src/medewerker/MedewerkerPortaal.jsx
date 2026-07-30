@@ -3,6 +3,7 @@ import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, Lay
 import { startMeekijken } from "../meekijken";
 import OffertesModule from "./OffertesModule";
 import Vragenlijsten from "./Vragenlijsten";
+import Urenregistratie from "./uren/Urenregistratie";
 import ScopeToggle, { useMijnNaam, isKlantVanMij } from "./MijnFilter";
 import ContactpersonenOverzicht from "./klanten/ContactpersonenOverzicht";
 import NogInTeRichten from "./klanten/NogInTeRichten";
@@ -2722,6 +2723,7 @@ export default function MedewerkerPortaal() {
   const tabs = [
     ["klantoverzicht", "Klantoverzicht", 0],
     ["vragenlijsten", "Vragenlijsten", 0],
+    ["uren", "Uren", 0],
     ["verzoeken", "Wijzigingsverzoeken", tellingen.openWijzigingen],
     ["reacties", "Log klantreacties", 0],
     ["ondertekeningen", "Ondertekeningen", 0],
@@ -2786,6 +2788,7 @@ export default function MedewerkerPortaal() {
 
       {tab === "klantoverzicht" && <KlantenModule />}
       {tab === "vragenlijsten" && <Vragenlijsten />}
+      {tab === "uren" && <Urenregistratie isBeheerder={isBeheerder} />}
       {tab === "verzoeken" && <WijzigingsverzoekBeheer onAfgehandeld={laadTellingen} />}
       {tab === "reacties" && <AkkoordenLog />}
       {tab === "ondertekeningen" && <OndertekeningenLog />}
