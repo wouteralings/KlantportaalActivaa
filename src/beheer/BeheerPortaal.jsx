@@ -270,6 +270,21 @@ export default function BeheerPortaal() {
   const [urenmodulePrijs, setUrenmodulePrijs] = useState("2.5");
   const [urenPrijsOpslaanStatus, setUrenPrijsOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
 
+  // Rittenregistratie-schakelaar (€1,50/maand), volledig los van Facturatie/Uren — zelfde
+  // klantenlijst, eigen endpoint (/api/beheer-ritten-klanten).
+  const [rittenStatussen, setRittenStatussen] = useState({}); // accountId -> { ingeschakeld, aangevraagdOp, ... }
+  const [rittenBezig, setRittenBezig] = useState({}); // accountId -> bool
+  const [rittenmodulePrijs, setRittenmodulePrijs] = useState("1.5");
+  const [rittenPrijsOpslaanStatus, setRittenPrijsOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
+  const [rittenFout, setRittenFout] = useState("");
+
+  // Uren ↔ Projecten-koppeling: per klantaccount door de beheerder aan/uit te zetten. Staat los
+  // van de Ritten-schakelaar hierboven (Ritten gebruikt projecten altijd, ongeacht deze knop —
+  // die gaat alleen over of de bestaande Uren-module ook een project-veld toont).
+  const [projectenGekoppeldStatussen, setProjectenGekoppeldStatussen] = useState({}); // accountId -> { gekoppeld, gewijzigdOp, ... }
+  const [projectenGekoppeldBezig, setProjectenGekoppeldBezig] = useState({}); // accountId -> bool
+  const [projectenGekoppeldFout, setProjectenGekoppeldFout] = useState("");
+
   // BTW-tarieven met geldigheidsperiode (Facturatie → BTW-tarieven) — zelfde bewerk-per-rij
   // patroon als Standaardartikelen: "nieuw" voegt een tarief toe (sluit het vorige van die
   // code automatisch af), een bestaand tarief bewerken corrigeert dat ene tarief zelf.
@@ -388,6 +403,14 @@ export default function BeheerPortaal() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setUrenStatussen(d.statussen || {}))
       .catch(() => setUrenStatussen({}));
+    fetch("/api/beheer-ritten-klanten")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setRittenStatussen(d.statussen || {}))
+      .catch(() => setRittenStatussen({}));
+    fetch("/api/beheer-projecten-koppeling")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setProjectenGekoppeldStatussen(d.statussen || {}))
+      .catch(() => setProjectenGekoppeldStatussen({}));
     laadBtwTarieven();
     laadStandaardartikelen();
     haalMededelingen();
@@ -743,6 +766,27 @@ export default function BeheerPortaal() {
     }
   }, [urenmodulePrijs]);
 
+  const slaRittenmodulePrijsOp = useCallback(async () => {
+    const bedrag = Number(String(rittenmodulePrijs).replace(",", "."));
+    if (!Number.isFinite(bedrag) || bedrag < 0) {
+      setRittenPrijsOpslaanStatus("fout");
+      return;
+    }
+    setRittenPrijsOpslaanStatus("bezig");
+    try {
+      const res = await fetch("/api/beheer-instellingen", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rittenmodulePrijs: bedrag }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setRittenmodulePrijs(String(bedrag));
+      setRittenPrijsOpslaanStatus("gelukt");
+    } catch {
+      setRittenPrijsOpslaanStatus("fout");
+    }
+  }, [rittenmodulePrijs]);
+
   // Facturatiemodule per klant aan/uit — direct opslaan (geen aparte "Opslaan"-knop), met
   // optimistische update en terugdraaien bij een fout.
   const zetFacturatieStatus = useCallback(async (accountId, ingeschakeld) => {
@@ -785,6 +829,52 @@ export default function BeheerPortaal() {
       setFacturatieFout("Opslaan is niet gelukt, probeer het nog eens.");
     } finally {
       setUrenBezig((h) => ({ ...h, [accountId]: false }));
+    }
+  }, []);
+
+  // Rittenregistratie per klant aan/uit — zelfde patroon, eigen endpoint, geen afhankelijkheid
+  // van de facturatie- of uren-status (Ritten is volledig los).
+  const zetRittenStatus = useCallback(async (accountId, ingeschakeld) => {
+    setRittenFout("");
+    setRittenBezig((h) => ({ ...h, [accountId]: true }));
+    setRittenStatussen((h) => ({ ...h, [accountId]: { ...(h[accountId] || {}), ingeschakeld } }));
+    try {
+      const res = await fetch("/api/beheer-ritten-klanten", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId, ingeschakeld }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const d = await res.json();
+      setRittenStatussen((h) => ({ ...h, [accountId]: d }));
+    } catch {
+      setRittenStatussen((h) => ({ ...h, [accountId]: { ...(h[accountId] || {}), ingeschakeld: !ingeschakeld } }));
+      setRittenFout("Opslaan is niet gelukt, probeer het nog eens.");
+    } finally {
+      setRittenBezig((h) => ({ ...h, [accountId]: false }));
+    }
+  }, []);
+
+  // Uren ↔ Projecten-koppeling per klantaccount — analoog patroon, eigen endpoint/veld
+  // ("gekoppeld" i.p.v. "ingeschakeld").
+  const zetProjectenGekoppeld = useCallback(async (accountId, gekoppeld) => {
+    setProjectenGekoppeldFout("");
+    setProjectenGekoppeldBezig((h) => ({ ...h, [accountId]: true }));
+    setProjectenGekoppeldStatussen((h) => ({ ...h, [accountId]: { ...(h[accountId] || {}), gekoppeld } }));
+    try {
+      const res = await fetch("/api/beheer-projecten-koppeling", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId, gekoppeld }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const d = await res.json();
+      setProjectenGekoppeldStatussen((h) => ({ ...h, [accountId]: d }));
+    } catch {
+      setProjectenGekoppeldStatussen((h) => ({ ...h, [accountId]: { ...(h[accountId] || {}), gekoppeld: !gekoppeld } }));
+      setProjectenGekoppeldFout("Opslaan is niet gelukt, probeer het nog eens.");
+    } finally {
+      setProjectenGekoppeldBezig((h) => ({ ...h, [accountId]: false }));
     }
   }, []);
 
@@ -1168,8 +1258,6 @@ export default function BeheerPortaal() {
           ["taken", "Taken"],
           ["medewerkers", "Medewerkers"],
           ["facturatie", "Facturatie"],
-          ["rapportages", "Rapportages"],
-          ["bezittingen", "Bezittingen"],
           ["offertes", "Offertes"],
           ["aanleveren", "Uitvraag"],
           ["uren", "Uren"],
@@ -1202,8 +1290,6 @@ export default function BeheerPortaal() {
 
       {tab === "aanleveren" && <UitvraagBeheer />}
       {tab === "uren" && <UrenTarievenBeheer />}
-      {tab === "rapportages" && <RapportagesBeheer />}
-      {tab === "bezittingen" && <BezittingenBeheer />}
 
       {tab === "uitstraling" && (<>
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
@@ -2728,6 +2814,137 @@ export default function BeheerPortaal() {
       </div>
 
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+        <button
+          onClick={() => toggleRubriek("rittenKlanten")}
+          aria-expanded={rubriekIsOpen("rittenKlanten")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("rittenKlanten") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Rittenregistratie — per klant aan/uit</span>
+        </button>
+        {rubriekIsOpen("rittenKlanten") && (<>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 14px" }}>
+          Standaard staat de rittenregistratie <strong>uit</strong> voor elke klant, volledig los van
+          Facturatie en Uren. Zet 'm per klant aan zodra die klant hem mag gebruiken — de tab "Ritten"
+          verschijnt dan meteen in het klantportaal van die klant.
+        </div>
+
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 10, flexWrap: "wrap", marginBottom: 18, padding: 14, background: KLEUR.lichtblauw, borderRadius: 8 }}>
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Prijs rittenregistratie per maand, per klantaccount</div>
+            <div style={{ position: "relative", maxWidth: 160 }}>
+              <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: KLEUR.mutedTekst }}>€</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={rittenmodulePrijs}
+                onChange={(e) => setRittenmodulePrijs(e.target.value)}
+                style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 24px", fontSize: 13, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}
+              />
+            </div>
+          </div>
+          <button
+            onClick={slaRittenmodulePrijsOp}
+            disabled={rittenPrijsOpslaanStatus === "bezig"}
+            style={{ padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+          >
+            {rittenPrijsOpslaanStatus === "bezig" ? "Opslaan..." : "Opslaan"}
+          </button>
+          {rittenPrijsOpslaanStatus === "gelukt" && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: KLEUR.blauw }}>
+              <CheckCircle2 size={14} /> Opgeslagen.
+            </span>
+          )}
+          {rittenPrijsOpslaanStatus === "fout" && (
+            <span style={{ fontSize: 12.5, color: KLEUR.rood }}>Ongeldig bedrag of opslaan mislukt.</span>
+          )}
+        </div>
+
+        {rittenFout && (<div style={{ marginBottom: 12, fontSize: 12.5, color: KLEUR.rood }}>{rittenFout}</div>)}
+
+        {facturatieKlanten === null ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst }}>
+            <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Klanten ophalen…
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {facturatieKlanten.map((k) => {
+              const status = rittenStatussen[k.accountId] || {};
+              return (
+                <div key={k.accountId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "8px 12px", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
+                  <div style={{ fontSize: 13 }}>
+                    <strong>{k.klantnaam}</strong>{k.klantnummer ? ` (${k.klantnummer})` : ""}
+                    {!status.ingeschakeld && status.aangevraagdOp && (
+                      <span style={{ marginLeft: 8, fontSize: 11, color: KLEUR.rood, fontWeight: 600 }}>Aangevraagd</span>
+                    )}
+                  </div>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 12.5 }}>
+                    {rittenBezig[k.accountId] && <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} />}
+                    <input
+                      type="checkbox"
+                      checked={!!status.ingeschakeld}
+                      disabled={!!rittenBezig[k.accountId]}
+                      onChange={(e) => zetRittenStatus(k.accountId, e.target.checked)}
+                    />
+                    {status.ingeschakeld ? "Aan" : "Uit"}
+                  </label>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        </>)}
+      </div>
+
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+        <button
+          onClick={() => toggleRubriek("projectenKoppeling")}
+          aria-expanded={rubriekIsOpen("projectenKoppeling")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("projectenKoppeling") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Uren ↔ Projecten-koppeling</span>
+        </button>
+        {rubriekIsOpen("projectenKoppeling") && (<>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 14px" }}>
+          Standaard <strong>uit</strong>: de urenregistratie werkt zoals nu (verplicht een klant per
+          registratie, geen projectveld). Zet dit per klantaccount aan om in de urenregistratie ook een
+          Project-keuze te tonen (gescoped op de gekozen klant) — onafhankelijk van de
+          rittenregistratie-schakelaar hierboven, en onafhankelijk van of Uren zelf al aan staat.
+        </div>
+        {projectenGekoppeldFout && (<div style={{ marginBottom: 12, fontSize: 12.5, color: KLEUR.rood }}>{projectenGekoppeldFout}</div>)}
+        {facturatieKlanten === null ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst }}>
+            <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Klanten ophalen…
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {facturatieKlanten.map((k) => {
+              const status = projectenGekoppeldStatussen[k.accountId] || {};
+              return (
+                <div key={k.accountId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "8px 12px", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
+                  <div style={{ fontSize: 13 }}>
+                    <strong>{k.klantnaam}</strong>{k.klantnummer ? ` (${k.klantnummer})` : ""}
+                  </div>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 12.5 }}>
+                    {projectenGekoppeldBezig[k.accountId] && <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} />}
+                    <input
+                      type="checkbox"
+                      checked={!!status.gekoppeld}
+                      disabled={!!projectenGekoppeldBezig[k.accountId]}
+                      onChange={(e) => zetProjectenGekoppeld(k.accountId, e.target.checked)}
+                    />
+                    {status.gekoppeld ? "Gekoppeld" : "Los"}
+                  </label>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        </>)}
+      </div>
+
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
           <button
             onClick={() => toggleRubriek("btwTarieven")}
@@ -2897,6 +3114,9 @@ export default function BeheerPortaal() {
         )}
         </>)}
       </div>
+
+      <RapportagesBeheer />
+      <BezittingenBeheer />
       </>)}
 
       {tab === "taken" && (<>

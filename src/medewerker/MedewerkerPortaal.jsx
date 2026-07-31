@@ -1586,7 +1586,7 @@ const BASIS_KOLOMMEN = [
 // overzichten; de vier fiscale tabbladen zijn nog leeg en worden één voor één gevuld zodra
 // duidelijk is in welke Dynamics-tabellen en -velden die gegevens staan.
 const KLANTEN_SUBTABS = [
-  { key: "klanten", label: "Klantoverzicht", icon: LayoutGrid },
+  { key: "klanten", label: "Klanten", icon: LayoutGrid },
   { key: "contactpersonen", label: "Contactpersonen", icon: Users },
   { key: "ib", label: "Inkomstenbelasting", icon: FileText, watKomtEr: "Per cliënt de inkomstenbelasting-aangiftes: jaar, status, behandelaar en deadline, zodat je in één lijst ziet wat nog open staat en bij wie het ligt." },
   { key: "vpb", label: "Vennootschapsbelasting", icon: Building2, watKomtEr: "Per cliënt de vennootschapsbelasting-aangiftes: jaar, status, behandelaar en deadline, inclusief fiscale eenheden waar die van toepassing zijn." },

@@ -1,9 +1,38 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, BarChart3, CheckCircle2, ChevronDown, Clock, Loader2, Save, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, CheckCircle2, ChevronDown, Clock, Loader2, Save, Search } from "lucide-react";
 
 /** Zelfde palet als de rest van het beheerportaal (bewust hier herhaald, zie UrenTarievenBeheer.jsx). */
 const KLEUR = { blauw: "#1C5D8C", tekst: "#1C2321", subtekst: "#5B6259", mutedTekst: "#8A9089", rand: "#E2E4DF", lichtblauw: "#EAF2F8", rood: "#B23B3B", groen: "#2E7D46", goud: "#B98237" };
 const veld = { boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "6px 8px", fontSize: 12.5, background: "#fff", outline: "none" };
+const AANTAL_KEUZES = [[25, "25"], [50, "50"], [100, "100"], [250, "250"], [500, "500"], [Infinity, "Alle"]];
+const AANTAL_STANDAARD = 25;
+
+/** Zelfde "Toon: 25/50/.../Alle"-kiezer als in BeheerPortaal.jsx (bewust hier herhaald). */
+function AantalKiezer({ aantal, setAantal, totaal }) {
+  const getoond = Math.min(aantal === Infinity ? totaal : aantal, totaal);
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+      <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{getoond} van {totaal} getoond</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, flexWrap: "wrap" }}>
+        <span style={{ color: KLEUR.mutedTekst }}>Toon:</span>
+        {AANTAL_KEUZES.map(([n, lbl]) => (
+          <button
+            key={lbl}
+            onClick={() => setAantal(n)}
+            style={{
+              padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
+              border: `1px solid ${aantal === n ? KLEUR.blauw : KLEUR.rand}`,
+              background: aantal === n ? KLEUR.blauw : "#fff",
+              color: aantal === n ? "#fff" : KLEUR.subtekst,
+            }}
+          >
+            {lbl}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function datum(d) {
   if (!d) return "—";
@@ -12,30 +41,25 @@ function datum(d) {
 }
 
 /**
- * Beheer van de Rapportagemodule: (1) per klant aan/uit + prijs per maand — zelfde patroon als de
- * rubriek "Facturatie & uren" in BeheerPortaal.jsx, hier als eigen standalone bestand (net als
- * UrenTarievenBeheer.jsx), en (2) globaal per RGS-code een eigen naam en presentatievolgorde.
+ * Beheer van de Rapportagemodule: (1) per klant aan/uit + prijs per maand, en (2) globaal per
+ * RGS-code een eigen naam en presentatievolgorde. Twee losse, inklapbare rubrieken (zelfde
+ * chevron-patroon als "BTW-tarieven"/"Standaardartikelen" in de Facturatie-tab van
+ * BeheerPortaal.jsx) — dit bestand wordt daar zelf ook binnen de tab "Facturatie" gerenderd,
+ * naast de facturatie- en bezittingenrubrieken, zodat alle klantmodules op één tab staan
+ * conform de standaard lay-out. Standalone bestand (net als UrenTarievenBeheer.jsx) — haalt
+ * zijn eigen data op.
  */
 export default function RapportagesBeheer() {
   return (
-    <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700, marginBottom: 4 }}>
-        <BarChart3 size={17} color={KLEUR.blauw} /> Rapportages — W&amp;V en Balans uit RGS 3.5 / Exact Online
-      </div>
-      <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 18, maxWidth: 760 }}>
-        Zet de Rapportagemodule per klant aan of uit, en bepaal hieronder globaal hoe RGS-codes heten en in
-        welke volgorde ze getoond worden — dat geldt voor alle klanten tegelijk, RGS-codes zijn immers
-        universeel.
-      </div>
+    <>
       <KlantenToggle />
-      <div style={{ marginTop: 32 }}>
-        <RgsNaamVolgorde />
-      </div>
-    </div>
+      <RgsNaamVolgorde />
+    </>
   );
 }
 
 function KlantenToggle() {
+  const [open, setOpen] = useState(false);
   const [klanten, setKlanten] = useState(null); // null = laden
   const [statussen, setStatussen] = useState({});
   const [zoek, setZoek] = useState("");
@@ -44,6 +68,7 @@ function KlantenToggle() {
   const [fout, setFout] = useState("");
   const [prijs, setPrijs] = useState("7.5");
   const [prijsStatus, setPrijsStatus] = useState("idle"); // idle | bezig | gelukt | fout
+  const [toonAantal, setToonAantal] = useState(AANTAL_STANDAARD);
 
   useEffect(() => {
     fetch("/api/beheer-klanten")
@@ -105,18 +130,25 @@ function KlantenToggle() {
   });
 
   return (
-    <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700, marginBottom: 4 }}>
-        Per klant aan/uit
+    <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+      >
+        <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s", flexShrink: 0 }} />
+        <span style={{ fontSize: 15, fontWeight: 700 }}>Rapportages — per klant aan/uit</span>
         {aanvragenCount > 0 && (
           <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 16, height: 16, padding: "0 4px", borderRadius: 999, background: KLEUR.rood, color: "#fff", fontSize: 10.5, fontWeight: 700 }}>
             {aanvragenCount}
           </span>
         )}
-      </div>
-      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, margin: "6px 0 14px" }}>
+      </button>
+      {open && (<>
+      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, margin: "10px 0 14px" }}>
         Standaard staat Rapportages <strong>uit</strong> voor elke klant. Zet 'm per klant aan zodra die klant hem mag
-        gebruiken — de tab "Rapportages" verschijnt dan meteen in het klantportaal van die klant.
+        gebruiken — de tab "Rapportages" verschijnt dan meteen in het klantportaal van die klant. W&amp;V en Balans
+        worden opgebouwd uit RGS 3.5-referentiecodes; naam en volgorde daarvan staan hieronder bij "RGS-namen en volgorde".
       </div>
 
       <div style={{ display: "flex", alignItems: "flex-end", gap: 10, flexWrap: "wrap", marginBottom: 18, padding: 14, background: KLEUR.lichtblauw, borderRadius: 8 }}>
@@ -158,7 +190,7 @@ function KlantenToggle() {
         <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Geen klanten gevonden.</div>
       ) : (
         <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
-          {gefilterd.map((k, i) => {
+          {gefilterd.slice(0, toonAantal).map((k, i) => {
             const s = statussen[k.accountId] || {};
             const aan = !!s.ingeschakeld;
             const aanvraag = !aan && !!s.aangevraagdOp;
@@ -180,6 +212,10 @@ function KlantenToggle() {
           })}
         </div>
       )}
+      {klanten !== null && gefilterd.length > 0 && (
+        <AantalKiezer aantal={toonAantal} setAantal={setToonAantal} totaal={gefilterd.length} />
+      )}
+      </>)}
     </div>
   );
 }
@@ -188,9 +224,10 @@ const CATEGORIE_LABEL = { omzet: "W&V — Omzet", kosten: "W&V — Kosten", acti
 const CATEGORIEEN = ["omzet", "kosten", "activa", "passiva"];
 
 function RgsNaamVolgorde() {
+  const [open, setOpen] = useState(false);
   const [codes, setCodes] = useState(null); // null = laden
   const [fout, setFout] = useState("");
-  const [open, setOpen] = useState("omzet");
+  const [openCategorie, setOpenCategorie] = useState("omzet");
 
   const laad = () => {
     fetch("/api/rgs-instellingen")
@@ -224,9 +261,17 @@ function RgsNaamVolgorde() {
   };
 
   return (
-    <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
-      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>RGS-namen en volgorde</div>
-      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 14 }}>
+    <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+      >
+        <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s", flexShrink: 0 }} />
+        <span style={{ fontSize: 15, fontWeight: 700 }}>Rapportages — RGS-namen en volgorde</span>
+      </button>
+      {open && (<>
+      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, margin: "10px 0 14px" }}>
         Geef een RGS-code een eigen, herkenbare naam voor je klanten (leeg = standaardnaam) en bepaal met de
         pijltjes in welke volgorde de regels binnen elke rapportage getoond worden. Geldt voor alle klanten.
       </div>
@@ -239,14 +284,14 @@ function RgsNaamVolgorde() {
           {CATEGORIEEN.map((cat) => (
             <div key={cat} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
               <button
-                onClick={() => setOpen(open === cat ? null : cat)}
+                onClick={() => setOpenCategorie(openCategorie === cat ? null : cat)}
                 style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 14px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
               >
-                <ChevronDown size={14} color={KLEUR.mutedTekst} style={{ transform: open === cat ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform .15s" }} />
+                <ChevronDown size={14} color={KLEUR.mutedTekst} style={{ transform: openCategorie === cat ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform .15s" }} />
                 <span style={{ fontSize: 13, fontWeight: 700 }}>{CATEGORIE_LABEL[cat]}</span>
                 <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>({perCategorie[cat].length})</span>
               </button>
-              {open === cat && (
+              {openCategorie === cat && (
                 <div style={{ borderTop: `1px solid ${KLEUR.rand}` }}>
                   {perCategorie[cat].map((r, i) => (
                     <RgsCodeRij key={r.rgsCode} r={r} isEerste={i === 0} isLaatste={i === perCategorie[cat].length - 1}
@@ -258,6 +303,7 @@ function RgsNaamVolgorde() {
           ))}
         </div>
       )}
+      </>)}
     </div>
   );
 }
