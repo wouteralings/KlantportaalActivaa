@@ -58,6 +58,30 @@ module.exports = async function (context, req) {
 
     if (methode === "POST" || methode === "PATCH") {
       const b = req.body || {};
+
+      // Bulk goedkeuren: keurt meerdere boekingen ineens goed (erken = geschreven uren).
+      if (b.actie === "bulk" || Array.isArray(b.ids)) {
+        const ids = Array.isArray(b.ids) ? b.ids : [];
+        if (ids.length === 0) return json(context, 400, { error: "Geef één of meer boekingen (ids) mee." });
+        const naam = await mijnNaam(req, email);
+        const bijgewerkt = [];
+        const uxtAccounts = new Set();
+        for (const id of ids) {
+          const r = await uren.controleActie(id, { goedgekeurdeUren: null, afboekUren: null, afboekReden: null, extraBedrag: null, extraReden: null }, naam || email);
+          if (r) { bijgewerkt.push(r); if (r.soort === "uxt" && r.accountId) uxtAccounts.add(r.accountId); }
+        }
+        // UXT automatisch naar Exact (per betrokken cliënt), best-effort.
+        const exactPerKlant = {};
+        for (const accountId of uxtAccounts) {
+          try {
+            const res = await exactUren.pushKlantNaarExact(accountId);
+            exactPerKlant[accountId] = res;
+            if (res && res.aantal > 0) bijgewerkt.forEach((x) => { if (x.accountId === accountId && x.soort === "uxt") { x.gefactureerd = true; x.status = "gefactureerd"; x.factuurRef = res.referentie || x.factuurRef; } });
+          } catch (e) { exactPerKlant[accountId] = { fout: String(e.message || e) }; }
+        }
+        return json(context, 200, { ok: true, boekingen: bijgewerkt, exact: exactPerKlant });
+      }
+
       if (!b.id) return json(context, 400, { error: "Geef een id mee." });
       const naam = await mijnNaam(req, email);
       const bijgewerkt = await uren.controleActie(b.id, {

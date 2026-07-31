@@ -425,19 +425,22 @@ async function uxtTeExporteren({ accountId } = {}) {
 async function rapportageDeclarabel({ vanaf, tot }) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   const token = await haalDynamicsToken();
-  // Alleen goedgekeurde/gefactureerde uren tellen mee in de stuurcijfers (niets telt vóór goedkeuring).
-  let f = `(${P}_status eq 'goedgekeurd' or ${P}_status eq 'gefactureerd')`;
-  if (vanaf) f += ` and ${P}_datum ge ${vanaf}`;
-  if (tot) f += ` and ${P}_datum le ${tot}`;
-  const boekingen = await haalBoekingen(resource, token, f, `${P}_datum asc`);
+  // Rapportage toont ÁLLE uren (ook nog niet goedgekeurde), zodat je kunt inzien wie nog open uren
+  // heeft. De open (niet-goedgekeurde) uren worden apart geteld.
+  let f = "";
+  if (vanaf) f += `${P}_datum ge ${vanaf}`;
+  if (tot) f += `${f ? " and " : ""}${P}_datum le ${tot}`;
+  const boekingen = await haalBoekingen(resource, token, f || null, `${P}_datum asc`);
   const tarieven = await lijstTarieven();
   const doelVan = new Map(tarieven.map((t) => [String(t.medewerker_email).toLowerCase(), t.declarabel_doel]));
   const per = new Map();
   for (const b of boekingen) {
     const key = (b.medewerkerEmail || "?").toLowerCase();
-    if (!per.has(key)) per.set(key, { email: b.medewerkerEmail, naam: b.medewerkerNaam || b.medewerkerEmail, totaal: 0, declarabelUren: 0, abonnement: 0, uxt: 0, indirect: 0, kantoor: 0 });
+    if (!per.has(key)) per.set(key, { email: b.medewerkerEmail, naam: b.medewerkerNaam || b.medewerkerEmail, totaal: 0, declarabelUren: 0, openUren: 0, goedgekeurdUren: 0, abonnement: 0, uxt: 0, indirect: 0, kantoor: 0 });
     const r = per.get(key);
-    r.totaal += b.uren; if (b.declarabel) r.declarabelUren += b.uren;
+    r.totaal += b.uren;
+    if (b.declarabel) r.declarabelUren += b.uren;
+    if (b.status === "open") r.openUren += b.uren; else r.goedgekeurdUren += b.uren;
     if (r[b.soort] !== undefined) r[b.soort] += b.uren;
   }
   return [...per.values()].map((r) => ({

@@ -41,6 +41,21 @@ export default function UrenControle({ isBeheerder }) {
   const leeg = perKlant.length === 0 && overige.length === 0;
 
   const updateRij = (bijgewerkt) => setData((d) => ({ ...d, boekingen: (d.boekingen || []).map((x) => (x.id === bijgewerkt.id ? bijgewerkt : x)) }));
+  const updateVeel = (lijst) => setData((d) => ({ ...d, boekingen: (d.boekingen || []).map((x) => lijst.find((y) => y.id === x.id) || x) }));
+
+  const [bulkBezig, setBulkBezig] = useState(false);
+  const bulkGoedkeuren = async (ids) => {
+    if (!ids || ids.length === 0) return;
+    setBulkBezig(true); setFout("");
+    try {
+      const res = await fetch("/api/mw-uren-controle", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "bulk", ids }) });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+      updateVeel(d.boekingen || []);
+    } catch (e) { setFout(String(e.message || e)); }
+    finally { setBulkBezig(false); }
+  };
+  const alleOpenIds = (data?.boekingen || []).filter((b) => b.status === "open").map((b) => b.id);
 
   return (
     <div>
@@ -64,6 +79,15 @@ export default function UrenControle({ isBeheerder }) {
         <div style={{ fontSize: 12, color: KLEUR.goud, marginBottom: 8, display: "flex", gap: 6, alignItems: "center" }}><Info size={14} /> Je naam kon niet automatisch worden bepaald, dus we kunnen niet zien welke cliënten van jou zijn.{isBeheerder ? " Gebruik Kantoorbreed." : ""}</div>
       )}
 
+      {alleOpenIds.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12.5, color: KLEUR.subtekst }}>{alleOpenIds.length} open boeking(en) te controleren</span>
+          <button onClick={() => bulkGoedkeuren(alleOpenIds)} disabled={bulkBezig} style={{ ...knopStijl(true), padding: "7px 12px" }}>
+            {bulkBezig ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : <CheckCircle2 size={13} />} Keur alle open goed
+          </button>
+        </div>
+      )}
+
       {data === null ? (
         <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Boekingen ophalen…</div>
       ) : leeg ? (
@@ -71,22 +95,26 @@ export default function UrenControle({ isBeheerder }) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {perKlant.map((k) => (
-            <KlantBlok key={k.klantnaam} klant={k} onUpdate={updateRij} />
+            <KlantBlok key={k.klantnaam} klant={k} onUpdate={updateRij} onBulk={bulkGoedkeuren} bulkBezig={bulkBezig} />
           ))}
-          {overige.length > 0 && <OverigBlok boekingen={overige} onUpdate={updateRij} />}
+          {overige.length > 0 && <OverigBlok boekingen={overige} onUpdate={updateRij} onBulk={bulkGoedkeuren} bulkBezig={bulkBezig} />}
         </div>
       )}
     </div>
   );
 }
 
-function KlantBlok({ klant, onUpdate }) {
+function KlantBlok({ klant, onUpdate, onBulk, bulkBezig }) {
   const openUren = klant.boekingen.reduce((s, b) => s + (b.status === "open" ? b.uren : 0), 0);
+  const openIds = klant.boekingen.filter((b) => b.status === "open").map((b) => b.id);
   return (
     <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", background: "#FBFBF9" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "9px 12px", background: "#FBFBF9" }}>
         <div style={{ fontSize: 13, fontWeight: 700 }}>{klant.klantnaam}</div>
-        <div style={{ fontSize: 11.5, color: KLEUR.subtekst }}>{klant.boekingen.length} boeking(en){openUren > 0 ? ` · ${uur(openUren)} u open` : ""}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ fontSize: 11.5, color: KLEUR.subtekst }}>{klant.boekingen.length} boeking(en){openUren > 0 ? ` · ${uur(openUren)} u open` : ""}</div>
+          {openIds.length > 0 && onBulk && <button onClick={() => onBulk(openIds)} disabled={bulkBezig} style={{ ...knopStijl(false), padding: "5px 9px", fontSize: 11.5 }}><CheckCircle2 size={12} /> Alles goedkeuren</button>}
+        </div>
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
@@ -172,13 +200,17 @@ function ControleRij({ b, onUpdate }) {
   );
 }
 
-function OverigBlok({ boekingen, onUpdate }) {
+function OverigBlok({ boekingen, onUpdate, onBulk, bulkBezig }) {
   const openUren = boekingen.reduce((s, b) => s + (b.status === "open" ? b.uren : 0), 0);
+  const openIds = boekingen.filter((b) => b.status === "open").map((b) => b.id);
   return (
     <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", background: "#FBFBF9" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "9px 12px", background: "#FBFBF9" }}>
         <div style={{ fontSize: 13, fontWeight: 700 }}>Indirect / kantoor</div>
-        <div style={{ fontSize: 11.5, color: KLEUR.subtekst }}>{boekingen.length} boeking(en){openUren > 0 ? ` · ${uur(openUren)} u open` : ""}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ fontSize: 11.5, color: KLEUR.subtekst }}>{boekingen.length} boeking(en){openUren > 0 ? ` · ${uur(openUren)} u open` : ""}</div>
+          {openIds.length > 0 && onBulk && <button onClick={() => onBulk(openIds)} disabled={bulkBezig} style={{ ...knopStijl(false), padding: "5px 9px", fontSize: 11.5 }}><CheckCircle2 size={12} /> Alles goedkeuren</button>}
+        </div>
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>

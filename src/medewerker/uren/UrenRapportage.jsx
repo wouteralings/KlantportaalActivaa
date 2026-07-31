@@ -27,8 +27,9 @@ export default function UrenRapportage() {
   const ditJaar = () => { setVanaf(`${nu.getUTCFullYear()}-01-01`); setTot(`${nu.getUTCFullYear()}-12-31`); };
   const dezeMaand = () => { setVanaf(eersteVanMaand); setTot(laatsteVanMaand); };
 
-  const totaalAlle = (rijen || []).reduce((a, r) => { a.totaal += r.totaal; a.decl += r.declarabelUren; return a; }, { totaal: 0, decl: 0 });
+  const totaalAlle = (rijen || []).reduce((a, r) => { a.totaal += r.totaal; a.decl += r.declarabelUren; a.open += (r.openUren || 0); return a; }, { totaal: 0, decl: 0, open: 0 });
   const pctAlle = totaalAlle.totaal ? Math.round((totaalAlle.decl / totaalAlle.totaal) * 1000) / 10 : 0;
+  const metOpen = (rijen || []).filter((r) => (r.openUren || 0) > 0);
 
   return (
     <div>
@@ -48,6 +49,12 @@ export default function UrenRapportage() {
 
       {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 10 }}>{fout}</div>}
 
+      {metOpen.length > 0 && (
+        <div style={{ fontSize: 12.5, color: KLEUR.rood, background: "#F6E4E4", border: `1px solid #E7C9C9`, borderRadius: 8, padding: "8px 12px", marginBottom: 12 }}>
+          <strong>{metOpen.length} medewerker(s)</strong> met nog niet goedgekeurde uren: {metOpen.map((r) => `${r.naam} (${uur(r.openUren)} u)`).join(", ")}.
+        </div>
+      )}
+
       {rijen === null ? (
         <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Rapportage opbouwen…</div>
       ) : rijen.length === 0 ? (
@@ -60,6 +67,7 @@ export default function UrenRapportage() {
                 <th style={th}>Medewerker</th><th style={th}>Totaal</th><th style={th}>Declarabel</th>
                 <th style={{ ...th, minWidth: 190 }}>Declarabel-% (doel)</th>
                 <th style={th}>Abon.</th><th style={th}>UXT</th><th style={th}>Indirect</th><th style={th}>Kantoor</th>
+                <th style={th}>Niet goedgekeurd</th>
               </tr>
             </thead>
             <tbody>
@@ -84,6 +92,7 @@ export default function UrenRapportage() {
                     <td style={td}>{uur(r.uxt)}</td>
                     <td style={td}>{uur(r.indirect)}</td>
                     <td style={td}>{uur(r.kantoor)}</td>
+                    <td style={td}>{(r.openUren || 0) > 0 ? <span style={{ fontWeight: 700, color: KLEUR.rood }}>{uur(r.openUren)} u</span> : <span style={{ color: KLEUR.mutedTekst }}>—</span>}</td>
                   </tr>
                 );
               })}
@@ -95,13 +104,14 @@ export default function UrenRapportage() {
                 <td style={{ ...td, fontWeight: 700 }}>{uur(totaalAlle.decl)} u</td>
                 <td style={{ ...td, fontWeight: 700, color: KLEUR.blauw }}>{pctAlle}%</td>
                 <td style={td} colSpan={4}></td>
+                <td style={{ ...td, fontWeight: 700, color: totaalAlle.open > 0 ? KLEUR.rood : KLEUR.mutedTekst }}>{totaalAlle.open > 0 ? `${uur(totaalAlle.open)} u` : "—"}</td>
               </tr>
             </tfoot>
           </table>
         </div>
       )}
       <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 10 }}>
-        Declarabel-% = (abonnement + UXT) ÷ totaal. Alleen goedgekeurde uren tellen mee (niets telt vóór goedkeuring). Het doel per medewerker stel je in bij Beheer → Uren.
+        Declarabel-% = (abonnement + UXT) ÷ totaal, over álle geschreven uren. De kolom "Niet goedgekeurd" toont de nog te controleren uren. (Voor onderhanden werk en facturatie tellen alléén goedgekeurde uren mee.) Het doel per medewerker stel je in bij Beheer → Uren.
       </div>
     </div>
   );
