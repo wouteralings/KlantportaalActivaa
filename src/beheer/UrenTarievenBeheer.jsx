@@ -8,6 +8,19 @@ const veld = { boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borde
 const th = { textAlign: "left", fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", padding: "7px 10px", whiteSpace: "nowrap" };
 const td = { fontSize: 12.5, color: KLEUR.tekst, padding: "8px 10px", borderTop: `1px solid ${KLEUR.rand}`, verticalAlign: "middle" };
 const WEEKDAGEN = [[1, "Maandag"], [2, "Dinsdag"], [3, "Woensdag"], [4, "Donderdag"], [5, "Vrijdag"], [6, "Zaterdag"], [7, "Zondag"]];
+const AANTALLEN = [[25, "25"], [50, "50"], [100, "100"], [250, "250"], [500, "500"], [Infinity, "Alle"]];
+
+function Paginatie({ totaal, getoond, toonAantal, setToonAantal }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, marginTop: 10, fontSize: 12, flexWrap: "wrap" }}>
+      <span style={{ color: KLEUR.mutedTekst, marginRight: "auto" }}>{totaal} totaal{getoond !== totaal ? ` · ${getoond} getoond` : ""}</span>
+      <span style={{ color: KLEUR.mutedTekst }}>Toon:</span>
+      {AANTALLEN.map(([n, l]) => (
+        <button key={l} onClick={() => setToonAantal(n)} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", border: `1px solid ${toonAantal === n ? KLEUR.blauw : KLEUR.rand}`, background: toonAantal === n ? KLEUR.blauw : "#fff", color: toonAantal === n ? "#fff" : KLEUR.subtekst }}>{l}</button>
+      ))}
+    </div>
+  );
+}
 
 /**
  * Beheer van de interne urenregistratie: per medewerker de uurtarieven (normaal/hoog/laag) en het
@@ -18,6 +31,7 @@ export default function UrenTarievenBeheer() {
   const [instellingen, setInstellingen] = useState(null);
   const [fout, setFout] = useState("");
   const [zoek, setZoek] = useState("");
+  const [toonAantal, setToonAantal] = useState(50);
 
   const laad = () => {
     setMedewerkers(null); setFout("");
@@ -29,6 +43,7 @@ export default function UrenTarievenBeheer() {
   useEffect(() => { laad(); }, []);
 
   const gefilterd = (medewerkers || []).filter((m) => { const q = zoek.trim().toLowerCase(); return !q || `${m.naam} ${m.email} ${m.functie}`.toLowerCase().includes(q); });
+  const zichtbaar = toonAantal === Infinity ? gefilterd : gefilterd.slice(0, toonAantal);
   const alleNamen = [...new Set((medewerkers || []).map((m) => m.naam).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 
   return (
@@ -68,11 +83,12 @@ export default function UrenTarievenBeheer() {
             <tbody>
               {gefilterd.length === 0 ? (
                 <tr><td style={{ ...td, color: KLEUR.mutedTekst }} colSpan={9}>Geen medewerkers gevonden.</td></tr>
-              ) : gefilterd.map((m) => <TariefRij key={m.email} m={m} namen={alleNamen} />)}
+              ) : zichtbaar.map((m) => <TariefRij key={m.email} m={m} namen={alleNamen} />)}
             </tbody>
           </table>
         </div>
       )}
+      {medewerkers && gefilterd.length > 0 && <div style={{ marginBottom: 24 }}><Paginatie totaal={gefilterd.length} getoond={zichtbaar.length} toonAantal={toonAantal} setToonAantal={setToonAantal} /></div>}
 
       {instellingen && <Herinneringen begin={instellingen} onFout={setFout} />}
     </div>
@@ -268,6 +284,7 @@ function Urencodes({ onFout }) {
   const [categorieen, setCategorieen] = useState(["abonnement", "uxt", "indirect", "kantoor"]);
   const [nieuw, setNieuw] = useState({ naam: "", categorie: "kantoor" });
   const [bezig, setBezig] = useState(false);
+  const [toonAantal, setToonAantal] = useState(50);
 
   const laad = () => {
     fetch("/api/beheer-urencodes")
@@ -331,7 +348,7 @@ function Urencodes({ onFout }) {
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
             <thead><tr style={{ background: "#FBFBF9" }}><th style={th}>Naam</th><th style={th}>Categorie</th><th style={th}>Actief</th><th style={{ ...th, width: 1 }}></th></tr></thead>
             <tbody>
-              {codes.map((c) => (
+              {(toonAantal === Infinity ? codes : codes.slice(0, toonAantal)).map((c) => (
                 <tr key={c.id}>
                   <td style={td}><input defaultValue={c.naam} onBlur={(e) => { if (e.target.value.trim() && e.target.value !== c.naam) zet({ ...c, naam: e.target.value.trim() }); }} style={{ ...veld, width: 200 }} /></td>
                   <td style={td}>
@@ -347,6 +364,7 @@ function Urencodes({ onFout }) {
           </table>
         </div>
       )}
+      {codes && codes.length > 0 && <Paginatie totaal={codes.length} getoond={toonAantal === Infinity ? codes.length : Math.min(toonAantal, codes.length)} toonAantal={toonAantal} setToonAantal={setToonAantal} />}
     </div>
   );
 }
