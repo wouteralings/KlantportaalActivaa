@@ -4,7 +4,9 @@
  * facturatie/goedkeuring werkt. Opslag in Azure Blob (container portaalcontent, blob uren-codes.json)
  * — dit is beheerbare referentiedata, net als de herinneringsinstellingen.
  *
- * Eén code: { id, naam, categorie, actief, volgorde }.
+ * Eén code: { id, naam, categorie, actief, volgorde, teltDeclarabelMee }.
+ * teltDeclarabelMee (default true): telt deze code mee in de NOEMER van het declarabel-%? Codes als
+ * verlof, overuren en parttime-uren zet je op false zodat ze het declarabel-doel niet drukken.
  */
 const { BlobServiceClient } = require("@azure/storage-blob");
 const crypto = require("crypto");
@@ -55,12 +57,12 @@ async function zetCode(code) {
   if (code.id) {
     const i = lijst.findIndex((x) => x.id === code.id);
     if (i >= 0) {
-      lijst[i] = { ...lijst[i], naam: String(code.naam || "").trim(), categorie, actief: code.actief !== false, volgorde: code.volgorde != null ? Number(code.volgorde) : lijst[i].volgorde };
+      lijst[i] = { ...lijst[i], naam: String(code.naam || "").trim(), categorie, actief: code.actief !== false, teltDeclarabelMee: code.teltDeclarabelMee !== false, volgorde: code.volgorde != null ? Number(code.volgorde) : lijst[i].volgorde };
       await bewaar(lijst);
       return lijst[i];
     }
   }
-  const nieuw = { id: crypto.randomUUID(), naam: String(code.naam || "").trim(), categorie, actief: code.actief !== false, volgorde: code.volgorde != null ? Number(code.volgorde) : lijst.length };
+  const nieuw = { id: crypto.randomUUID(), naam: String(code.naam || "").trim(), categorie, actief: code.actief !== false, teltDeclarabelMee: code.teltDeclarabelMee !== false, volgorde: code.volgorde != null ? Number(code.volgorde) : lijst.length };
   lijst.push(nieuw);
   await bewaar(lijst);
   return nieuw;

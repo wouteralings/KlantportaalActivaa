@@ -8,6 +8,12 @@
  * is app-configuratie, geen urendata.
  */
 const { haalDynamicsToken } = require("./identiteit");
+const vasteUrenStore = require("./vasteUrenStore");
+const urencodesStore = require("./urencodesStore");
+
+// Iedere medewerker moet per week op precies dit aantal uren uitkomen voordat de weekstaat ingediend
+// mag worden (parttimers vullen aan met hun vaste uren).
+const WEEK_UREN_EIS = 40;
 
 const P = "cr283";
 const FV = "@OData.Community.Display.V1.FormattedValue";
@@ -106,6 +112,7 @@ function boekingNaarBuiten(r) {
     managerNaam: r[`${P}_managernaam`] || "",
     goedkeurderNaam: r[`${P}_goedkeurdernaam`] || "",
     urencode: r[`${P}_urencode`] || "",
+    vast: !!r[`${P}_vast`],
     omschrijving: r[`${P}_omschrijving`] || "",
     uren: n(r[`${P}_uren`]) || 0,
     tariefSoort: r[`${P}_tariefsoort`] || "",
@@ -202,7 +209,7 @@ async function boekingSelect() {
     `${P}_declarabel`, `${P}_omschrijving`, `${P}_uren`, `${P}_tariefsoort`, `${P}_tariefbedrag`, `${P}_status`,
     `${P}_goedgekeurdeuren`, `${P}_afboekuren`, `${P}_afboekreden`, `${P}_extrabedrag`, `${P}_extrareden`,
     `${P}_gecontroleerddoor`, `${P}_gecontroleerdop`, `${P}_gefactureerd`, `${P}_exactfactuur`, `${P}_exactstatus`,
-    `${P}_managernaam`, `${P}_goedkeurdernaam`, `${P}_urencode`, CLIENT_VALUE,
+    `${P}_managernaam`, `${P}_goedkeurdernaam`, `${P}_urencode`, `${P}_vast`, CLIENT_VALUE,
   ].join(",");
 }
 async function haalBoekingen(resource, token, filter, orderby) {
@@ -243,7 +250,7 @@ async function boekingenVanMedewerker(email, { vanaf, tot } = {}) {
   return haalBoekingen(resource, token, f, `${P}_datum desc`);
 }
 
-async function maakBoeking({ email, naam, datum, soort, accountId, omschrijving, uren, tariefSoort, urencode }, klantMeta) {
+async function maakBoeking({ email, naam, datum, soort, accountId, omschrijving, uren, tariefSoort, urencode, vast }, klantMeta) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   const token = await haalDynamicsToken();
   const set = await entitySet(resource, token, BOEKING);
@@ -267,6 +274,7 @@ async function maakBoeking({ email, naam, datum, soort, accountId, omschrijving,
     [`${P}_managernaam`]: decl ? (klantMeta?.managerNaam || null) : null,
     [`${P}_goedkeurdernaam`]: goedkeurder,
     [`${P}_urencode`]: urencode ?? null,
+    [`${P}_vast`]: !!vast,
   };
   if (decl && accountId) body[`${P}_Client@odata.bind`] = `/accounts(${accountId})`;
   const suId = await haalSystemuserId(resource, token, email);
@@ -283,6 +291,7 @@ async function werkBoekingBij(id, email, velden, klantMeta) {
   const huidig = await haalBoekingRuw(resource, token, id);
   if (!huidig) return { fout: "NIET_GEVONDEN" };
   if ((huidig[`${P}_medewerkeremail`] || "").toLowerCase() !== String(email).toLowerCase()) return { fout: "NIET_GEVONDEN" };
+  if (huidig[`${P}_vast`]) return { fout: "VAST" };
   if (!isConcept(huidig[`${P}_status`])) return { fout: "AL_GECONTROLEERD" };
 
   const nieuwSoort = velden.soort ?? huidig[`${P}_soort`];
@@ -321,6 +330,7 @@ async function verwijderBoeking(id, email) {
   const huidig = await haalBoekingRuw(resource, token, id);
   if (!huidig) return false;
   if ((huidig[`${P}_medewerkeremail`] || "").toLowerCase() !== String(email).toLowerCase()) return false;
+  if (huidig[`${P}_vast`]) return false; // vaste uren zijn door beheer vastgezet
   if (!isConcept(huidig[`${P}_status`])) return false;
   const res = await fetch(`${resource}/api/data/v9.2/${set}(${id})`, { method: "DELETE", headers: schrijfHeaders(token, false) });
   return res.ok;
@@ -355,16 +365,80 @@ async function zetStatus(resource, token, set, id, status, door) {
   return res.ok;
 }
 
-/** Medewerker dient zijn weekstaat in: alle concept-boekingen van die week → 'ingediend'. */
+/**
+ * De vaste (contract)uren van een medewerker, omgezet naar concrete dag-slots binnen één week.
+ * Elke slot verwijst naar een urencode; de categorie van die code bepaalt de soort.
+ */
+async function vasteUrenSlots(email, weekStart) {
+  const [slots, codes] = await Promise.all([
+    vasteUrenStore.haalVoor(email).catch(() => []),
+    urencodesStore.haalCodes().catch(() => []),
+  ]);
+  const catVan = new Map((codes || []).map((c) => [c.naam, c.categorie]));
+  return (slots || []).map((s) => {
+    const datum = new Date(new Date(weekStart + "T00:00:00Z").getTime() + (s.weekdag - 1) * 86400000).toISOString().slice(0, 10);
+    return { slotId: s.id, datum, weekdag: s.weekdag, urencode: s.urencode, uren: s.uren, soort: catVan.get(s.urencode) || "kantoor" };
+  });
+}
+
+/** Virtuele vaste-uren-boekingen voor de week: de slots die nog niet als echte boeking bestaan. */
+async function vasteUrenVirtueel(email, weekStart, bestaandeBoekingen) {
+  const slots = await vasteUrenSlots(email, weekStart);
+  const bestaat = (s) => (bestaandeBoekingen || []).some((b) => b.vast && b.datum === s.datum && (b.urencode || "") === s.urencode);
+  return slots.filter((s) => !bestaat(s)).map((s) => ({
+    id: `vast:${s.slotId}:${s.datum}`, datum: s.datum, weekStart, soort: s.soort, urencode: s.urencode,
+    uren: s.uren, declarabel: isDeclarabel(s.soort), vast: true, virtueel: true, status: "concept", omschrijving: "",
+  }));
+}
+
+/**
+ * Medewerker dient zijn weekstaat in. Eerst worden de vaste (contract)uren als echte boekingen
+ * vastgelegd; daarna moet de week op precies WEEK_UREN_EIS (40) uur uitkomen; pas dan gaan alle
+ * concept-boekingen → 'ingediend'.
+ */
 async function dienWeekIn(email, weekStart) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   const token = await haalDynamicsToken();
   const set = await entitySet(resource, token, BOEKING);
-  const boekingen = await boekingenInWeek(resource, token, email, weekStart);
+
+  // 1) Vaste uren materialiseren (alleen wat nog niet bestaat).
+  const slots = await vasteUrenSlots(email, weekStart);
+  let boekingen = await boekingenInWeek(resource, token, email, weekStart);
+  if (slots.length) {
+    const naam = boekingen[0]?.medewerkerNaam || (tariefNaarBuiten(await haalTariefRij(resource, token, email))?.medewerker_naam) || "";
+    for (const s of slots) {
+      const bestaat = boekingen.some((b) => b.vast && b.datum === s.datum && (b.urencode || "") === s.urencode);
+      if (!bestaat) await maakBoeking({ email, naam, datum: s.datum, soort: s.soort, omschrijving: null, uren: s.uren, urencode: s.urencode, vast: true });
+    }
+    boekingen = await boekingenInWeek(resource, token, email, weekStart);
+  }
+
+  // 2) 40-uur-eis: de week moet precies kloppen.
+  const urenTotaal = Math.round(boekingen.reduce((sum, b) => sum + (b.uren || 0), 0) * 100) / 100;
+  if (Math.abs(urenTotaal - WEEK_UREN_EIS) > 0.001) return { fout: "NIET_COMPLEET", urenTotaal, eis: WEEK_UREN_EIS };
+
+  // 3) Indienen.
   const teDoen = boekingen.filter((b) => b.status === "concept");
+  if (teDoen.length === 0) return { fout: "GEEN_CONCEPT", urenTotaal };
   let aantal = 0;
   for (const b of teDoen) { if (await zetStatus(resource, token, set, b.id, "ingediend")) aantal++; }
-  return { aantal, totaal: boekingen.length };
+  return { aantal, totaal: boekingen.length, urenTotaal };
+}
+
+/** Beheerder verwijdert een hele weekstaat (alle boekingen van die medewerker+week). Reeds
+ *  gefactureerde boekingen blijven staan (factuurintegriteit). */
+async function verwijderWeek(medewerkerEmail, weekStart) {
+  const resource = process.env.DYNAMICS_RESOURCE_URL;
+  const token = await haalDynamicsToken();
+  const set = await entitySet(resource, token, BOEKING);
+  const boekingen = await boekingenInWeek(resource, token, medewerkerEmail, weekStart);
+  let verwijderd = 0, overgeslagen = 0;
+  for (const b of boekingen) {
+    if (b.gefactureerd || b.status === "gefactureerd") { overgeslagen++; continue; }
+    const res = await fetch(`${resource}/api/data/v9.2/${set}(${b.id})`, { method: "DELETE", headers: schrijfHeaders(token, false) });
+    if (res.ok) verwijderd++;
+  }
+  return { verwijderd, overgeslagen };
 }
 
 /**
@@ -518,13 +592,18 @@ async function rapportageDeclarabel({ vanaf, tot }) {
   if (tot) f += `${f ? " and " : ""}${P}_datum le ${tot}`;
   const boekingen = await haalBoekingen(resource, token, f || null, `${P}_datum asc`);
   const tarieven = await lijstTarieven();
+  const codes = await urencodesStore.haalCodes().catch(() => []);
+  // Codes die NIET meetellen in de noemer van het declarabel-% (verlof, overuren, parttime, …).
+  const teltNietMee = new Set((codes || []).filter((c) => c.teltDeclarabelMee === false).map((c) => c.naam));
   const doelVan = new Map(tarieven.map((t) => [String(t.medewerker_email).toLowerCase(), t.declarabel_doel]));
   const per = new Map();
   for (const b of boekingen) {
     const key = (b.medewerkerEmail || "?").toLowerCase();
-    if (!per.has(key)) per.set(key, { email: b.medewerkerEmail, naam: b.medewerkerNaam || b.medewerkerEmail, totaal: 0, declarabelUren: 0, openUren: 0, goedgekeurdUren: 0, abonnement: 0, uxt: 0, indirect: 0, kantoor: 0 });
+    if (!per.has(key)) per.set(key, { email: b.medewerkerEmail, naam: b.medewerkerNaam || b.medewerkerEmail, totaal: 0, basis: 0, declarabelUren: 0, openUren: 0, goedgekeurdUren: 0, abonnement: 0, uxt: 0, indirect: 0, kantoor: 0 });
     const r = per.get(key);
+    const meetelt = !(b.urencode && teltNietMee.has(b.urencode));
     r.totaal += b.uren;
+    if (meetelt) r.basis += b.uren;                 // noemer voor het declarabel-%
     if (b.declarabel) r.declarabelUren += b.uren;
     // "Niet goedgekeurd" = nog concept of ingediend (leidinggevende heeft de week nog niet goedgekeurd).
     if (b.status === "goedgekeurd" || b.status === "gefactureerd") r.goedgekeurdUren += b.uren; else r.openUren += b.uren;
@@ -532,7 +611,7 @@ async function rapportageDeclarabel({ vanaf, tot }) {
   }
   return [...per.values()].map((r) => ({
     ...r,
-    declarabelPct: r.totaal ? Math.round((r.declarabelUren / r.totaal) * 1000) / 10 : 0,
+    declarabelPct: r.basis ? Math.round((r.declarabelUren / r.basis) * 1000) / 10 : 0,
     doel: doelVan.get((r.email || "").toLowerCase()) == null ? null : Number(doelVan.get((r.email || "").toLowerCase())),
   })).sort((a, b) => (a.naam || "").localeCompare(b.naam || ""));
 }
@@ -552,11 +631,12 @@ async function medewerkersOnderMinuren(weekStart, minuren) {
 }
 
 module.exports = {
-  SOORTEN, DECLARABELE_SOORTEN, isDeclarabel, TARIEF_SOORTEN, maandagVan, maandVan, boekingWaarde,
+  SOORTEN, DECLARABELE_SOORTEN, isDeclarabel, TARIEF_SOORTEN, WEEK_UREN_EIS, maandagVan, maandVan, boekingWaarde,
   haalKlantMeta,
   haalTarief, lijstTarieven, zetTarief,
   boekingenVanMedewerker, maakBoeking, werkBoekingBij, verwijderBoeking,
-  dienWeekIn, weekstatenVoorLeidinggevende, keurWeekGoed, keurWeekAf,
+  vasteUrenSlots, vasteUrenVirtueel,
+  dienWeekIn, weekstatenVoorLeidinggevende, keurWeekGoed, keurWeekAf, verwijderWeek,
   boekingenVoorControle, controleActie,
   ohwEnFacturatie, markeerGefactureerd, markeerExact, uxtTeExporteren,
   rapportageDeclarabel, medewerkersOnderMinuren,

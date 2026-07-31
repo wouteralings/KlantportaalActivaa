@@ -74,6 +74,8 @@ function Schrijven() {
   const [boekingen, setBoekingen] = useState(null); // null = laden
   const [tarief, setTarief] = useState(null);
   const [codes, setCodes] = useState([]);
+  const [vasteUren, setVasteUren] = useState([]); // virtuele vaste (contract)uren voor deze week
+  const [weekEis, setWeekEis] = useState(40);
   const [fout, setFout] = useState("");
   const [form, setForm] = useState({ ...LEEG, datum: vandaagIso() });
   const [bezig, setBezig] = useState(false);
@@ -84,7 +86,7 @@ function Schrijven() {
     setBoekingen(null); setFout("");
     fetch(`/api/mw-uren-boekingen?vanaf=${weekStart}&tot=${weekEinde}`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { setBoekingen(d.boekingen || []); setTarief(d.tarief || null); setCodes(d.urencodes || []); })
+      .then((d) => { setBoekingen(d.boekingen || []); setTarief(d.tarief || null); setCodes(d.urencodes || []); setVasteUren(d.vasteUren || []); setWeekEis(d.weekUrenEis || 40); })
       .catch(() => { setBoekingen([]); setFout("Kon je uren niet laden. Controleer of de database-koppeling is ingesteld."); });
   }, [weekStart, weekEinde]);
   useEffect(() => { laad(); }, [laad]);
@@ -151,18 +153,29 @@ function Schrijven() {
     finally { setBezig(false); }
   };
 
+  // Codes die niet meetellen in de noemer van het declarabel-% (verlof/overuren/parttime).
+  const nietMeetellend = useMemo(() => new Set((codes || []).filter((c) => c.teltDeclarabelMee === false).map((c) => c.naam)), [codes]);
+  // Echte boekingen + virtuele vaste uren samen (vaste uren tellen mee voor totaal en de 40u-eis).
+  const alleRijen = useMemo(() => ([...(boekingen || []), ...(vasteUren || [])]), [boekingen, vasteUren]);
+
   const perDag = useMemo(() => {
     const map = {};
     for (let i = 0; i < 7; i++) map[voegDagenToe(weekStart, i)] = [];
-    (boekingen || []).forEach((b) => { if (map[b.datum]) map[b.datum].push(b); });
+    alleRijen.forEach((b) => { if (map[b.datum]) map[b.datum].push(b); });
     return map;
-  }, [boekingen, weekStart]);
+  }, [alleRijen, weekStart]);
 
   const totalen = useMemo(() => {
-    let totaal = 0, declU = 0, indU = 0;
-    (boekingen || []).forEach((b) => { totaal += b.uren; if (b.declarabel) declU += b.uren; else indU += b.uren; });
-    return { totaal, declU, indU, pct: totaal ? Math.round((declU / totaal) * 1000) / 10 : 0 };
-  }, [boekingen]);
+    let totaal = 0, declU = 0, indU = 0, basis = 0;
+    alleRijen.forEach((b) => {
+      totaal += b.uren; if (b.declarabel) declU += b.uren; else indU += b.uren;
+      if (!(b.urencode && nietMeetellend.has(b.urencode))) basis += b.uren;
+    });
+    return { totaal, declU, indU, basis, pct: basis ? Math.round((declU / basis) * 1000) / 10 : 0 };
+  }, [alleRijen, nietMeetellend]);
+
+  const weekCompleet = Math.abs(totalen.totaal - weekEis) < 0.001;
+  const heeftInTeDienen = heeftConcept || (vasteUren || []).length > 0;
 
   const decl = isDeclarabel(form.soort);
   const dezeWeek = () => setWeekStart(maandagVan(vandaagIso()));
@@ -197,8 +210,13 @@ function Schrijven() {
             Weekstaat: {STATUS_LABEL[weekStatus] || weekStatus}
           </span>
           {tarief && tarief.deadlineWeekdag ? <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>Deadline: uiterlijk {WEEKDAG_VOL[(tarief.deadlineWeekdag - 1)] || "?"}</span> : null}
-          {heeftConcept && !weekVergrendeld && (
-            <button onClick={dienIn} disabled={bezig} style={{ ...knopStijl(true), padding: "7px 12px", marginLeft: "auto" }}>
+          {!weekVergrendeld && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: weekCompleet ? "#E7F2EA" : "#FBF3E4", color: weekCompleet ? KLEUR.groen : KLEUR.goud }}>
+              {weekCompleet ? <Check size={12} /> : null}{uur(totalen.totaal)} / {weekEis} u
+            </span>
+          )}
+          {heeftInTeDienen && !weekVergrendeld && (
+            <button onClick={dienIn} disabled={bezig || !weekCompleet} title={weekCompleet ? "Weekstaat indienen bij je leidinggevende" : `Je week moet op precies ${weekEis} uur uitkomen voordat je 'm kunt indienen`} style={{ ...knopStijl(true), padding: "7px 12px", marginLeft: "auto", opacity: weekCompleet ? 1 : 0.55, cursor: weekCompleet ? "pointer" : "not-allowed" }}>
               {bezig ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : <Send size={13} />} Week indienen
             </button>
           )}
@@ -314,7 +332,9 @@ function Schrijven() {
                           {b.declarabel && b.tariefSoort && <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>Tarief {b.tariefSoort}{b.tariefBedrag != null ? ` · ${euro(b.tariefBedrag)}/u` : ""}</div>}
                         </div>
                         <div style={{ fontSize: 12.5, fontWeight: 700, minWidth: 52, textAlign: "right" }}>{uur(b.uren)} u</div>
-                        {b.status === "concept" ? (
+                        {b.vast ? (
+                          <span title="Vaste (contract)uren — door beheer vastgezet, niet zelf te wijzigen" style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10.5, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 999, padding: "2px 8px" }}><Lock size={11} /> Vast</span>
+                        ) : b.status === "concept" ? (
                           <div style={{ display: "flex", gap: 4 }}>
                             <button onClick={() => bewerk(b)} title="Bewerken" style={ikoonKnop}><Pencil size={13} color={KLEUR.subtekst} /></button>
                             <button onClick={() => verwijder(b)} title="Verwijderen" style={ikoonKnop}><Trash2 size={13} color={KLEUR.rood} /></button>

@@ -24,7 +24,7 @@ module.exports = async function (context, req) {
     if (methode === "POST" || methode === "PATCH") {
       const b = req.body || {};
       if (!b.naam || !String(b.naam).trim()) return json(context, 400, { error: "Geef een naam voor de urencode." });
-      const opgeslagen = await codes.zetCode({ id: b.id, naam: b.naam, categorie: b.categorie, actief: b.actief, volgorde: b.volgorde });
+      const opgeslagen = await codes.zetCode({ id: b.id, naam: b.naam, categorie: b.categorie, actief: b.actief, volgorde: b.volgorde, teltDeclarabelMee: b.teltDeclarabelMee });
       return json(context, 200, { ok: true, code: opgeslagen });
     }
     if (methode === "DELETE") {

@@ -51,9 +51,21 @@ module.exports = async function (context, req) {
     if (methode === "POST" || methode === "PATCH") {
       const b = req.body || {};
       if (!b.medewerkerEmail || !b.weekStart) return json(context, 400, { error: "Geef medewerkerEmail en weekStart mee." });
-      if (b.actie === "afkeuren") {
+      // Openzetten (= afkeuren): de leidinggevende zet een ingediende weekstaat terug naar concept
+      // zodat de medewerker 'm kan aanpassen. Werkt alleen op 'ingediend' — een al goedgekeurde week
+      // kan niet meer worden opengezet.
+      if (b.actie === "openzetten" || b.actie === "afkeuren") {
         const r = await uren.keurWeekAf(b.medewerkerEmail, b.weekStart);
-        return json(context, 200, { ok: true, afgekeurd: r.aantal });
+        if (r.aantal === 0) return json(context, 409, { error: "Deze weekstaat staat niet (meer) op ingediend en kan niet worden opengezet." });
+        await logGebeurtenis({ door: email, actie: "weekopenzetten", tekst: `Weekstaat ${b.weekStart} van ${b.medewerkerEmail} teruggezet naar concept (${r.aantal} boekingen).` }).catch(() => {});
+        return json(context, 200, { ok: true, opengezet: r.aantal });
+      }
+      // Verwijderen: alleen beheerder mag een hele weekstaat verwijderen.
+      if (b.actie === "verwijderen") {
+        if (!isBeheerder) return json(context, 403, { error: "Alleen een beheerder kan een weekstaat verwijderen." });
+        const r = await uren.verwijderWeek(b.medewerkerEmail, b.weekStart);
+        await logGebeurtenis({ door: email, actie: "weekverwijderen", tekst: `Weekstaat ${b.weekStart} van ${b.medewerkerEmail} verwijderd (${r.verwijderd} boekingen${r.overgeslagen ? `, ${r.overgeslagen} overgeslagen omdat ze al gefactureerd waren` : ""}).` }).catch(() => {});
+        return json(context, 200, { ok: true, ...r });
       }
       // Standaard: goedkeuren.
       const r = await uren.keurWeekGoed(b.medewerkerEmail, b.weekStart, naam || email);

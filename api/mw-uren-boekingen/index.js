@@ -52,8 +52,14 @@ module.exports = async function (context, req) {
         uren.haalTarief(email),
         urencodes.haalCodes().catch(() => []),
       ]);
+      // Vaste (contract)uren voor deze week: virtuele boekingen die nog niet zijn vastgelegd. Alleen
+      // relevant als er een volledige week wordt opgevraagd (Schrijven vraagt precies één week op).
+      let vasteUren = [];
+      if (vanaf && tot) { try { vasteUren = await uren.vasteUrenVirtueel(email, uren.maandagVan(vanaf), boekingen); } catch { vasteUren = []; } }
       return json(context, 200, {
         boekingen,
+        vasteUren,
+        weekUrenEis: uren.WEEK_UREN_EIS,
         soorten: uren.SOORTEN,
         urencodes: (codes || []).filter((c) => c.actief !== false),
         tarief: tarief ? {
@@ -73,7 +79,11 @@ module.exports = async function (context, req) {
       if (b.actie === "indienen") {
         if (!b.weekStart || !/^\d{4}-\d{2}-\d{2}$/.test(b.weekStart)) return json(context, 400, { error: "Geef een geldige weekStart (maandag) mee." });
         const r = await uren.dienWeekIn(email, b.weekStart);
-        if (r.aantal === 0) return json(context, 409, { error: "Er zijn geen in te dienen (concept) boekingen in deze week." });
+        if (r.fout === "NIET_COMPLEET") {
+          const u = Number(r.urenTotaal || 0).toLocaleString("nl-NL", { maximumFractionDigits: 2 });
+          return json(context, 409, { error: `Je weekstaat telt nu ${u} uur. Insturen kan pas bij precies ${r.eis} uur — vul aan of pas je uren aan.`, urenTotaal: r.urenTotaal, eis: r.eis });
+        }
+        if (r.fout === "GEEN_CONCEPT") return json(context, 409, { error: "Er zijn geen in te dienen (concept) boekingen in deze week." });
         return json(context, 200, { ok: true, ...r });
       }
 
@@ -117,6 +127,7 @@ module.exports = async function (context, req) {
         omschrijving: b.omschrijving, uren: b.uren !== undefined ? Number(b.uren) : undefined, tariefSoort: b.tariefSoort,
       }, klantMeta);
       if (res.fout === "NIET_GEVONDEN") return json(context, 404, { error: "Boeking niet gevonden." });
+      if (res.fout === "VAST") return json(context, 409, { error: "Dit zijn vaste (contract)uren die door beheer zijn vastgezet; die kun je niet zelf wijzigen." });
       if (res.fout === "AL_GECONTROLEERD") return json(context, 409, { error: "Deze boeking is al gecontroleerd en kan niet meer worden gewijzigd." });
       return json(context, 200, { ok: true, boeking: res.boeking });
     }

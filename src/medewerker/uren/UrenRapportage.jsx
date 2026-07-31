@@ -27,8 +27,8 @@ export default function UrenRapportage() {
   const ditJaar = () => { setVanaf(`${nu.getUTCFullYear()}-01-01`); setTot(`${nu.getUTCFullYear()}-12-31`); };
   const dezeMaand = () => { setVanaf(eersteVanMaand); setTot(laatsteVanMaand); };
 
-  const totaalAlle = (rijen || []).reduce((a, r) => { a.totaal += r.totaal; a.decl += r.declarabelUren; a.open += (r.openUren || 0); return a; }, { totaal: 0, decl: 0, open: 0 });
-  const pctAlle = totaalAlle.totaal ? Math.round((totaalAlle.decl / totaalAlle.totaal) * 1000) / 10 : 0;
+  const totaalAlle = (rijen || []).reduce((a, r) => { a.totaal += r.totaal; a.basis += (r.basis != null ? r.basis : r.totaal); a.decl += r.declarabelUren; a.open += (r.openUren || 0); return a; }, { totaal: 0, basis: 0, decl: 0, open: 0 });
+  const pctAlle = totaalAlle.basis ? Math.round((totaalAlle.decl / totaalAlle.basis) * 1000) / 10 : 0;
   const metOpen = (rijen || []).filter((r) => (r.openUren || 0) > 0);
 
   return (
@@ -111,7 +111,7 @@ export default function UrenRapportage() {
         </div>
       )}
       <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 10 }}>
-        Declarabel-% = (abonnement + UXT) ÷ totaal, over álle geschreven uren. De kolom "Niet goedgekeurd" toont de nog te controleren uren. (Voor onderhanden werk en facturatie tellen alléén goedgekeurde uren mee.) Het doel per medewerker stel je in bij Beheer → Uren.
+        Declarabel-% = (abonnement + UXT) ÷ de meetellende uren. Codes die je bij Beheer → Uren op "telt niet mee" hebt gezet (bijv. verlof, overuren, parttime) laat je buiten de noemer. De kolom "Niet goedgekeurd" toont de nog te controleren uren. (Voor onderhanden werk en facturatie tellen alléén goedgekeurde uren mee.) Het doel per medewerker stel je in bij Beheer → Uren.
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ClipboardCheck, CheckCircle2, XCircle, Loader2, RefreshCw, Users, User, ChevronDown, Info } from "lucide-react";
+import { ClipboardCheck, CheckCircle2, Loader2, RefreshCw, Users, User, ChevronDown, Info, RotateCcw, Trash2 } from "lucide-react";
 import { KLEUR, uur, datumNL, voegDagenToe, SoortBadge, knopStijl, th, td } from "./urenGedeeld";
 
 /**
@@ -14,6 +14,7 @@ export default function UrenGoedkeuren({ isBeheerder, onGewijzigd }) {
   const [fout, setFout] = useState("");
   const [bezig, setBezig] = useState("");
   const [open, setOpen] = useState("");
+  const [bevestigWeg, setBevestigWeg] = useState(""); // sleutel van de weekstaat die op verwijder-bevestiging wacht
 
   const laad = useCallback(() => {
     setData(null); setFout("");
@@ -32,6 +33,7 @@ export default function UrenGoedkeuren({ isBeheerder, onGewijzigd }) {
       const res = await fetch("/api/mw-uren-weekstaten", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: actieNaam, medewerkerEmail: w.medewerkerEmail, weekStart: w.weekStart }) });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+      setBevestigWeg("");
       laad(); if (onGewijzigd) onGewijzigd();
     } catch (e) { setFout(String(e.message || e)); }
     finally { setBezig(""); }
@@ -81,8 +83,17 @@ export default function UrenGoedkeuren({ isBeheerder, onGewijzigd }) {
                       <div style={{ fontSize: 11.5, color: KLEUR.subtekst }}>Week {datumNL(w.weekStart)} – {datumNL(voegDagenToe(w.weekStart, 6))} · {uur(w.totaal)} u ({uur(w.declarabel)} u declarabel)</div>
                     </div>
                   </div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={() => actie(w, "afkeuren")} disabled={bezig === sleutel} style={{ ...knopStijl(false), padding: "7px 11px", color: KLEUR.rood, borderColor: "#E7C9C9" }}><XCircle size={13} /> Afkeuren</button>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    {isBeheerder && (bevestigWeg === sleutel ? (
+                      <>
+                        <span style={{ fontSize: 11.5, color: KLEUR.rood }}>Zeker weten?</span>
+                        <button onClick={() => actie(w, "verwijderen")} disabled={bezig === sleutel} style={{ ...knopStijl(false), padding: "7px 11px", color: "#fff", background: KLEUR.rood, borderColor: KLEUR.rood }}>{bezig === sleutel ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : <Trash2 size={13} />} Verwijder</button>
+                        <button onClick={() => setBevestigWeg("")} disabled={bezig === sleutel} style={{ ...knopStijl(false), padding: "7px 10px" }}>Annuleer</button>
+                      </>
+                    ) : (
+                      <button onClick={() => setBevestigWeg(sleutel)} disabled={bezig === sleutel} title="Hele weekstaat verwijderen (beheerder)" style={{ ...knopStijl(false), padding: "7px 10px", color: KLEUR.rood, borderColor: "#E7C9C9" }}><Trash2 size={13} /></button>
+                    ))}
+                    <button onClick={() => actie(w, "openzetten")} disabled={bezig === sleutel} title="Terugzetten naar concept zodat de medewerker 'm kan aanpassen" style={{ ...knopStijl(false), padding: "7px 11px", color: KLEUR.goud, borderColor: "#E6D6BC" }}><RotateCcw size={13} /> Openzetten</button>
                     <button onClick={() => actie(w, "goedkeuren")} disabled={bezig === sleutel} style={{ ...knopStijl(true), padding: "7px 12px" }}>{bezig === sleutel ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : <CheckCircle2 size={13} />} Goedkeuren</button>
                   </div>
                 </div>

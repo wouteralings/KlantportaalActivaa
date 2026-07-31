@@ -29,6 +29,7 @@ function Paginatie({ totaal, getoond, toonAantal, setToonAantal }) {
 export default function UrenTarievenBeheer() {
   const [medewerkers, setMedewerkers] = useState(null);
   const [instellingen, setInstellingen] = useState(null);
+  const [vasteUren, setVasteUren] = useState({});
   const [fout, setFout] = useState("");
   const [zoek, setZoek] = useState("");
   const [toonAantal, setToonAantal] = useState(50);
@@ -37,7 +38,7 @@ export default function UrenTarievenBeheer() {
     setMedewerkers(null); setFout("");
     fetch("/api/beheer-uren-tarieven")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { setMedewerkers(d.medewerkers || []); setInstellingen(d.instellingen || null); })
+      .then((d) => { setMedewerkers(d.medewerkers || []); setInstellingen(d.instellingen || null); setVasteUren(d.vasteUren || {}); })
       .catch(() => { setMedewerkers([]); setFout("Kon het tariefbeheer niet laden. Controleer of de database-koppeling is ingesteld."); });
   };
   useEffect(() => { laad(); }, []);
@@ -89,6 +90,8 @@ export default function UrenTarievenBeheer() {
         </div>
       )}
       {medewerkers && gefilterd.length > 0 && <div style={{ marginBottom: 24 }}><Paginatie totaal={gefilterd.length} getoond={zichtbaar.length} toonAantal={toonAantal} setToonAantal={setToonAantal} /></div>}
+
+      {medewerkers && <VasteUren medewerkers={medewerkers} vasteUrenMap={vasteUren} onFout={setFout} onOpgeslagen={laad} />}
 
       {instellingen && <Herinneringen begin={instellingen} onFout={setFout} />}
     </div>
@@ -279,6 +282,118 @@ const lbl = { fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTran
 
 const CAT_LABEL = { abonnement: "Abonnement", uxt: "UXT", indirect: "Indirect", kantoor: "Kantoor" };
 
+/**
+ * Vaste (contract)uren per medewerker. De beheerder kiest een medewerker en legt vast welke uren elke
+ * week automatisch klaarstaan (urencode + weekdag + uren) — bijvoorbeeld parttime-uren of een vaste
+ * vrije dag — zodat de medewerker altijd op 40 uur uitkomt. De medewerker ziet deze uren, maar kan ze
+ * niet zelf wijzigen. Alleen niet-declarabele codes (indirect/kantoor) zijn beschikbaar.
+ */
+function VasteUren({ medewerkers, vasteUrenMap, onFout, onOpgeslagen }) {
+  const [gekozen, setGekozen] = useState("");
+  const [slots, setSlots] = useState([]);
+  const [codes, setCodes] = useState([]);
+  const [bezig, setBezig] = useState(false);
+  const [ok, setOk] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/beheer-urencodes").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => setCodes((d.codes || []).filter((c) => c.actief !== false))).catch(() => setCodes([]));
+  }, []);
+
+  useEffect(() => {
+    if (!gekozen) { setSlots([]); return; }
+    const bestaand = (vasteUrenMap && vasteUrenMap[gekozen.toLowerCase()]) || [];
+    setSlots(bestaand.map((s) => ({ urencode: s.urencode || "", weekdag: s.weekdag || 5, uren: s.uren != null ? String(s.uren) : "" })));
+    setOk(false);
+  }, [gekozen, vasteUrenMap]);
+
+  const nonDecl = codes.filter((c) => c.categorie === "indirect" || c.categorie === "kantoor");
+  const gekozenNaam = (medewerkers || []).find((m) => m.email === gekozen)?.naam || gekozen;
+  const totaalUren = slots.reduce((s, r) => s + (Number(String(r.uren).replace(",", ".")) || 0), 0);
+
+  const voegToe = () => setSlots((s) => [...s, { urencode: nonDecl[0]?.naam || "", weekdag: 5, uren: "" }]);
+  const wijzig = (i, veld, waarde) => setSlots((s) => s.map((r, j) => (j === i ? { ...r, [veld]: waarde } : r)));
+  const verwijder = (i) => setSlots((s) => s.filter((_, j) => j !== i));
+
+  const opslaan = async () => {
+    if (!gekozen) return;
+    setBezig(true); setOk(false); onFout("");
+    try {
+      const schoon = slots
+        .map((r) => ({ urencode: r.urencode, weekdag: Number(r.weekdag), uren: Number(String(r.uren).replace(",", ".")) }))
+        .filter((r) => r.urencode && r.uren > 0);
+      const res = await fetch("/api/beheer-uren-tarieven", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "vaste_uren", email: gekozen, slots: schoon }) });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+      setOk(true); setTimeout(() => setOk(false), 1800);
+      if (onOpgeslagen) onOpgeslagen();
+    } catch (e) { onFout("Vaste uren opslaan mislukt: " + String(e.message || e)); }
+    finally { setBezig(false); }
+  };
+
+  return (
+    <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 16, marginBottom: 24, maxWidth: 720 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700, marginBottom: 4 }}><Clock size={16} color={KLEUR.blauw} /> Vaste uren per medewerker</div>
+      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 12 }}>
+        Leg per medewerker de uren vast die elke week automatisch klaarstaan (bijv. parttime-uren of een vaste vrije dag). Zo komt
+        iedereen op 40 uur uit. De medewerker ziet deze uren vergrendeld en kan ze niet zelf wijzigen. Alleen niet-declarabele codes.
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 14, maxWidth: 320 }}>
+        <span style={lbl}>Medewerker</span>
+        <select value={gekozen} onChange={(e) => setGekozen(e.target.value)} style={{ ...veld, width: "100%" }}>
+          <option value="">Kies een medewerker…</option>
+          {(medewerkers || []).filter((m) => m.email).map((m) => {
+            const heeft = ((vasteUrenMap && vasteUrenMap[m.email.toLowerCase()]) || []).length;
+            return <option key={m.email} value={m.email}>{m.naam}{heeft ? ` · ${heeft} vaste` : ""}</option>;
+          })}
+        </select>
+      </div>
+
+      {gekozen && (
+        <div>
+          {nonDecl.length === 0 && <div style={{ fontSize: 12, color: KLEUR.goud, marginBottom: 10 }}>Er zijn nog geen niet-declarabele urencodes (indirect/kantoor). Maak er hierboven eerst een aan, bijv. “Parttime” of “Verlof”.</div>}
+          {slots.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, marginBottom: 10 }}>Nog geen vaste uren voor {gekozenNaam}. Voeg een regel toe.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
+              {slots.map((r, i) => (
+                <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <span style={lbl}>Urencode</span>
+                    <select value={r.urencode} onChange={(e) => wijzig(i, "urencode", e.target.value)} style={{ ...veld, width: 200 }}>
+                      <option value="">Kies…</option>
+                      {nonDecl.map((c) => <option key={c.id} value={c.naam}>{c.naam} ({CAT_LABEL[c.categorie] || c.categorie})</option>)}
+                      {r.urencode && !nonDecl.some((c) => c.naam === r.urencode) && <option value={r.urencode}>{r.urencode}</option>}
+                    </select>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <span style={lbl}>Weekdag</span>
+                    <select value={r.weekdag} onChange={(e) => wijzig(i, "weekdag", e.target.value)} style={{ ...veld, width: 130 }}>
+                      {WEEKDAGEN.map(([n, l]) => <option key={n} value={n}>{l}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <span style={lbl}>Uren</span>
+                    <input value={r.uren} onChange={(e) => wijzig(i, "uren", e.target.value)} inputMode="decimal" placeholder="0" style={{ ...veld, width: 70 }} />
+                  </div>
+                  <button onClick={() => verwijder(i)} title="Regel verwijderen" style={{ display: "inline-flex", padding: 8, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, background: "#fff", cursor: "pointer" }}><Trash2 size={13} color={KLEUR.rood} /></button>
+                </div>
+              ))}
+              <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>Totaal vaste uren per week: <strong>{totaalUren.toLocaleString("nl-NL", { maximumFractionDigits: 2 })} u</strong></div>
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button onClick={voegToe} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", background: "#fff", color: KLEUR.blauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><Plus size={13} /> Regel toevoegen</button>
+            <button onClick={opslaan} disabled={bezig} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: ok ? KLEUR.groen : KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+              {bezig ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : ok ? <CheckCircle2 size={13} /> : <Save size={13} />} {ok ? "Opgeslagen" : "Vaste uren opslaan"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Urencodes({ onFout }) {
   const [codes, setCodes] = useState(null);
   const [categorieen, setCategorieen] = useState(["abonnement", "uxt", "indirect", "kantoor"]);
@@ -319,7 +434,8 @@ function Urencodes({ onFout }) {
       <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700, marginBottom: 4 }}><Tag size={16} color={KLEUR.blauw} /> Urencodes</div>
       <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 12, maxWidth: 720 }}>
         Codes waarop medewerkers uren schrijven (bijv. Verlof, Ziek, Opleiding, Reistijd, Jaarrekening). Elke code hoort bij één
-        categorie; die bepaalt of hij declarabel is en hoe de facturatie/goedkeuring werkt.
+        categorie; die bepaalt of hij declarabel is en hoe de facturatie/goedkeuring werkt. Zet <em>“Telt mee (declarabel-%)”</em>
+        uit voor codes die het declarabel-doel niet mogen drukken, zoals verlof, overuren en parttime-uren.
       </div>
 
       {/* Nieuwe code */}
@@ -346,7 +462,7 @@ function Urencodes({ onFout }) {
       ) : (
         <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
-            <thead><tr style={{ background: "#FBFBF9" }}><th style={th}>Naam</th><th style={th}>Categorie</th><th style={th}>Actief</th><th style={{ ...th, width: 1 }}></th></tr></thead>
+            <thead><tr style={{ background: "#FBFBF9" }}><th style={th}>Naam</th><th style={th}>Categorie</th><th style={th}>Telt mee (declarabel-%)</th><th style={th}>Actief</th><th style={{ ...th, width: 1 }}></th></tr></thead>
             <tbody>
               {(toonAantal === Infinity ? codes : codes.slice(0, toonAantal)).map((c) => (
                 <tr key={c.id}>
@@ -356,6 +472,7 @@ function Urencodes({ onFout }) {
                       {categorieen.map((cat) => <option key={cat} value={cat}>{CAT_LABEL[cat] || cat}</option>)}
                     </select>
                   </td>
+                  <td style={td}><label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }} title="Tellen deze uren mee in de noemer van het declarabel-%? Uit voor verlof/overuren/parttime."><input type="checkbox" checked={c.teltDeclarabelMee !== false} onChange={(e) => zet({ ...c, teltDeclarabelMee: e.target.checked })} /></label></td>
                   <td style={td}><input type="checkbox" checked={c.actief !== false} onChange={(e) => zet({ ...c, actief: e.target.checked })} /></td>
                   <td style={td}><button onClick={() => verwijder(c.id)} title="Verwijderen" style={{ display: "inline-flex", padding: 6, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, background: "#fff", cursor: "pointer" }}><Trash2 size={13} color={KLEUR.rood} /></button></td>
                 </tr>

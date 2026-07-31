@@ -13,6 +13,7 @@
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const uren = require("../_gedeeld/urenDataverse");
 const instellingenStore = require("../_gedeeld/urenInstellingenIntern");
+const vasteUrenStore = require("../_gedeeld/vasteUrenStore");
 
 function json(context, status, body) {
   context.res = { status, headers: { "Content-Type": "application/json" }, body };
@@ -52,10 +53,11 @@ module.exports = async function (context, req) {
 
   try {
     if (methode === "GET") {
-      const [medewerkers, tarieven, instellingen] = await Promise.all([
+      const [medewerkers, tarieven, instellingen, vasteUren] = await Promise.all([
         haalMedewerkers().catch(() => []),
         uren.lijstTarieven(),
         instellingenStore.haalInstellingen(),
+        vasteUrenStore.haalAlle().catch(() => ({})),
       ]);
       const tvan = new Map(tarieven.map((t) => [String(t.medewerker_email).toLowerCase(), t]));
       // Medewerkers uit Dynamics, aangevuld met eventueel losstaande tarief-rijen (voor het geval
@@ -70,7 +72,7 @@ module.exports = async function (context, req) {
         const e = String(t.medewerker_email).toLowerCase();
         if (!gezien.has(e)) rijen.push({ id: "", naam: t.medewerker_naam || e, email: e, functie: "", tarief: tariefUit(t) });
       }
-      return json(context, 200, { medewerkers: rijen, instellingen });
+      return json(context, 200, { medewerkers: rijen, instellingen, vasteUren: vasteUren || {} });
     }
 
     if (methode === "POST" || methode === "PATCH") {
@@ -84,6 +86,11 @@ module.exports = async function (context, req) {
           herinneringTekst: b.herinnering_tekst || "",
         });
         return json(context, 200, { ok: true, instellingen: opgeslagen });
+      }
+      if (b.actie === "vaste_uren") {
+        if (!b.email) return json(context, 400, { error: "Geef een e-mailadres mee." });
+        const opgeslagen = await vasteUrenStore.zetVoor(String(b.email).toLowerCase(), b.slots || []);
+        return json(context, 200, { ok: true, slots: opgeslagen });
       }
       // Standaard: tarief zetten.
       if (!b.email) return json(context, 400, { error: "Geef een e-mailadres mee." });

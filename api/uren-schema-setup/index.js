@@ -149,6 +149,7 @@ module.exports = async function (context, req) {
       [`${PREFIX}_managernaam`, Str(`${PREFIX}_Managernaam`, "Manager (snapshot)", 256)],
       [`${PREFIX}_goedkeurdernaam`, Str(`${PREFIX}_Goedkeurdernaam`, "Goedkeurder (snapshot)", 256)],
       [`${PREFIX}_urencode`, Str(`${PREFIX}_Urencode`, "Urencode", 100)],
+      [`${PREFIX}_vast`, Bool(`${PREFIX}_Vast`, "Vaste (contract)uren")],       // door beheer vastgezet, niet zelf te wijzigen
     ];
     for (const [logisch, meta] of boekingAttrs) stappen.push(await maakAttribuut(token, resource, B, logisch, meta));
 
