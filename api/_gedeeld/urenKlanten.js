@@ -13,14 +13,24 @@
  * factuur) — zie koppelUrenAanFactuur / ontkoppelUrenVanFactuur / reconcileerUrenVoorFactuur.
  * Een reeds gefactureerde registratie kan niet meer gewijzigd of verwijderd worden zolang ze aan
  * een document hangt (maak eerst dat document/concept los of verwijder het).
+ *
+ * UITBREIDING (migratie 009, Rittenregistratie-plan): optioneel project_id, gedeeld met de
+ * Rittenregistratie via dbo.projecten_klanten. klant_klant_id BLIJFT het leidende, verplichte
+ * veld — project_id is een extra, optionele tag die (indien meegegeven) moet horen bij dezelfde
+ * klant_klant_id. Of het projectveld in de UI zichtbaar is, wordt bepaald door de
+ * projectenGekoppeld-schakelaar (api/_gedeeld/projectenInstellingen.js, per account door de
+ * beheerder aan te zetten) — dat is bewust een front-end/toegangslaag-beslissing, deze
+ * data-laag blijft gewoon werken met of zonder een meegegeven projectId.
  */
 const { sql, haalPool } = require("./facturatieDb");
 const { haalKlant } = require("./klantenKlanten");
+const { haalProject } = require("./projectenKlanten");
 
 function naarBuiten(row) {
   return {
     id: row.id,
     klantKlantId: row.klant_klant_id,
+    projectId: row.project_id || null,
     artikelId: row.artikel_id || null,
     datum: row.datum,
     omschrijving: row.omschrijving || "",
@@ -33,10 +43,10 @@ function naarBuiten(row) {
 }
 
 /**
- * Uren van één klant-account, optioneel gefilterd op eindklant en op status.
+ * Uren van één klant-account, optioneel gefilterd op eindklant, project en op status.
  *   status: "open" (factuur_id IS NULL) | "gefactureerd" | "alle" (standaard)
  */
-async function haalUren(klantAccountId, { klantKlantId = "", status = "alle", zoek = "" } = {}) {
+async function haalUren(klantAccountId, { klantKlantId = "", projectId = "", status = "alle", zoek = "" } = {}) {
   const pool = await haalPool();
   const request = pool.request();
   request.input("klantAccountId", sql.UniqueIdentifier, klantAccountId);
@@ -44,6 +54,10 @@ async function haalUren(klantAccountId, { klantKlantId = "", status = "alle", zo
   if (klantKlantId) {
     request.input("klantKlantId", sql.UniqueIdentifier, klantKlantId);
     where += " AND klant_klant_id = @klantKlantId";
+  }
+  if (projectId) {
+    request.input("projectId", sql.UniqueIdentifier, projectId);
+    where += " AND project_id = @projectId";
   }
   if (status === "open") where += " AND factuur_id IS NULL";
   else if (status === "gefactureerd") where += " AND factuur_id IS NOT NULL";
@@ -76,10 +90,23 @@ function valideerAantal(waarde) {
   return Math.round(aantal * 100) / 100;
 }
 
+/** Als er een projectId is meegegeven: bestaat 'm, en hoort 'm bij dezelfde klantKlantId? Geeft
+ * het gevalideerde projectId terug (of null als er geen was). */
+async function valideerProject(klantAccountId, projectId, klantKlantId) {
+  if (!projectId) return null;
+  const project = await haalProject(klantAccountId, projectId);
+  if (!project) throw new Error("VALIDATIE: onbekend project (of hoort bij een ander account).");
+  if (project.klantKlantId !== klantKlantId) {
+    throw new Error("VALIDATIE: het gekozen project hoort niet bij de gekozen klant.");
+  }
+  return projectId;
+}
+
 async function maakUur(klantAccountId, data, email) {
   if (!data || !data.klantKlantId) throw new Error("VALIDATIE: kies een klant voor deze uren.");
   const klantKlant = await haalKlant(klantAccountId, data.klantKlantId);
   if (!klantKlant) throw new Error("VALIDATIE: onbekende klant (of hoort bij een ander account).");
+  const projectId = await valideerProject(klantAccountId, data.projectId || null, data.klantKlantId);
   const aantalUren = valideerAantal(data.aantalUren);
   const datum = data.datum ? new Date(data.datum) : new Date();
 
@@ -87,6 +114,7 @@ async function maakUur(klantAccountId, data, email) {
   const request = pool.request();
   request.input("klantAccountId", sql.UniqueIdentifier, klantAccountId);
   request.input("klantKlantId", sql.UniqueIdentifier, data.klantKlantId);
+  request.input("projectId", sql.UniqueIdentifier, projectId);
   request.input("artikelId", sql.UniqueIdentifier, data.artikelId || null);
   request.input("datum", sql.Date, datum);
   request.input("omschrijving", sql.NVarChar(500), data.omschrijving ? String(data.omschrijving).slice(0, 500) : null);
@@ -94,9 +122,9 @@ async function maakUur(klantAccountId, data, email) {
   request.input("email", sql.NVarChar(320), email || null);
   const result = await request.query(`
     INSERT INTO dbo.uren_klanten
-      (klant_account_id, klant_klant_id, artikel_id, datum, omschrijving, aantal_uren, aangemaakt_door)
+      (klant_account_id, klant_klant_id, project_id, artikel_id, datum, omschrijving, aantal_uren, aangemaakt_door)
     OUTPUT INSERTED.*
-    VALUES (@klantAccountId, @klantKlantId, @artikelId, @datum, @omschrijving, @aantalUren, @email)
+    VALUES (@klantAccountId, @klantKlantId, @projectId, @artikelId, @datum, @omschrijving, @aantalUren, @email)
   `);
   return naarBuiten(result.recordset[0]);
 }
@@ -111,13 +139,18 @@ async function wijzigUur(klantAccountId, id, data, email) {
     const klantKlant = await haalKlant(klantAccountId, data.klantKlantId);
     if (!klantKlant) throw new Error("VALIDATIE: onbekende klant (of hoort bij een ander account).");
   }
+  const klantKlantId = data.klantKlantId || bestaand.klantKlantId;
+  const projectId = data.projectId !== undefined
+    ? await valideerProject(klantAccountId, data.projectId || null, klantKlantId)
+    : bestaand.projectId;
   const aantalUren = data.aantalUren != null ? valideerAantal(data.aantalUren) : bestaand.aantalUren;
 
   const pool = await haalPool();
   const request = pool.request();
   request.input("klantAccountId", sql.UniqueIdentifier, klantAccountId);
   request.input("id", sql.UniqueIdentifier, id);
-  request.input("klantKlantId", sql.UniqueIdentifier, data.klantKlantId || bestaand.klantKlantId);
+  request.input("klantKlantId", sql.UniqueIdentifier, klantKlantId);
+  request.input("projectId", sql.UniqueIdentifier, projectId);
   request.input("artikelId", sql.UniqueIdentifier, data.artikelId !== undefined ? (data.artikelId || null) : (bestaand.artikelId || null));
   request.input("datum", sql.Date, data.datum ? new Date(data.datum) : new Date(bestaand.datum));
   request.input("omschrijving", sql.NVarChar(500), (data.omschrijving !== undefined ? data.omschrijving : bestaand.omschrijving) ? String(data.omschrijving !== undefined ? data.omschrijving : bestaand.omschrijving).slice(0, 500) : null);
@@ -125,7 +158,7 @@ async function wijzigUur(klantAccountId, id, data, email) {
   request.input("email", sql.NVarChar(320), email || null);
   const result = await request.query(`
     UPDATE dbo.uren_klanten SET
-      klant_klant_id = @klantKlantId, artikel_id = @artikelId, datum = @datum,
+      klant_klant_id = @klantKlantId, project_id = @projectId, artikel_id = @artikelId, datum = @datum,
       omschrijving = @omschrijving, aantal_uren = @aantalUren,
       gewijzigd_op = SYSUTCDATETIME(), gewijzigd_door = @email
     OUTPUT INSERTED.*

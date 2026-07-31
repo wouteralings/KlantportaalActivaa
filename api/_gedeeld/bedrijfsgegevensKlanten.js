@@ -29,6 +29,9 @@ const LEEG = {
   kvkNummer: "", btwNummer: "", iban: "", ibanTenaamstelling: "", logoUrl: "", ccEmail: "",
   standaardBetalingstermijn: null, standaardBtwCode: "", standaardFactuurtekst: "",
   standaardUurArtikelId: "",
+  // Rittenregistratie (migratie 009) — vullen een nieuwe rit voor (Ritten → Instellingen →
+  // Algemeen); rittenKlantVerplicht bepaalt of het Klant-veld op een rit verplicht is.
+  standaardKmTarief: null, standaardKmTariefType: "", rittenKlantVerplicht: false,
 };
 
 function naarBuiten(row) {
@@ -63,6 +66,10 @@ function naarBuiten(row) {
     // (en daarmee het uurtarief). Geen verificatiegegeven, dus net als de overige standaardwaarden
     // direct zelf te wijzigen.
     standaardUurArtikelId: row.standaard_uur_artikel_id || "",
+    // Rittenregistratie (migratie 009) — zie LEEG hierboven voor de uitleg per veld.
+    standaardKmTarief: row.standaard_km_tarief != null ? Number(row.standaard_km_tarief) : null,
+    standaardKmTariefType: row.standaard_km_tarief_type || "",
+    rittenKlantVerplicht: !!row.ritten_klant_verplicht,
     gewijzigdOp: row.gewijzigd_op || row.aangemaakt_op || null,
   };
 }
@@ -163,6 +170,13 @@ async function zetGegevens(klantAccountId, data, email) {
   request.input("standaardBtwCode", sql.NVarChar(20), veld("standaardBtwCode") || null);
   request.input("standaardFactuurtekst", sql.NVarChar(sql.MAX), veld("standaardFactuurtekst") || null);
   request.input("standaardUurArtikelId", sql.UniqueIdentifier, veld("standaardUurArtikelId") || null);
+  // Rittenregistratie (migratie 009). standaardKmTarief mag net als standaardBetalingstermijn
+  // écht `null` zijn (= geen standaard ingesteld) — vandaar dezelfde expliciete undefined/null-check
+  // i.p.v. `|| null` (dat zou ook 0 tot null maken, en 0 kan hier een geldig tarief zijn).
+  const standaardKmTariefWaarde = veld("standaardKmTarief", null);
+  request.input("standaardKmTarief", sql.Decimal(9, 2), standaardKmTariefWaarde === "" || standaardKmTariefWaarde == null ? null : Number(standaardKmTariefWaarde));
+  request.input("standaardKmTariefType", sql.NVarChar(10), veld("standaardKmTariefType") || null);
+  request.input("rittenKlantVerplicht", sql.Bit, !!veld("rittenKlantVerplicht", false));
   request.input("email", sql.NVarChar(320), email || null);
 
   if (bestaand) {
@@ -173,6 +187,8 @@ async function zetGegevens(klantAccountId, data, email) {
         iban = @iban, iban_tenaamstelling = @ibanTenaamstelling, logo_url = @logoUrl, cc_email = @ccEmail,
         standaard_betalingstermijn = @standaardBetalingstermijn, standaard_btw_code = @standaardBtwCode,
         standaard_factuurtekst = @standaardFactuurtekst, standaard_uur_artikel_id = @standaardUurArtikelId,
+        standaard_km_tarief = @standaardKmTarief, standaard_km_tarief_type = @standaardKmTariefType,
+        ritten_klant_verplicht = @rittenKlantVerplicht,
         gewijzigd_op = SYSUTCDATETIME(), gewijzigd_door = @email
       OUTPUT INSERTED.*
       WHERE klant_account_id = @klantAccountId
@@ -184,12 +200,14 @@ async function zetGegevens(klantAccountId, data, email) {
     INSERT INTO dbo.bedrijfsgegevens_klanten
       (klant_account_id, bedrijfsnaam, straat, huisnummer, toevoeging, postcode, plaats, land,
        kvk_nummer, btw_nummer, iban, iban_tenaamstelling, logo_url, cc_email,
-       standaard_betalingstermijn, standaard_btw_code, standaard_factuurtekst, standaard_uur_artikel_id, aangemaakt_door)
+       standaard_betalingstermijn, standaard_btw_code, standaard_factuurtekst, standaard_uur_artikel_id,
+       standaard_km_tarief, standaard_km_tarief_type, ritten_klant_verplicht, aangemaakt_door)
     OUTPUT INSERTED.*
     VALUES
       (@klantAccountId, @bedrijfsnaam, @straat, @huisnummer, @toevoeging, @postcode, @plaats, @land,
        @kvkNummer, @btwNummer, @iban, @ibanTenaamstelling, @logoUrl, @ccEmail,
-       @standaardBetalingstermijn, @standaardBtwCode, @standaardFactuurtekst, @standaardUurArtikelId, @email)
+       @standaardBetalingstermijn, @standaardBtwCode, @standaardFactuurtekst, @standaardUurArtikelId,
+       @standaardKmTarief, @standaardKmTariefType, @rittenKlantVerplicht, @email)
   `);
   return naarBuiten(result.recordset[0]);
 }
@@ -203,6 +221,8 @@ function terugvalKolom(naam) {
     iban: "iban", ibanTenaamstelling: "iban_tenaamstelling", logoUrl: "logo_url", ccEmail: "cc_email",
     standaardBetalingstermijn: "standaard_betalingstermijn", standaardBtwCode: "standaard_btw_code",
     standaardFactuurtekst: "standaard_factuurtekst", standaardUurArtikelId: "standaard_uur_artikel_id",
+    standaardKmTarief: "standaard_km_tarief", standaardKmTariefType: "standaard_km_tarief_type",
+    rittenKlantVerplicht: "ritten_klant_verplicht",
   };
   return MAP[naam] || naam;
 }

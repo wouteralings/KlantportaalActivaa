@@ -1,7 +1,7 @@
 /**
  * /api/klanten-klanten — CRUD voor de eigen (eind)klanten van de ingelogde portaalklant
  * (dbo.klanten_klanten). Verwacht altijd ?accountId=<Dataverse Account-id> (GET/DELETE) of
- * accountId in de body (POST/PUT) — zie api/_gedeeld/facturatieToegang.js.
+ * accountId in de body (POST/PUT).
  *
  *   GET    /api/klanten-klanten?accountId=...            → { klanten: [...] }
  *   GET    /api/klanten-klanten?accountId=...&id=...      → één klant
@@ -9,13 +9,19 @@
  *   POST   /api/klanten-klanten            body { accountId, naam, ... }
  *   PUT    /api/klanten-klanten            body { accountId, id, ... }
  *   DELETE /api/klanten-klanten?accountId=...&id=...      → zachte verwijdering (actief = 0)
+ *
+ * LET OP (migratie 009 / Rittenregistratie-plan): de toegangscontrole komt sinds deze wijziging
+ * uit api/_gedeeld/klantenLijstToegang.js in plaats van rechtstreeks uit facturatieToegang.js —
+ * deze lijst is nu gedeelde masterdata voor Facturatie, Ritten én de Uren-projectkoppeling, en
+ * mag dus toegankelijk zijn zodra minstens één daarvan voor het account aan staat (zie dat
+ * bestand voor de precieze regel). Functioneel verandert er verder niets aan dit bestand.
  */
-const { controleerToegang, afhandelFout } = require("../_gedeeld/facturatieToegang");
+const { controleerKlantenLijstToegang, afhandelFout } = require("../_gedeeld/klantenLijstToegang");
 const { haalKlanten, haalKlant, maakKlant, wijzigKlant, verwijderKlant } = require("../_gedeeld/klantenKlanten");
 
 module.exports = async function (context, req) {
   try {
-    const { email, accountId } = await controleerToegang(req);
+    const { email, accountId } = await controleerKlantenLijstToegang(req);
 
     if (req.method === "GET") {
       if (req.query.id) {

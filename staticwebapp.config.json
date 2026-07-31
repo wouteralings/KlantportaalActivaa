@@ -134,6 +134,18 @@
       ]
     },
     {
+      "route": "/api/beheer-ritten-klanten",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
+      "route": "/api/beheer-projecten-koppeling",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
       "route": "/api/beheer-rapportages-klanten",
       "allowedRoles": [
         "beheerder"

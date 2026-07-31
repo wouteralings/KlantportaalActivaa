@@ -24,7 +24,12 @@
  * voor het cc-mailadres en de standaardwaarden hierboven — geen verificatiegegeven, dus geen
  * goedkeuring nodig, net als het logo.
  */
-const { controleerToegang, afhandelFout } = require("../_gedeeld/facturatieToegang");
+// LET OP (Rittenregistratie-plan, migratie 009): toegang loopt sinds deze wijziging via
+// klantenLijstToegang.js (Facturatie OF Ritten OF de Uren-projectkoppeling) in plaats van
+// rechtstreeks via facturatieToegang — anders blijft een klant met alleen Ritten (geen
+// Facturatie) buitengesloten van zijn eigen standaard-km-tarief-instelling. Zie ook
+// api/klanten-klanten/index.js, waar dezelfde wijziging al is doorgevoerd.
+const { controleerKlantenLijstToegang: controleerToegang, afhandelFout } = require("../_gedeeld/klantenLijstToegang");
 const { haalGegevens, zetGegevens } = require("../_gedeeld/bedrijfsgegevensKlanten");
 const { haalDynamicsToken, CC_EMAIL_VELD } = require("../_gedeeld/identiteit");
 
@@ -92,7 +97,7 @@ module.exports = async function (context, req) {
         data.ccEmail = ccEmail;
       }
 
-      const heeftStandaardwaarden = ["standaardBetalingstermijn", "standaardBtwCode", "standaardFactuurtekst", "standaardUurArtikelId"]
+      const heeftStandaardwaarden = ["standaardBetalingstermijn", "standaardBtwCode", "standaardFactuurtekst", "standaardUurArtikelId", "standaardKmTarief", "standaardKmTariefType", "rittenKlantVerplicht"]
         .some((naam) => heeftVeld(req.body, naam));
       if (heeftStandaardwaarden) {
         if (heeftVeld(req.body, "standaardBetalingstermijn")) {
@@ -140,6 +145,40 @@ module.exports = async function (context, req) {
           }
           data.standaardUurArtikelId = waarde;
         }
+        // Rittenregistratie (migratie 009) — standaard km-tarief voor Ritten → Instellingen →
+        // Algemeen. Mag net als standaardBetalingstermijn expliciet null/leeg zijn.
+        if (heeftVeld(req.body, "standaardKmTarief")) {
+          const ruw = req.body.standaardKmTarief;
+          if (ruw === null || ruw === "") {
+            data.standaardKmTarief = null;
+          } else {
+            const tarief = Number(ruw);
+            if (!Number.isFinite(tarief) || tarief < 0) {
+              context.res = {
+                status: 400,
+                headers: { "Content-Type": "application/json" },
+                body: { error: "Vul een geldig standaard km-tarief in (0 of hoger), of laat leeg." },
+              };
+              return;
+            }
+            data.standaardKmTarief = tarief;
+          }
+        }
+        if (heeftVeld(req.body, "standaardKmTariefType")) {
+          const type = typeof req.body.standaardKmTariefType === "string" ? req.body.standaardKmTariefType.trim() : "";
+          if (type && type !== "per_km" && type !== "per_keer") {
+            context.res = {
+              status: 400,
+              headers: { "Content-Type": "application/json" },
+              body: { error: "standaardKmTariefType moet 'per_km', 'per_keer' of leeg zijn." },
+            };
+            return;
+          }
+          data.standaardKmTariefType = type;
+        }
+        if (heeftVeld(req.body, "rittenKlantVerplicht")) {
+          data.rittenKlantVerplicht = !!req.body.rittenKlantVerplicht;
+        }
       }
 
       if (!heeftCcEmail && !heeftStandaardwaarden) {
@@ -169,6 +208,9 @@ module.exports = async function (context, req) {
           standaardBtwCode: opgeslagen.standaardBtwCode,
           standaardFactuurtekst: opgeslagen.standaardFactuurtekst,
           standaardUurArtikelId: opgeslagen.standaardUurArtikelId,
+          standaardKmTarief: opgeslagen.standaardKmTarief,
+          standaardKmTariefType: opgeslagen.standaardKmTariefType,
+          rittenKlantVerplicht: opgeslagen.rittenKlantVerplicht,
         },
       };
       return;

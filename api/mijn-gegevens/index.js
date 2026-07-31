@@ -3,6 +3,8 @@ const { haalStatussen } = require("../_gedeeld/facturatieInstellingen");
 const { haalStatussen: haalUrenStatussen } = require("../_gedeeld/urenInstellingen");
 const { haalStatussen: haalRapportagesStatussen } = require("../_gedeeld/rapportagesInstellingen");
 const { haalStatussen: haalBezittingenStatussen } = require("../_gedeeld/bezittingenInstellingen");
+const { haalStatussen: haalRittenStatussen } = require("../_gedeeld/rittenInstellingen");
+const { haalStatussen: haalProjectenStatussen } = require("../_gedeeld/projectenInstellingen");
 
 module.exports = async function (context, req) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
@@ -27,6 +29,10 @@ module.exports = async function (context, req) {
     // — twee losse, standalone schakelaars, elk met hun eigen prijs (zie instellingen.js).
     const rapportagesStatussen = await haalRapportagesStatussen().catch(() => ({}));
     const bezittingenStatussen = await haalBezittingenStatussen().catch(() => ({}));
+    // Rittenregistratie (€1,50/maand, los van Facturatie/Uren) en de Uren↔Projecten-koppeling —
+    // zie api/_gedeeld/rittenInstellingen.js resp. projectenInstellingen.js.
+    const rittenStatussen = await haalRittenStatussen().catch(() => ({}));
+    const projectenStatussen = await haalProjectenStatussen().catch(() => ({}));
 
     context.res = {
       headers: { "Content-Type": "application/json" },
@@ -78,6 +84,12 @@ module.exports = async function (context, req) {
           rapportagesAangevraagdOp: (rapportagesStatussen[accountId] && rapportagesStatussen[accountId].aangevraagdOp) || null,
           bezittingenIngeschakeld: !!(bezittingenStatussen[accountId] && bezittingenStatussen[accountId].ingeschakeld),
           bezittingenAangevraagdOp: (bezittingenStatussen[accountId] && bezittingenStatussen[accountId].aangevraagdOp) || null,
+          // Rittenregistratie (€1,50/maand, los van Facturatie/Uren) — zie api/_gedeeld/rittenInstellingen.js.
+          rittenIngeschakeld: !!(rittenStatussen[accountId] && rittenStatussen[accountId].ingeschakeld),
+          rittenAangevraagdOp: (rittenStatussen[accountId] && rittenStatussen[accountId].aangevraagdOp) || null,
+          // Of de beheerder voor dit account de Uren↔Projecten-koppeling heeft aangezet (zie
+          // api/_gedeeld/projectenInstellingen.js) — bepaalt of het urenformulier een Project-veld toont.
+          projectenGekoppeld: !!(projectenStatussen[accountId] && projectenStatussen[accountId].gekoppeld),
         })),
       },
     };

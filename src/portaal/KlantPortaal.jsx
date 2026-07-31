@@ -37,6 +37,7 @@ import {
 import { haalApiToken } from "./msal";
 import DocumentenTab from "./DocumentenTab";
 import FacturatieModule from "./FacturatieModule";
+import RittenModule from "./RittenModule";
 import RapportagesModule from "./RapportagesModule";
 import BezittingenModule from "./BezittingenModule";
 import { haalMeekijkSessie, activeerMeekijkFetch, deactiveerMeekijkFetch, stopMeekijken } from "../meekijken";
@@ -96,6 +97,11 @@ const DOSSIERS_TAB = { key: "dossiers", label: "Dossiers", icon: Folder };
 // waarvoor de module nog niet aan staat.
 const RAPPORTAGES_TAB = { key: "rapportages", label: "Rapportages", icon: BarChart3 };
 const BEZITTINGEN_TAB = { key: "bezittingen", label: "Bezittingen", icon: Boxes };
+// Rittenregistratie (€1,50/maand per klantaccount, los van Facturatie/Uren) — zelfde opzet als
+// FACTUREN_TAB: de tab is zichtbaar zodra er gekoppelde klant-accounts zijn, ook als de module
+// voor nog geen van die accounts aan staat; RittenModule toont dan zelf per account een
+// "niet actief"-kaart met prijsinfo en een aanvraagknop.
+const RITTEN_TAB = { key: "ritten", label: "Ritten", icon: Clock, nieuw: true };
 
 export default function KlantPortaal() {
   const [ingelogd, setIngelogd] = useState(null); // null = nog aan het checken
@@ -130,6 +136,7 @@ export default function KlantPortaal() {
   const [wijzigingFormContactUrl, setWijzigingFormContactUrl] = useState("");
   const [facturatiemodulePrijs, setFacturatiemodulePrijs] = useState(5);
   const [urenmodulePrijs, setUrenmodulePrijs] = useState(2.5);
+  const [rittenmodulePrijs, setRittenmodulePrijs] = useState(1.5);
   const [rapportagesmodulePrijs, setRapportagesmodulePrijs] = useState(7.5);
   const [bezittingenmodulePrijs, setBezittingenmodulePrijs] = useState(5);
 
@@ -176,6 +183,7 @@ export default function KlantPortaal() {
         setUrenmodulePrijs(d.urenmodulePrijs != null ? d.urenmodulePrijs : 2.5);
         setRapportagesmodulePrijs(d.rapportagesmodulePrijs != null ? d.rapportagesmodulePrijs : 7.5);
         setBezittingenmodulePrijs(d.bezittingenmodulePrijs != null ? d.bezittingenmodulePrijs : 5);
+        setRittenmodulePrijs(d.rittenmodulePrijs != null ? d.rittenmodulePrijs : 1.5);
         zetBrowserFavicon(d.faviconUrl);
       })
       .catch(() => {}); // niet-kritisch
@@ -457,7 +465,7 @@ export default function KlantPortaal() {
   const kanFacturenSnel = !meekijkSessie && alleAccounts.some((a) => a.facturatieIngeschakeld && a.toonFacturenOpHome);
   const gaNaarFacturen = () => { setAdminInitieelSubtab("facturen"); setTab("facturen"); };
   const zichtbareTabs = (alleAccounts.length > 0
-    ? [...TABS.slice(0, 3), DOSSIERS_TAB, FACTUREN_TAB, RAPPORTAGES_TAB, BEZITTINGEN_TAB, ...TABS.slice(3)]
+    ? [...TABS.slice(0, 3), DOSSIERS_TAB, FACTUREN_TAB, RITTEN_TAB, RAPPORTAGES_TAB, BEZITTINGEN_TAB, ...TABS.slice(3)]
     : TABS
   // Documenten werkt via de eigen Microsoft Graph-rechten van de ingelogde gebruiker
   // (on-behalf-of) — dat kan technisch niet "namens een andere klant" getoond worden, dus
@@ -563,6 +571,7 @@ export default function KlantPortaal() {
       {tab === "documenten" && <DocumentenTab />}
       {tab === "dossiers" && <TabDossiers />}
       {tab === "facturen" && <FacturatieModule accounts={alleAccounts} prijs={facturatiemodulePrijs} urenPrijs={urenmodulePrijs} alleenLezen={!!meekijkSessie} initieelSubtab={adminInitieelSubtab} />}
+      {tab === "ritten" && <RittenModule accounts={alleAccounts} prijs={rittenmodulePrijs} alleenLezen={!!meekijkSessie} />}
       {tab === "rapportages" && <RapportagesModule accounts={alleAccounts} prijs={rapportagesmodulePrijs} alleenLezen={!!meekijkSessie} />}
       {tab === "bezittingen" && <BezittingenModule accounts={alleAccounts} prijs={bezittingenmodulePrijs} alleenLezen={!!meekijkSessie} />}
       {tab === "faq" && <TabFaq content={content} teamsChatUrl={teamsChatUrl} whatsappUrl={whatsappUrl} copilotEmbedUrl={copilotEmbedUrl} />}

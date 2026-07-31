@@ -38,6 +38,7 @@ module.exports = async function (context, req) {
       }
       const uren = await haalUren(accountId, {
         klantKlantId: req.query.klantKlantId || "",
+        projectId: req.query.projectId || "",
         status: req.query.status || "alle",
         zoek: req.query.zoek || "",
       });
