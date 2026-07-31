@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Clock, Save, Loader2, Search, Bell, CheckCircle2, Database, Link2, ExternalLink, AlertCircle, Tag, Plus, Trash2 } from "lucide-react";
+import { Clock, Save, Loader2, Search, Bell, CheckCircle2, Database, Link2, ExternalLink, AlertCircle, Tag, Plus, Trash2, ChevronDown } from "lucide-react";
 
 /** Zelfde palet als de rest van het beheerportaal (bewust hier herhaald zodat dit bestand op
  *  zichzelf staat). */
@@ -33,6 +33,7 @@ export default function UrenTarievenBeheer() {
   const [fout, setFout] = useState("");
   const [zoek, setZoek] = useState("");
   const [toonAantal, setToonAantal] = useState(50);
+  const [tarievenOpen, setTarievenOpen] = useState(false);
 
   const laad = () => {
     setMedewerkers(null); setFout("");
@@ -64,32 +65,43 @@ export default function UrenTarievenBeheer() {
 
       <Urencodes onFout={setFout} />
 
-      <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 8 }}>Tarieven & deadline per medewerker</div>
-      <div style={{ position: "relative", maxWidth: 320, marginBottom: 10 }}>
-        <Search size={13} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)" }} />
-        <input value={zoek} onChange={(e) => setZoek(e.target.value)} placeholder="Zoek medewerker…" style={{ ...veld, width: "100%", padding: "8px 9px 8px 28px" }} />
-      </div>
-
-      {medewerkers === null ? (
-        <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Medewerkers ophalen…</div>
-      ) : (
-        <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, marginBottom: 24 }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
-            <thead>
-              <tr style={{ background: "#FBFBF9" }}>
-                <th style={th}>Medewerker</th><th style={th}>Normaal €/u</th><th style={th}>Hoog €/u</th><th style={th}>Laag €/u</th>
-                <th style={th}>Declarabel-doel %</th><th style={th}>Leidinggevende</th><th style={th}>Deadline</th><th style={th}>Actief</th><th style={{ ...th, width: 1 }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {gefilterd.length === 0 ? (
-                <tr><td style={{ ...td, color: KLEUR.mutedTekst }} colSpan={9}>Geen medewerkers gevonden.</td></tr>
-              ) : zichtbaar.map((m) => <TariefRij key={m.email} m={m} namen={alleNamen} />)}
-            </tbody>
-          </table>
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 16, marginBottom: 24 }}>
+        <button
+          onClick={() => setTarievenOpen((v) => !v)}
+          aria-expanded={tarievenOpen}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: tarievenOpen ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s", flexShrink: 0 }} />
+          <span style={{ fontSize: 13.5, fontWeight: 700 }}>Tarieven & deadline per medewerker</span>
+        </button>
+        {tarievenOpen && (<>
+        <div style={{ position: "relative", maxWidth: 320, margin: "10px 0" }}>
+          <Search size={13} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)" }} />
+          <input value={zoek} onChange={(e) => setZoek(e.target.value)} placeholder="Zoek medewerker…" style={{ ...veld, width: "100%", padding: "8px 9px 8px 28px" }} />
         </div>
-      )}
-      {medewerkers && gefilterd.length > 0 && <div style={{ marginBottom: 24 }}><Paginatie totaal={gefilterd.length} getoond={zichtbaar.length} toonAantal={toonAantal} setToonAantal={setToonAantal} /></div>}
+
+        {medewerkers === null ? (
+          <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Medewerkers ophalen…</div>
+        ) : (
+          <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
+              <thead>
+                <tr style={{ background: "#FBFBF9" }}>
+                  <th style={th}>Medewerker</th><th style={th}>Normaal €/u</th><th style={th}>Hoog €/u</th><th style={th}>Laag €/u</th>
+                  <th style={th}>Declarabel-doel %</th><th style={th}>Leidinggevende</th><th style={th}>Deadline</th><th style={th}>Actief</th><th style={{ ...th, width: 1 }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {gefilterd.length === 0 ? (
+                  <tr><td style={{ ...td, color: KLEUR.mutedTekst }} colSpan={9}>Geen medewerkers gevonden.</td></tr>
+                ) : zichtbaar.map((m) => <TariefRij key={m.email} m={m} namen={alleNamen} />)}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {medewerkers && gefilterd.length > 0 && <Paginatie totaal={gefilterd.length} getoond={zichtbaar.length} toonAantal={toonAantal} setToonAantal={setToonAantal} />}
+        </>)}
+      </div>
 
       {medewerkers && <VasteUren medewerkers={medewerkers} vasteUrenMap={vasteUren} onFout={setFout} onOpgeslagen={laad} />}
 
@@ -400,6 +412,7 @@ function Urencodes({ onFout }) {
   const [nieuw, setNieuw] = useState({ naam: "", categorie: "kantoor" });
   const [bezig, setBezig] = useState(false);
   const [toonAantal, setToonAantal] = useState(50);
+  const [open, setOpen] = useState(false);
 
   const laad = () => {
     fetch("/api/beheer-urencodes")
@@ -431,8 +444,17 @@ function Urencodes({ onFout }) {
 
   return (
     <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 16, marginBottom: 24 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700, marginBottom: 4 }}><Tag size={16} color={KLEUR.blauw} /> Urencodes</div>
-      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 12, maxWidth: 720 }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+      >
+        <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s", flexShrink: 0 }} />
+        <Tag size={16} color={KLEUR.blauw} />
+        <span style={{ fontSize: 14, fontWeight: 700 }}>Urencodes</span>
+      </button>
+      {open && (<>
+      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, margin: "10px 0 12px", maxWidth: 720 }}>
         Codes waarop medewerkers uren schrijven (bijv. Verlof, Ziek, Opleiding, Reistijd, Jaarrekening). Elke code hoort bij één
         categorie; die bepaalt of hij declarabel is en hoe de facturatie/goedkeuring werkt. Zet <em>“Telt mee (declarabel-%)”</em>
         uit voor codes die het declarabel-doel niet mogen drukken, zoals verlof, overuren en parttime-uren.
@@ -482,6 +504,7 @@ function Urencodes({ onFout }) {
         </div>
       )}
       {codes && codes.length > 0 && <Paginatie totaal={codes.length} getoond={toonAantal === Infinity ? codes.length : Math.min(toonAantal, codes.length)} toonAantal={toonAantal} setToonAantal={setToonAantal} />}
+      </>)}
     </div>
   );
 }
