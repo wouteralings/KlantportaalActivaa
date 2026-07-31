@@ -79,7 +79,9 @@ module.exports = async function (context, req) {
 
       const soort = String(b.soort || "").toLowerCase();
       if (!uren.SOORTEN.includes(soort)) return json(context, 400, { error: "Ongeldige urensoort." });
-      if (!b.datum || !/^\d{4}-\d{2}-\d{2}$/.test(b.datum)) return json(context, 400, { error: "Geef een geldige datum (YYYY-MM-DD)." });
+      // Eén of meerdere dagen: 'datums' (array) heeft voorrang, anders de losse 'datum'.
+      const datums = Array.isArray(b.datums) && b.datums.length ? b.datums : (b.datum ? [b.datum] : []);
+      if (datums.length === 0 || datums.some((d) => !/^\d{4}-\d{2}-\d{2}$/.test(d))) return json(context, 400, { error: "Geef één of meer geldige datums (YYYY-MM-DD)." });
       const aantalUren = Number(b.uren);
       if (!(aantalUren > 0)) return json(context, 400, { error: "Geef een aantal uren groter dan 0." });
       let klantMeta = null;
@@ -89,11 +91,14 @@ module.exports = async function (context, req) {
         klantMeta = await uren.haalKlantMeta(process.env.DYNAMICS_RESOURCE_URL, token, b.accountId);
       }
       const naam = await mijnNaam(req, email);
-      const boeking = await uren.maakBoeking({
-        email, naam, datum: b.datum, soort, accountId: b.accountId, omschrijving: b.omschrijving,
-        uren: aantalUren, tariefSoort: b.tariefSoort, urencode: b.urencode,
-      }, klantMeta);
-      return json(context, 200, { ok: true, boeking });
+      const boekingen = [];
+      for (const datum of datums) {
+        boekingen.push(await uren.maakBoeking({
+          email, naam, datum, soort, accountId: b.accountId, omschrijving: b.omschrijving,
+          uren: aantalUren, tariefSoort: b.tariefSoort, urencode: b.urencode,
+        }, klantMeta));
+      }
+      return json(context, 200, { ok: true, boeking: boekingen[0], boekingen });
     }
 
     if (methode === "PATCH") {

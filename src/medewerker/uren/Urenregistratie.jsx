@@ -64,7 +64,8 @@ export default function Urenregistratie({ isBeheerder }) {
   );
 }
 
-const LEEG = { id: "", datum: "", soort: "abonnement", urencode: "", accountId: "", klantnaam: "", omschrijving: "", uren: "", tariefSoort: "normaal" };
+const LEEG = { id: "", datum: "", soort: "abonnement", urencode: "", accountId: "", klantnaam: "", omschrijving: "", uren: "", tariefSoort: "normaal", meerdere: false, dagen: [] };
+const WEEKDAG_KORT = ["Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"];
 const STATUS_LABEL = { concept: "Concept", ingediend: "Ingediend", goedgekeurd: "Goedgekeurd", gefactureerd: "Gefactureerd" };
 
 function Schrijven() {
@@ -96,8 +97,10 @@ function Schrijven() {
   const zet = (veld) => (e) => setForm((f) => ({ ...f, [veld]: e && e.target ? e.target.value : e }));
   const kiesCode = (code) => setForm((f) => ({ ...f, urencode: code.naam, soort: code.categorie, ...(isDeclarabel(code.categorie) ? {} : { accountId: "", klantnaam: "" }) }));
   const kiesSoort = (key) => setForm((f) => ({ ...f, soort: key, urencode: "", ...(isDeclarabel(key) ? {} : { accountId: "", klantnaam: "" }) }));
-  const bewerk = (b) => setForm({ id: b.id, datum: b.datum, soort: b.soort, urencode: b.urencode || "", accountId: b.accountId || "", klantnaam: b.klantnaam || "", omschrijving: b.omschrijving || "", uren: String(b.uren), tariefSoort: b.tariefSoort || "normaal" });
+  const bewerk = (b) => setForm({ ...LEEG, id: b.id, datum: b.datum, soort: b.soort, urencode: b.urencode || "", accountId: b.accountId || "", klantnaam: b.klantnaam || "", omschrijving: b.omschrijving || "", uren: String(b.uren), tariefSoort: b.tariefSoort || "normaal" });
   const annuleer = () => setForm({ ...LEEG, datum: form.datum || vandaagIso() });
+  const weekDagen = Array.from({ length: 7 }, (_, i) => voegDagenToe(weekStart, i));
+  const toggleDag = (iso) => setForm((f) => ({ ...f, dagen: f.dagen.includes(iso) ? f.dagen.filter((d) => d !== iso) : [...f.dagen, iso] }));
 
   const bewaar = async () => {
     setFout("");
@@ -106,9 +109,12 @@ function Schrijven() {
     if (decl && !form.accountId) { setFout("Kies een cliënt voor abonnement/UXT."); return; }
     const aantal = Number(String(form.uren).replace(",", "."));
     if (!(aantal > 0)) { setFout("Vul een aantal uren in (groter dan 0)."); return; }
+    const dagen = form.dagen.filter((d) => weekDagen.includes(d));
+    if (form.meerdere && dagen.length === 0) { setFout("Kies minstens één dag."); return; }
     setBezig(true);
     try {
-      const payload = { datum: form.datum, soort: form.soort, urencode: form.urencode || undefined, accountId: decl ? form.accountId : undefined, omschrijving: form.omschrijving, uren: aantal, tariefSoort: decl ? form.tariefSoort : undefined };
+      const payload = { soort: form.soort, urencode: form.urencode || undefined, accountId: decl ? form.accountId : undefined, omschrijving: form.omschrijving, uren: aantal, tariefSoort: decl ? form.tariefSoort : undefined,
+        ...(form.meerdere && !form.id ? { datums: dagen } : { datum: form.datum }) };
       const res = await fetch("/api/mw-uren-boekingen", {
         method: form.id ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
@@ -207,6 +213,12 @@ function Schrijven() {
       ) : (
         <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14, marginBottom: 16, background: "#FBFBF9" }}>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 8 }}>{form.id ? "Boeking bewerken" : "Nieuwe boeking"}</div>
+          {!form.id && (
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: KLEUR.subtekst, marginBottom: 10, cursor: "pointer" }}>
+              <input type="checkbox" checked={form.meerdere} onChange={(e) => setForm((f) => ({ ...f, meerdere: e.target.checked, dagen: e.target.checked ? (f.datum ? [f.datum] : []) : [] }))} />
+              Vul dezelfde boeking voor meerdere dagen in
+            </label>
+          )}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
             {codes.length > 0 ? (
               <Veld label="Urencode">
@@ -228,9 +240,20 @@ function Schrijven() {
                 </div>
               </Veld>
             )}
-            <Veld label="Datum">
-              <input type="date" value={form.datum} min={weekStart} max={weekEinde} onChange={zet("datum")} style={{ ...veldStijl, width: 150 }} />
-            </Veld>
+            {form.meerdere && !form.id ? (
+              <Veld label="Dagen (deze week)">
+                <div style={{ display: "flex", gap: 4 }}>
+                  {weekDagen.map((iso, i) => {
+                    const aan = form.dagen.includes(iso);
+                    return <button key={iso} onClick={() => toggleDag(iso)} title={datumNL(iso)} style={{ ...knopStijl(aan), padding: "8px 9px", minWidth: 36 }}>{WEEKDAG_KORT[i]}</button>;
+                  })}
+                </div>
+              </Veld>
+            ) : (
+              <Veld label="Datum">
+                <input type="date" value={form.datum} min={weekStart} max={weekEinde} onChange={zet("datum")} style={{ ...veldStijl, width: 150 }} />
+              </Veld>
+            )}
             {decl && (
               <Veld label="Cliënt">
                 <div style={{ width: 240 }}>
@@ -252,7 +275,7 @@ function Schrijven() {
               <input value={form.omschrijving} onChange={zet("omschrijving")} placeholder="Waar heb je aan gewerkt?" style={{ ...veldStijl, width: "100%" }} />
             </Veld>
             <button onClick={bewaar} disabled={bezig} style={{ ...knopStijl(true), padding: "9px 14px" }}>
-              {bezig ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : (form.id ? <Check size={14} /> : <Plus size={14} />)} {form.id ? "Opslaan" : "Toevoegen"}
+              {bezig ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : (form.id ? <Check size={14} /> : <Plus size={14} />)} {form.id ? "Opslaan" : `Toevoegen${form.meerdere && form.dagen.length ? ` (${form.dagen.length} dagen)` : ""}`}
             </button>
             {form.id && <button onClick={annuleer} style={{ ...knopStijl(false), padding: "9px 12px" }}><X size={14} /> Annuleren</button>}
           </div>
