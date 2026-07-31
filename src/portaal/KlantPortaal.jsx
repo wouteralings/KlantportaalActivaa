@@ -31,10 +31,14 @@ import {
   Bot,
   MessageCircle,
   Clock,
+  BarChart3,
+  Boxes,
 } from "lucide-react";
 import { haalApiToken } from "./msal";
 import DocumentenTab from "./DocumentenTab";
 import FacturatieModule from "./FacturatieModule";
+import RapportagesModule from "./RapportagesModule";
+import BezittingenModule from "./BezittingenModule";
 import { haalMeekijkSessie, activeerMeekijkFetch, deactiveerMeekijkFetch, stopMeekijken } from "../meekijken";
 
 const KLEUR = {
@@ -85,6 +89,13 @@ const FACTUREN_TAB = { key: "facturen", label: "Administratie", icon: FileText, 
 // Fiscale dossiers (Inkomstenbelasting/Vennootschapsbelasting) uit Dynamics — zichtbaar zodra er
 // gekoppelde klant-accounts zijn; de tab toont zelf een lege staat als er (nog) geen dossiers zijn.
 const DOSSIERS_TAB = { key: "dossiers", label: "Dossiers", icon: Folder };
+// Rapportages (W&V + Balans op basis van RGS 3.5 uit Exact Online) en Bezittingen (activastaat +
+// afschrijvingen uit Exact) — twee losse modules, elk apart per klantaccount aan/uit te zetten in
+// Beheer (zie RapportagesBeheer.jsx/BezittingenBeheer.jsx), net als Facturatie/Uren. Zichtbaar
+// zodra er gekoppelde klant-accounts zijn; de module toont zelf een aanvraagkaart per account
+// waarvoor de module nog niet aan staat.
+const RAPPORTAGES_TAB = { key: "rapportages", label: "Rapportages", icon: BarChart3 };
+const BEZITTINGEN_TAB = { key: "bezittingen", label: "Bezittingen", icon: Boxes };
 
 export default function KlantPortaal() {
   const [ingelogd, setIngelogd] = useState(null); // null = nog aan het checken
@@ -119,6 +130,8 @@ export default function KlantPortaal() {
   const [wijzigingFormContactUrl, setWijzigingFormContactUrl] = useState("");
   const [facturatiemodulePrijs, setFacturatiemodulePrijs] = useState(5);
   const [urenmodulePrijs, setUrenmodulePrijs] = useState(2.5);
+  const [rapportagesmodulePrijs, setRapportagesmodulePrijs] = useState(7.5);
+  const [bezittingenmodulePrijs, setBezittingenmodulePrijs] = useState(5);
 
   useEffect(() => {
     fetch("/.auth/me")
@@ -161,6 +174,8 @@ export default function KlantPortaal() {
         setWijzigingFormContactUrl(d.wijzigingFormContactUrl || "");
         setFacturatiemodulePrijs(d.facturatiemodulePrijs != null ? d.facturatiemodulePrijs : 5);
         setUrenmodulePrijs(d.urenmodulePrijs != null ? d.urenmodulePrijs : 2.5);
+        setRapportagesmodulePrijs(d.rapportagesmodulePrijs != null ? d.rapportagesmodulePrijs : 7.5);
+        setBezittingenmodulePrijs(d.bezittingenmodulePrijs != null ? d.bezittingenmodulePrijs : 5);
         zetBrowserFavicon(d.faviconUrl);
       })
       .catch(() => {}); // niet-kritisch
@@ -442,7 +457,7 @@ export default function KlantPortaal() {
   const kanFacturenSnel = !meekijkSessie && alleAccounts.some((a) => a.facturatieIngeschakeld && a.toonFacturenOpHome);
   const gaNaarFacturen = () => { setAdminInitieelSubtab("facturen"); setTab("facturen"); };
   const zichtbareTabs = (alleAccounts.length > 0
-    ? [...TABS.slice(0, 3), DOSSIERS_TAB, FACTUREN_TAB, ...TABS.slice(3)]
+    ? [...TABS.slice(0, 3), DOSSIERS_TAB, FACTUREN_TAB, RAPPORTAGES_TAB, BEZITTINGEN_TAB, ...TABS.slice(3)]
     : TABS
   // Documenten werkt via de eigen Microsoft Graph-rechten van de ingelogde gebruiker
   // (on-behalf-of) — dat kan technisch niet "namens een andere klant" getoond worden, dus
@@ -548,6 +563,8 @@ export default function KlantPortaal() {
       {tab === "documenten" && <DocumentenTab />}
       {tab === "dossiers" && <TabDossiers />}
       {tab === "facturen" && <FacturatieModule accounts={alleAccounts} prijs={facturatiemodulePrijs} urenPrijs={urenmodulePrijs} alleenLezen={!!meekijkSessie} initieelSubtab={adminInitieelSubtab} />}
+      {tab === "rapportages" && <RapportagesModule accounts={alleAccounts} prijs={rapportagesmodulePrijs} alleenLezen={!!meekijkSessie} />}
+      {tab === "bezittingen" && <BezittingenModule accounts={alleAccounts} prijs={bezittingenmodulePrijs} alleenLezen={!!meekijkSessie} />}
       {tab === "faq" && <TabFaq content={content} teamsChatUrl={teamsChatUrl} whatsappUrl={whatsappUrl} copilotEmbedUrl={copilotEmbedUrl} />}
       {tab === "review" && <TabReview onVerzenden={verstuurReview} alleenLezen={!!meekijkSessie} />}
     </div>

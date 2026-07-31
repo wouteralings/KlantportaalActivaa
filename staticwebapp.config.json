@@ -134,6 +134,24 @@
       ]
     },
     {
+      "route": "/api/beheer-rapportages-klanten",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
+      "route": "/api/beheer-bezittingen-klanten",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
+      "route": "/api/rgs-instellingen",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
       "route": "/api/beheer-btw-tarieven",
       "allowedRoles": [
         "beheerder"

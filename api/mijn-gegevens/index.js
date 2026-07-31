@@ -1,6 +1,8 @@
 const { haalDynamicsToken, herleidAccounts, IBAN_VELD, IBAN_TENAAMSTELLING_VELD, CC_EMAIL_VELD } = require("../_gedeeld/identiteit");
 const { haalStatussen } = require("../_gedeeld/facturatieInstellingen");
 const { haalStatussen: haalUrenStatussen } = require("../_gedeeld/urenInstellingen");
+const { haalStatussen: haalRapportagesStatussen } = require("../_gedeeld/rapportagesInstellingen");
+const { haalStatussen: haalBezittingenStatussen } = require("../_gedeeld/bezittingenInstellingen");
 
 module.exports = async function (context, req) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
@@ -21,6 +23,10 @@ module.exports = async function (context, req) {
     // Aparte, losse schakelaar voor de urenregistratie (€2,50 per administratie) — zelfde
     // blob-patroon, los van de facturatiemodule. Best-effort: nog niet geconfigureerd => uit.
     const urenStatussen = await haalUrenStatussen().catch(() => ({}));
+    // Rapportages (W&V + Balans op basis van RGS 3.5) en Bezittingen (activastaat/afschrijvingen)
+    // — twee losse, standalone schakelaars, elk met hun eigen prijs (zie instellingen.js).
+    const rapportagesStatussen = await haalRapportagesStatussen().catch(() => ({}));
+    const bezittingenStatussen = await haalBezittingenStatussen().catch(() => ({}));
 
     context.res = {
       headers: { "Content-Type": "application/json" },
@@ -68,6 +74,10 @@ module.exports = async function (context, req) {
           urenAangevraagdOp: (urenStatussen[accountId] && urenStatussen[accountId].aangevraagdOp) || null,
           // Klant-voorkeur: snelknop "Uren registreren" op de homepagina tonen (zie /api/uren-instelling).
           toonUrenOpHome: !!(urenStatussen[accountId] && urenStatussen[accountId].toonOpHome),
+          rapportagesIngeschakeld: !!(rapportagesStatussen[accountId] && rapportagesStatussen[accountId].ingeschakeld),
+          rapportagesAangevraagdOp: (rapportagesStatussen[accountId] && rapportagesStatussen[accountId].aangevraagdOp) || null,
+          bezittingenIngeschakeld: !!(bezittingenStatussen[accountId] && bezittingenStatussen[accountId].ingeschakeld),
+          bezittingenAangevraagdOp: (bezittingenStatussen[accountId] && bezittingenStatussen[accountId].aangevraagdOp) || null,
         })),
       },
     };

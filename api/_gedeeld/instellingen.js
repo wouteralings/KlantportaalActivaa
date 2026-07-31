@@ -30,7 +30,7 @@ async function haalInstellingen() {
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
 
   const bestaat = await blobClient.exists();
-  if (!bestaat) return { medewerkersGroepId: "", medewerkersGroepNaam: "", googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "", reviewWebhookUrl: "", facturatiemodulePrijs: 5, urenmodulePrijs: 2.5, klantoverzicht: { extraKolommen: [], standaardVerborgen: [] } };
+  if (!bestaat) return { medewerkersGroepId: "", medewerkersGroepNaam: "", googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "", reviewWebhookUrl: "", facturatiemodulePrijs: 5, urenmodulePrijs: 2.5, rapportagesmodulePrijs: 7.5, bezittingenmodulePrijs: 5, klantoverzicht: { extraKolommen: [], standaardVerborgen: [] } };
 
   const downloadResponse = await blobClient.download();
   const tekst = await streamNaarTekst(downloadResponse.readableStreamBody);
@@ -64,6 +64,12 @@ async function haalInstellingen() {
     // Prijs van de losse urenregistratie-module per klantaccount per maand — zelfde soort als de
     // facturatiemoduleprijs, apart instelbaar in Beheer → Facturatie.
     urenmodulePrijs: 2.5,
+    // Prijs van de losse Rapportagemodule (W&V + Balans uit RGS 3.5/Exact) per klantaccount per
+    // maand — standalone, los van Facturatie/Uren. Instelbaar in Beheer → Rapportages.
+    rapportagesmodulePrijs: 7.5,
+    // Prijs van de losse Bezittingenmodule (activastaat + afschrijvingen uit Exact) per
+    // klantaccount per maand — standalone. Instelbaar in Beheer → Bezittingen.
+    bezittingenmodulePrijs: 5,
     // Kolom-configuratie voor het klantoverzicht in het medewerkersportaal.
     // extraKolommen: [{ veld, label, type: "tekst"|"keuze"|"lookup" }]; standaardVerborgen: [kolom-keys].
     klantoverzicht: { extraKolommen: [], standaardVerborgen: [] },
