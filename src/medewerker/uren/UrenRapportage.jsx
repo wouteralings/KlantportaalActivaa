@@ -101,7 +101,7 @@ export default function UrenRapportage() {
         </div>
       )}
       <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 10 }}>
-        Declarabel-% = (abonnement + UXT) ÷ totaal geschreven uren. Het doel per medewerker stel je in bij Beheer → Uren.
+        Declarabel-% = (abonnement + UXT) ÷ totaal. Alleen goedgekeurde uren tellen mee (niets telt vóór goedkeuring). Het doel per medewerker stel je in bij Beheer → Uren.
       </div>
     </div>
   );

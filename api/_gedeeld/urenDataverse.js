@@ -99,6 +99,7 @@ function boekingNaarBuiten(r) {
     accountId: r[CLIENT_VALUE] || "",
     klantnaam: r[CLIENT_VALUE + FV] || "",
     managerNaam: r[`${P}_managernaam`] || "",
+    goedkeurderNaam: r[`${P}_goedkeurdernaam`] || "",
     omschrijving: r[`${P}_omschrijving`] || "",
     uren: n(r[`${P}_uren`]) || 0,
     tariefSoort: r[`${P}_tariefsoort`] || "",
@@ -128,6 +129,7 @@ function tariefNaarBuiten(r) {
     tarief_hoog: n(r[`${P}_tariefhoog`]),
     tarief_laag: n(r[`${P}_tarieflaag`]),
     declarabel_doel: n(r[`${P}_declarabeldoel`]),
+    leidinggevende: r[`${P}_leidinggevendenaam`] || "",
     actief: r[`${P}_actief`] == null ? true : !!r[`${P}_actief`],
     gewijzigd_op: r.modifiedon || null,
   };
@@ -152,7 +154,7 @@ async function lijstTarieven() {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   const token = await haalDynamicsToken();
   const set = await entitySet(resource, token, TARIEF);
-  const res = await fetch(`${resource}/api/data/v9.2/${set}?$select=${P}_medewerkeremail,${P}_medewerkernaam,${P}_tariefnormaal,${P}_tariefhoog,${P}_tarieflaag,${P}_declarabeldoel,${P}_actief`, { headers: leesHeaders(token) });
+  const res = await fetch(`${resource}/api/data/v9.2/${set}?$select=${P}_medewerkeremail,${P}_medewerkernaam,${P}_tariefnormaal,${P}_tariefhoog,${P}_tarieflaag,${P}_declarabeldoel,${P}_leidinggevendenaam,${P}_actief`, { headers: leesHeaders(token) });
   if (!res.ok) throw new Error(`Tarieven ophalen mislukt: ${await res.text()}`);
   return (await res.json()).value.map(tariefNaarBuiten);
 }
@@ -168,6 +170,7 @@ async function zetTarief(email, velden, door) {
     [`${P}_tariefhoog`]: velden.tarief_hoog ?? null,
     [`${P}_tarieflaag`]: velden.tarief_laag ?? null,
     [`${P}_declarabeldoel`]: velden.declarabel_doel ?? null,
+    [`${P}_leidinggevendenaam`]: velden.leidinggevende ?? (bestaand ? bestaand[`${P}_leidinggevendenaam`] : null),
     [`${P}_actief`]: velden.actief == null ? true : !!velden.actief,
   };
   const suId = await haalSystemuserId(resource, token, email);
@@ -191,7 +194,7 @@ async function boekingSelect() {
     `${P}_declarabel`, `${P}_omschrijving`, `${P}_uren`, `${P}_tariefsoort`, `${P}_tariefbedrag`, `${P}_status`,
     `${P}_goedgekeurdeuren`, `${P}_afboekuren`, `${P}_afboekreden`, `${P}_extrabedrag`, `${P}_extrareden`,
     `${P}_gecontroleerddoor`, `${P}_gecontroleerdop`, `${P}_gefactureerd`, `${P}_exactfactuur`, `${P}_exactstatus`,
-    `${P}_managernaam`, CLIENT_VALUE,
+    `${P}_managernaam`, `${P}_goedkeurdernaam`, CLIENT_VALUE,
   ].join(",");
 }
 async function haalBoekingen(resource, token, filter, orderby) {
@@ -237,12 +240,16 @@ async function maakBoeking({ email, naam, datum, soort, accountId, omschrijving,
   const token = await haalDynamicsToken();
   const set = await entitySet(resource, token, BOEKING);
   const decl = isDeclarabel(soort);
+  // Tarief altijd ophalen: bij declarabel voor het uurtarief, bij indirect/kantoor voor de
+  // leidinggevende (die keurt niet-cliënturen goed).
+  const t = tariefNaarBuiten(await haalTariefRij(resource, token, email));
   let gekozenTariefSoort = null, tariefBedrag = null;
   if (decl) {
     gekozenTariefSoort = TARIEF_SOORTEN.includes(tariefSoort) ? tariefSoort : "normaal";
-    const t = tariefNaarBuiten(await haalTariefRij(resource, token, email));
     if (t) tariefBedrag = { normaal: t.tarief_normaal, hoog: t.tarief_hoog, laag: t.tarief_laag }[gekozenTariefSoort];
   }
+  // Goedkeurder: cliënturen → manager op de cliënt; niet-cliënturen → leidinggevende van de medewerker.
+  const goedkeurder = decl ? (klantMeta?.managerNaam || null) : (t && t.leidinggevende ? t.leidinggevende : null);
   const body = {
     [`${P}_medewerkeremail`]: email, [`${P}_medewerkernaam`]: naam ?? null,
     [`${P}_datum`]: datum, [`${P}_soort`]: soort, [`${P}_declarabel`]: decl,
@@ -250,6 +257,7 @@ async function maakBoeking({ email, naam, datum, soort, accountId, omschrijving,
     [`${P}_tariefsoort`]: gekozenTariefSoort, [`${P}_tariefbedrag`]: tariefBedrag ?? null,
     [`${P}_status`]: "open", [`${P}_gefactureerd`]: false,
     [`${P}_managernaam`]: decl ? (klantMeta?.managerNaam || null) : null,
+    [`${P}_goedkeurdernaam`]: goedkeurder,
   };
   if (decl && accountId) body[`${P}_Client@odata.bind`] = `/accounts(${accountId})`;
   const suId = await haalSystemuserId(resource, token, email);
@@ -270,17 +278,18 @@ async function werkBoekingBij(id, email, velden, klantMeta) {
 
   const nieuwSoort = velden.soort ?? huidig[`${P}_soort`];
   const decl = isDeclarabel(nieuwSoort);
+  const t = tariefNaarBuiten(await haalTariefRij(resource, token, email));
   const body = {
     [`${P}_soort`]: nieuwSoort, [`${P}_declarabel`]: decl,
     [`${P}_datum`]: velden.datum ?? (huidig[`${P}_datum`] ? String(huidig[`${P}_datum`]).slice(0, 10) : null),
     [`${P}_omschrijving`]: velden.omschrijving ?? huidig[`${P}_omschrijving`] ?? null,
     [`${P}_uren`]: velden.uren !== undefined ? Number(velden.uren) : huidig[`${P}_uren`],
     [`${P}_managernaam`]: decl ? (klantMeta ? klantMeta.managerNaam : huidig[`${P}_managernaam`]) : null,
+    [`${P}_goedkeurdernaam`]: decl ? (klantMeta ? klantMeta.managerNaam : huidig[`${P}_goedkeurdernaam`]) : (t && t.leidinggevende ? t.leidinggevende : null),
   };
   if (decl) {
     const tSoort = TARIEF_SOORTEN.includes(velden.tariefSoort) ? velden.tariefSoort : (huidig[`${P}_tariefsoort`] || "normaal");
     body[`${P}_tariefsoort`] = tSoort;
-    const t = tariefNaarBuiten(await haalTariefRij(resource, token, email));
     body[`${P}_tariefbedrag`] = t ? ({ normaal: t.tarief_normaal, hoog: t.tarief_hoog, laag: t.tarief_laag }[tSoort] ?? null) : null;
     const acc = velden.accountId ?? huidig[CLIENT_VALUE];
     if (acc) body[`${P}_Client@odata.bind`] = `/accounts(${acc})`;
@@ -310,12 +319,14 @@ async function verwijderBoeking(id, email) {
 // ===========================================================================
 // Controle (manager)
 // ===========================================================================
-async function boekingenVoorControle({ maand, managerNaam, alle }) {
+async function boekingenVoorControle({ maand, goedkeurderNaam, alle }) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   const token = await haalDynamicsToken();
   const { eerste, laatste } = maandRange(maand);
-  let f = `${P}_declarabel eq true and ${CLIENT_VALUE} ne null and ${P}_datum ge ${eerste} and ${P}_datum le ${laatste}`;
-  if (!alle) f += ` and ${P}_managernaam eq '${esc(managerNaam || " ")}'`;
+  // Alle soorten (ook indirect/kantoor) moeten worden goedgekeurd. Scoping op de goedkeurder:
+  // cliënturen → manager op de cliënt; niet-cliënturen → leidinggevende van de medewerker.
+  let f = `${P}_datum ge ${eerste} and ${P}_datum le ${laatste}`;
+  if (!alle) f += ` and ${P}_goedkeurdernaam eq '${esc(goedkeurderNaam || " ")}'`;
   return haalBoekingen(resource, token, f, `${P}_datum asc`);
 }
 
@@ -324,7 +335,7 @@ async function controleActie(id, { goedgekeurdeUren, afboekUren, afboekReden, ex
   const token = await haalDynamicsToken();
   const set = await entitySet(resource, token, BOEKING);
   const huidig = await haalBoekingRuw(resource, token, id);
-  if (!huidig || !huidig[`${P}_declarabel`]) return null;
+  if (!huidig) return null;
   const body = {
     [`${P}_goedgekeurdeuren`]: goedgekeurdeUren ?? null,
     [`${P}_afboekuren`]: afboekUren ?? null,
@@ -350,7 +361,8 @@ function boekingWaarde(b) {
 async function ohwEnFacturatie({ maand, managerNaam, alle }) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   const token = await haalDynamicsToken();
-  let f = `${P}_declarabel eq true and ${CLIENT_VALUE} ne null`;
+  // Alleen goedgekeurde (of al gefactureerde) declarabele cliënturen tellen mee in OHW/facturatie.
+  let f = `${P}_declarabel eq true and ${CLIENT_VALUE} ne null and (${P}_status eq 'goedgekeurd' or ${P}_status eq 'gefactureerd')`;
   if (maand) { const { eerste, laatste } = maandRange(maand); f += ` and ${P}_datum ge ${eerste} and ${P}_datum le ${laatste}`; }
   if (!alle) f += ` and ${P}_managernaam eq '${esc(managerNaam || " ")}'`;
   const boekingen = await haalBoekingen(resource, token, f, `${P}_datum asc`);
@@ -413,10 +425,11 @@ async function uxtTeExporteren({ accountId } = {}) {
 async function rapportageDeclarabel({ vanaf, tot }) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   const token = await haalDynamicsToken();
-  let f = "";
-  if (vanaf) f += `${P}_datum ge ${vanaf}`;
-  if (tot) f += `${f ? " and " : ""}${P}_datum le ${tot}`;
-  const boekingen = await haalBoekingen(resource, token, f || null, `${P}_datum asc`);
+  // Alleen goedgekeurde/gefactureerde uren tellen mee in de stuurcijfers (niets telt vóór goedkeuring).
+  let f = `(${P}_status eq 'goedgekeurd' or ${P}_status eq 'gefactureerd')`;
+  if (vanaf) f += ` and ${P}_datum ge ${vanaf}`;
+  if (tot) f += ` and ${P}_datum le ${tot}`;
+  const boekingen = await haalBoekingen(resource, token, f, `${P}_datum asc`);
   const tarieven = await lijstTarieven();
   const doelVan = new Map(tarieven.map((t) => [String(t.medewerker_email).toLowerCase(), t.declarabel_doel]));
   const per = new Map();

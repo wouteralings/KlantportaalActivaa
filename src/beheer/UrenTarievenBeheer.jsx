@@ -29,6 +29,7 @@ export default function UrenTarievenBeheer() {
   useEffect(() => { laad(); }, []);
 
   const gefilterd = (medewerkers || []).filter((m) => { const q = zoek.trim().toLowerCase(); return !q || `${m.naam} ${m.email} ${m.functie}`.toLowerCase().includes(q); });
+  const alleNamen = [...new Set((medewerkers || []).map((m) => m.naam).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 
   return (
     <div>
@@ -36,8 +37,9 @@ export default function UrenTarievenBeheer() {
         <Clock size={17} color={KLEUR.blauw} /> Urenregistratie — tarieven & herinneringen
       </div>
       <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 16, maxWidth: 760 }}>
-        Stel per medewerker het normale, hoge en lage uurtarief en het declarabel-doel(%) in. Onderaan richt je de
-        wekelijkse herinnering in voor medewerkers die hun uren nog niet volledig hebben geschreven.
+        Stel per medewerker het normale, hoge en lage uurtarief, het declarabel-doel(%) en de leidinggevende in
+        (die keurt de indirecte + kantooruren goed). Onderaan richt je de wekelijkse herinnering in voor
+        medewerkers die hun uren nog niet volledig hebben geschreven.
       </div>
 
       {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 10 }}>{fout}</div>}
@@ -57,13 +59,13 @@ export default function UrenTarievenBeheer() {
             <thead>
               <tr style={{ background: "#FBFBF9" }}>
                 <th style={th}>Medewerker</th><th style={th}>Normaal €/u</th><th style={th}>Hoog €/u</th><th style={th}>Laag €/u</th>
-                <th style={th}>Declarabel-doel %</th><th style={th}>Actief</th><th style={{ ...th, width: 1 }}></th>
+                <th style={th}>Declarabel-doel %</th><th style={th}>Leidinggevende</th><th style={th}>Actief</th><th style={{ ...th, width: 1 }}></th>
               </tr>
             </thead>
             <tbody>
               {gefilterd.length === 0 ? (
-                <tr><td style={{ ...td, color: KLEUR.mutedTekst }} colSpan={7}>Geen medewerkers gevonden.</td></tr>
-              ) : gefilterd.map((m) => <TariefRij key={m.email} m={m} />)}
+                <tr><td style={{ ...td, color: KLEUR.mutedTekst }} colSpan={8}>Geen medewerkers gevonden.</td></tr>
+              ) : gefilterd.map((m) => <TariefRij key={m.email} m={m} namen={alleNamen} />)}
             </tbody>
           </table>
         </div>
@@ -136,12 +138,13 @@ function Koppelingen({ onFout }) {
   );
 }
 
-function TariefRij({ m }) {
+function TariefRij({ m, namen }) {
   const t = m.tarief || {};
   const [normaal, setNormaal] = useState(t.normaal ?? "");
   const [hoog, setHoog] = useState(t.hoog ?? "");
   const [laag, setLaag] = useState(t.laag ?? "");
   const [doel, setDoel] = useState(t.declarabelDoel ?? "");
+  const [leidinggevende, setLeidinggevende] = useState(t.leidinggevende ?? "");
   const [actief, setActief] = useState(t.actief !== false);
   const [bezig, setBezig] = useState(false);
   const [ok, setOk] = useState(false);
@@ -152,7 +155,7 @@ function TariefRij({ m }) {
     try {
       const res = await fetch("/api/beheer-uren-tarieven", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ actie: "tarief", email: m.email, naam: m.naam, tarief_normaal: normaal, tarief_hoog: hoog, tarief_laag: laag, declarabel_doel: doel, actief }),
+        body: JSON.stringify({ actie: "tarief", email: m.email, naam: m.naam, tarief_normaal: normaal, tarief_hoog: hoog, tarief_laag: laag, declarabel_doel: doel, leidinggevende, actief }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
@@ -169,6 +172,13 @@ function TariefRij({ m }) {
       <td style={td}><input value={hoog} onChange={(e) => setHoog(e.target.value)} inputMode="decimal" placeholder="—" style={num} /></td>
       <td style={td}><input value={laag} onChange={(e) => setLaag(e.target.value)} inputMode="decimal" placeholder="—" style={num} /></td>
       <td style={td}><input value={doel} onChange={(e) => setDoel(e.target.value)} inputMode="decimal" placeholder="—" style={{ ...veld, width: 64 }} /></td>
+      <td style={td}>
+        <select value={leidinggevende} onChange={(e) => setLeidinggevende(e.target.value)} title="Keurt indirecte + kantooruren van deze medewerker goed" style={{ ...veld, width: 150 }}>
+          <option value="">— geen —</option>
+          {(namen || []).map((n) => <option key={n} value={n}>{n}</option>)}
+          {leidinggevende && !(namen || []).includes(leidinggevende) && <option value={leidinggevende}>{leidinggevende}</option>}
+        </select>
+      </td>
       <td style={td}><label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}><input type="checkbox" checked={actief} onChange={(e) => setActief(e.target.checked)} /></label></td>
       <td style={td}>
         <button onClick={opslaan} disabled={bezig} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 11px", background: ok ? KLEUR.groen : KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>

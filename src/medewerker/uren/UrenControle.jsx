@@ -28,13 +28,17 @@ export default function UrenControle({ isBeheerder }) {
 
   const perKlant = useMemo(() => {
     const map = new Map();
-    (data?.boekingen || []).forEach((b) => {
+    (data?.boekingen || []).filter((b) => b.accountId).forEach((b) => {
       const k = b.accountId || b.klantnaam || "?";
       if (!map.has(k)) map.set(k, { klantnaam: b.klantnaam || b.accountId, boekingen: [] });
       map.get(k).boekingen.push(b);
     });
     return [...map.values()];
   }, [data]);
+
+  // Indirecte + kantooruren (geen cliënt) — goedgekeurd door de leidinggevende, geen facturatie.
+  const overige = useMemo(() => (data?.boekingen || []).filter((b) => !b.accountId), [data]);
+  const leeg = perKlant.length === 0 && overige.length === 0;
 
   const updateRij = (bijgewerkt) => setData((d) => ({ ...d, boekingen: (d.boekingen || []).map((x) => (x.id === bijgewerkt.id ? bijgewerkt : x)) }));
 
@@ -62,13 +66,14 @@ export default function UrenControle({ isBeheerder }) {
 
       {data === null ? (
         <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Boekingen ophalen…</div>
-      ) : perKlant.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Geen te controleren boekingen in {maandLabel(maand)}{scope === "manager" ? " voor jouw cliënten" : ""}.</div>
+      ) : leeg ? (
+        <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Geen te controleren boekingen in {maandLabel(maand)}{scope === "manager" ? " die jij mag goedkeuren" : ""}.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {perKlant.map((k) => (
             <KlantBlok key={k.klantnaam} klant={k} onUpdate={updateRij} />
           ))}
+          {overige.length > 0 && <OverigBlok boekingen={overige} onUpdate={updateRij} />}
         </div>
       )}
     </div>
@@ -163,6 +168,84 @@ function ControleRij({ b, onUpdate }) {
       <td style={td}>
         <button onClick={opslaan} disabled={bezig} style={{ ...knopStijl(true), padding: "7px 11px" }}>{bezig ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : <CheckCircle2 size={13} />} Akkoord</button>
       </td>
+    </tr>
+  );
+}
+
+function OverigBlok({ boekingen, onUpdate }) {
+  const openUren = boekingen.reduce((s, b) => s + (b.status === "open" ? b.uren : 0), 0);
+  return (
+    <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", background: "#FBFBF9" }}>
+        <div style={{ fontSize: 13, fontWeight: 700 }}>Indirect / kantoor</div>
+        <div style={{ fontSize: 11.5, color: KLEUR.subtekst }}>{boekingen.length} boeking(en){openUren > 0 ? ` · ${uur(openUren)} u open` : ""}</div>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
+          <thead>
+            <tr>
+              <th style={th}>Datum</th><th style={th}>Soort</th><th style={th}>Medewerker</th>
+              <th style={th}>Geschr.</th><th style={th}>Erken (u)</th><th style={th}>Reden bij afboeken</th><th style={th}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {boekingen.map((b) => <OverigRij key={b.id} b={b} onUpdate={onUpdate} />)}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function OverigRij({ b, onUpdate }) {
+  const open = b.status === "open";
+  const [erken, setErken] = useState(String(b.goedgekeurdeUren != null ? b.goedgekeurdeUren : b.uren));
+  const [afboekReden, setAfboekReden] = useState(b.afboekReden || "");
+  const [bezig, setBezig] = useState(false);
+  const [fout, setFout] = useState("");
+  const erkenNum = Number(String(erken).replace(",", "."));
+  const afboek = Math.max(0, Math.round((b.uren - (isNaN(erkenNum) ? b.uren : erkenNum)) * 100) / 100);
+
+  const opslaan = async () => {
+    setFout("");
+    if (afboek > 0 && !afboekReden.trim()) { setFout("Geef een reden voor de afboeking."); return; }
+    setBezig(true);
+    try {
+      const res = await fetch("/api/mw-uren-controle", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: b.id, goedgekeurdeUren: isNaN(erkenNum) ? b.uren : erkenNum, afboekUren: afboek || null, afboekReden: afboek > 0 ? afboekReden.trim() : null }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+      onUpdate(d.boeking);
+    } catch (e) { setFout(String(e.message || e)); }
+    finally { setBezig(false); }
+  };
+
+  if (!open) {
+    return (
+      <tr>
+        <td style={td}>{datumNL(b.datum)}</td>
+        <td style={td}><SoortBadge soort={b.soort} /></td>
+        <td style={td}>{b.medewerkerNaam}</td>
+        <td style={td}>{uur(b.uren)} u</td>
+        <td style={td} colSpan={3}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontWeight: 700, color: KLEUR.blauw }}>
+            <CheckCircle2 size={13} /> Goedgekeurd · {uur(b.goedgekeurdeUren != null ? b.goedgekeurdeUren : b.uren)} u erkend{b.afboekUren ? ` · ${uur(b.afboekUren)} u afgeboekt` : ""}
+          </span>
+        </td>
+      </tr>
+    );
+  }
+  return (
+    <tr>
+      <td style={td}>{datumNL(b.datum)}</td>
+      <td style={td}><SoortBadge soort={b.soort} /></td>
+      <td style={td}>{b.medewerkerNaam}</td>
+      <td style={td}>{uur(b.uren)} u</td>
+      <td style={td}><input value={erken} onChange={(e) => setErken(e.target.value)} inputMode="decimal" style={{ ...veldStijl, width: 66 }} /></td>
+      <td style={td}>{afboek > 0 ? <input value={afboekReden} onChange={(e) => setAfboekReden(e.target.value)} placeholder={`${uur(afboek)} u afboeken — reden`} style={{ ...veldStijl, width: 190 }} /> : <span style={{ color: KLEUR.mutedTekst, fontSize: 11.5 }}>—</span>}{fout && <div style={{ fontSize: 10.5, color: KLEUR.rood, marginTop: 3 }}>{fout}</div>}</td>
+      <td style={td}><button onClick={opslaan} disabled={bezig} style={{ ...knopStijl(true), padding: "7px 11px" }}>{bezig ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : <CheckCircle2 size={13} />} Akkoord</button></td>
     </tr>
   );
 }

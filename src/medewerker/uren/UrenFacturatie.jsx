@@ -150,7 +150,7 @@ export default function UrenFacturatie({ isBeheerder }) {
       )}
       <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 12 }}>
         UXT is meerwerk dat apart gefactureerd wordt; abonnement-uren horen bij de vaste vergoeding maar worden hier als onderhanden werk gewaardeerd.
-        Alleen goedgekeurde boekingen tellen definitief mee; nog te controleren boekingen staan op de geschreven uren.
+        Alleen goedgekeurde (en al gefactureerde) uren worden hier getoond; nog te controleren uren verschijnen pas na goedkeuring.
       </div>
     </div>
   );

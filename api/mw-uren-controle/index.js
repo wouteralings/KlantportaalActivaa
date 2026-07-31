@@ -52,7 +52,7 @@ module.exports = async function (context, req) {
       const maand = (req.query && req.query.maand) || huidigeMaand();
       const wilAlles = (req.query && req.query.scope) === "alle" && isBeheerder;
       const naam = await mijnNaam(req, email);
-      const boekingen = await uren.boekingenVoorControle({ maand, managerNaam: naam, alle: wilAlles });
+      const boekingen = await uren.boekingenVoorControle({ maand, goedkeurderNaam: naam, alle: wilAlles });
       return json(context, 200, { maand, scope: wilAlles ? "alle" : "manager", magAlles: isBeheerder, mijnNaam: naam, boekingen });
     }
 
