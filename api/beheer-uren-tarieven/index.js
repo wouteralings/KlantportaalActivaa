@@ -92,6 +92,7 @@ module.exports = async function (context, req) {
         naam: b.naam || null,
         tarief_normaal: num(b.tarief_normaal), tarief_hoog: num(b.tarief_hoog), tarief_laag: num(b.tarief_laag),
         declarabel_doel: num(b.declarabel_doel), leidinggevende: b.leidinggevende || null,
+        deadline_weekdag: b.deadline_weekdag === "" || b.deadline_weekdag == null ? null : Number(b.deadline_weekdag),
         actief: b.actief == null ? true : !!b.actief,
       }, email);
       return json(context, 200, { ok: true, tarief: tariefUit(opgeslagen) });
@@ -113,6 +114,7 @@ function tariefUit(t) {
     laag: t.tarief_laag == null ? null : Number(t.tarief_laag),
     declarabelDoel: t.declarabel_doel == null ? null : Number(t.declarabel_doel),
     leidinggevende: t.leidinggevende || "",
+    deadlineWeekdag: t.deadline_weekdag == null ? null : Number(t.deadline_weekdag),
     actief: t.actief == null ? true : !!t.actief,
     gewijzigdOp: t.gewijzigd_op || null, gewijzigdDoor: t.gewijzigd_door || "",
   };

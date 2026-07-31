@@ -20,6 +20,11 @@ const DECLARABELE_SOORTEN = new Set(["abonnement", "uxt"]);
 const isDeclarabel = (s) => DECLARABELE_SOORTEN.has(String(s || "").toLowerCase());
 const TARIEF_SOORTEN = ["normaal", "hoog", "laag"];
 
+// Weekstaat-status: concept → ingediend → goedgekeurd → gefactureerd. "open" is de legacy-waarde en
+// wordt als concept behandeld. Concept = de medewerker mag nog bewerken/verwijderen/indienen.
+const isConcept = (s) => !s || s === "concept" || s === "open";
+const normStatus = (s) => (isConcept(s) ? "concept" : s);
+
 function esc(s) { return String(s == null ? "" : s).replace(/'/g, "''"); }
 function maandagVan(datumStr) {
   const d = new Date(datumStr + "T00:00:00Z");
@@ -100,11 +105,12 @@ function boekingNaarBuiten(r) {
     klantnaam: r[CLIENT_VALUE + FV] || "",
     managerNaam: r[`${P}_managernaam`] || "",
     goedkeurderNaam: r[`${P}_goedkeurdernaam`] || "",
+    urencode: r[`${P}_urencode`] || "",
     omschrijving: r[`${P}_omschrijving`] || "",
     uren: n(r[`${P}_uren`]) || 0,
     tariefSoort: r[`${P}_tariefsoort`] || "",
     tariefBedrag: n(r[`${P}_tariefbedrag`]),
-    status: r[`${P}_status`] || "open",
+    status: normStatus(r[`${P}_status`]),
     goedgekeurdeUren: n(r[`${P}_goedgekeurdeuren`]),
     afboekUren: n(r[`${P}_afboekuren`]),
     afboekReden: r[`${P}_afboekreden`] || "",
@@ -130,6 +136,7 @@ function tariefNaarBuiten(r) {
     tarief_laag: n(r[`${P}_tarieflaag`]),
     declarabel_doel: n(r[`${P}_declarabeldoel`]),
     leidinggevende: r[`${P}_leidinggevendenaam`] || "",
+    deadline_weekdag: r[`${P}_deadlineweekdag`] == null ? null : Number(r[`${P}_deadlineweekdag`]),
     actief: r[`${P}_actief`] == null ? true : !!r[`${P}_actief`],
     gewijzigd_op: r.modifiedon || null,
   };
@@ -154,7 +161,7 @@ async function lijstTarieven() {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   const token = await haalDynamicsToken();
   const set = await entitySet(resource, token, TARIEF);
-  const res = await fetch(`${resource}/api/data/v9.2/${set}?$select=${P}_medewerkeremail,${P}_medewerkernaam,${P}_tariefnormaal,${P}_tariefhoog,${P}_tarieflaag,${P}_declarabeldoel,${P}_leidinggevendenaam,${P}_actief`, { headers: leesHeaders(token) });
+  const res = await fetch(`${resource}/api/data/v9.2/${set}?$select=${P}_medewerkeremail,${P}_medewerkernaam,${P}_tariefnormaal,${P}_tariefhoog,${P}_tarieflaag,${P}_declarabeldoel,${P}_leidinggevendenaam,${P}_deadlineweekdag,${P}_actief`, { headers: leesHeaders(token) });
   if (!res.ok) throw new Error(`Tarieven ophalen mislukt: ${await res.text()}`);
   return (await res.json()).value.map(tariefNaarBuiten);
 }
@@ -171,6 +178,7 @@ async function zetTarief(email, velden, door) {
     [`${P}_tarieflaag`]: velden.tarief_laag ?? null,
     [`${P}_declarabeldoel`]: velden.declarabel_doel ?? null,
     [`${P}_leidinggevendenaam`]: velden.leidinggevende ?? (bestaand ? bestaand[`${P}_leidinggevendenaam`] : null),
+    [`${P}_deadlineweekdag`]: velden.deadline_weekdag ?? (bestaand ? bestaand[`${P}_deadlineweekdag`] : null),
     [`${P}_actief`]: velden.actief == null ? true : !!velden.actief,
   };
   const suId = await haalSystemuserId(resource, token, email);
@@ -194,7 +202,7 @@ async function boekingSelect() {
     `${P}_declarabel`, `${P}_omschrijving`, `${P}_uren`, `${P}_tariefsoort`, `${P}_tariefbedrag`, `${P}_status`,
     `${P}_goedgekeurdeuren`, `${P}_afboekuren`, `${P}_afboekreden`, `${P}_extrabedrag`, `${P}_extrareden`,
     `${P}_gecontroleerddoor`, `${P}_gecontroleerdop`, `${P}_gefactureerd`, `${P}_exactfactuur`, `${P}_exactstatus`,
-    `${P}_managernaam`, `${P}_goedkeurdernaam`, CLIENT_VALUE,
+    `${P}_managernaam`, `${P}_goedkeurdernaam`, `${P}_urencode`, CLIENT_VALUE,
   ].join(",");
 }
 async function haalBoekingen(resource, token, filter, orderby) {
@@ -235,7 +243,7 @@ async function boekingenVanMedewerker(email, { vanaf, tot } = {}) {
   return haalBoekingen(resource, token, f, `${P}_datum desc`);
 }
 
-async function maakBoeking({ email, naam, datum, soort, accountId, omschrijving, uren, tariefSoort }, klantMeta) {
+async function maakBoeking({ email, naam, datum, soort, accountId, omschrijving, uren, tariefSoort, urencode }, klantMeta) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   const token = await haalDynamicsToken();
   const set = await entitySet(resource, token, BOEKING);
@@ -255,9 +263,10 @@ async function maakBoeking({ email, naam, datum, soort, accountId, omschrijving,
     [`${P}_datum`]: datum, [`${P}_soort`]: soort, [`${P}_declarabel`]: decl,
     [`${P}_omschrijving`]: omschrijving ?? null, [`${P}_uren`]: Number(uren),
     [`${P}_tariefsoort`]: gekozenTariefSoort, [`${P}_tariefbedrag`]: tariefBedrag ?? null,
-    [`${P}_status`]: "open", [`${P}_gefactureerd`]: false,
+    [`${P}_status`]: "concept", [`${P}_gefactureerd`]: false,
     [`${P}_managernaam`]: decl ? (klantMeta?.managerNaam || null) : null,
     [`${P}_goedkeurdernaam`]: goedkeurder,
+    [`${P}_urencode`]: urencode ?? null,
   };
   if (decl && accountId) body[`${P}_Client@odata.bind`] = `/accounts(${accountId})`;
   const suId = await haalSystemuserId(resource, token, email);
@@ -274,7 +283,7 @@ async function werkBoekingBij(id, email, velden, klantMeta) {
   const huidig = await haalBoekingRuw(resource, token, id);
   if (!huidig) return { fout: "NIET_GEVONDEN" };
   if ((huidig[`${P}_medewerkeremail`] || "").toLowerCase() !== String(email).toLowerCase()) return { fout: "NIET_GEVONDEN" };
-  if ((huidig[`${P}_status`] || "open") !== "open") return { fout: "AL_GECONTROLEERD" };
+  if (!isConcept(huidig[`${P}_status`])) return { fout: "AL_GECONTROLEERD" };
 
   const nieuwSoort = velden.soort ?? huidig[`${P}_soort`];
   const decl = isDeclarabel(nieuwSoort);
@@ -286,6 +295,7 @@ async function werkBoekingBij(id, email, velden, klantMeta) {
     [`${P}_uren`]: velden.uren !== undefined ? Number(velden.uren) : huidig[`${P}_uren`],
     [`${P}_managernaam`]: decl ? (klantMeta ? klantMeta.managerNaam : huidig[`${P}_managernaam`]) : null,
     [`${P}_goedkeurdernaam`]: decl ? (klantMeta ? klantMeta.managerNaam : huidig[`${P}_goedkeurdernaam`]) : (t && t.leidinggevende ? t.leidinggevende : null),
+    [`${P}_urencode`]: velden.urencode ?? huidig[`${P}_urencode`] ?? null,
   };
   if (decl) {
     const tSoort = TARIEF_SOORTEN.includes(velden.tariefSoort) ? velden.tariefSoort : (huidig[`${P}_tariefsoort`] || "normaal");
@@ -311,23 +321,99 @@ async function verwijderBoeking(id, email) {
   const huidig = await haalBoekingRuw(resource, token, id);
   if (!huidig) return false;
   if ((huidig[`${P}_medewerkeremail`] || "").toLowerCase() !== String(email).toLowerCase()) return false;
-  if ((huidig[`${P}_status`] || "open") !== "open") return false;
+  if (!isConcept(huidig[`${P}_status`])) return false;
   const res = await fetch(`${resource}/api/data/v9.2/${set}(${id})`, { method: "DELETE", headers: schrijfHeaders(token, false) });
   return res.ok;
 }
 
 // ===========================================================================
-// Controle (manager)
+// Facturatiecontrole (manager op de cliënt) — tweede laag, ná de weekgoedkeuring.
+// Werkt op declarabele cliënturen die door de leidinggevende al zijn goedgekeurd; hier boekt de
+// manager af/op en gaat UXT naar Exact.
 // ===========================================================================
-async function boekingenVoorControle({ maand, goedkeurderNaam, alle }) {
+async function boekingenVoorControle({ maand, managerNaam, alle }) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   const token = await haalDynamicsToken();
   const { eerste, laatste } = maandRange(maand);
-  // Alle soorten (ook indirect/kantoor) moeten worden goedgekeurd. Scoping op de goedkeurder:
-  // cliënturen → manager op de cliënt; niet-cliënturen → leidinggevende van de medewerker.
-  let f = `${P}_datum ge ${eerste} and ${P}_datum le ${laatste}`;
-  if (!alle) f += ` and ${P}_goedkeurdernaam eq '${esc(goedkeurderNaam || " ")}'`;
+  let f = `${P}_declarabel eq true and ${CLIENT_VALUE} ne null and (${P}_status eq 'goedgekeurd' or ${P}_status eq 'gefactureerd') and ${P}_datum ge ${eerste} and ${P}_datum le ${laatste}`;
+  if (!alle) f += ` and ${P}_managernaam eq '${esc(managerNaam || " ")}'`;
   return haalBoekingen(resource, token, f, `${P}_datum asc`);
+}
+
+// ===========================================================================
+// Weekstaat: indienen (medewerker) + weekgoedkeuring (leidinggevende)
+// ===========================================================================
+async function boekingenInWeek(resource, token, email, weekStart) {
+  const tot = new Date(new Date(weekStart + "T00:00:00Z").getTime() + 6 * 86400000).toISOString().slice(0, 10);
+  const f = `${P}_medewerkeremail eq '${esc(email)}' and ${P}_datum ge ${weekStart} and ${P}_datum le ${tot}`;
+  return haalBoekingen(resource, token, f, `${P}_datum asc`);
+}
+async function zetStatus(resource, token, set, id, status, door) {
+  const body = { [`${P}_status`]: status };
+  if (door !== undefined) { body[`${P}_gecontroleerddoor`] = door ?? null; body[`${P}_gecontroleerdop`] = door ? new Date().toISOString() : null; }
+  const res = await fetch(`${resource}/api/data/v9.2/${set}(${id})`, { method: "PATCH", headers: schrijfHeaders(token, false), body: JSON.stringify(body) });
+  return res.ok;
+}
+
+/** Medewerker dient zijn weekstaat in: alle concept-boekingen van die week → 'ingediend'. */
+async function dienWeekIn(email, weekStart) {
+  const resource = process.env.DYNAMICS_RESOURCE_URL;
+  const token = await haalDynamicsToken();
+  const set = await entitySet(resource, token, BOEKING);
+  const boekingen = await boekingenInWeek(resource, token, email, weekStart);
+  const teDoen = boekingen.filter((b) => b.status === "concept");
+  let aantal = 0;
+  for (const b of teDoen) { if (await zetStatus(resource, token, set, b.id, "ingediend")) aantal++; }
+  return { aantal, totaal: boekingen.length };
+}
+
+/**
+ * Ingediende weekstaten die wachten op goedkeuring, gegroepeerd per medewerker + week. De
+ * goedkeurder is de leidinggevende van de medewerker (uit het uurtarief). Een beheerder ziet alles.
+ */
+async function weekstatenVoorLeidinggevende({ leidinggevendeNaam, alle }) {
+  const resource = process.env.DYNAMICS_RESOURCE_URL;
+  const token = await haalDynamicsToken();
+  const boekingen = await haalBoekingen(resource, token, `${P}_status eq 'ingediend'`, `${P}_datum asc`);
+  const tarieven = await lijstTarieven();
+  const leidingVan = new Map(tarieven.map((t) => [String(t.medewerker_email).toLowerCase(), t.leidinggevende || ""]));
+  const mij = String(leidinggevendeNaam || "").trim().toLowerCase();
+  const perWeek = new Map();
+  for (const b of boekingen) {
+    const email = (b.medewerkerEmail || "").toLowerCase();
+    const leiding = leidingVan.get(email) || "";
+    if (!alle && leiding.trim().toLowerCase() !== mij) continue;
+    const key = `${email}|${b.weekStart}`;
+    if (!perWeek.has(key)) perWeek.set(key, { medewerkerEmail: b.medewerkerEmail, medewerkerNaam: b.medewerkerNaam || b.medewerkerEmail, leidinggevende: leiding, weekStart: b.weekStart, totaal: 0, declarabel: 0, boekingen: [] });
+    const w = perWeek.get(key);
+    w.totaal += b.uren; if (b.declarabel) w.declarabel += b.uren;
+    w.boekingen.push(b);
+  }
+  return [...perWeek.values()].sort((a, b) => (a.weekStart < b.weekStart ? 1 : -1) || (a.medewerkerNaam || "").localeCompare(b.medewerkerNaam || ""));
+}
+
+/** Leidinggevende keurt de hele weekstaat goed: alle 'ingediend'-boekingen → 'goedgekeurd'. */
+async function keurWeekGoed(medewerkerEmail, weekStart, door) {
+  const resource = process.env.DYNAMICS_RESOURCE_URL;
+  const token = await haalDynamicsToken();
+  const set = await entitySet(resource, token, BOEKING);
+  const boekingen = await boekingenInWeek(resource, token, medewerkerEmail, weekStart);
+  const teDoen = boekingen.filter((b) => b.status === "ingediend");
+  let aantal = 0;
+  for (const b of teDoen) { if (await zetStatus(resource, token, set, b.id, "goedgekeurd", door || "onbekend")) aantal++; }
+  return { aantal };
+}
+
+/** Leidinggevende keurt de weekstaat af: alle 'ingediend'-boekingen terug naar 'concept'. */
+async function keurWeekAf(medewerkerEmail, weekStart) {
+  const resource = process.env.DYNAMICS_RESOURCE_URL;
+  const token = await haalDynamicsToken();
+  const set = await entitySet(resource, token, BOEKING);
+  const boekingen = await boekingenInWeek(resource, token, medewerkerEmail, weekStart);
+  const teDoen = boekingen.filter((b) => b.status === "ingediend");
+  let aantal = 0;
+  for (const b of teDoen) { if (await zetStatus(resource, token, set, b.id, "concept")) aantal++; }
+  return { aantal };
 }
 
 async function controleActie(id, { goedgekeurdeUren, afboekUren, afboekReden, extraBedrag, extraReden }, door) {
@@ -440,7 +526,8 @@ async function rapportageDeclarabel({ vanaf, tot }) {
     const r = per.get(key);
     r.totaal += b.uren;
     if (b.declarabel) r.declarabelUren += b.uren;
-    if (b.status === "open") r.openUren += b.uren; else r.goedgekeurdUren += b.uren;
+    // "Niet goedgekeurd" = nog concept of ingediend (leidinggevende heeft de week nog niet goedgekeurd).
+    if (b.status === "goedgekeurd" || b.status === "gefactureerd") r.goedgekeurdUren += b.uren; else r.openUren += b.uren;
     if (r[b.soort] !== undefined) r[b.soort] += b.uren;
   }
   return [...per.values()].map((r) => ({
@@ -469,6 +556,7 @@ module.exports = {
   haalKlantMeta,
   haalTarief, lijstTarieven, zetTarief,
   boekingenVanMedewerker, maakBoeking, werkBoekingBij, verwijderBoeking,
+  dienWeekIn, weekstatenVoorLeidinggevende, keurWeekGoed, keurWeekAf,
   boekingenVoorControle, controleActie,
   ohwEnFacturatie, markeerGefactureerd, markeerExact, uxtTeExporteren,
   rapportageDeclarabel, medewerkersOnderMinuren,

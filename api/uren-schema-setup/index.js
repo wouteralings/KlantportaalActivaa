@@ -148,6 +148,7 @@ module.exports = async function (context, req) {
       [`${PREFIX}_medewerkernaam`, Str(`${PREFIX}_Medewerkernaam`, "Medewerker", 256)],
       [`${PREFIX}_managernaam`, Str(`${PREFIX}_Managernaam`, "Manager (snapshot)", 256)],
       [`${PREFIX}_goedkeurdernaam`, Str(`${PREFIX}_Goedkeurdernaam`, "Goedkeurder (snapshot)", 256)],
+      [`${PREFIX}_urencode`, Str(`${PREFIX}_Urencode`, "Urencode", 100)],
     ];
     for (const [logisch, meta] of boekingAttrs) stappen.push(await maakAttribuut(token, resource, B, logisch, meta));
 
@@ -166,7 +167,8 @@ module.exports = async function (context, req) {
       [`${PREFIX}_tariefhoog`, Dec(`${PREFIX}_Tariefhoog`, "Uurtarief hoog")],
       [`${PREFIX}_tarieflaag`, Dec(`${PREFIX}_Tarieflaag`, "Uurtarief laag")],
       [`${PREFIX}_declarabeldoel`, Dec(`${PREFIX}_Declarabeldoel`, "Declarabel-doel (%)")],
-      [`${PREFIX}_leidinggevendenaam`, Str(`${PREFIX}_Leidinggevendenaam`, "Leidinggevende (goedkeurt indirect/kantoor)", 256)],
+      [`${PREFIX}_leidinggevendenaam`, Str(`${PREFIX}_Leidinggevendenaam`, "Leidinggevende (keurt weekstaat goed)", 256)],
+      [`${PREFIX}_deadlineweekdag`, Dec(`${PREFIX}_Deadlineweekdag`, "Deadline weekdag (1=ma .. 7=zo)")],
       [`${PREFIX}_actief`, Bool(`${PREFIX}_Actief`, "Actief")],
     ];
     for (const [logisch, meta] of tariefAttrs) stappen.push(await maakAttribuut(token, resource, T, logisch, meta));

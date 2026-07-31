@@ -14,6 +14,7 @@
  */
 const { haalDynamicsToken, haalEmailUitPrincipal, haalNaamUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const uren = require("../_gedeeld/urenDataverse");
+const urencodes = require("../_gedeeld/urencodesStore");
 
 function json(context, status, body) {
   context.res = { status, headers: { "Content-Type": "application/json" }, body };
@@ -46,24 +47,36 @@ module.exports = async function (context, req) {
     if (methode === "GET") {
       const vanaf = (req.query && req.query.vanaf) || null;
       const tot = (req.query && req.query.tot) || null;
-      const [boekingen, tarief] = await Promise.all([
+      const [boekingen, tarief, codes] = await Promise.all([
         uren.boekingenVanMedewerker(email, { vanaf, tot }),
         uren.haalTarief(email),
+        urencodes.haalCodes().catch(() => []),
       ]);
       return json(context, 200, {
         boekingen,
         soorten: uren.SOORTEN,
+        urencodes: (codes || []).filter((c) => c.actief !== false),
         tarief: tarief ? {
           normaal: tarief.tarief_normaal == null ? null : Number(tarief.tarief_normaal),
           hoog: tarief.tarief_hoog == null ? null : Number(tarief.tarief_hoog),
           laag: tarief.tarief_laag == null ? null : Number(tarief.tarief_laag),
           declarabelDoel: tarief.declarabel_doel == null ? null : Number(tarief.declarabel_doel),
+          deadlineWeekdag: tarief.deadline_weekdag == null ? null : Number(tarief.deadline_weekdag),
         } : null,
       });
     }
 
     if (methode === "POST") {
       const b = req.body || {};
+
+      // Weekstaat indienen: alle concept-boekingen van die week → 'ingediend' (wacht op leidinggevende).
+      if (b.actie === "indienen") {
+        if (!b.weekStart || !/^\d{4}-\d{2}-\d{2}$/.test(b.weekStart)) return json(context, 400, { error: "Geef een geldige weekStart (maandag) mee." });
+        const r = await uren.dienWeekIn(email, b.weekStart);
+        if (r.aantal === 0) return json(context, 409, { error: "Er zijn geen in te dienen (concept) boekingen in deze week." });
+        return json(context, 200, { ok: true, ...r });
+      }
+
       const soort = String(b.soort || "").toLowerCase();
       if (!uren.SOORTEN.includes(soort)) return json(context, 400, { error: "Ongeldige urensoort." });
       if (!b.datum || !/^\d{4}-\d{2}-\d{2}$/.test(b.datum)) return json(context, 400, { error: "Geef een geldige datum (YYYY-MM-DD)." });
@@ -78,7 +91,7 @@ module.exports = async function (context, req) {
       const naam = await mijnNaam(req, email);
       const boeking = await uren.maakBoeking({
         email, naam, datum: b.datum, soort, accountId: b.accountId, omschrijving: b.omschrijving,
-        uren: aantalUren, tariefSoort: b.tariefSoort,
+        uren: aantalUren, tariefSoort: b.tariefSoort, urencode: b.urencode,
       }, klantMeta);
       return json(context, 200, { ok: true, boeking });
     }
@@ -95,7 +108,7 @@ module.exports = async function (context, req) {
         klantMeta = await uren.haalKlantMeta(process.env.DYNAMICS_RESOURCE_URL, token, b.accountId);
       }
       const res = await uren.werkBoekingBij(b.id, email, {
-        soort, datum: b.datum, accountId: b.accountId,
+        soort, datum: b.datum, accountId: b.accountId, urencode: b.urencode,
         omschrijving: b.omschrijving, uren: b.uren !== undefined ? Number(b.uren) : undefined, tariefSoort: b.tariefSoort,
       }, klantMeta);
       if (res.fout === "NIET_GEVONDEN") return json(context, 404, { error: "Boeking niet gevonden." });

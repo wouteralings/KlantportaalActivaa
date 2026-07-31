@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Clock, Save, Loader2, Search, Bell, CheckCircle2, Database, Link2, ExternalLink, AlertCircle } from "lucide-react";
+import { Clock, Save, Loader2, Search, Bell, CheckCircle2, Database, Link2, ExternalLink, AlertCircle, Tag, Plus, Trash2 } from "lucide-react";
 
 /** Zelfde palet als de rest van het beheerportaal (bewust hier herhaald zodat dit bestand op
  *  zichzelf staat). */
@@ -46,6 +46,9 @@ export default function UrenTarievenBeheer() {
 
       <Koppelingen onFout={setFout} />
 
+      <Urencodes onFout={setFout} />
+
+      <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 8 }}>Tarieven & deadline per medewerker</div>
       <div style={{ position: "relative", maxWidth: 320, marginBottom: 10 }}>
         <Search size={13} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)" }} />
         <input value={zoek} onChange={(e) => setZoek(e.target.value)} placeholder="Zoek medewerker…" style={{ ...veld, width: "100%", padding: "8px 9px 8px 28px" }} />
@@ -59,12 +62,12 @@ export default function UrenTarievenBeheer() {
             <thead>
               <tr style={{ background: "#FBFBF9" }}>
                 <th style={th}>Medewerker</th><th style={th}>Normaal €/u</th><th style={th}>Hoog €/u</th><th style={th}>Laag €/u</th>
-                <th style={th}>Declarabel-doel %</th><th style={th}>Leidinggevende</th><th style={th}>Actief</th><th style={{ ...th, width: 1 }}></th>
+                <th style={th}>Declarabel-doel %</th><th style={th}>Leidinggevende</th><th style={th}>Deadline</th><th style={th}>Actief</th><th style={{ ...th, width: 1 }}></th>
               </tr>
             </thead>
             <tbody>
               {gefilterd.length === 0 ? (
-                <tr><td style={{ ...td, color: KLEUR.mutedTekst }} colSpan={8}>Geen medewerkers gevonden.</td></tr>
+                <tr><td style={{ ...td, color: KLEUR.mutedTekst }} colSpan={9}>Geen medewerkers gevonden.</td></tr>
               ) : gefilterd.map((m) => <TariefRij key={m.email} m={m} namen={alleNamen} />)}
             </tbody>
           </table>
@@ -145,6 +148,7 @@ function TariefRij({ m, namen }) {
   const [laag, setLaag] = useState(t.laag ?? "");
   const [doel, setDoel] = useState(t.declarabelDoel ?? "");
   const [leidinggevende, setLeidinggevende] = useState(t.leidinggevende ?? "");
+  const [deadline, setDeadline] = useState(t.deadlineWeekdag ?? "");
   const [actief, setActief] = useState(t.actief !== false);
   const [bezig, setBezig] = useState(false);
   const [ok, setOk] = useState(false);
@@ -155,7 +159,7 @@ function TariefRij({ m, namen }) {
     try {
       const res = await fetch("/api/beheer-uren-tarieven", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ actie: "tarief", email: m.email, naam: m.naam, tarief_normaal: normaal, tarief_hoog: hoog, tarief_laag: laag, declarabel_doel: doel, leidinggevende, actief }),
+        body: JSON.stringify({ actie: "tarief", email: m.email, naam: m.naam, tarief_normaal: normaal, tarief_hoog: hoog, tarief_laag: laag, declarabel_doel: doel, leidinggevende, deadline_weekdag: deadline, actief }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
@@ -177,6 +181,12 @@ function TariefRij({ m, namen }) {
           <option value="">— geen —</option>
           {(namen || []).map((n) => <option key={n} value={n}>{n}</option>)}
           {leidinggevende && !(namen || []).includes(leidinggevende) && <option value={leidinggevende}>{leidinggevende}</option>}
+        </select>
+      </td>
+      <td style={td}>
+        <select value={deadline} onChange={(e) => setDeadline(e.target.value)} title="Uiterlijke weekdag om de weekstaat in te dienen" style={{ ...veld, width: 120 }}>
+          <option value="">— geen —</option>
+          {WEEKDAGEN.map(([n, l]) => <option key={n} value={n}>{l}</option>)}
         </select>
       </td>
       <td style={td}><label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}><input type="checkbox" checked={actief} onChange={(e) => setActief(e.target.checked)} /></label></td>
@@ -250,3 +260,93 @@ function Herinneringen({ begin, onFout }) {
 }
 
 const lbl = { fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" };
+
+const CAT_LABEL = { abonnement: "Abonnement", uxt: "UXT", indirect: "Indirect", kantoor: "Kantoor" };
+
+function Urencodes({ onFout }) {
+  const [codes, setCodes] = useState(null);
+  const [categorieen, setCategorieen] = useState(["abonnement", "uxt", "indirect", "kantoor"]);
+  const [nieuw, setNieuw] = useState({ naam: "", categorie: "kantoor" });
+  const [bezig, setBezig] = useState(false);
+
+  const laad = () => {
+    fetch("/api/beheer-urencodes")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => { setCodes(d.codes || []); if (d.categorieen) setCategorieen(d.categorieen); })
+      .catch(() => setCodes([]));
+  };
+  useEffect(() => { laad(); }, []);
+
+  const zet = async (code) => {
+    try {
+      const res = await fetch("/api/beheer-urencodes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(code) });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+      laad();
+    } catch (e) { onFout("Urencode opslaan mislukt: " + String(e.message || e)); }
+  };
+  const voegToe = async () => {
+    if (!nieuw.naam.trim()) return;
+    setBezig(true);
+    await zet({ naam: nieuw.naam.trim(), categorie: nieuw.categorie, actief: true });
+    setNieuw({ naam: "", categorie: nieuw.categorie });
+    setBezig(false);
+  };
+  const verwijder = async (id) => {
+    try { await fetch(`/api/beheer-urencodes?id=${encodeURIComponent(id)}`, { method: "DELETE" }); laad(); }
+    catch (e) { onFout("Verwijderen mislukt: " + String(e.message || e)); }
+  };
+
+  return (
+    <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 16, marginBottom: 24 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700, marginBottom: 4 }}><Tag size={16} color={KLEUR.blauw} /> Urencodes</div>
+      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 12, maxWidth: 720 }}>
+        Codes waarop medewerkers uren schrijven (bijv. Verlof, Ziek, Opleiding, Reistijd, Jaarrekening). Elke code hoort bij één
+        categorie; die bepaalt of hij declarabel is en hoe de facturatie/goedkeuring werkt.
+      </div>
+
+      {/* Nieuwe code */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 14 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          <span style={lbl}>Naam</span>
+          <input value={nieuw.naam} onChange={(e) => setNieuw((n) => ({ ...n, naam: e.target.value }))} placeholder="bijv. Verlof" style={{ ...veld, width: 200 }} />
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          <span style={lbl}>Categorie</span>
+          <select value={nieuw.categorie} onChange={(e) => setNieuw((n) => ({ ...n, categorie: e.target.value }))} style={{ ...veld, width: 150 }}>
+            {categorieen.map((c) => <option key={c} value={c}>{CAT_LABEL[c] || c}</option>)}
+          </select>
+        </div>
+        <button onClick={voegToe} disabled={bezig || !nieuw.naam.trim()} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+          {bezig ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : <Plus size={13} />} Toevoegen
+        </button>
+      </div>
+
+      {codes === null ? (
+        <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Urencodes ophalen…</div>
+      ) : codes.length === 0 ? (
+        <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Nog geen urencodes. Voeg er hierboven een toe.</div>
+      ) : (
+        <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
+            <thead><tr style={{ background: "#FBFBF9" }}><th style={th}>Naam</th><th style={th}>Categorie</th><th style={th}>Actief</th><th style={{ ...th, width: 1 }}></th></tr></thead>
+            <tbody>
+              {codes.map((c) => (
+                <tr key={c.id}>
+                  <td style={td}><input defaultValue={c.naam} onBlur={(e) => { if (e.target.value.trim() && e.target.value !== c.naam) zet({ ...c, naam: e.target.value.trim() }); }} style={{ ...veld, width: 200 }} /></td>
+                  <td style={td}>
+                    <select value={c.categorie} onChange={(e) => zet({ ...c, categorie: e.target.value })} style={{ ...veld, width: 150 }}>
+                      {categorieen.map((cat) => <option key={cat} value={cat}>{CAT_LABEL[cat] || cat}</option>)}
+                    </select>
+                  </td>
+                  <td style={td}><input type="checkbox" checked={c.actief !== false} onChange={(e) => zet({ ...c, actief: e.target.checked })} /></td>
+                  <td style={td}><button onClick={() => verwijder(c.id)} title="Verwijderen" style={{ display: "inline-flex", padding: 6, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, background: "#fff", cursor: "pointer" }}><Trash2 size={13} color={KLEUR.rood} /></button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}

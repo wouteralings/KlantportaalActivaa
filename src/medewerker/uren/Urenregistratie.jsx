@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Clock, Plus, Trash2, Pencil, X, Check, ChevronLeft, ChevronRight, Lock, RefreshCw, CheckSquare, BarChart3, Wallet, Loader2 } from "lucide-react";
+import { Clock, Plus, Trash2, Pencil, X, Check, ChevronLeft, ChevronRight, Lock, RefreshCw, CheckSquare, ClipboardCheck, BarChart3, Wallet, Loader2, Send } from "lucide-react";
 import {
   KLEUR, SOORTEN, soortVan, isDeclarabel, TARIEF_SOORTEN, euro, uur, datumNL,
   WEEKDAG_VOL, maandagVan, voegDagenToe, vandaagIso, useKlanten, KlantPicker, SoortBadge,
@@ -8,6 +8,7 @@ import {
 import UrenControle from "./UrenControle";
 import UrenFacturatie from "./UrenFacturatie";
 import UrenRapportage from "./UrenRapportage";
+import UrenGoedkeuren from "./UrenGoedkeuren";
 
 /**
  * Interne urenregistratie voor medewerkers. Sub-tabs:
@@ -18,28 +19,44 @@ import UrenRapportage from "./UrenRapportage";
  */
 export default function Urenregistratie({ isBeheerder }) {
   const [sub, setSub] = useState("schrijven");
+  const [teGoedkeuren, setTeGoedkeuren] = useState(0);
+
+  // Telling van weekstaten die op mijn goedkeuring wachten (badge op de Goedkeuren-tab).
+  const laadTelling = useCallback(() => {
+    fetch("/api/mw-uren-weekstaten")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setTeGoedkeuren(d.aantalOpen || 0))
+      .catch(() => {});
+  }, []);
+  useEffect(() => { laadTelling(); }, [laadTelling]);
+
   const subs = [
-    ["schrijven", "Schrijven", Clock],
-    ["controle", "Controle", CheckSquare],
-    ["facturatie", "Facturatie", Wallet],
-    ["rapportage", "Rapportage", BarChart3],
+    ["schrijven", "Schrijven", Clock, 0],
+    ["goedkeuren", "Goedkeuren", ClipboardCheck, teGoedkeuren],
+    ["controle", "Facturatiecontrole", CheckSquare, 0],
+    ["facturatie", "Facturatie", Wallet, 0],
+    ["rapportage", "Rapportage", BarChart3, 0],
   ];
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700, marginBottom: 4 }}>
         <Clock size={17} color={KLEUR.blauw} /> Urenregistratie
       </div>
-      <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 14, maxWidth: 780 }}>
-        Schrijf je uren op abonnement, UXT, indirect of kantoor. Managers controleren maandelijks per cliënt,
-        boeken af of factureren extra, en zien het onderhanden werk gesplitst in UXT en abonnement.
+      <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 14, maxWidth: 820 }}>
+        Schrijf je week (blijft concept) en dien 'm in. Je leidinggevende keurt de weekstaat wekelijks goed;
+        daarna doet de manager de facturatiecontrole per cliënt (afboeken / UXT→Exact).
       </div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
-        {subs.map(([k, label, Icon]) => (
-          <button key={k} onClick={() => setSub(k)} style={knopStijl(sub === k)}><Icon size={14} /> {label}</button>
+        {subs.map(([k, label, Icon, badge]) => (
+          <button key={k} onClick={() => setSub(k)} style={{ ...knopStijl(sub === k), position: "relative" }}>
+            <Icon size={14} /> {label}
+            {badge > 0 && <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 17, height: 17, padding: "0 5px", borderRadius: 999, background: sub === k ? "#fff" : KLEUR.rood, color: sub === k ? KLEUR.blauw : "#fff", fontSize: 10.5, fontWeight: 700 }}>{badge}</span>}
+          </button>
         ))}
       </div>
 
       {sub === "schrijven" && <Schrijven />}
+      {sub === "goedkeuren" && <UrenGoedkeuren isBeheerder={isBeheerder} onGewijzigd={laadTelling} />}
       {sub === "controle" && <UrenControle isBeheerder={isBeheerder} />}
       {sub === "facturatie" && <UrenFacturatie isBeheerder={isBeheerder} />}
       {sub === "rapportage" && <UrenRapportage />}
@@ -47,13 +64,15 @@ export default function Urenregistratie({ isBeheerder }) {
   );
 }
 
-const LEEG = { id: "", datum: "", soort: "abonnement", accountId: "", klantnaam: "", omschrijving: "", uren: "", tariefSoort: "normaal" };
+const LEEG = { id: "", datum: "", soort: "abonnement", urencode: "", accountId: "", klantnaam: "", omschrijving: "", uren: "", tariefSoort: "normaal" };
+const STATUS_LABEL = { concept: "Concept", ingediend: "Ingediend", goedgekeurd: "Goedgekeurd", gefactureerd: "Gefactureerd" };
 
 function Schrijven() {
   const klanten = useKlanten();
   const [weekStart, setWeekStart] = useState(maandagVan(vandaagIso()));
   const [boekingen, setBoekingen] = useState(null); // null = laden
   const [tarief, setTarief] = useState(null);
+  const [codes, setCodes] = useState([]);
   const [fout, setFout] = useState("");
   const [form, setForm] = useState({ ...LEEG, datum: vandaagIso() });
   const [bezig, setBezig] = useState(false);
@@ -64,25 +83,32 @@ function Schrijven() {
     setBoekingen(null); setFout("");
     fetch(`/api/mw-uren-boekingen?vanaf=${weekStart}&tot=${weekEinde}`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { setBoekingen(d.boekingen || []); setTarief(d.tarief || null); })
+      .then((d) => { setBoekingen(d.boekingen || []); setTarief(d.tarief || null); setCodes(d.urencodes || []); })
       .catch(() => { setBoekingen([]); setFout("Kon je uren niet laden. Controleer of de database-koppeling is ingesteld."); });
   }, [weekStart, weekEinde]);
   useEffect(() => { laad(); }, [laad]);
 
+  // Is de week al ingediend/goedgekeurd? Dan mag er niet meer geschreven worden.
+  const weekVergrendeld = (boekingen || []).some((b) => b.status !== "concept");
+  const weekStatus = (boekingen || []).find((b) => b.status !== "concept")?.status || "concept";
+  const heeftConcept = (boekingen || []).some((b) => b.status === "concept");
+
   const zet = (veld) => (e) => setForm((f) => ({ ...f, [veld]: e && e.target ? e.target.value : e }));
-  const kiesSoort = (key) => setForm((f) => ({ ...f, soort: key, ...(isDeclarabel(key) ? {} : { accountId: "", klantnaam: "" }) }));
-  const bewerk = (b) => setForm({ id: b.id, datum: b.datum, soort: b.soort, accountId: b.accountId || "", klantnaam: b.klantnaam || "", omschrijving: b.omschrijving || "", uren: String(b.uren), tariefSoort: b.tariefSoort || "normaal" });
+  const kiesCode = (code) => setForm((f) => ({ ...f, urencode: code.naam, soort: code.categorie, ...(isDeclarabel(code.categorie) ? {} : { accountId: "", klantnaam: "" }) }));
+  const kiesSoort = (key) => setForm((f) => ({ ...f, soort: key, urencode: "", ...(isDeclarabel(key) ? {} : { accountId: "", klantnaam: "" }) }));
+  const bewerk = (b) => setForm({ id: b.id, datum: b.datum, soort: b.soort, urencode: b.urencode || "", accountId: b.accountId || "", klantnaam: b.klantnaam || "", omschrijving: b.omschrijving || "", uren: String(b.uren), tariefSoort: b.tariefSoort || "normaal" });
   const annuleer = () => setForm({ ...LEEG, datum: form.datum || vandaagIso() });
 
   const bewaar = async () => {
     setFout("");
+    if (codes.length > 0 && !form.urencode) { setFout("Kies een urencode."); return; }
     const decl = isDeclarabel(form.soort);
     if (decl && !form.accountId) { setFout("Kies een cliënt voor abonnement/UXT."); return; }
     const aantal = Number(String(form.uren).replace(",", "."));
     if (!(aantal > 0)) { setFout("Vul een aantal uren in (groter dan 0)."); return; }
     setBezig(true);
     try {
-      const payload = { datum: form.datum, soort: form.soort, accountId: decl ? form.accountId : undefined, omschrijving: form.omschrijving, uren: aantal, tariefSoort: decl ? form.tariefSoort : undefined };
+      const payload = { datum: form.datum, soort: form.soort, urencode: form.urencode || undefined, accountId: decl ? form.accountId : undefined, omschrijving: form.omschrijving, uren: aantal, tariefSoort: decl ? form.tariefSoort : undefined };
       const res = await fetch("/api/mw-uren-boekingen", {
         method: form.id ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
@@ -96,8 +122,19 @@ function Schrijven() {
     finally { setBezig(false); }
   };
 
+  const dienIn = async () => {
+    setFout(""); setBezig(true);
+    try {
+      const res = await fetch("/api/mw-uren-boekingen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "indienen", weekStart }) });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+      laad();
+    } catch (e) { setFout(String(e.message || e)); }
+    finally { setBezig(false); }
+  };
+
   const verwijder = async (b) => {
-    if (b.status !== "open") return;
+    if (b.status !== "concept") return;
     setBezig(true);
     try {
       const res = await fetch(`/api/mw-uren-boekingen?id=${encodeURIComponent(b.id)}`, { method: "DELETE" });
@@ -145,45 +182,84 @@ function Schrijven() {
 
       {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 10 }}>{fout}</div>}
 
-      {/* Boekingsformulier */}
-      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14, marginBottom: 16, background: "#FBFBF9" }}>
-        <div style={{ fontSize: 12.5, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 8 }}>{form.id ? "Boeking bewerken" : "Nieuwe boeking"}</div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-          {SOORTEN.map((s) => (
-            <button key={s.key} onClick={() => kiesSoort(s.key)} title={s.uitleg} style={{ ...knopStijl(form.soort === s.key), borderColor: form.soort === s.key ? s.kleur : KLEUR.rand, background: form.soort === s.key ? s.kleur : "#fff" }}>{s.label}</button>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <Veld label="Datum">
-            <input type="date" value={form.datum} min={weekStart} max={weekEinde} onChange={zet("datum")} style={{ ...veldStijl, width: 150 }} />
-          </Veld>
-          {decl && (
-            <Veld label="Cliënt">
-              <div style={{ width: 240 }}>
-                <KlantPicker klanten={klanten} waarde={form.accountId} onKies={(k) => setForm((f) => ({ ...f, accountId: k.accountId, klantnaam: k.klantnaam }))} />
-              </div>
-            </Veld>
+      {/* Weekstatus + indienen */}
+      {boekingen !== null && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontWeight: 700, padding: "3px 10px", borderRadius: 999,
+            background: weekStatus === "concept" ? "#EFEFEA" : weekStatus === "ingediend" ? "#FBF3E4" : weekStatus === "goedgekeurd" ? "#E7F2EA" : KLEUR.lichtblauw,
+            color: weekStatus === "concept" ? KLEUR.subtekst : weekStatus === "ingediend" ? KLEUR.goud : weekStatus === "goedgekeurd" ? KLEUR.groen : KLEUR.blauw }}>
+            Weekstaat: {STATUS_LABEL[weekStatus] || weekStatus}
+          </span>
+          {tarief && tarief.deadlineWeekdag ? <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>Deadline: uiterlijk {WEEKDAG_VOL[(tarief.deadlineWeekdag - 1)] || "?"}</span> : null}
+          {heeftConcept && !weekVergrendeld && (
+            <button onClick={dienIn} disabled={bezig} style={{ ...knopStijl(true), padding: "7px 12px", marginLeft: "auto" }}>
+              {bezig ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : <Send size={13} />} Week indienen
+            </button>
           )}
-          {decl && (
-            <Veld label="Tarief">
-              <select value={form.tariefSoort} onChange={zet("tariefSoort")} style={{ ...veldStijl, width: 120 }}>
-                {TARIEF_SOORTEN.map((t) => <option key={t.key} value={t.key}>{t.label}{tariefBedrag(tarief, t.key) != null ? ` · ${euro(tariefBedrag(tarief, t.key))}` : ""}</option>)}
-              </select>
-            </Veld>
-          )}
-          <Veld label="Uren">
-            <input value={form.uren} onChange={zet("uren")} placeholder="0,00" inputMode="decimal" style={{ ...veldStijl, width: 80 }} />
-          </Veld>
-          <Veld label="Omschrijving" groei>
-            <input value={form.omschrijving} onChange={zet("omschrijving")} placeholder="Waar heb je aan gewerkt?" style={{ ...veldStijl, width: "100%" }} />
-          </Veld>
-          <button onClick={bewaar} disabled={bezig} style={{ ...knopStijl(true), padding: "9px 14px" }}>
-            {bezig ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : (form.id ? <Check size={14} /> : <Plus size={14} />)} {form.id ? "Opslaan" : "Toevoegen"}
-          </button>
-          {form.id && <button onClick={annuleer} style={{ ...knopStijl(false), padding: "9px 12px" }}><X size={14} /> Annuleren</button>}
         </div>
-        {decl && tarief == null && <div style={{ fontSize: 11.5, color: KLEUR.goud, marginTop: 8 }}>Je hebt nog geen uurtarief ingesteld — vraag beheer om je tarieven (hoog/laag/normaal) toe te voegen. Je kunt wel alvast uren schrijven.</div>}
-      </div>
+      )}
+
+      {/* Boekingsformulier — alleen zolang de week nog concept is */}
+      {weekVergrendeld ? (
+        <div style={{ fontSize: 12.5, color: KLEUR.subtekst, background: "#FBFBF9", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: "12px 14px", marginBottom: 16 }}>
+          Deze week is <strong>{STATUS_LABEL[weekStatus]?.toLowerCase() || weekStatus}</strong> en kan niet meer worden bewerkt. Neem contact op met je leidinggevende als er iets moet wijzigen.
+        </div>
+      ) : (
+        <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14, marginBottom: 16, background: "#FBFBF9" }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 8 }}>{form.id ? "Boeking bewerken" : "Nieuwe boeking"}</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+            {codes.length > 0 ? (
+              <Veld label="Urencode">
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <select value={form.urencode} onChange={(e) => { const c = codes.find((x) => x.naam === e.target.value); if (c) kiesCode(c); }} style={{ ...veldStijl, width: 210 }}>
+                    <option value="">Kies urencode…</option>
+                    {SOORTEN.map((s) => {
+                      const inCat = codes.filter((c) => c.categorie === s.key);
+                      return inCat.length ? <optgroup key={s.key} label={s.label}>{inCat.map((c) => <option key={c.id} value={c.naam}>{c.naam}</option>)}</optgroup> : null;
+                    })}
+                  </select>
+                  {form.urencode && <SoortBadge soort={form.soort} />}
+                </div>
+              </Veld>
+            ) : (
+              <Veld label="Soort">
+                <div style={{ display: "flex", gap: 6 }}>
+                  {SOORTEN.map((s) => <button key={s.key} onClick={() => kiesSoort(s.key)} title={s.uitleg} style={{ ...knopStijl(form.soort === s.key), padding: "8px 10px", borderColor: form.soort === s.key ? s.kleur : KLEUR.rand, background: form.soort === s.key ? s.kleur : "#fff" }}>{s.label}</button>)}
+                </div>
+              </Veld>
+            )}
+            <Veld label="Datum">
+              <input type="date" value={form.datum} min={weekStart} max={weekEinde} onChange={zet("datum")} style={{ ...veldStijl, width: 150 }} />
+            </Veld>
+            {decl && (
+              <Veld label="Cliënt">
+                <div style={{ width: 240 }}>
+                  <KlantPicker klanten={klanten} waarde={form.accountId} onKies={(k) => setForm((f) => ({ ...f, accountId: k.accountId, klantnaam: k.klantnaam }))} />
+                </div>
+              </Veld>
+            )}
+            {decl && (
+              <Veld label="Tarief">
+                <select value={form.tariefSoort} onChange={zet("tariefSoort")} style={{ ...veldStijl, width: 120 }}>
+                  {TARIEF_SOORTEN.map((t) => <option key={t.key} value={t.key}>{t.label}{tariefBedrag(tarief, t.key) != null ? ` · ${euro(tariefBedrag(tarief, t.key))}` : ""}</option>)}
+                </select>
+              </Veld>
+            )}
+            <Veld label="Uren">
+              <input value={form.uren} onChange={zet("uren")} placeholder="0,00" inputMode="decimal" style={{ ...veldStijl, width: 80 }} />
+            </Veld>
+            <Veld label="Omschrijving" groei>
+              <input value={form.omschrijving} onChange={zet("omschrijving")} placeholder="Waar heb je aan gewerkt?" style={{ ...veldStijl, width: "100%" }} />
+            </Veld>
+            <button onClick={bewaar} disabled={bezig} style={{ ...knopStijl(true), padding: "9px 14px" }}>
+              {bezig ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : (form.id ? <Check size={14} /> : <Plus size={14} />)} {form.id ? "Opslaan" : "Toevoegen"}
+            </button>
+            {form.id && <button onClick={annuleer} style={{ ...knopStijl(false), padding: "9px 12px" }}><X size={14} /> Annuleren</button>}
+          </div>
+          {decl && tarief == null && <div style={{ fontSize: 11.5, color: KLEUR.goud, marginTop: 8 }}>Je hebt nog geen uurtarief ingesteld — vraag beheer om je tarieven (hoog/laag/normaal) toe te voegen. Je kunt wel alvast uren schrijven.</div>}
+          {codes.length === 0 && <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8 }}>Er zijn nog geen urencodes ingesteld — beheer kan die toevoegen bij Beheer → Uren. Zolang kies je de categorie rechtstreeks.</div>}
+        </div>
+      )}
 
       {/* Uren per dag */}
       {boekingen === null ? (
@@ -206,20 +282,22 @@ function Schrijven() {
                         <SoortBadge soort={b.soort} />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 12.5, color: KLEUR.tekst, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {b.urencode && <span style={{ fontWeight: 600 }}>{b.urencode}</span>}
+                            {b.urencode && (b.declarabel || b.omschrijving) ? " · " : ""}
                             {b.declarabel && <span style={{ fontWeight: 600 }}>{b.klantnaam || "—"}</span>}
                             {b.declarabel && b.omschrijving ? " · " : ""}
-                            {b.omschrijving || (!b.declarabel ? soortVan(b.soort).uitleg : "")}
+                            {b.omschrijving || (!b.urencode && !b.declarabel ? soortVan(b.soort).uitleg : "")}
                           </div>
                           {b.declarabel && b.tariefSoort && <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>Tarief {b.tariefSoort}{b.tariefBedrag != null ? ` · ${euro(b.tariefBedrag)}/u` : ""}</div>}
                         </div>
                         <div style={{ fontSize: 12.5, fontWeight: 700, minWidth: 52, textAlign: "right" }}>{uur(b.uren)} u</div>
-                        {b.status === "open" ? (
+                        {b.status === "concept" ? (
                           <div style={{ display: "flex", gap: 4 }}>
                             <button onClick={() => bewerk(b)} title="Bewerken" style={ikoonKnop}><Pencil size={13} color={KLEUR.subtekst} /></button>
                             <button onClick={() => verwijder(b)} title="Verwijderen" style={ikoonKnop}><Trash2 size={13} color={KLEUR.rood} /></button>
                           </div>
                         ) : (
-                          <span title={b.status === "gefactureerd" ? "Gefactureerd" : "Gecontroleerd"} style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst }}><Lock size={11} /> {b.status}</span>
+                          <span title={STATUS_LABEL[b.status] || b.status} style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst }}><Lock size={11} /> {STATUS_LABEL[b.status] || b.status}</span>
                         )}
                       </div>
                     ))}

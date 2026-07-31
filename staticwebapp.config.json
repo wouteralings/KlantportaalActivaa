@@ -417,6 +417,19 @@
       ]
     },
     {
+      "route": "/api/beheer-urencodes",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
+      "route": "/api/mw-uren-weekstaten",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
       "route": "/*",
       "allowedRoles": [
         "authenticated"
