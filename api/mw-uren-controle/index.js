@@ -12,7 +12,8 @@
  */
 const { haalDynamicsToken, haalEmailUitPrincipal, haalNaamUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
-const uren = require("../_gedeeld/urenDb");
+const uren = require("../_gedeeld/urenDataverse");
+const exactUren = require("../_gedeeld/exactUren");
 
 function json(context, status, body) {
   context.res = { status, headers: { "Content-Type": "application/json" }, body };
@@ -67,6 +68,19 @@ module.exports = async function (context, req) {
         extraReden: b.extraReden,
       }, naam || email);
       if (!bijgewerkt) return json(context, 404, { error: "Boeking niet gevonden of niet controleerbaar." });
+
+      // Alleen UXT gaat automatisch (bij goedkeuring) naar Exact als definitieve verkoopfactuur.
+      // Best-effort: fouten blokkeren de goedkeuring niet; ze staan op de boeking (exactStatus).
+      let exactResultaat = null;
+      if (bijgewerkt.soort === "uxt" && bijgewerkt.status === "goedgekeurd" && bijgewerkt.accountId) {
+        try {
+          exactResultaat = await exactUren.pushKlantNaarExact(bijgewerkt.accountId);
+          if (exactResultaat && exactResultaat.aantal > 0) {
+            bijgewerkt.gefactureerd = true; bijgewerkt.status = "gefactureerd"; bijgewerkt.factuurRef = exactResultaat.referentie || bijgewerkt.factuurRef;
+          }
+        } catch (e) { exactResultaat = { fout: String(e.message || e) }; }
+      }
+
       // Best-effort log bij de cliënt.
       if (bijgewerkt.accountId) {
         await logGebeurtenis({
@@ -75,7 +89,7 @@ module.exports = async function (context, req) {
           tekst: `Uren gecontroleerd (${bijgewerkt.soort}, ${bijgewerkt.datum}) — ${bijgewerkt.goedgekeurdeUren != null ? `${bijgewerkt.goedgekeurdeUren} u erkend` : "goedgekeurd"}${bijgewerkt.afboekUren ? `, ${bijgewerkt.afboekUren} u afgeboekt` : ""}${bijgewerkt.extraBedrag ? `, € ${bijgewerkt.extraBedrag} extra` : ""}.`,
         });
       }
-      return json(context, 200, { ok: true, boeking: bijgewerkt });
+      return json(context, 200, { ok: true, boeking: bijgewerkt, exact: exactResultaat });
     }
 
     return json(context, 405, { error: "Methode niet toegestaan." });

@@ -89,6 +89,18 @@
       "allowedRoles": ["anonymous"]
     },
     {
+      "route": "/api/uren-schema-setup",
+      "allowedRoles": ["beheerder"]
+    },
+    {
+      "route": "/api/exact-oauth",
+      "allowedRoles": ["beheerder"]
+    },
+    {
+      "route": "/api/verwerk-uren-exact",
+      "allowedRoles": ["anonymous"]
+    },
+    {
       "route": "/api/beheer-btw-tarieven",
       "allowedRoles": ["beheerder"]
     },

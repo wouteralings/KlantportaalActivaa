@@ -10,7 +10,7 @@
  * Route beveiligd via staticwebapp.config.json (medewerker/beheerder).
  */
 const { haalDynamicsToken, haalEmailUitPrincipal, haalNaamUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
-const uren = require("../_gedeeld/urenDb");
+const uren = require("../_gedeeld/urenDataverse");
 
 function json(context, status, body) {
   context.res = { status, headers: { "Content-Type": "application/json" }, body };

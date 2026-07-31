@@ -14,7 +14,8 @@
  * BEVEILIGING: "anonymous" met geheime sleutel in header 'x-verwerk-sleutel' of '?sleutel=' die
  * moet overeenkomen met TERUGKEREND_TRIGGER_SECRET (zelfde als de andere terugkerende verwerkers).
  */
-const uren = require("../_gedeeld/urenDb");
+const uren = require("../_gedeeld/urenDataverse");
+const instellingenStore = require("../_gedeeld/urenInstellingenIntern");
 
 function json(context, status, body) {
   context.res = { status, headers: { "Content-Type": "application/json" }, body };
@@ -44,19 +45,19 @@ module.exports = async function (context, req) {
   const force = (req.query && (req.query.force === "1" || req.query.force === "true")) || (req.body && req.body.force);
 
   try {
-    const inst = await uren.haalInstellingen();
-    if (!inst.herinnering_actief) return json(context, 200, { ok: true, overgeslagen: "herinneringen staan uit" });
-    if (!force && vandaagWeekdag() !== Number(inst.herinnering_weekdag)) {
-      return json(context, 200, { ok: true, overgeslagen: `vandaag (weekdag ${vandaagWeekdag()}) is niet de ingestelde herinneringsdag (${inst.herinnering_weekdag})` });
+    const inst = await instellingenStore.haalInstellingen();
+    if (!inst.herinneringActief) return json(context, 200, { ok: true, overgeslagen: "herinneringen staan uit" });
+    if (!force && vandaagWeekdag() !== Number(inst.herinneringWeekdag)) {
+      return json(context, 200, { ok: true, overgeslagen: `vandaag (weekdag ${vandaagWeekdag()}) is niet de ingestelde herinneringsdag (${inst.herinneringWeekdag})` });
     }
 
     const weekStart = huidigeWeekStart();
-    const minuren = Number(inst.herinnering_minuren) || 40;
+    const minuren = Number(inst.herinneringMinuren) || 40;
     const achterlopers = await uren.medewerkersOnderMinuren(weekStart, minuren);
 
     let verstuurd = false;
-    if (!dryrun && inst.herinnering_webhook && achterlopers.length) {
-      const tekst = inst.herinnering_tekst || `Herinnering: schrijf je uren voor deze week (minimaal ${minuren} uur) volledig.`;
+    if (!dryrun && inst.herinneringWebhook && achterlopers.length) {
+      const tekst = inst.herinneringTekst || `Herinnering: schrijf je uren voor deze week (minimaal ${minuren} uur) volledig.`;
       const payload = {
         tekst, weekStart, minuren,
         medewerkers: achterlopers.map((m) => ({ naam: m.naam, email: m.email, geschreven: m.geschreven, tekort: Math.round((minuren - m.geschreven) * 100) / 100 })),
@@ -67,7 +68,7 @@ module.exports = async function (context, req) {
         if (!res.ok) context.log.warn(`Herinnering-webhook gaf ${res.status}`);
       } catch (e) { context.log.error("Herinnering-webhook mislukt", e); }
     }
-    if (!dryrun) await uren.zetLaatsteRun();
+    if (!dryrun) await instellingenStore.zetLaatsteRun();
 
     return json(context, 200, { ok: true, weekStart, minuren, aantalAchterlopers: achterlopers.length, verstuurd, dryrun: !!dryrun, achterlopers });
   } catch (err) {

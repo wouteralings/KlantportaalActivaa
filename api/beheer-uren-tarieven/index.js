@@ -11,7 +11,8 @@
  * Route beveiligd via staticwebapp.config.json (alleen 'beheerder'); extra rolcheck hier.
  */
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
-const uren = require("../_gedeeld/urenDb");
+const uren = require("../_gedeeld/urenDataverse");
+const instellingenStore = require("../_gedeeld/urenInstellingenIntern");
 
 function json(context, status, body) {
   context.res = { status, headers: { "Content-Type": "application/json" }, body };
@@ -54,7 +55,7 @@ module.exports = async function (context, req) {
       const [medewerkers, tarieven, instellingen] = await Promise.all([
         haalMedewerkers().catch(() => []),
         uren.lijstTarieven(),
-        uren.haalInstellingen(),
+        instellingenStore.haalInstellingen(),
       ]);
       const tvan = new Map(tarieven.map((t) => [String(t.medewerker_email).toLowerCase(), t]));
       // Medewerkers uit Dynamics, aangevuld met eventueel losstaande tarief-rijen (voor het geval
@@ -69,20 +70,20 @@ module.exports = async function (context, req) {
         const e = String(t.medewerker_email).toLowerCase();
         if (!gezien.has(e)) rijen.push({ id: "", naam: t.medewerker_naam || e, email: e, functie: "", tarief: tariefUit(t) });
       }
-      return json(context, 200, { medewerkers: rijen, instellingen: instellingenUit(instellingen) });
+      return json(context, 200, { medewerkers: rijen, instellingen });
     }
 
     if (methode === "POST" || methode === "PATCH") {
       const b = req.body || {};
       if (b.actie === "instellingen") {
-        const opgeslagen = await uren.zetInstellingen({
-          herinnering_actief: !!b.herinnering_actief,
-          herinnering_weekdag: b.herinnering_weekdag != null ? Number(b.herinnering_weekdag) : 5,
-          herinnering_minuren: b.herinnering_minuren != null ? Number(b.herinnering_minuren) : 40,
-          herinnering_webhook: b.herinnering_webhook || null,
-          herinnering_tekst: b.herinnering_tekst || null,
+        const opgeslagen = await instellingenStore.zetInstellingen({
+          herinneringActief: !!b.herinnering_actief,
+          herinneringWeekdag: b.herinnering_weekdag != null ? Number(b.herinnering_weekdag) : 5,
+          herinneringMinuren: b.herinnering_minuren != null ? Number(b.herinnering_minuren) : 40,
+          herinneringWebhook: b.herinnering_webhook || "",
+          herinneringTekst: b.herinnering_tekst || "",
         });
-        return json(context, 200, { ok: true, instellingen: instellingenUit(opgeslagen) });
+        return json(context, 200, { ok: true, instellingen: opgeslagen });
       }
       // Standaard: tarief zetten.
       if (!b.email) return json(context, 400, { error: "Geef een e-mailadres mee." });
@@ -112,16 +113,5 @@ function tariefUit(t) {
     declarabelDoel: t.declarabel_doel == null ? null : Number(t.declarabel_doel),
     actief: t.actief == null ? true : !!t.actief,
     gewijzigdOp: t.gewijzigd_op || null, gewijzigdDoor: t.gewijzigd_door || "",
-  };
-}
-
-function instellingenUit(i) {
-  return {
-    herinneringActief: !!i.herinnering_actief,
-    herinneringWeekdag: i.herinnering_weekdag == null ? 5 : Number(i.herinnering_weekdag),
-    herinneringMinuren: i.herinnering_minuren == null ? 40 : Number(i.herinnering_minuren),
-    herinneringWebhook: i.herinnering_webhook || "",
-    herinneringTekst: i.herinnering_tekst || "",
-    laatsteRun: i.laatste_run || null,
   };
 }

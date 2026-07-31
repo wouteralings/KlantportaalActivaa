@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Clock, Save, Loader2, Search, Bell, CheckCircle2 } from "lucide-react";
+import { Clock, Save, Loader2, Search, Bell, CheckCircle2, Database, Link2, ExternalLink, AlertCircle } from "lucide-react";
 
 /** Zelfde palet als de rest van het beheerportaal (bewust hier herhaald zodat dit bestand op
  *  zichzelf staat). */
@@ -42,6 +42,8 @@ export default function UrenTarievenBeheer() {
 
       {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 10 }}>{fout}</div>}
 
+      <Koppelingen onFout={setFout} />
+
       <div style={{ position: "relative", maxWidth: 320, marginBottom: 10 }}>
         <Search size={13} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)" }} />
         <input value={zoek} onChange={(e) => setZoek(e.target.value)} placeholder="Zoek medewerker…" style={{ ...veld, width: "100%", padding: "8px 9px 8px 28px" }} />
@@ -68,6 +70,68 @@ export default function UrenTarievenBeheer() {
       )}
 
       {instellingen && <Herinneringen begin={instellingen} onFout={setFout} />}
+    </div>
+  );
+}
+
+function Koppelingen({ onFout }) {
+  const [schemaBezig, setSchemaBezig] = useState(false);
+  const [schemaKlaar, setSchemaKlaar] = useState("");
+  const [exact, setExact] = useState(null);
+
+  const laadExact = () => fetch("/api/exact-oauth?actie=status").then((r) => (r.ok ? r.json() : null)).then(setExact).catch(() => setExact(null));
+  useEffect(() => { laadExact(); }, []);
+
+  const maakSchema = async () => {
+    setSchemaBezig(true); setSchemaKlaar(""); onFout("");
+    try {
+      const res = await fetch("/api/uren-schema-setup?bevestig=ja", { method: "POST", headers: { "x-requested-with": "klantportaal" } });
+      const d = await res.json();
+      if (!res.ok || !d.ok) throw new Error(d.error || `HTTP ${res.status}`);
+      setSchemaKlaar("Dataverse-tabellen aangemaakt/gecontroleerd.");
+    } catch (e) { onFout("Schema aanmaken mislukt: " + String(e.message || e)); }
+    finally { setSchemaBezig(false); }
+  };
+
+  const verbindExact = async () => {
+    onFout("");
+    try {
+      const res = await fetch("/api/exact-oauth?actie=start");
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+      window.location.href = d.url;
+    } catch (e) { onFout("Exact verbinden mislukt: " + String(e.message || e)); }
+  };
+
+  return (
+    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
+      <div style={{ flex: "1 1 300px", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, marginBottom: 4 }}><Database size={15} color={KLEUR.blauw} /> Dataverse-tabellen</div>
+        <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 10 }}>Eenmalig de tabellen <code>cr283_urenboeking</code> en <code>cr283_urentarief</code> aanmaken in Dynamics. Vereist tijdelijk de rol System Customizer op de app-gebruiker.</div>
+        <button onClick={maakSchema} disabled={schemaBezig} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+          {schemaBezig ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : <Database size={13} />} Dataverse-schema aanmaken
+        </button>
+        {schemaKlaar && <div style={{ fontSize: 11.5, color: KLEUR.groen, marginTop: 8, display: "flex", alignItems: "center", gap: 5 }}><CheckCircle2 size={12} /> {schemaKlaar}</div>}
+      </div>
+
+      <div style={{ flex: "1 1 300px", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, marginBottom: 4 }}><Link2 size={15} color={KLEUR.blauw} /> Exact Online</div>
+        {exact == null ? (
+          <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Status ophalen…</div>
+        ) : !exact.geconfigureerd ? (
+          <div style={{ fontSize: 12, color: KLEUR.goud, display: "flex", gap: 6, alignItems: "flex-start" }}><AlertCircle size={13} style={{ marginTop: 1 }} /> Nog niet geconfigureerd. Zet EXACT_CLIENT_ID, EXACT_CLIENT_SECRET en EXACT_REDIRECT_URI als Application Settings.</div>
+        ) : exact.verbonden ? (
+          <>
+            <div style={{ fontSize: 12, color: KLEUR.groen, display: "flex", gap: 6, alignItems: "center", marginBottom: 8 }}><CheckCircle2 size={13} /> Verbonden{exact.division ? ` · administratie ${exact.division}` : ""}</div>
+            <button onClick={verbindExact} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 11px", background: "#fff", color: KLEUR.blauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer" }}><ExternalLink size={12} /> Opnieuw verbinden</button>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 10 }}>Geconfigureerd maar nog niet gekoppeld. Geef eenmalig toegang; daarna gaan goedgekeurde UXT-uren automatisch als verkoopfactuur naar Exact.</div>
+            <button onClick={verbindExact} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><ExternalLink size={13} /> Verbinden met Exact</button>
+          </>
+        )}
+      </div>
     </div>
   );
 }
