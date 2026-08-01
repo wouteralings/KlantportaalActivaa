@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, ChevronDown, Clock, Loader2, Search } from "lucide-react";
+import { ChevronDown, Clock, Loader2, Search } from "lucide-react";
 
 /** Zelfde palet als de rest van het beheerportaal (bewust hier herhaald, zie UrenTarievenBeheer.jsx). */
 const KLEUR = { blauw: "#1C5D8C", tekst: "#1C2321", subtekst: "#5B6259", mutedTekst: "#8A9089", rand: "#E2E4DF", lichtblauw: "#EAF2F8", rood: "#B23B3B", groen: "#2E7D46", goud: "#B98237" };
@@ -57,8 +57,6 @@ export default function BezittingenBeheer() {
   const [filter, setFilter] = useState("alle");
   const [bezig, setBezig] = useState({});
   const [fout, setFout] = useState("");
-  const [prijs, setPrijs] = useState("5");
-  const [prijsStatus, setPrijsStatus] = useState("idle");
   const [toonAantal, setToonAantal] = useState(AANTAL_STANDAARD);
 
   useEffect(() => {
@@ -70,10 +68,6 @@ export default function BezittingenBeheer() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setStatussen(d.statussen || {}))
       .catch(() => setStatussen({}));
-    fetch("/api/beheer-instellingen")
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => setPrijs(d.bezittingenmodulePrijs != null ? String(d.bezittingenmodulePrijs) : "5"))
-      .catch(() => {});
   }, []);
 
   const zetStatus = async (accountId, ingeschakeld) => {
@@ -94,21 +88,6 @@ export default function BezittingenBeheer() {
     } finally {
       setBezig((h) => ({ ...h, [accountId]: false }));
     }
-  };
-
-  const slaPrijsOp = async () => {
-    setPrijsStatus("bezig");
-    try {
-      const bedrag = Number(String(prijs).replace(",", "."));
-      if (isNaN(bedrag) || bedrag < 0) throw new Error("Ongeldig bedrag");
-      const res = await fetch("/api/beheer-instellingen", {
-        method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bezittingenmodulePrijs: bedrag }),
-      });
-      if (!res.ok) throw new Error();
-      setPrijsStatus("gelukt");
-      setTimeout(() => setPrijsStatus("idle"), 1800);
-    } catch { setPrijsStatus("fout"); }
   };
 
   const aanvragenCount = Object.values(statussen).filter((s) => s && !s.ingeschakeld && s.aangevraagdOp).length;
@@ -139,22 +118,8 @@ export default function BezittingenBeheer() {
       <div style={{ fontSize: 12.5, color: KLEUR.subtekst, margin: "10px 0 14px" }}>
         Standaard staat Bezittingen <strong>uit</strong> voor elke klant. Zet 'm per klant aan zodra die klant hem mag
         gebruiken — de tab "Bezittingen" verschijnt dan meteen in het klantportaal van die klant. Los van Rapportages
-        en Facturatie — een klant kan het één zonder het ander afnemen.
-      </div>
-
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 10, flexWrap: "wrap", marginBottom: 18, padding: 14, background: KLEUR.lichtblauw, borderRadius: 8 }}>
-        <div>
-          <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Prijs per maand, per klantaccount</div>
-          <div style={{ position: "relative", maxWidth: 160 }}>
-            <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: KLEUR.mutedTekst }}>€</span>
-            <input type="text" inputMode="decimal" value={prijs} onChange={(e) => setPrijs(e.target.value)} style={{ ...veld, width: "100%", padding: "8px 10px 8px 24px" }} />
-          </div>
-        </div>
-        <button onClick={slaPrijsOp} disabled={prijsStatus === "bezig"} style={{ padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
-          {prijsStatus === "bezig" ? "Opslaan..." : "Opslaan"}
-        </button>
-        {prijsStatus === "gelukt" && <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: KLEUR.blauw }}><CheckCircle2 size={14} /> Opgeslagen.</span>}
-        {prijsStatus === "fout" && <span style={{ fontSize: 12.5, color: KLEUR.rood }}>Ongeldig bedrag of opslaan mislukt.</span>}
+        en Facturatie — een klant kan het één zonder het ander afnemen. De prijs per maand stel je in bij de tabel
+        "Betaalde functionaliteiten" bovenaan de tab Facturatie.
       </div>
 
       {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 10 }}>{fout}</div>}

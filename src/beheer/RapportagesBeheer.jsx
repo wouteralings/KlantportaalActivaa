@@ -66,8 +66,6 @@ function KlantenToggle() {
   const [filter, setFilter] = useState("alle"); // alle | aan | uit
   const [bezig, setBezig] = useState({});
   const [fout, setFout] = useState("");
-  const [prijs, setPrijs] = useState("7.5");
-  const [prijsStatus, setPrijsStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [toonAantal, setToonAantal] = useState(AANTAL_STANDAARD);
 
   useEffect(() => {
@@ -79,10 +77,6 @@ function KlantenToggle() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setStatussen(d.statussen || {}))
       .catch(() => setStatussen({}));
-    fetch("/api/beheer-instellingen")
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => setPrijs(d.rapportagesmodulePrijs != null ? String(d.rapportagesmodulePrijs) : "7.5"))
-      .catch(() => {});
   }, []);
 
   const zetStatus = async (accountId, ingeschakeld) => {
@@ -103,21 +97,6 @@ function KlantenToggle() {
     } finally {
       setBezig((h) => ({ ...h, [accountId]: false }));
     }
-  };
-
-  const slaPrijsOp = async () => {
-    setPrijsStatus("bezig");
-    try {
-      const bedrag = Number(String(prijs).replace(",", "."));
-      if (isNaN(bedrag) || bedrag < 0) throw new Error("Ongeldig bedrag");
-      const res = await fetch("/api/beheer-instellingen", {
-        method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rapportagesmodulePrijs: bedrag }),
-      });
-      if (!res.ok) throw new Error();
-      setPrijsStatus("gelukt");
-      setTimeout(() => setPrijsStatus("idle"), 1800);
-    } catch { setPrijsStatus("fout"); }
   };
 
   const aanvragenCount = Object.values(statussen).filter((s) => s && !s.ingeschakeld && s.aangevraagdOp).length;
@@ -149,21 +128,7 @@ function KlantenToggle() {
         Standaard staat Rapportages <strong>uit</strong> voor elke klant. Zet 'm per klant aan zodra die klant hem mag
         gebruiken — de tab "Rapportages" verschijnt dan meteen in het klantportaal van die klant. W&amp;V en Balans
         worden opgebouwd uit RGS 3.5-referentiecodes; naam en volgorde daarvan staan hieronder bij "RGS-namen en volgorde".
-      </div>
-
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 10, flexWrap: "wrap", marginBottom: 18, padding: 14, background: KLEUR.lichtblauw, borderRadius: 8 }}>
-        <div>
-          <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Prijs per maand, per klantaccount</div>
-          <div style={{ position: "relative", maxWidth: 160 }}>
-            <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: KLEUR.mutedTekst }}>€</span>
-            <input type="text" inputMode="decimal" value={prijs} onChange={(e) => setPrijs(e.target.value)} style={{ ...veld, width: "100%", padding: "8px 10px 8px 24px" }} />
-          </div>
-        </div>
-        <button onClick={slaPrijsOp} disabled={prijsStatus === "bezig"} style={{ padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
-          {prijsStatus === "bezig" ? "Opslaan..." : "Opslaan"}
-        </button>
-        {prijsStatus === "gelukt" && <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: KLEUR.blauw }}><CheckCircle2 size={14} /> Opgeslagen.</span>}
-        {prijsStatus === "fout" && <span style={{ fontSize: 12.5, color: KLEUR.rood }}>Ongeldig bedrag of opslaan mislukt.</span>}
+        De prijs per maand stel je in bij de tabel "Betaalde functionaliteiten" bovenaan de tab Facturatie.
       </div>
 
       {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 10 }}>{fout}</div>}

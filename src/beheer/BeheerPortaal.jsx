@@ -89,6 +89,45 @@ function ModuleToggle({ label, aan, bezig, uitgeschakeld, titel, onClick }) {
   );
 }
 
+/** Eén rij in de prijzentabel "Betaalde functionaliteiten": module-naam, €-invoer en een eigen
+ *  Opslaan-knop met statusindicator — elke module heeft zijn eigen prijs, los in te stellen. */
+function PrijsRij({ label, waarde, setWaarde, status, opslaan }) {
+  return (
+    <tr>
+      <td style={{ fontSize: 12.5, fontWeight: 600, padding: "8px 10px", borderTop: `1px solid ${KLEUR.rand}` }}>{label}</td>
+      <td style={{ padding: "8px 10px", borderTop: `1px solid ${KLEUR.rand}` }}>
+        <div style={{ position: "relative", maxWidth: 130 }}>
+          <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", fontSize: 12.5, color: KLEUR.mutedTekst }}>€</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={waarde}
+            onChange={(e) => setWaarde(e.target.value)}
+            style={{ width: "100%", boxSizing: "border-box", padding: "6px 8px 6px 22px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 7 }}
+          />
+        </div>
+      </td>
+      <td style={{ padding: "8px 10px", borderTop: `1px solid ${KLEUR.rand}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <button
+            onClick={opslaan}
+            disabled={status === "bezig"}
+            style={{ padding: "6px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+          >
+            {status === "bezig" ? "Opslaan..." : "Opslaan"}
+          </button>
+          {status === "gelukt" && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: KLEUR.blauw }}>
+              <CheckCircle2 size={13} /> Opgeslagen
+            </span>
+          )}
+          {status === "fout" && <span style={{ fontSize: 12, color: KLEUR.rood }}>Ongeldig bedrag</span>}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 /** Filtert taaksoorten op de zoekterm — op één plek, zodat de lijst en de teller niet uiteenlopen. */
 function filterTaaksoorten(opties, zoek) {
   const q = (zoek || "").trim().toLowerCase();
@@ -289,6 +328,12 @@ export default function BeheerPortaal() {
   const [prijsOpslaanStatus, setPrijsOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [urenmodulePrijs, setUrenmodulePrijs] = useState("2.5");
   const [urenPrijsOpslaanStatus, setUrenPrijsOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
+  // Prijzen van de overige betaalde modules — zelfde contract, samen met facturatie/uren getoond
+  // in één prijzentabel bovenaan "Betaalde functionaliteiten".
+  const [bezittingenmodulePrijs, setBezittingenmodulePrijs] = useState("5");
+  const [rapportagesmodulePrijs, setRapportagesmodulePrijs] = useState("7.5");
+  const [rittenmodulePrijs, setRittenmodulePrijs] = useState("1.5");
+  const [overigePrijsStatus, setOverigePrijsStatus] = useState({}); // veldnaam -> idle | bezig | gelukt | fout
   // Overige betaalde modules per klant aan/uit — zelfde contract als facturatie/uren
   // (GET { statussen } / PUT { accountId, ingeschakeld }). Samengebracht in één tabel.
   const [bezittingenStatussen, setBezittingenStatussen] = useState({});
@@ -364,6 +409,9 @@ export default function BeheerPortaal() {
         setReviewWebhookUrl(d.reviewWebhookUrl || "");
         setFacturatiemodulePrijs(d.facturatiemodulePrijs != null ? String(d.facturatiemodulePrijs) : "5");
         setUrenmodulePrijs(d.urenmodulePrijs != null ? String(d.urenmodulePrijs) : "2.5");
+        setBezittingenmodulePrijs(d.bezittingenmodulePrijs != null ? String(d.bezittingenmodulePrijs) : "5");
+        setRapportagesmodulePrijs(d.rapportagesmodulePrijs != null ? String(d.rapportagesmodulePrijs) : "7.5");
+        setRittenmodulePrijs(d.rittenmodulePrijs != null ? String(d.rittenmodulePrijs) : "1.5");
         setKoExtra((d.klantoverzicht && d.klantoverzicht.extraKolommen) || []);
         setKoVerborgen((d.klantoverzicht && d.klantoverzicht.standaardVerborgen) || []);
       })
@@ -782,6 +830,29 @@ export default function BeheerPortaal() {
       setUrenPrijsOpslaanStatus("fout");
     }
   }, [urenmodulePrijs]);
+
+  // Generieke prijs-opslaan voor de overige betaalde modules (bezittingen/rapportages/ritten) —
+  // zelfde contract als facturatie/uren hierboven, maar met meegegeven veldnaam/waarde/setter.
+  const slaOverigePrijsOp = useCallback(async (veldNaam, waardeStr, setWaarde) => {
+    const bedrag = Number(String(waardeStr).replace(",", "."));
+    if (!Number.isFinite(bedrag) || bedrag < 0) {
+      setOverigePrijsStatus((h) => ({ ...h, [veldNaam]: "fout" }));
+      return;
+    }
+    setOverigePrijsStatus((h) => ({ ...h, [veldNaam]: "bezig" }));
+    try {
+      const res = await fetch("/api/beheer-instellingen", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [veldNaam]: bedrag }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setWaarde(String(bedrag));
+      setOverigePrijsStatus((h) => ({ ...h, [veldNaam]: "gelukt" }));
+    } catch {
+      setOverigePrijsStatus((h) => ({ ...h, [veldNaam]: "fout" }));
+    }
+  }, []);
 
   // Facturatiemodule per klant aan/uit — direct opslaan (geen aparte "Opslaan"-knop), met
   // optimistische update en terugdraaien bij een fout.
@@ -2600,71 +2671,22 @@ export default function BeheerPortaal() {
           <strong> Uren</strong> (werkt bovenop Facturen), <strong>Bezittingen</strong>, <strong>Rapportages</strong> en <strong>Ritten</strong>.
         </div>
 
-        <div style={{ display: "flex", alignItems: "flex-end", gap: 10, flexWrap: "wrap", marginBottom: 18, padding: 14, background: KLEUR.lichtblauw, borderRadius: 8 }}>
-          <div>
-            <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Prijs per maand, per klantaccount</div>
-            <div style={{ position: "relative", maxWidth: 160 }}>
-              <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: KLEUR.mutedTekst }}>€</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={facturatiemodulePrijs}
-                onChange={(e) => setFacturatiemodulePrijs(e.target.value)}
-                style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 24px", fontSize: 13, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}
-              />
-            </div>
+        <div style={{ marginBottom: 18, padding: 14, background: KLEUR.lichtblauw, borderRadius: 8 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 10 }}>Prijzen per maand, per klantaccount</div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ borderCollapse: "collapse", minWidth: 380 }}>
+              <tbody>
+                <PrijsRij label="Facturatie" waarde={facturatiemodulePrijs} setWaarde={setFacturatiemodulePrijs} status={prijsOpslaanStatus} opslaan={slaFacturatiemodulePrijsOp} />
+                <PrijsRij label="Uren" waarde={urenmodulePrijs} setWaarde={setUrenmodulePrijs} status={urenPrijsOpslaanStatus} opslaan={slaUrenmodulePrijsOp} />
+                <PrijsRij label="Bezittingen" waarde={bezittingenmodulePrijs} setWaarde={setBezittingenmodulePrijs} status={overigePrijsStatus.bezittingenmodulePrijs} opslaan={() => slaOverigePrijsOp("bezittingenmodulePrijs", bezittingenmodulePrijs, setBezittingenmodulePrijs)} />
+                <PrijsRij label="Rapportages" waarde={rapportagesmodulePrijs} setWaarde={setRapportagesmodulePrijs} status={overigePrijsStatus.rapportagesmodulePrijs} opslaan={() => slaOverigePrijsOp("rapportagesmodulePrijs", rapportagesmodulePrijs, setRapportagesmodulePrijs)} />
+                <PrijsRij label="Ritten" waarde={rittenmodulePrijs} setWaarde={setRittenmodulePrijs} status={overigePrijsStatus.rittenmodulePrijs} opslaan={() => slaOverigePrijsOp("rittenmodulePrijs", rittenmodulePrijs, setRittenmodulePrijs)} />
+              </tbody>
+            </table>
           </div>
-          <button
-            onClick={slaFacturatiemodulePrijsOp}
-            disabled={prijsOpslaanStatus === "bezig"}
-            style={{ padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
-          >
-            {prijsOpslaanStatus === "bezig" ? "Opslaan..." : "Opslaan"}
-          </button>
-          {prijsOpslaanStatus === "gelukt" && (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: KLEUR.blauw }}>
-              <CheckCircle2 size={14} /> Opgeslagen.
-            </span>
-          )}
-          {prijsOpslaanStatus === "fout" && (
-            <span style={{ fontSize: 12.5, color: KLEUR.rood }}>Ongeldig bedrag of opslaan mislukt.</span>
-          )}
-          <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, width: "100%" }}>
-            Deze prijs wordt getoond aan klanten bij wie de module nog niet actief is (klantportaal, tab "Facturen").
-          </div>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "flex-end", gap: 10, flexWrap: "wrap", marginBottom: 18, padding: 14, background: KLEUR.lichtblauw, borderRadius: 8 }}>
-          <div>
-            <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Prijs urenregistratie per maand, per klantaccount</div>
-            <div style={{ position: "relative", maxWidth: 160 }}>
-              <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: KLEUR.mutedTekst }}>€</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={urenmodulePrijs}
-                onChange={(e) => setUrenmodulePrijs(e.target.value)}
-                style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 24px", fontSize: 13, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}
-              />
-            </div>
-          </div>
-          <button
-            onClick={slaUrenmodulePrijsOp}
-            disabled={urenPrijsOpslaanStatus === "bezig"}
-            style={{ padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
-          >
-            {urenPrijsOpslaanStatus === "bezig" ? "Opslaan..." : "Opslaan"}
-          </button>
-          {urenPrijsOpslaanStatus === "gelukt" && (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: KLEUR.blauw }}>
-              <CheckCircle2 size={14} /> Opgeslagen.
-            </span>
-          )}
-          {urenPrijsOpslaanStatus === "fout" && (
-            <span style={{ fontSize: 12.5, color: KLEUR.rood }}>Ongeldig bedrag of opslaan mislukt.</span>
-          )}
-          <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, width: "100%" }}>
-            De losse urenregistratie-module (werkt samen met de facturatiemodule). Deze prijs wordt getoond aan klanten bij wie de urenregistratie nog niet actief is.
+          <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 10 }}>
+            Deze prijzen worden getoond aan klanten bij wie de betreffende module nog niet actief is. Uren werkt bovenop
+            Facturatie; de overige modules staan los van elkaar.
           </div>
         </div>
 
