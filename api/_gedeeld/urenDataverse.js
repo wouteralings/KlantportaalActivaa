@@ -616,6 +616,66 @@ async function rapportageDeclarabel({ vanaf, tot }) {
   })).sort((a, b) => (a.naam || "").localeCompare(b.naam || ""));
 }
 
+/**
+ * Bezetting per medewerker per maand: hoeveel uur staat er al ingepland/geboekt (alle soorten en
+ * statussen samen — declarabel, indirect, kantoor én vast) t.o.v. de beschikbare capaciteit die
+ * maand (werkdagen × 8 uur, dezelfde fulltime-norm als WEEK_UREN_EIS/5). Gegroepeerd per week
+ * (met de losse boekingen erbij) zodat de leidinggevende/beheerder kan doorklikken tot op
+ * boekingniveau. Scoping identiek aan weekstatenVoorLeidinggevende: standaard alleen je eigen
+ * team (op naam uit het uurtarief), een beheerder kan met alle=true iedereen zien.
+ */
+async function bezettingPerMaand({ maand, leidinggevendeNaam, alle }) {
+  const resource = process.env.DYNAMICS_RESOURCE_URL;
+  const token = await haalDynamicsToken();
+  const { eerste, laatste } = maandRange(maand);
+  const boekingen = await haalBoekingen(resource, token, `${P}_datum ge ${eerste} and ${P}_datum le ${laatste}`, `${P}_datum asc`);
+  const tarieven = await lijstTarieven();
+  const leidingVan = new Map(tarieven.map((t) => [String(t.medewerker_email).toLowerCase(), t.leidinggevende || ""]));
+  const mij = String(leidinggevendeNaam || "").trim().toLowerCase();
+
+  let werkdagen = 0;
+  for (let d = new Date(eerste + "T00:00:00Z"); d <= new Date(laatste + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + 1)) {
+    const dag = d.getUTCDay();
+    if (dag !== 0 && dag !== 6) werkdagen++;
+  }
+  const beschikbaar = Math.round(werkdagen * (WEEK_UREN_EIS / 5) * 100) / 100;
+
+  const per = new Map();
+  // Actieve medewerkers alvast opnemen, ook zonder boekingen deze maand — juist dan is de
+  // bezetting (terecht) laag en dus interessant om te zien.
+  for (const t of tarieven.filter((t) => t.actief)) {
+    const email = String(t.medewerker_email).toLowerCase();
+    if (!alle && (t.leidinggevende || "").trim().toLowerCase() !== mij) continue;
+    per.set(email, { email: t.medewerker_email, naam: t.medewerker_naam || t.medewerker_email, leidinggevende: t.leidinggevende || "", ingepland: 0, vast: 0, weken: new Map() });
+  }
+  for (const b of boekingen) {
+    const email = (b.medewerkerEmail || "").toLowerCase();
+    if (!per.has(email)) {
+      const leiding = leidingVan.get(email) || "";
+      if (!alle && leiding.trim().toLowerCase() !== mij) continue;
+      per.set(email, { email: b.medewerkerEmail, naam: b.medewerkerNaam || b.medewerkerEmail, leidinggevende: leiding, ingepland: 0, vast: 0, weken: new Map() });
+    }
+    const r = per.get(email);
+    r.ingepland += b.uren;
+    if (b.vast) r.vast += b.uren;
+    if (!r.weken.has(b.weekStart)) r.weken.set(b.weekStart, { weekStart: b.weekStart, ingepland: 0, boekingen: [] });
+    const w = r.weken.get(b.weekStart);
+    w.ingepland += b.uren;
+    w.boekingen.push(b);
+  }
+
+  const medewerkers = [...per.values()].map((r) => ({
+    email: r.email, naam: r.naam, leidinggevende: r.leidinggevende,
+    ingepland: Math.round(r.ingepland * 100) / 100,
+    vast: Math.round(r.vast * 100) / 100,
+    beschikbaar,
+    bezettingPct: beschikbaar ? Math.round((r.ingepland / beschikbaar) * 1000) / 10 : 0,
+    weken: [...r.weken.values()].sort((a, b) => (a.weekStart < b.weekStart ? -1 : 1)),
+  })).sort((a, b) => (a.naam || "").localeCompare(b.naam || ""));
+
+  return { maand, eerste, laatste, werkdagen, beschikbaar, medewerkers };
+}
+
 async function medewerkersOnderMinuren(weekStart, minuren) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   const token = await haalDynamicsToken();
@@ -639,5 +699,5 @@ module.exports = {
   dienWeekIn, weekstatenVoorLeidinggevende, keurWeekGoed, keurWeekAf, verwijderWeek,
   boekingenVoorControle, controleActie,
   ohwEnFacturatie, markeerGefactureerd, markeerExact, uxtTeExporteren,
-  rapportageDeclarabel, medewerkersOnderMinuren,
+  rapportageDeclarabel, medewerkersOnderMinuren, bezettingPerMaand,
 };

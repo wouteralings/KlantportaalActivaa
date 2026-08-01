@@ -460,6 +460,13 @@
       ]
     },
     {
+      "route": "/api/mw-uren-bezetting",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
       "route": "/*",
       "allowedRoles": [
         "authenticated"

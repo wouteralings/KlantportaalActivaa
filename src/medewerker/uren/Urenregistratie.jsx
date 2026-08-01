@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Clock, Plus, Trash2, Pencil, X, Check, ChevronLeft, ChevronRight, Lock, RefreshCw, CheckSquare, ClipboardCheck, BarChart3, Wallet, Loader2, Send } from "lucide-react";
+import { Clock, Plus, Trash2, Pencil, X, Check, ChevronLeft, ChevronRight, Lock, RefreshCw, CheckSquare, ClipboardCheck, BarChart3, Gauge, Wallet, Loader2, Send } from "lucide-react";
 import {
   KLEUR, SOORTEN, soortVan, isDeclarabel, TARIEF_SOORTEN, euro, uur, datumNL,
   WEEKDAG_VOL, maandagVan, voegDagenToe, vandaagIso, useKlanten, KlantPicker, SoortBadge,
@@ -9,6 +9,7 @@ import UrenControle from "./UrenControle";
 import UrenFacturatie from "./UrenFacturatie";
 import UrenRapportage from "./UrenRapportage";
 import UrenGoedkeuren from "./UrenGoedkeuren";
+import UrenBezetting from "./UrenBezetting";
 
 /**
  * Interne urenregistratie voor medewerkers. Sub-tabs:
@@ -16,6 +17,7 @@ import UrenGoedkeuren from "./UrenGoedkeuren";
  *   - Controle    : maandcontrole van je cliënten (manager)
  *   - Facturatie  : OHW + facturatiestatus, gesplitst in UXT en abonnement
  *   - Rapportage  : declarabel-% en indirecte uren per medewerker
+ *   - Bezetting   : ingeplande uren per medewerker per maand t.o.v. beschikbare capaciteit
  */
 export default function Urenregistratie({ isBeheerder }) {
   const [sub, setSub] = useState("schrijven");
@@ -36,6 +38,7 @@ export default function Urenregistratie({ isBeheerder }) {
     ["controle", "Facturatiecontrole", CheckSquare, 0],
     ["facturatie", "Facturatie", Wallet, 0],
     ["rapportage", "Rapportage", BarChart3, 0],
+    ["bezetting", "Bezetting", Gauge, 0],
   ];
   return (
     <div>
@@ -60,6 +63,7 @@ export default function Urenregistratie({ isBeheerder }) {
       {sub === "controle" && <UrenControle isBeheerder={isBeheerder} />}
       {sub === "facturatie" && <UrenFacturatie isBeheerder={isBeheerder} />}
       {sub === "rapportage" && <UrenRapportage />}
+      {sub === "bezetting" && <UrenBezetting isBeheerder={isBeheerder} />}
     </div>
   );
 }
