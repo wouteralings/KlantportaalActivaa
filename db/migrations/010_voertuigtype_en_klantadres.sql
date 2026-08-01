@@ -10,6 +10,10 @@
 -- Uitvoeren in de Query-editor van de Azure Portal (tegen de bestaande "facturatie"-database,
 -- zelfde server als migratie 001 t/m 009). Geen "GO" gebruiken.
 --
+-- Let op: de constraint-toevoeging staat in dynamische SQL (EXEC(...)). Dat is nodig omdat je
+-- een kolom die je net met ALTER TABLE ADD hebt toegevoegd, niet in dezelfde batch mag
+-- gebruiken zonder een "GO" ertussen — en de Azure Portal Query-editor ondersteunt geen "GO".
+--
 -- Idempotent: veilig opnieuw te draaien, zelfde afspraak als de eerdere migraties.
 -- ============================================================================
 
@@ -20,5 +24,5 @@ IF COL_LENGTH('dbo.voertuigen_klanten', 'voertuig_type') IS NULL
 
 IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_voertuigen_klanten_type')
 BEGIN
-    ALTER TABLE dbo.voertuigen_klanten ADD CONSTRAINT CK_voertuigen_klanten_type CHECK (voertuig_type IN ('auto', 'motor', 'fiets'));
+    EXEC('ALTER TABLE dbo.voertuigen_klanten ADD CONSTRAINT CK_voertuigen_klanten_type CHECK (voertuig_type IN (''auto'', ''motor'', ''fiets''))');
 END;
