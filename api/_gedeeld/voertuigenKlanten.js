@@ -14,6 +14,9 @@ function naarBuiten(row) {
     kenteken: row.kenteken || "",
     cataloguswaarde: Number(row.cataloguswaarde) || 0,
     priveOfZakelijk: row.prive_of_zakelijk,
+    // Migratie 010 — auto/motor/fiets. Bestaande rijen (vóór deze migratie) zijn allemaal
+    // 'auto' door de DEFAULT op de nieuwe kolom.
+    voertuigType: row.voertuig_type || "auto",
     favoriet: !!row.favoriet,
     inGebruik: !!row.in_gebruik,
     aangemaaktOp: row.aangemaakt_op,
@@ -55,6 +58,12 @@ function valideerPriveOfZakelijk(waarde) {
   return v;
 }
 
+function valideerVoertuigType(waarde) {
+  const v = String(waarde || "auto").toLowerCase();
+  if (v !== "auto" && v !== "motor" && v !== "fiets") throw new Error("VALIDATIE: voertuigtype moet 'auto', 'motor' of 'fiets' zijn.");
+  return v;
+}
+
 /** Zet exact één favoriet per account — ontzet eerst alle andere. Binnen dezelfde transactie
  * als de aanroepende insert/update opgeroepen zou moeten worden, maar voor deze eenvoudige
  * masterdata-tabel is een best-effort volgorde (eerst ontzetten, dan zetten) voldoende. */
@@ -70,10 +79,14 @@ async function ontzetOverigeFavorieten(pool, klantAccountId, behalveId) {
 
 async function maakVoertuig(klantAccountId, data, email) {
   if (!data || !String(data.merk || "").trim()) throw new Error("VALIDATIE: merk is verplicht.");
-  const cataloguswaarde = Number(data.cataloguswaarde);
-  if (!Number.isFinite(cataloguswaarde) || cataloguswaarde < 0) {
+  const voertuigType = valideerVoertuigType(data.voertuigType);
+  // Cataloguswaarde is voor auto/motor verplicht (bijtelling); voor een fiets is dat geen
+  // relevant gegeven, dus daar valt hij terug op 0 als niet meegegeven.
+  const cataloguswaardeRuw = data.cataloguswaarde === "" || data.cataloguswaarde == null ? (voertuigType === "fiets" ? 0 : NaN) : Number(data.cataloguswaarde);
+  if (!Number.isFinite(cataloguswaardeRuw) || cataloguswaardeRuw < 0) {
     throw new Error("VALIDATIE: cataloguswaarde is verplicht en moet 0 of hoger zijn.");
   }
+  const cataloguswaarde = cataloguswaardeRuw;
   const priveOfZakelijk = valideerPriveOfZakelijk(data.priveOfZakelijk);
 
   const pool = await haalPool();
@@ -86,14 +99,15 @@ async function maakVoertuig(klantAccountId, data, email) {
   request.input("kenteken", sql.NVarChar(20), data.kenteken ? String(data.kenteken).trim().slice(0, 20) : null);
   request.input("cataloguswaarde", sql.Decimal(12, 2), cataloguswaarde);
   request.input("priveOfZakelijk", sql.VarChar(10), priveOfZakelijk);
+  request.input("voertuigType", sql.VarChar(10), voertuigType);
   request.input("favoriet", sql.Bit, data.favoriet ? 1 : 0);
   request.input("inGebruik", sql.Bit, data.inGebruik === false ? 0 : 1);
   request.input("email", sql.NVarChar(320), email || null);
   const result = await request.query(`
     INSERT INTO dbo.voertuigen_klanten
-      (klant_account_id, merk, model, kenteken, cataloguswaarde, prive_of_zakelijk, favoriet, in_gebruik, aangemaakt_door)
+      (klant_account_id, merk, model, kenteken, cataloguswaarde, prive_of_zakelijk, voertuig_type, favoriet, in_gebruik, aangemaakt_door)
     OUTPUT INSERTED.*
-    VALUES (@klantAccountId, @merk, @model, @kenteken, @cataloguswaarde, @priveOfZakelijk, @favoriet, @inGebruik, @email)
+    VALUES (@klantAccountId, @merk, @model, @kenteken, @cataloguswaarde, @priveOfZakelijk, @voertuigType, @favoriet, @inGebruik, @email)
   `);
   return naarBuiten(result.recordset[0]);
 }
@@ -105,6 +119,7 @@ async function wijzigVoertuig(klantAccountId, id, data, email) {
   const pool = await haalPool();
   if (data.favoriet && !bestaand.favoriet) await ontzetOverigeFavorieten(pool, klantAccountId, id);
 
+  const voertuigType = data.voertuigType !== undefined ? valideerVoertuigType(data.voertuigType) : bestaand.voertuigType;
   const cataloguswaarde = data.cataloguswaarde !== undefined ? Number(data.cataloguswaarde) : bestaand.cataloguswaarde;
   if (!Number.isFinite(cataloguswaarde) || cataloguswaarde < 0) {
     throw new Error("VALIDATIE: cataloguswaarde moet 0 of hoger zijn.");
@@ -118,13 +133,14 @@ async function wijzigVoertuig(klantAccountId, id, data, email) {
   request.input("kenteken", sql.NVarChar(20), data.kenteken !== undefined ? (data.kenteken ? String(data.kenteken).trim().slice(0, 20) : null) : (bestaand.kenteken || null));
   request.input("cataloguswaarde", sql.Decimal(12, 2), cataloguswaarde);
   request.input("priveOfZakelijk", sql.VarChar(10), data.priveOfZakelijk !== undefined ? valideerPriveOfZakelijk(data.priveOfZakelijk) : bestaand.priveOfZakelijk);
+  request.input("voertuigType", sql.VarChar(10), voertuigType);
   request.input("favoriet", sql.Bit, data.favoriet !== undefined ? (data.favoriet ? 1 : 0) : (bestaand.favoriet ? 1 : 0));
   request.input("inGebruik", sql.Bit, data.inGebruik !== undefined ? (data.inGebruik ? 1 : 0) : (bestaand.inGebruik ? 1 : 0));
   request.input("email", sql.NVarChar(320), email || null);
   const result = await request.query(`
     UPDATE dbo.voertuigen_klanten SET
       merk = @merk, model = @model, kenteken = @kenteken, cataloguswaarde = @cataloguswaarde,
-      prive_of_zakelijk = @priveOfZakelijk, favoriet = @favoriet, in_gebruik = @inGebruik,
+      prive_of_zakelijk = @priveOfZakelijk, voertuig_type = @voertuigType, favoriet = @favoriet, in_gebruik = @inGebruik,
       gewijzigd_op = SYSUTCDATETIME(), gewijzigd_door = @email
     OUTPUT INSERTED.*
     WHERE klant_account_id = @klantAccountId AND id = @id

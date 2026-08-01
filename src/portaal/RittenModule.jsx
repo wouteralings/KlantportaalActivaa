@@ -1,8 +1,32 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Car, Plus, Trash2, Pencil, X, Settings, ChevronDown, ChevronLeft, ChevronRight,
-  Clock, Download, Star, MapPin, Repeat, Calendar, List,
+  Clock, Download, Star, MapPin, Repeat, Calendar, List, Bike, Motorbike,
 } from "lucide-react";
+
+// Voertuigtype (migratie 010) — auto/motor/fiets, zelfde drie waarden als de
+// CK_voertuigen_klanten_type check-constraint in de database.
+const VOERTUIGTYPES = [
+  { key: "auto", label: "Auto", icon: Car },
+  { key: "motor", label: "Motor", icon: Motorbike },
+  { key: "fiets", label: "Fiets", icon: Bike },
+];
+function voertuigtypeLabel(type) {
+  return (VOERTUIGTYPES.find((t) => t.key === type) || VOERTUIGTYPES[0]).label;
+}
+
+/** Eén-regelige weergave van een klantadres (dbo.klanten_klanten.adres), of "" als er geen
+ * bruikbaar adres is. Gebruikt om een klant als snelkeuze aan te bieden bij Van/Naar in het
+ * rit-formulier, zodat je niet zelf het adres hoeft te typen/kopiëren. */
+function formatAdres(adres) {
+  if (!adres) return "";
+  const straatHuis = [adres.straat, [adres.huisnummer, adres.toevoeging].filter(Boolean).join("")].filter(Boolean).join(" ");
+  const postcodePlaats = [adres.postcode, adres.plaats].filter(Boolean).join(" ");
+  return [straatHuis, postcodePlaats].filter(Boolean).join(", ");
+}
+function klantHeeftAdres(k) {
+  return !!(k.adres && k.adres.straat && k.adres.postcode && k.adres.plaats);
+}
 
 /**
  * Rittenregistratie — klantportaal-tab (zie project-doc/skill "rittenregistratie" voor het
@@ -257,6 +281,19 @@ function RitFormulier({ accountId, bestaand, standaardTarief, klanten, projecten
     return declarabelType === "per_keer" ? tarief : tarief * (Number(afstandKm) || 0);
   }, [declarabelType, declarabelTarief, afstandKm]);
 
+  // Klanten met een compleet adres — alleen die komen in aanmerking voor de "kies adres van
+  // klant"-snelkeuze bij Van/Naar, zodat je nooit een leeg/onvolledig adres kan overnemen.
+  const klantenMetAdres = useMemo(() => klanten.filter(klantHeeftAdres), [klanten]);
+
+  const kiesKlantAdres = (klantId, veld) => {
+    if (!klantId) return;
+    const k = klanten.find((x) => x.id === klantId);
+    const adres = formatAdres(k?.adres);
+    if (!adres) return;
+    if (veld === "van") setVanAdres(adres); else setNaarAdres(adres);
+    if (!klantKlantId) setKlantKlantId(klantId);
+  };
+
   const vulFavorietIn = (favId) => {
     const f = favorieteRitten.find((x) => x.id === favId);
     if (!f) return;
@@ -352,10 +389,22 @@ function RitFormulier({ accountId, bestaand, standaardTarief, klanten, projecten
         <div>
           <div style={labelStijl}>Van</div>
           <input style={inputStijl} value={vanAdres} onChange={(e) => setVanAdres(e.target.value)} list="ritten-adres-suggesties" placeholder="Startadres" />
+          {klantenMetAdres.length > 0 && (
+            <select style={{ ...inputStijl, marginTop: 4, fontSize: 11.5, color: KLEUR.mutedTekst }} defaultValue="" onChange={(e) => { kiesKlantAdres(e.target.value, "van"); e.target.value = ""; }}>
+              <option value="">Of kies adres van klant…</option>
+              {klantenMetAdres.map((k) => <option key={k.id} value={k.id}>{k.naam}</option>)}
+            </select>
+          )}
         </div>
         <div>
           <div style={labelStijl}>Naar</div>
           <input style={inputStijl} value={naarAdres} onChange={(e) => setNaarAdres(e.target.value)} list="ritten-adres-suggesties" placeholder="Bestemming" />
+          {klantenMetAdres.length > 0 && (
+            <select style={{ ...inputStijl, marginTop: 4, fontSize: 11.5, color: KLEUR.mutedTekst }} defaultValue="" onChange={(e) => { kiesKlantAdres(e.target.value, "naar"); e.target.value = ""; }}>
+              <option value="">Of kies adres van klant…</option>
+              {klantenMetAdres.map((k) => <option key={k.id} value={k.id}>{k.naam}</option>)}
+            </select>
+          )}
         </div>
       </div>
       <datalist id="ritten-adres-suggesties">
@@ -713,6 +762,7 @@ function InstellingenAlgemeen({ accountId }) {
 }
 
 function VoertuigFormulier({ accountId, bestaand, onKlaar, onOpgeslagen }) {
+  const [voertuigType, setVoertuigType] = useState(bestaand?.voertuigType || "auto");
   const [merk, setMerk] = useState(bestaand?.merk || "");
   const [model, setModel] = useState(bestaand?.model || "");
   const [kenteken, setKenteken] = useState(bestaand?.kenteken || "");
@@ -721,11 +771,22 @@ function VoertuigFormulier({ accountId, bestaand, onKlaar, onOpgeslagen }) {
   const [foutmelding, setFoutmelding] = useState("");
   const [opslaanStatus, setOpslaanStatus] = useState("idle");
 
+  // Cataloguswaarde is voor auto/motor verplicht (o.a. t.b.v. een eventuele latere
+  // bijtellingsberekening); voor een fiets is dat geen relevant gegeven, dus daar niet verplicht.
+  const cataloguswaardeVerplicht = voertuigType !== "fiets";
+
   const opslaan = async () => {
-    if (!merk.trim()) { setFoutmelding("Merk is verplicht."); return; }
-    if (cataloguswaarde === "" || Number(cataloguswaarde) < 0) { setFoutmelding("Cataloguswaarde is verplicht."); return; }
+    if (!merk.trim()) { setFoutmelding(voertuigType === "fiets" ? "Merk is verplicht." : "Merk is verplicht."); return; }
+    if (cataloguswaardeVerplicht && (cataloguswaarde === "" || Number(cataloguswaarde) < 0)) {
+      setFoutmelding("Cataloguswaarde is verplicht."); return;
+    }
+    if (cataloguswaarde !== "" && Number(cataloguswaarde) < 0) { setFoutmelding("Cataloguswaarde moet 0 of hoger zijn."); return; }
     setOpslaanStatus("bezig");
-    const payload = { accountId, merk, model, kenteken, cataloguswaarde: Number(cataloguswaarde), priveOfZakelijk };
+    const payload = {
+      accountId, merk, model, kenteken,
+      cataloguswaarde: cataloguswaarde === "" ? 0 : Number(cataloguswaarde),
+      priveOfZakelijk, voertuigType,
+    };
     try {
       if (bestaand) {
         await haalJson(await fetch(`/api/voertuigen-klanten?id=${bestaand.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }));
@@ -743,26 +804,40 @@ function VoertuigFormulier({ accountId, bestaand, onKlaar, onOpgeslagen }) {
   return (
     <Modal titel="Voertuig bewerken" onSluiten={onKlaar} breedte={480}>
       <Melding tekst={foutmelding} />
+
+      <div style={labelStijl}>Type voertuig</div>
+      <div style={{ display: "inline-flex", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, overflow: "hidden" }}>
+        {VOERTUIGTYPES.map((t) => (
+          <button key={t.key} onClick={() => setVoertuigType(t.key)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 600, background: voertuigType === t.key ? KLEUR.blauw : "#fff", color: voertuigType === t.key ? "#fff" : KLEUR.subtekst }}>
+            <t.icon size={13} /> {t.label}
+          </button>
+        ))}
+      </div>
+
       <div style={labelStijl}>Merk *</div>
-      <input style={inputStijl} value={merk} onChange={(e) => setMerk(e.target.value)} />
+      <input style={inputStijl} value={merk} onChange={(e) => setMerk(e.target.value)} placeholder={voertuigType === "fiets" ? "Bijv. Gazelle" : "Bijv. Volkswagen"} />
       <div style={labelStijl}>Model</div>
       <input style={inputStijl} value={model} onChange={(e) => setModel(e.target.value)} />
-      <div style={labelStijl}>Kenteken</div>
-      <input style={inputStijl} value={kenteken} onChange={(e) => setKenteken(e.target.value)} />
-      <div style={labelStijl}>Cataloguswaarde *</div>
+      {voertuigType !== "fiets" && (
+        <>
+          <div style={labelStijl}>Kenteken</div>
+          <input style={inputStijl} value={kenteken} onChange={(e) => setKenteken(e.target.value)} />
+        </>
+      )}
+      <div style={labelStijl}>Cataloguswaarde{cataloguswaardeVerplicht ? " *" : " (optioneel)"}</div>
       <div style={{ position: "relative" }}>
         <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: KLEUR.mutedTekst }}>€</span>
         <input style={{ ...inputStijl, paddingLeft: 24 }} type="number" step="0.01" value={cataloguswaarde} onChange={(e) => setCataloguswaarde(e.target.value)} />
       </div>
       <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4 }}>
-        Bij het RDW kan je de catalogusprijs opzoeken.
+        {voertuigType === "fiets" ? "Voor een fiets is dit veld niet verplicht." : "Bij het RDW kan je de catalogusprijs opzoeken."}
       </div>
       <div style={labelStijl}>Privé of zakelijk</div>
       <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, marginTop: 6, cursor: "pointer" }}>
-        <input type="radio" checked={priveOfZakelijk === "prive"} onChange={() => setPriveOfZakelijk("prive")} /> Privé, ik rijd met mijn privé-auto
+        <input type="radio" checked={priveOfZakelijk === "prive"} onChange={() => setPriveOfZakelijk("prive")} /> Privé, ik rijd/fiets met mijn eigen {voertuigType === "fiets" ? "fiets" : voertuigType === "motor" ? "motor" : "auto"}
       </label>
       <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, marginTop: 6, cursor: "pointer" }}>
-        <input type="radio" checked={priveOfZakelijk === "zakelijk"} onChange={() => setPriveOfZakelijk("zakelijk")} /> Zakelijk, de auto is zakelijk aangeschaft
+        <input type="radio" checked={priveOfZakelijk === "zakelijk"} onChange={() => setPriveOfZakelijk("zakelijk")} /> Zakelijk, {voertuigType === "fiets" ? "de fiets is" : voertuigType === "motor" ? "de motor is" : "de auto is"} zakelijk aangeschaft
       </label>
       <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
         <Knop variant="primair" onClick={opslaan} disabled={opslaanStatus === "bezig"}>{opslaanStatus === "bezig" ? "Opslaan…" : "Opslaan"}</Knop>
@@ -812,8 +887,9 @@ function InstellingenVoertuigen({ accountId }) {
             <Star size={16} color={v.favoriet ? KLEUR.goud : KLEUR.mutedTekst} fill={v.favoriet ? KLEUR.goud : "none"} />
           </button>
           <div style={{ flex: 1, fontWeight: 600 }}>{v.merk}{v.model ? ` ${v.model}` : ""}</div>
+          <div style={{ fontSize: 12, color: KLEUR.mutedTekst, width: 80 }}>Type<br /><span style={{ color: KLEUR.tekst, fontWeight: 600, fontSize: 13, display: "inline-flex", alignItems: "center", gap: 4 }}>{React.createElement((VOERTUIGTYPES.find((t) => t.key === v.voertuigType) || VOERTUIGTYPES[0]).icon, { size: 12 })}{voertuigtypeLabel(v.voertuigType)}</span></div>
           <div style={{ fontSize: 12, color: KLEUR.mutedTekst, width: 100 }}>Kenteken<br /><span style={{ color: KLEUR.tekst, fontWeight: 600, fontSize: 13 }}>{v.kenteken || "—"}</span></div>
-          <div style={{ fontSize: 12, color: KLEUR.mutedTekst, width: 120 }}>Cataloguswaarde<br /><span style={{ color: KLEUR.tekst, fontWeight: 600, fontSize: 13 }}>{geld(v.cataloguswaarde)}</span></div>
+          <div style={{ fontSize: 12, color: KLEUR.mutedTekst, width: 120 }}>Cataloguswaarde<br /><span style={{ color: KLEUR.tekst, fontWeight: 600, fontSize: 13 }}>{v.voertuigType === "fiets" && !v.cataloguswaarde ? "—" : geld(v.cataloguswaarde)}</span></div>
           <div style={{ fontSize: 12, color: KLEUR.mutedTekst, width: 90 }}>Soort<br /><span style={{ color: KLEUR.tekst, fontWeight: 600, fontSize: 13 }}>{v.priveOfZakelijk === "prive" ? "Privé" : "Zakelijk"}</span></div>
           <div style={{ display: "flex", gap: 10 }}>
             <button onClick={() => { setActief(v); setWeergave("bewerken"); }} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.blauw, display: "flex" }}><Pencil size={14} /></button>
