@@ -33,6 +33,7 @@ export default function UrenTarievenBeheer() {
   const [fout, setFout] = useState("");
   const [zoek, setZoek] = useState("");
   const [toonAantal, setToonAantal] = useState(50);
+  const [openTarieven, setOpenTarieven] = useState(true);
 
   const laad = () => {
     setMedewerkers(null); setFout("");
@@ -64,8 +65,10 @@ export default function UrenTarievenBeheer() {
 
       <Urencodes onFout={setFout} />
 
-      <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 8 }}>Tarieven & deadline per medewerker</div>
-      <div style={{ position: "relative", maxWidth: 320, marginBottom: 10 }}>
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 16, marginBottom: 24 }}>
+      <RubriekKop open={openTarieven} setOpen={setOpenTarieven} icoon={Clock}>Tarieven & deadline per medewerker</RubriekKop>
+      {openTarieven && (<>
+      <div style={{ position: "relative", maxWidth: 320, margin: "12px 0 10px" }}>
         <Search size={13} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)" }} />
         <input value={zoek} onChange={(e) => setZoek(e.target.value)} placeholder="Zoek medewerker…" style={{ ...veld, width: "100%", padding: "8px 9px 8px 28px" }} />
       </div>
@@ -73,7 +76,7 @@ export default function UrenTarievenBeheer() {
       {medewerkers === null ? (
         <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Medewerkers ophalen…</div>
       ) : (
-        <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, marginBottom: 24 }}>
+        <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10 }}>
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
             <thead>
               <tr style={{ background: "#FBFBF9" }}>
@@ -89,7 +92,9 @@ export default function UrenTarievenBeheer() {
           </table>
         </div>
       )}
-      {medewerkers && gefilterd.length > 0 && <div style={{ marginBottom: 24 }}><Paginatie totaal={gefilterd.length} getoond={zichtbaar.length} toonAantal={toonAantal} setToonAantal={setToonAantal} /></div>}
+      {medewerkers && gefilterd.length > 0 && <div style={{ marginTop: 10 }}><Paginatie totaal={gefilterd.length} getoond={zichtbaar.length} toonAantal={toonAantal} setToonAantal={setToonAantal} /></div>}
+      </>)}
+      </div>
 
       {medewerkers && <VasteUren medewerkers={medewerkers} vasteUrenMap={vasteUren} onFout={setFout} onOpgeslagen={laad} />}
 
@@ -102,6 +107,7 @@ function Koppelingen({ onFout }) {
   const [schemaBezig, setSchemaBezig] = useState(false);
   const [schemaKlaar, setSchemaKlaar] = useState("");
   const [exact, setExact] = useState(null);
+  const [open, setOpen] = useState(true);
 
   const laadExact = () => fetch("/api/exact-oauth?actie=status").then((r) => (r.ok ? r.json() : null)).then(setExact).catch(() => setExact(null));
   useEffect(() => { laadExact(); }, []);
@@ -128,7 +134,10 @@ function Koppelingen({ onFout }) {
   };
 
   return (
-    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
+    <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 16, marginBottom: 18 }}>
+      <RubriekKop open={open} setOpen={setOpen} icoon={Link2}>Koppelingen — Dataverse-schema & Exact</RubriekKop>
+      {open && (
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 12 }}>
       <div style={{ flex: "1 1 300px", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, marginBottom: 4 }}><Database size={15} color={KLEUR.blauw} /> Dataverse-tabellen</div>
         <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 10 }}>Eenmalig de tabellen <code>cr283_urenboeking</code> en <code>cr283_urentarief</code> aanmaken in Dynamics. Vereist tijdelijk de rol System Customizer op de app-gebruiker.</div>
@@ -156,6 +165,8 @@ function Koppelingen({ onFout }) {
           </>
         )}
       </div>
+      </div>
+      )}
     </div>
   );
 }
@@ -306,6 +317,17 @@ function Herinneringen({ begin, onFout }) {
 
 const lbl = { fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" };
 const uur = (n) => (n == null || isNaN(n) ? "0" : Number(n).toLocaleString("nl-NL", { maximumFractionDigits: 2 }));
+
+/** Klikbare rubriekkop met chevron — zelfde stijl als Werkrooster/Herinneringen, zodat alle
+ *  hoofdrubrieken van de Uren-tab in te klappen zijn. */
+function RubriekKop({ open, setOpen, icoon: Icoon, children }) {
+  return (
+    <div onClick={() => setOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+      <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: open ? "none" : "rotate(-90deg)", transition: "transform .15s" }} />
+      {Icoon && <Icoon size={16} color={KLEUR.blauw} />} {children}
+    </div>
+  );
+}
 
 const CAT_LABEL = { abonnement: "Abonnement", uxt: "UXT", indirect: "Indirect", kantoor: "Kantoor" };
 
@@ -562,6 +584,7 @@ function Urencodes({ onFout }) {
   const [nieuw, setNieuw] = useState({ naam: "", categorie: "kantoor" });
   const [bezig, setBezig] = useState(false);
   const [toonAantal, setToonAantal] = useState(50);
+  const [open, setOpen] = useState(true);
 
   const laad = () => {
     fetch("/api/beheer-urencodes")
@@ -593,8 +616,9 @@ function Urencodes({ onFout }) {
 
   return (
     <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 16, marginBottom: 24 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700, marginBottom: 4 }}><Tag size={16} color={KLEUR.blauw} /> Urencodes</div>
-      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 12, maxWidth: 720 }}>
+      <RubriekKop open={open} setOpen={setOpen} icoon={Tag}>Urencodes</RubriekKop>
+      {open && (<>
+      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, margin: "12px 0 12px", maxWidth: 720 }}>
         Codes waarop medewerkers uren schrijven (bijv. Verlof, Ziek, Opleiding, Reistijd, Jaarrekening). Elke code hoort bij één
         categorie; die bepaalt of hij declarabel is en hoe de facturatie/goedkeuring werkt. Zet <em>“Telt mee (declarabel-%)”</em>
         uit voor codes die het declarabel-doel niet mogen drukken, zoals verlof, overuren en parttime-uren.
@@ -644,6 +668,7 @@ function Urencodes({ onFout }) {
         </div>
       )}
       {codes && codes.length > 0 && <Paginatie totaal={codes.length} getoond={toonAantal === Infinity ? codes.length : Math.min(toonAantal, codes.length)} toonAantal={toonAantal} setToonAantal={setToonAantal} />}
+      </>)}
     </div>
   );
 }
