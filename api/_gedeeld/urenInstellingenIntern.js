@@ -7,7 +7,13 @@ const { BlobServiceClient } = require("@azure/storage-blob");
 
 const CONTAINER = "portaalcontent";
 const BLOB = "uren-intern-instellingen.json";
-const STANDAARD = { herinneringActief: false, herinneringWeekdag: 5, herinneringMinuren: 40, herinneringWebhook: "", herinneringTekst: "", laatsteRun: null };
+const STANDAARD = {
+  herinneringActief: false, herinneringWeekdag: 5, herinneringMinuren: 40, herinneringWebhook: "", herinneringTekst: "",
+  // Tweede, onafhankelijke herinnering (bijv. een strengere reminder op een latere dag). Eigen weekdag,
+  // minimum en tekst; als de tweede webhook leeg is wordt de eerste webhook gebruikt.
+  herinnering2Actief: false, herinnering2Weekdag: 1, herinnering2Minuren: 40, herinnering2Webhook: "", herinnering2Tekst: "",
+  laatsteRun: null,
+};
 
 let cachedContainer = null;
 async function haalContainer() {
@@ -49,6 +55,11 @@ async function zetInstellingen(velden) {
     herinneringMinuren: velden.herinneringMinuren != null ? Number(velden.herinneringMinuren) : huidig.herinneringMinuren,
     herinneringWebhook: velden.herinneringWebhook != null ? String(velden.herinneringWebhook) : huidig.herinneringWebhook,
     herinneringTekst: velden.herinneringTekst != null ? String(velden.herinneringTekst) : huidig.herinneringTekst,
+    herinnering2Actief: velden.herinnering2Actief != null ? !!velden.herinnering2Actief : huidig.herinnering2Actief,
+    herinnering2Weekdag: velden.herinnering2Weekdag != null ? Number(velden.herinnering2Weekdag) : huidig.herinnering2Weekdag,
+    herinnering2Minuren: velden.herinnering2Minuren != null ? Number(velden.herinnering2Minuren) : huidig.herinnering2Minuren,
+    herinnering2Webhook: velden.herinnering2Webhook != null ? String(velden.herinnering2Webhook) : huidig.herinnering2Webhook,
+    herinnering2Tekst: velden.herinnering2Tekst != null ? String(velden.herinnering2Tekst) : huidig.herinnering2Tekst,
   };
   const blob = container.getBlockBlobClient(BLOB);
   const data = Buffer.from(JSON.stringify(nieuw), "utf-8");

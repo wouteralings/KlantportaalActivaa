@@ -84,6 +84,11 @@ module.exports = async function (context, req) {
           herinneringMinuren: b.herinnering_minuren != null ? Number(b.herinnering_minuren) : 40,
           herinneringWebhook: b.herinnering_webhook || "",
           herinneringTekst: b.herinnering_tekst || "",
+          herinnering2Actief: !!b.herinnering2_actief,
+          herinnering2Weekdag: b.herinnering2_weekdag != null ? Number(b.herinnering2_weekdag) : 1,
+          herinnering2Minuren: b.herinnering2_minuren != null ? Number(b.herinnering2_minuren) : 40,
+          herinnering2Webhook: b.herinnering2_webhook || "",
+          herinnering2Tekst: b.herinnering2_tekst || "",
         });
         return json(context, 200, { ok: true, instellingen: opgeslagen });
       }

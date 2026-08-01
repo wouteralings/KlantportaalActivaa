@@ -46,31 +46,40 @@ module.exports = async function (context, req) {
 
   try {
     const inst = await instellingenStore.haalInstellingen();
-    if (!inst.herinneringActief) return json(context, 200, { ok: true, overgeslagen: "herinneringen staan uit" });
-    if (!force && vandaagWeekdag() !== Number(inst.herinneringWeekdag)) {
-      return json(context, 200, { ok: true, overgeslagen: `vandaag (weekdag ${vandaagWeekdag()}) is niet de ingestelde herinneringsdag (${inst.herinneringWeekdag})` });
+    const weekStart = huidigeWeekStart();
+    const vandaag = vandaagWeekdag();
+
+    // Twee onafhankelijke herinneringen. De tweede webhook valt terug op de eerste.
+    const herinneringen = [
+      { nr: 1, actief: !!inst.herinneringActief, weekdag: Number(inst.herinneringWeekdag), minuren: Number(inst.herinneringMinuren) || 40, webhook: inst.herinneringWebhook || "", tekst: inst.herinneringTekst || "" },
+      { nr: 2, actief: !!inst.herinnering2Actief, weekdag: Number(inst.herinnering2Weekdag), minuren: Number(inst.herinnering2Minuren) || 40, webhook: inst.herinnering2Webhook || inst.herinneringWebhook || "", tekst: inst.herinnering2Tekst || "" },
+    ];
+    const teVuren = herinneringen.filter((h) => h.actief && (force || vandaag === h.weekdag));
+    if (teVuren.length === 0) {
+      return json(context, 200, { ok: true, overgeslagen: `geen herinnering ingepland voor vandaag (weekdag ${vandaag})` });
     }
 
-    const weekStart = huidigeWeekStart();
-    const minuren = Number(inst.herinneringMinuren) || 40;
-    const achterlopers = await uren.medewerkersOnderMinuren(weekStart, minuren);
-
-    let verstuurd = false;
-    if (!dryrun && inst.herinneringWebhook && achterlopers.length) {
-      const tekst = inst.herinneringTekst || `Herinnering: schrijf je uren voor deze week (minimaal ${minuren} uur) volledig.`;
-      const payload = {
-        tekst, weekStart, minuren,
-        medewerkers: achterlopers.map((m) => ({ naam: m.naam, email: m.email, geschreven: m.geschreven, tekort: Math.round((minuren - m.geschreven) * 100) / 100 })),
-      };
-      try {
-        const res = await fetch(inst.herinnering_webhook, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-        verstuurd = res.ok;
-        if (!res.ok) context.log.warn(`Herinnering-webhook gaf ${res.status}`);
-      } catch (e) { context.log.error("Herinnering-webhook mislukt", e); }
+    const resultaten = [];
+    for (const h of teVuren) {
+      const achterlopers = await uren.medewerkersOnderMinuren(weekStart, h.minuren);
+      let verstuurd = false;
+      if (!dryrun && h.webhook && achterlopers.length) {
+        const tekst = h.tekst || `Herinnering: schrijf je uren voor deze week (minimaal ${h.minuren} uur) volledig.`;
+        const payload = {
+          herinnering: h.nr, tekst, weekStart, minuren: h.minuren,
+          medewerkers: achterlopers.map((m) => ({ naam: m.naam, email: m.email, geschreven: m.geschreven, tekort: Math.round((h.minuren - m.geschreven) * 100) / 100 })),
+        };
+        try {
+          const res = await fetch(h.webhook, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+          verstuurd = res.ok;
+          if (!res.ok) context.log.warn(`Herinnering ${h.nr}-webhook gaf ${res.status}`);
+        } catch (e) { context.log.error(`Herinnering ${h.nr}-webhook mislukt`, e); }
+      }
+      resultaten.push({ herinnering: h.nr, minuren: h.minuren, aantalAchterlopers: achterlopers.length, verstuurd, achterlopers });
     }
     if (!dryrun) await instellingenStore.zetLaatsteRun();
 
-    return json(context, 200, { ok: true, weekStart, minuren, aantalAchterlopers: achterlopers.length, verstuurd, dryrun: !!dryrun, achterlopers });
+    return json(context, 200, { ok: true, weekStart, dryrun: !!dryrun, resultaten });
   } catch (err) {
     if (err.message === "MISSING_CONFIG") return json(context, 501, { error: "De database is nog niet geconfigureerd." });
     context.log.error(err);
