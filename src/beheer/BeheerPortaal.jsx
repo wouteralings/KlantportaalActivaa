@@ -274,10 +274,11 @@ export default function BeheerPortaal() {
   const [webhookOpslaanStatus, setWebhookOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
 
   // Facturatiemodule: per klant-account aan/uit (tab "Facturatie").
-  const [facturatieKlanten, setFacturatieKlanten] = useState(null); // null = laden; [{accountId, klantnaam, klantnummer}]
+  const [facturatieKlanten, setFacturatieKlanten] = useState(null); // null = laden; [{accountId, klantnaam, klantnummer, groepsnaam}]
   const [facturatieStatussen, setFacturatieStatussen] = useState({}); // accountId -> { ingeschakeld, gewijzigdOp, gewijzigdDoor }
   const [facturatieZoek, setFacturatieZoek] = useState("");
   const [facturatieStatusFilter, setFacturatieStatusFilter] = useState("alle"); // "alle" | "aan" | "uit"
+  const [facturatieGroepFilter, setFacturatieGroepFilter] = useState("alle"); // "alle" of een groepsnaam
   const [facturatieBezig, setFacturatieBezig] = useState({}); // accountId -> bool
   const [facturatieFout, setFacturatieFout] = useState("");
   // Losse urenregistratie-schakelaar (€2,50), naast de facturatiemodule — zelfde lijst klanten.
@@ -404,7 +405,7 @@ export default function BeheerPortaal() {
     fetch("/api/beheer-klanten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setFacturatieKlanten(
-        (d.klanten || []).map((k) => ({ accountId: k.accountId, klantnaam: k.klantnaam, klantnummer: k.klantnummer }))
+        (d.klanten || []).map((k) => ({ accountId: k.accountId, klantnaam: k.klantnaam, klantnummer: k.klantnummer, groepsnaam: k.groepsnaam || "" }))
       ))
       .catch(() => setFacturatieKlanten([]));
     fetch("/api/beheer-facturatie-klanten")
@@ -857,6 +858,19 @@ export default function BeheerPortaal() {
     !!(bezittingenStatussen[accountId] && bezittingenStatussen[accountId].ingeschakeld) ||
     !!(rapportagesStatussen[accountId] && rapportagesStatussen[accountId].ingeschakeld) ||
     !!(rittenStatussen[accountId] && rittenStatussen[accountId].ingeschakeld);
+
+  // Heeft deze klant bij minstens één module een openstaande aanvraag (nog uit, wel aangevraagd)?
+  // Gebruikt voor het "aanvragen bovenaan"-sorteren van de tabel en de teller erboven.
+  const heeftOpenstaandeAanvraag = (accountId) => {
+    const open = (s) => !!(s && !s.ingeschakeld && s.aangevraagdOp);
+    return (
+      open(facturatieStatussen[accountId]) ||
+      open(urenStatussen[accountId]) ||
+      open(bezittingenStatussen[accountId]) ||
+      open(rapportagesStatussen[accountId]) ||
+      open(rittenStatussen[accountId])
+    );
+  };
 
   // BTW-tarieven — "nieuw" voegt een tarief toe (de server sluit automatisch het vorige
   // tarief van diezelfde code af); een bestaand tarief bewerken corrigeert dat ene tarief
@@ -2692,11 +2706,25 @@ export default function BeheerPortaal() {
                   </button>
                 ))}
               </div>
+              {(() => {
+                const groepen = [...new Set(facturatieKlanten.map((k) => k.groepsnaam).filter(Boolean))].sort((a, b) => a.localeCompare(b, "nl"));
+                if (groepen.length === 0) return null;
+                return (
+                  <select
+                    value={facturatieGroepFilter}
+                    onChange={(e) => setFacturatieGroepFilter(e.target.value)}
+                    style={{ padding: "7px 10px", borderRadius: 6, fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.subtekst, cursor: "pointer" }}
+                  >
+                    <option value="alle">Alle groepen</option>
+                    {groepen.map((g) => <option key={g} value={g}>{g}</option>)}
+                  </select>
+                );
+              })()}
             </div>
             <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 8 }}>
               {facturatieKlanten.filter((k) => anyModuleAan(k.accountId)).length} van {facturatieKlanten.length} klanten met minstens één module aan
               {(() => {
-                const nAanvragen = Object.values(facturatieStatussen).filter((s) => s && !s.ingeschakeld && s.aangevraagdOp).length;
+                const nAanvragen = facturatieKlanten.filter((k) => heeftOpenstaandeAanvraag(k.accountId)).length;
                 return nAanvragen > 0 ? ` — ${nAanvragen} ${nAanvragen === 1 ? "aanvraag" : "aanvragen"} open` : "";
               })()}
             </div>
@@ -2711,13 +2739,12 @@ export default function BeheerPortaal() {
                   const aan = anyModuleAan(k.accountId);
                   return facturatieStatusFilter === "aan" ? aan : !aan;
                 })
+                .filter((k) => facturatieGroepFilter === "alle" || k.groepsnaam === facturatieGroepFilter)
                 .slice()
                 .sort((a, b) => {
-                  // Klanten met een openstaande aanvraag (module nog uit, wel aangevraagd) bovenaan,
-                  // zodat een beheerder die niet over het hoofd ziet tussen alle andere klanten.
-                  const aanvraag = (k) => !(facturatieStatussen[k.accountId] && facturatieStatussen[k.accountId].ingeschakeld)
-                    && !!(facturatieStatussen[k.accountId] && facturatieStatussen[k.accountId].aangevraagdOp);
-                  return (aanvraag(b) ? 1 : 0) - (aanvraag(a) ? 1 : 0);
+                  // Klanten met een openstaande aanvraag bij minstens één module (nog uit, wel
+                  // aangevraagd) bovenaan, zodat een beheerder die niet over het hoofd ziet.
+                  return (heeftOpenstaandeAanvraag(b.accountId) ? 1 : 0) - (heeftOpenstaandeAanvraag(a.accountId) ? 1 : 0);
                 });
               const zichtbareFacturatie = gefilterdFacturatie.slice(0, facturatieToonAantal);
               return (
@@ -2732,14 +2759,23 @@ export default function BeheerPortaal() {
                       const urenAan = !!urenStatus.ingeschakeld;
                       const urenBezigRow = !!urenBezig[k.accountId];
                       const urenAangevraagd = !urenAan && !!urenStatus.aangevraagdOp;
-                      const bezAan = !!(bezittingenStatussen[k.accountId] && bezittingenStatussen[k.accountId].ingeschakeld);
-                      const rapAan = !!(rapportagesStatussen[k.accountId] && rapportagesStatussen[k.accountId].ingeschakeld);
-                      const ritAan = !!(rittenStatussen[k.accountId] && rittenStatussen[k.accountId].ingeschakeld);
+                      const bezStatus = bezittingenStatussen[k.accountId] || {};
+                      const bezAan = !!bezStatus.ingeschakeld;
+                      const bezAangevraagd = !bezAan && !!bezStatus.aangevraagdOp;
+                      const rapStatus = rapportagesStatussen[k.accountId] || {};
+                      const rapAan = !!rapStatus.ingeschakeld;
+                      const rapAangevraagd = !rapAan && !!rapStatus.aangevraagdOp;
+                      const ritStatus = rittenStatussen[k.accountId] || {};
+                      const ritAan = !!ritStatus.ingeschakeld;
+                      const ritAangevraagd = !ritAan && !!ritStatus.aangevraagdOp;
+                      const heeftAanvraag = aangevraagd || urenAangevraagd || bezAangevraagd || rapAangevraagd || ritAangevraagd;
                       return (
-                        <div key={k.accountId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, background: (aangevraagd || urenAangevraagd) ? KLEUR.lichtblauw : "transparent" }}>
+                        <div key={k.accountId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, background: heeftAanvraag ? KLEUR.lichtblauw : "transparent" }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 13, fontWeight: 600 }}>{k.klantnaam || "(geen naam)"}</div>
-                            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>Cliëntnr {k.klantnummer || "—"}</div>
+                            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>
+                              Cliëntnr {k.klantnummer || "—"}{k.groepsnaam ? ` · ${k.groepsnaam}` : ""}
+                            </div>
                             {aangevraagd && (
                               <div style={{ fontSize: 11, fontWeight: 600, color: KLEUR.blauw, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
                                 <Clock size={11} /> Facturen aangevraagd op {new Date(status.aangevraagdOp).toLocaleDateString("nl-NL")}
@@ -2750,6 +2786,24 @@ export default function BeheerPortaal() {
                               <div style={{ fontSize: 11, fontWeight: 600, color: KLEUR.blauw, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
                                 <Clock size={11} /> Uren aangevraagd op {new Date(urenStatus.aangevraagdOp).toLocaleDateString("nl-NL")}
                                 {urenStatus.aangevraagdDoor ? ` door ${urenStatus.aangevraagdDoor}` : ""}
+                              </div>
+                            )}
+                            {bezAangevraagd && (
+                              <div style={{ fontSize: 11, fontWeight: 600, color: KLEUR.blauw, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                                <Clock size={11} /> Bezittingen aangevraagd op {new Date(bezStatus.aangevraagdOp).toLocaleDateString("nl-NL")}
+                                {bezStatus.aangevraagdDoor ? ` door ${bezStatus.aangevraagdDoor}` : ""}
+                              </div>
+                            )}
+                            {rapAangevraagd && (
+                              <div style={{ fontSize: 11, fontWeight: 600, color: KLEUR.blauw, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                                <Clock size={11} /> Rapportages aangevraagd op {new Date(rapStatus.aangevraagdOp).toLocaleDateString("nl-NL")}
+                                {rapStatus.aangevraagdDoor ? ` door ${rapStatus.aangevraagdDoor}` : ""}
+                              </div>
+                            )}
+                            {ritAangevraagd && (
+                              <div style={{ fontSize: 11, fontWeight: 600, color: KLEUR.blauw, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                                <Clock size={11} /> Ritten aangevraagd op {new Date(ritStatus.aangevraagdOp).toLocaleDateString("nl-NL")}
+                                {ritStatus.aangevraagdDoor ? ` door ${ritStatus.aangevraagdDoor}` : ""}
                               </div>
                             )}
                           </div>
