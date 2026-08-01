@@ -33,6 +33,7 @@ export default function UrenTarievenBeheer() {
   const [fout, setFout] = useState("");
   const [zoek, setZoek] = useState("");
   const [toonAantal, setToonAantal] = useState(50);
+  const [tarievenOpen, setTarievenOpen] = useState(true);
 
   const laad = () => {
     setMedewerkers(null); setFout("");
@@ -64,32 +65,41 @@ export default function UrenTarievenBeheer() {
 
       <Urencodes onFout={setFout} />
 
-      <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 8 }}>Tarieven & deadline per medewerker</div>
-      <div style={{ position: "relative", maxWidth: 320, marginBottom: 10 }}>
-        <Search size={13} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)" }} />
-        <input value={zoek} onChange={(e) => setZoek(e.target.value)} placeholder="Zoek medewerker…" style={{ ...veld, width: "100%", padding: "8px 9px 8px 28px" }} />
-      </div>
-
-      {medewerkers === null ? (
-        <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Medewerkers ophalen…</div>
-      ) : (
-        <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, marginBottom: 24 }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
-            <thead>
-              <tr style={{ background: "#FBFBF9" }}>
-                <th style={th}>Medewerker</th><th style={th}>Normaal €/u</th><th style={th}>Hoog €/u</th><th style={th}>Laag €/u</th>
-                <th style={th}>Declarabel-doel %</th><th style={th}>Leidinggevende</th><th style={th}>Deadline</th><th style={th}>Actief</th><th style={{ ...th, width: 1 }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {gefilterd.length === 0 ? (
-                <tr><td style={{ ...td, color: KLEUR.mutedTekst }} colSpan={9}>Geen medewerkers gevonden.</td></tr>
-              ) : zichtbaar.map((m) => <TariefRij key={m.email} m={m} namen={alleNamen} />)}
-            </tbody>
-          </table>
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 16, marginBottom: 24 }}>
+        <div onClick={() => setTarievenOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: tarievenOpen ? "none" : "rotate(-90deg)", transition: "transform .15s" }} />
+          Tarieven & deadline per medewerker
         </div>
-      )}
-      {medewerkers && gefilterd.length > 0 && <div style={{ marginBottom: 24 }}><Paginatie totaal={gefilterd.length} getoond={zichtbaar.length} toonAantal={toonAantal} setToonAantal={setToonAantal} /></div>}
+        {tarievenOpen && (
+          <>
+            <div style={{ position: "relative", maxWidth: 320, margin: "12px 0 10px" }}>
+              <Search size={13} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)" }} />
+              <input value={zoek} onChange={(e) => setZoek(e.target.value)} placeholder="Zoek medewerker…" style={{ ...veld, width: "100%", padding: "8px 9px 8px 28px" }} />
+            </div>
+
+            {medewerkers === null ? (
+              <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Medewerkers ophalen…</div>
+            ) : (
+              <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
+                  <thead>
+                    <tr style={{ background: "#FBFBF9" }}>
+                      <th style={th}>Medewerker</th><th style={th}>Normaal €/u</th><th style={th}>Hoog €/u</th><th style={th}>Laag €/u</th>
+                      <th style={th}>Declarabel-doel %</th><th style={th}>Leidinggevende</th><th style={th}>Deadline</th><th style={th}>Actief</th><th style={{ ...th, width: 1 }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {gefilterd.length === 0 ? (
+                      <tr><td style={{ ...td, color: KLEUR.mutedTekst }} colSpan={9}>Geen medewerkers gevonden.</td></tr>
+                    ) : zichtbaar.map((m) => <TariefRij key={m.email} m={m} namen={alleNamen} />)}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {medewerkers && gefilterd.length > 0 && <div style={{ marginTop: 10 }}><Paginatie totaal={gefilterd.length} getoond={zichtbaar.length} toonAantal={toonAantal} setToonAantal={setToonAantal} /></div>}
+          </>
+        )}
+      </div>
 
       {medewerkers && <VasteUren medewerkers={medewerkers} vasteUrenMap={vasteUren} onFout={setFout} onOpgeslagen={laad} />}
 
@@ -488,6 +498,7 @@ function VasteUren({ medewerkers, vasteUrenMap, onFout }) {
 }
 
 function Urencodes({ onFout }) {
+  const [open, setOpen] = useState(true);
   const [codes, setCodes] = useState(null);
   const [categorieen, setCategorieen] = useState(["abonnement", "uxt", "indirect", "kantoor"]);
   const [nieuw, setNieuw] = useState({ naam: "", categorie: "kantoor" });
@@ -524,57 +535,64 @@ function Urencodes({ onFout }) {
 
   return (
     <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 16, marginBottom: 24 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700, marginBottom: 4 }}><Tag size={16} color={KLEUR.blauw} /> Urencodes</div>
-      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 12, maxWidth: 720 }}>
-        Codes waarop medewerkers uren schrijven (bijv. Verlof, Ziek, Opleiding, Reistijd, Jaarrekening). Elke code hoort bij één
-        categorie; die bepaalt of hij declarabel is en hoe de facturatie/goedkeuring werkt. Zet <em>“Telt mee (declarabel-%)”</em>
-        uit voor codes die het declarabel-doel niet mogen drukken, zoals verlof, overuren en parttime-uren.
+      <div onClick={() => setOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+        <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: open ? "none" : "rotate(-90deg)", transition: "transform .15s" }} />
+        <Tag size={16} color={KLEUR.blauw} /> Urencodes
       </div>
+      {open && (
+        <>
+          <div style={{ fontSize: 12.5, color: KLEUR.subtekst, margin: "8px 0 12px", maxWidth: 720 }}>
+            Codes waarop medewerkers uren schrijven (bijv. Verlof, Ziek, Opleiding, Reistijd, Jaarrekening). Elke code hoort bij één
+            categorie; die bepaalt of hij declarabel is en hoe de facturatie/goedkeuring werkt. Zet <em>“Telt mee (declarabel-%)”</em>
+            uit voor codes die het declarabel-doel niet mogen drukken, zoals verlof, overuren en parttime-uren.
+          </div>
 
-      {/* Nieuwe code */}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 14 }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-          <span style={lbl}>Naam</span>
-          <input value={nieuw.naam} onChange={(e) => setNieuw((n) => ({ ...n, naam: e.target.value }))} placeholder="bijv. Verlof" style={{ ...veld, width: 200 }} />
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-          <span style={lbl}>Categorie</span>
-          <select value={nieuw.categorie} onChange={(e) => setNieuw((n) => ({ ...n, categorie: e.target.value }))} style={{ ...veld, width: 150 }}>
-            {categorieen.map((c) => <option key={c} value={c}>{CAT_LABEL[c] || c}</option>)}
-          </select>
-        </div>
-        <button onClick={voegToe} disabled={bezig || !nieuw.naam.trim()} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
-          {bezig ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : <Plus size={13} />} Toevoegen
-        </button>
-      </div>
+          {/* Nieuwe code */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 14 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              <span style={lbl}>Naam</span>
+              <input value={nieuw.naam} onChange={(e) => setNieuw((n) => ({ ...n, naam: e.target.value }))} placeholder="bijv. Verlof" style={{ ...veld, width: 200 }} />
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              <span style={lbl}>Categorie</span>
+              <select value={nieuw.categorie} onChange={(e) => setNieuw((n) => ({ ...n, categorie: e.target.value }))} style={{ ...veld, width: 150 }}>
+                {categorieen.map((c) => <option key={c} value={c}>{CAT_LABEL[c] || c}</option>)}
+              </select>
+            </div>
+            <button onClick={voegToe} disabled={bezig || !nieuw.naam.trim()} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+              {bezig ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : <Plus size={13} />} Toevoegen
+            </button>
+          </div>
 
-      {codes === null ? (
-        <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Urencodes ophalen…</div>
-      ) : codes.length === 0 ? (
-        <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Nog geen urencodes. Voeg er hierboven een toe.</div>
-      ) : (
-        <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
-            <thead><tr style={{ background: "#FBFBF9" }}><th style={th}>Naam</th><th style={th}>Categorie</th><th style={th}>Telt mee (declarabel-%)</th><th style={th}>Actief</th><th style={{ ...th, width: 1 }}></th></tr></thead>
-            <tbody>
-              {(toonAantal === Infinity ? codes : codes.slice(0, toonAantal)).map((c) => (
-                <tr key={c.id}>
-                  <td style={td}><input defaultValue={c.naam} onBlur={(e) => { if (e.target.value.trim() && e.target.value !== c.naam) zet({ ...c, naam: e.target.value.trim() }); }} style={{ ...veld, width: 200 }} /></td>
-                  <td style={td}>
-                    <select value={c.categorie} onChange={(e) => zet({ ...c, categorie: e.target.value })} style={{ ...veld, width: 150 }}>
-                      {categorieen.map((cat) => <option key={cat} value={cat}>{CAT_LABEL[cat] || cat}</option>)}
-                    </select>
-                  </td>
-                  <td style={td}><label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }} title="Tellen deze uren mee in de noemer van het declarabel-%? Uit voor verlof/overuren/parttime."><input type="checkbox" checked={c.teltDeclarabelMee !== false} onChange={(e) => zet({ ...c, teltDeclarabelMee: e.target.checked })} /></label></td>
-                  <td style={td}><input type="checkbox" checked={c.actief !== false} onChange={(e) => zet({ ...c, actief: e.target.checked })} /></td>
-                  <td style={td}><button onClick={() => verwijder(c.id)} title="Verwijderen" style={{ display: "inline-flex", padding: 6, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, background: "#fff", cursor: "pointer" }}><Trash2 size={13} color={KLEUR.rood} /></button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+          {codes === null ? (
+            <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Urencodes ophalen…</div>
+          ) : codes.length === 0 ? (
+            <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Nog geen urencodes. Voeg er hierboven een toe.</div>
+          ) : (
+            <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
+                <thead><tr style={{ background: "#FBFBF9" }}><th style={th}>Naam</th><th style={th}>Categorie</th><th style={th}>Telt mee (declarabel-%)</th><th style={th}>Actief</th><th style={{ ...th, width: 1 }}></th></tr></thead>
+                <tbody>
+                  {(toonAantal === Infinity ? codes : codes.slice(0, toonAantal)).map((c) => (
+                    <tr key={c.id}>
+                      <td style={td}><input defaultValue={c.naam} onBlur={(e) => { if (e.target.value.trim() && e.target.value !== c.naam) zet({ ...c, naam: e.target.value.trim() }); }} style={{ ...veld, width: 200 }} /></td>
+                      <td style={td}>
+                        <select value={c.categorie} onChange={(e) => zet({ ...c, categorie: e.target.value })} style={{ ...veld, width: 150 }}>
+                          {categorieen.map((cat) => <option key={cat} value={cat}>{CAT_LABEL[cat] || cat}</option>)}
+                        </select>
+                      </td>
+                      <td style={td}><label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }} title="Tellen deze uren mee in de noemer van het declarabel-%? Uit voor verlof/overuren/parttime."><input type="checkbox" checked={c.teltDeclarabelMee !== false} onChange={(e) => zet({ ...c, teltDeclarabelMee: e.target.checked })} /></label></td>
+                      <td style={td}><input type="checkbox" checked={c.actief !== false} onChange={(e) => zet({ ...c, actief: e.target.checked })} /></td>
+                      <td style={td}><button onClick={() => verwijder(c.id)} title="Verwijderen" style={{ display: "inline-flex", padding: 6, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, background: "#fff", cursor: "pointer" }}><Trash2 size={13} color={KLEUR.rood} /></button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {codes && codes.length > 0 && <Paginatie totaal={codes.length} getoond={toonAantal === Infinity ? codes.length : Math.min(toonAantal, codes.length)} toonAantal={toonAantal} setToonAantal={setToonAantal} />}
+        </>
       )}
-      {codes && codes.length > 0 && <Paginatie totaal={codes.length} getoond={toonAantal === Infinity ? codes.length : Math.min(toonAantal, codes.length)} toonAantal={toonAantal} setToonAantal={setToonAantal} />}
     </div>
   );
 }
