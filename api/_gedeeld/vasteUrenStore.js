@@ -52,14 +52,20 @@ async function bewaar(alle) {
 /** Genormaliseerde slots voor één medewerker (lege lijst als er niets is ingesteld). */
 function normaliseer(slots) {
   return (Array.isArray(slots) ? slots : [])
-    .map((s) => ({
-      id: s.id || crypto.randomUUID(),
-      urencode: String(s.urencode || "").trim(),
-      weekdag: Math.min(7, Math.max(1, Number(s.weekdag) || 1)),
-      uren: Number(String(s.uren).toString().replace(",", ".")) || 0,
-    }))
+    .map((s) => {
+      // week (optioneel): 1 of 2 voor een 2-wekelijks rooster (om-en-om). Ontbreekt = elke week.
+      const week = Number(s.week) === 2 ? 2 : Number(s.week) === 1 ? 1 : null;
+      const o = {
+        id: s.id || crypto.randomUUID(),
+        urencode: String(s.urencode || "").trim(),
+        weekdag: Math.min(7, Math.max(1, Number(s.weekdag) || 1)),
+        uren: Number(String(s.uren).toString().replace(",", ".")) || 0,
+      };
+      if (week) o.week = week;
+      return o;
+    })
     .filter((s) => s.urencode && s.uren > 0)
-    .sort((a, b) => a.weekdag - b.weekdag);
+    .sort((a, b) => (a.week || 0) - (b.week || 0) || a.weekdag - b.weekdag);
 }
 
 async function haalVoor(email) {

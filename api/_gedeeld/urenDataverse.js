@@ -369,12 +369,23 @@ async function zetStatus(resource, token, set, id, status, door) {
  * De vaste (contract)uren van een medewerker, omgezet naar concrete dag-slots binnen één week.
  * Elke slot verwijst naar een urencode; de categorie van die code bepaalt de soort.
  */
+// 2-wekelijkse cyclus (1 of 2) van een week, t.o.v. een vaste referentie-maandag (1 jan 2024).
+// Zo weet de weekstaat welk van de twee roosters (om-en-om) deze week geldt.
+function tweeWekelijkseCyclus(weekStart) {
+  const ref = Date.UTC(2024, 0, 1); // maandag
+  const weken = Math.round((new Date(weekStart + "T00:00:00Z").getTime() - ref) / (7 * 86400000));
+  return (((weken % 2) + 2) % 2) === 0 ? 1 : 2;
+}
+
 async function vasteUrenSlots(email, weekStart) {
-  const [slots, codes] = await Promise.all([
+  const [alle, codes] = await Promise.all([
     vasteUrenStore.haalVoor(email).catch(() => []),
     urencodesStore.haalCodes().catch(() => []),
   ]);
   const catVan = new Map((codes || []).map((c) => [c.naam, c.categorie]));
+  // Ongetagde slots gelden elke week; week-getagde slots alleen in hun eigen cyclus (om-en-om).
+  const cyclus = tweeWekelijkseCyclus(weekStart);
+  const slots = (alle || []).filter((s) => s.week == null || Number(s.week) === cyclus);
   return (slots || []).map((s) => {
     const datum = new Date(new Date(weekStart + "T00:00:00Z").getTime() + (s.weekdag - 1) * 86400000).toISOString().slice(0, 10);
     return { slotId: s.id, datum, weekdag: s.weekdag, urencode: s.urencode, uren: s.uren, soort: catVan.get(s.urencode) || "kantoor" };
