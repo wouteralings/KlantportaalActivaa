@@ -10,3 +10,7 @@ dist
 
 # Handmatig te verwijderen rommel (buiten git gezet)
 _to_delete/
+
+# Persoonlijk hulpscript om te committen en te pushen. Blijft lokaal staan, hoort
+# niet in de repo — anders komt het per ongeluk mee met een `git add -A`.
+commit-en-push.bat
