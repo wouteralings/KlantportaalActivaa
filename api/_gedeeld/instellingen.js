@@ -30,7 +30,7 @@ async function haalInstellingen() {
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
 
   const bestaat = await blobClient.exists();
-  if (!bestaat) return { medewerkersGroepId: "", medewerkersGroepNaam: "", googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "", reviewWebhookUrl: "", facturatiemodulePrijs: 5, urenmodulePrijs: 2.5, rapportagesmodulePrijs: 7.5, bezittingenmodulePrijs: 5, rittenmodulePrijs: 1.5, klantoverzicht: { extraKolommen: [], standaardVerborgen: [] } };
+  if (!bestaat) return { medewerkersGroepId: "", medewerkersGroepNaam: "", googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "", reviewWebhookUrl: "", facturatiemodulePrijs: 5, urenmodulePrijs: 2.5, rapportagesmodulePrijs: 7.5, bezittingenmodulePrijs: 5, rittenmodulePrijs: 1.5, contractenmodulePrijs: 2.5, klantoverzicht: { extraKolommen: [], standaardVerborgen: [] } };
 
   const downloadResponse = await blobClient.download();
   const tekst = await streamNaarTekst(downloadResponse.readableStreamBody);
@@ -73,6 +73,10 @@ async function haalInstellingen() {
     // Prijs van de losse rittenregistratie-module per klantaccount per maand — volledig los van
     // Facturatie/Uren, apart instelbaar in Beheer → Facturatie (rubriek "Rittenregistratie").
     rittenmodulePrijs: 1.5,
+    // Prijs van de losse Contractenmodule (zelf geregistreerde verzekeringen/telefonie/overige
+    // doorlopende contracten, met verloopherinneringen) per klantaccount per maand — volledig los
+    // van de andere modules, instelbaar in Beheer → Facturatie.
+    contractenmodulePrijs: 2.5,
     // Kolom-configuratie voor het klantoverzicht in het medewerkersportaal.
     // extraKolommen: [{ veld, label, type: "tekst"|"keuze"|"lookup" }]; standaardVerborgen: [kolom-keys].
     klantoverzicht: { extraKolommen: [], standaardVerborgen: [] },

@@ -143,6 +143,7 @@ export default function KlantPortaal() {
   const [facturatiemodulePrijs, setFacturatiemodulePrijs] = useState(5);
   const [urenmodulePrijs, setUrenmodulePrijs] = useState(2.5);
   const [rittenmodulePrijs, setRittenmodulePrijs] = useState(1.5);
+  const [contractenmodulePrijs, setContractenmodulePrijs] = useState(2.5);
   const [rapportagesmodulePrijs, setRapportagesmodulePrijs] = useState(7.5);
   const [bezittingenmodulePrijs, setBezittingenmodulePrijs] = useState(5);
 
@@ -190,6 +191,7 @@ export default function KlantPortaal() {
         setRapportagesmodulePrijs(d.rapportagesmodulePrijs != null ? d.rapportagesmodulePrijs : 7.5);
         setBezittingenmodulePrijs(d.bezittingenmodulePrijs != null ? d.bezittingenmodulePrijs : 5);
         setRittenmodulePrijs(d.rittenmodulePrijs != null ? d.rittenmodulePrijs : 1.5);
+        setContractenmodulePrijs(d.contractenmodulePrijs != null ? d.contractenmodulePrijs : 2.5);
         zetBrowserFavicon(d.faviconUrl);
       })
       .catch(() => {}); // niet-kritisch
@@ -580,7 +582,7 @@ export default function KlantPortaal() {
       {tab === "ritten" && <RittenModule accounts={alleAccounts} prijs={rittenmodulePrijs} alleenLezen={!!meekijkSessie} />}
       {tab === "rapportages" && <RapportagesModule accounts={alleAccounts} prijs={rapportagesmodulePrijs} alleenLezen={!!meekijkSessie} />}
       {tab === "bezittingen" && <BezittingenModule accounts={alleAccounts} prijs={bezittingenmodulePrijs} alleenLezen={!!meekijkSessie} />}
-      {tab === "contracten" && <ContractenModule accounts={alleAccounts} alleenLezen={!!meekijkSessie} />}
+      {tab === "contracten" && <ContractenModule accounts={alleAccounts} prijs={contractenmodulePrijs} alleenLezen={!!meekijkSessie} />}
       {tab === "faq" && <TabFaq content={content} teamsChatUrl={teamsChatUrl} whatsappUrl={whatsappUrl} copilotEmbedUrl={copilotEmbedUrl} />}
       {tab === "review" && <TabReview onVerzenden={verstuurReview} alleenLezen={!!meekijkSessie} />}
     </div>

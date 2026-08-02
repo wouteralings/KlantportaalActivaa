@@ -333,6 +333,7 @@ export default function BeheerPortaal() {
   const [bezittingenmodulePrijs, setBezittingenmodulePrijs] = useState("5");
   const [rapportagesmodulePrijs, setRapportagesmodulePrijs] = useState("7.5");
   const [rittenmodulePrijs, setRittenmodulePrijs] = useState("1.5");
+  const [contractenmodulePrijs, setContractenmodulePrijs] = useState("2.5");
   const [overigePrijsStatus, setOverigePrijsStatus] = useState({}); // veldnaam -> idle | bezig | gelukt | fout
   // Overige betaalde modules per klant aan/uit — zelfde contract als facturatie/uren
   // (GET { statussen } / PUT { accountId, ingeschakeld }). Samengebracht in één tabel.
@@ -414,6 +415,7 @@ export default function BeheerPortaal() {
         setBezittingenmodulePrijs(d.bezittingenmodulePrijs != null ? String(d.bezittingenmodulePrijs) : "5");
         setRapportagesmodulePrijs(d.rapportagesmodulePrijs != null ? String(d.rapportagesmodulePrijs) : "7.5");
         setRittenmodulePrijs(d.rittenmodulePrijs != null ? String(d.rittenmodulePrijs) : "1.5");
+        setContractenmodulePrijs(d.contractenmodulePrijs != null ? String(d.contractenmodulePrijs) : "2.5");
         setKoExtra((d.klantoverzicht && d.klantoverzicht.extraKolommen) || []);
         setKoVerborgen((d.klantoverzicht && d.klantoverzicht.standaardVerborgen) || []);
       })
@@ -2690,6 +2692,7 @@ export default function BeheerPortaal() {
                 <PrijsRij label="Bezittingen" waarde={bezittingenmodulePrijs} setWaarde={setBezittingenmodulePrijs} status={overigePrijsStatus.bezittingenmodulePrijs} opslaan={() => slaOverigePrijsOp("bezittingenmodulePrijs", bezittingenmodulePrijs, setBezittingenmodulePrijs)} />
                 <PrijsRij label="Rapportages" waarde={rapportagesmodulePrijs} setWaarde={setRapportagesmodulePrijs} status={overigePrijsStatus.rapportagesmodulePrijs} opslaan={() => slaOverigePrijsOp("rapportagesmodulePrijs", rapportagesmodulePrijs, setRapportagesmodulePrijs)} />
                 <PrijsRij label="Ritten" waarde={rittenmodulePrijs} setWaarde={setRittenmodulePrijs} status={overigePrijsStatus.rittenmodulePrijs} opslaan={() => slaOverigePrijsOp("rittenmodulePrijs", rittenmodulePrijs, setRittenmodulePrijs)} />
+                <PrijsRij label="Contracten" waarde={contractenmodulePrijs} setWaarde={setContractenmodulePrijs} status={overigePrijsStatus.contractenmodulePrijs} opslaan={() => slaOverigePrijsOp("contractenmodulePrijs", contractenmodulePrijs, setContractenmodulePrijs)} />
               </tbody>
             </table>
           </div>
