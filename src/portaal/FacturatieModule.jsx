@@ -374,6 +374,40 @@ const FREQUENTIE_OPTIES = [
 ];
 const FREQUENTIE_LABEL = Object.fromEntries(FREQUENTIE_OPTIES.map((f) => [f.code, f.label]));
 
+// Stelt de (inclusieve) einddatum van een leveringsperiode voor, op basis van startdatum +
+// frequentie — zelfde frequentie-stap als voegFrequentieToe in de backend
+// (api/_gedeeld/facturenTerugkerend.js), maar één dag terug: dat geeft de LAATSTE dag van de
+// periode i.p.v. de eerste dag van de volgende. Reden: als de einddatum per ongeluk als
+// "eerste dag van de volgende periode" wordt ingevuld (bijv. 01-08 i.p.v. 31-07), schuift
+// verwerkGegenereerd die exclusieve datum bij elke cyclus keurig één stap door, maar dan wél
+// een stap te ver t.o.v. wat je bedoelde — precies de bug uit 02-08-2026. Door hier standaard
+// de laatste (inclusieve) dag voor te stellen, blijft de periode consistent met de "t/m"-weergave
+// (leveringsperiodeTekst) en schuift-ie voortaan correct door.
+function berekenLeveringEindeVoorstel(startStr, frequentie) {
+  if (!startStr) return "";
+  const start = new Date(startStr);
+  if (isNaN(start.getTime())) return "";
+  const d = new Date(start);
+  switch (frequentie) {
+    case "wekelijks": d.setUTCDate(d.getUTCDate() + 7); break;
+    case "maandelijks": d.setUTCMonth(d.getUTCMonth() + 1); break;
+    case "kwartaal": d.setUTCMonth(d.getUTCMonth() + 3); break;
+    case "jaarlijks": d.setUTCFullYear(d.getUTCFullYear() + 1); break;
+    default: return "";
+  }
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+// Zachte waarschuwing: een einddatum op de 1e van de maand is vaak per ongeluk de eerste dag ván
+// de volgende periode i.p.v. de laatste dag van de huidige — zie berekenLeveringEindeVoorstel
+// hierboven. Alleen bedoeld als hint (kan legitiem kloppen), niet als harde validatie.
+function eindeMogelijkVerschoven(eindStr) {
+  if (!eindStr) return false;
+  const d = new Date(eindStr);
+  return !isNaN(d.getTime()) && d.getUTCDate() === 1;
+}
+
 // Adres als losse regels (straat+nr / postcode plaats / land), voor op de factuur-weergave.
 function adresRegels(adres) {
   const a = adres || {};
@@ -575,8 +609,32 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
   const [frequentie, setFrequentie] = useState("maandelijks");
   const [terugkerendStart, setTerugkerendStart] = useState(new Date().toISOString().slice(0, 10));
   const [terugkerendEind, setTerugkerendEind] = useState("");
-  const [terugkerendLeveringStart, setTerugkerendLeveringStart] = useState("");
-  const [terugkerendLeveringEind, setTerugkerendLeveringEind] = useState("");
+  const [terugkerendLeveringStart, _setTerugkerendLeveringStart] = useState("");
+  const [terugkerendLeveringEind, _setTerugkerendLeveringEind] = useState("");
+  // Onthoudt of de gebruiker de einddatum zelf heeft aangepast — zolang dat niet zo is, stellen we
+  // 'm automatisch voor op basis van startdatum + frequentie (zie berekenLeveringEindeVoorstel),
+  // zodat de veelvoorkomende fout "einddatum = 1e van de volgende maand" niet meer kan sluipen.
+  const terugkerendEindeHandmatig = useRef(false);
+  const setTerugkerendLeveringStart = (waarde) => {
+    _setTerugkerendLeveringStart(waarde);
+    if (!terugkerendEindeHandmatig.current) {
+      _setTerugkerendLeveringEind(waarde ? berekenLeveringEindeVoorstel(waarde, frequentie) : "");
+    }
+  };
+  const setTerugkerendLeveringEind = (waarde) => {
+    terugkerendEindeHandmatig.current = true;
+    _setTerugkerendLeveringEind(waarde);
+  };
+  const wijzigFrequentie = (waarde) => {
+    setFrequentie(waarde);
+    if (!terugkerendEindeHandmatig.current && terugkerendLeveringStart) {
+      _setTerugkerendLeveringEind(berekenLeveringEindeVoorstel(terugkerendLeveringStart, waarde));
+    }
+  };
+  const herstelAutomatischeEinddatum = () => {
+    terugkerendEindeHandmatig.current = false;
+    _setTerugkerendLeveringEind(terugkerendLeveringStart ? berekenLeveringEindeVoorstel(terugkerendLeveringStart, frequentie) : "");
+  };
   const [automatischVerzenden, setAutomatischVerzenden] = useState(false);
   const [terugkerendOpgeslagen, setTerugkerendOpgeslagen] = useState(false);
   const [abonnementZojuistAangemaakt, setAbonnementZojuistAangemaakt] = useState(false);
@@ -962,7 +1020,7 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 16, marginTop: 12 }}>
               <div>
                 <div style={labelStijl}>Frequentie</div>
-                <select value={frequentie} onChange={(e) => setFrequentie(e.target.value)} style={inputStijl}>
+                <select value={frequentie} onChange={(e) => wijzigFrequentie(e.target.value)} style={inputStijl}>
                   {FREQUENTIE_OPTIES.map((f) => <option key={f.code} value={f.code}>{f.label}</option>)}
                 </select>
               </div>
@@ -976,14 +1034,24 @@ function DocumentFormulier({ accountId, documenttype, klanten, artikelen, tariev
               </div>
               <div style={{ gridColumn: "1 / -1" }}>
                 <div style={labelStijl}>Abonnementsperiode (optioneel)</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <input type="date" value={terugkerendLeveringStart} onChange={(e) => setTerugkerendLeveringStart(e.target.value)} style={{ ...inputStijl, maxWidth: 170 }} />
                   <span style={{ fontSize: 12, color: KLEUR.mutedTekst }}>t/m</span>
                   <input type="date" value={terugkerendLeveringEind} onChange={(e) => setTerugkerendLeveringEind(e.target.value)} style={{ ...inputStijl, maxWidth: 170 }} />
+                  {terugkerendLeveringStart && (
+                    <button type="button" onClick={herstelAutomatischeEinddatum} style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 11, fontWeight: 600, cursor: "pointer", padding: 0 }}>
+                      Automatisch invullen
+                    </button>
+                  )}
                 </div>
                 <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 3 }}>
-                  Schuift elke cyclus automatisch een frequentie-stap mee op (bijv. bij maandelijks: steeds de volgende maand).
+                  De einddatum wordt automatisch voorgesteld als laatste dag van de periode (bijv. bij maandelijks: de laatste dag van de maand) en schuift daarna elke cyclus netjes een frequentie-stap mee op — pas 'm hierboven aan als je zelf een andere periode bedoelt.
                 </div>
+                {eindeMogelijkVerschoven(terugkerendLeveringEind) && (
+                  <div style={{ fontSize: 11, color: KLEUR.goud, marginTop: 3, fontWeight: 600 }}>
+                    Let op: deze einddatum valt op de 1e van de maand. Bedoelt u niet de laatste dag van de periode zelf (bijv. de laatste dag van de vorige maand)? Anders schuift de periode bij elke cyclus een dag te ver op.
+                  </div>
+                )}
               </div>
               <div style={{ gridColumn: "1 / -1" }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, marginTop: 4, cursor: "pointer" }}>
@@ -1350,8 +1418,33 @@ function AbonnementFormulier({ accountId, bestaand, artikelen, tarieven, klantna
   const [einddatum, setEinddatum] = useState(bestaand.einddatum ? String(bestaand.einddatum).slice(0, 10) : "");
   const [automatischVerzenden, setAutomatischVerzenden] = useState(!!bestaand.automatischVerzenden);
   const [betalingstermijnDagen, setBetalingstermijnDagen] = useState(bestaand.betalingstermijnDagen ?? 30);
-  const [leveringsperiodeStart, setLeveringsperiodeStart] = useState(bestaand.leveringsperiodeStart ? String(bestaand.leveringsperiodeStart).slice(0, 10) : "");
-  const [leveringsperiodeEind, setLeveringsperiodeEind] = useState(bestaand.leveringsperiodeEind ? String(bestaand.leveringsperiodeEind).slice(0, 10) : "");
+  const [leveringsperiodeStart, _setLeveringsperiodeStart] = useState(bestaand.leveringsperiodeStart ? String(bestaand.leveringsperiodeStart).slice(0, 10) : "");
+  const [leveringsperiodeEind, _setLeveringsperiodeEind] = useState(bestaand.leveringsperiodeEind ? String(bestaand.leveringsperiodeEind).slice(0, 10) : "");
+  // Zelfde beveiliging als bij het aanmaken van een nieuw abonnement (zie DocumentFormulier,
+  // 02-08-2026): de al opgeslagen einddatum blijft gewoon staan tot de gebruiker zelf de
+  // periode-startdatum of frequentie aanpast — dan pas stellen we een nieuwe, correcte einddatum
+  // voor (nooit stilzwijgend bij het enkel openen van dit scherm).
+  const leveringEindeHandmatig = useRef(!!bestaand.leveringsperiodeEind);
+  const setLeveringsperiodeStart = (waarde) => {
+    _setLeveringsperiodeStart(waarde);
+    if (!leveringEindeHandmatig.current) {
+      _setLeveringsperiodeEind(waarde ? berekenLeveringEindeVoorstel(waarde, frequentie) : "");
+    }
+  };
+  const setLeveringsperiodeEind = (waarde) => {
+    leveringEindeHandmatig.current = true;
+    _setLeveringsperiodeEind(waarde);
+  };
+  const wijzigFrequentie = (waarde) => {
+    setFrequentie(waarde);
+    if (!leveringEindeHandmatig.current && leveringsperiodeStart) {
+      _setLeveringsperiodeEind(berekenLeveringEindeVoorstel(leveringsperiodeStart, waarde));
+    }
+  };
+  const herstelAutomatischeEinddatum = () => {
+    leveringEindeHandmatig.current = false;
+    _setLeveringsperiodeEind(leveringsperiodeStart ? berekenLeveringEindeVoorstel(leveringsperiodeStart, frequentie) : "");
+  };
   const [opmerkingen, setOpmerkingen] = useState(bestaand.opmerkingen || "");
   const [regels, setRegels] = useState(
     bestaand.regels?.length
@@ -1471,7 +1564,7 @@ function AbonnementFormulier({ accountId, bestaand, artikelen, tarieven, klantna
         </div>
         <div>
           <div style={labelStijl}>Frequentie</div>
-          <select value={frequentie} onChange={(e) => setFrequentie(e.target.value)} style={inputStijl}>
+          <select value={frequentie} onChange={(e) => wijzigFrequentie(e.target.value)} style={inputStijl}>
             {FREQUENTIE_OPTIES.map((f) => <option key={f.code} value={f.code}>{f.label}</option>)}
           </select>
         </div>
@@ -1545,14 +1638,24 @@ function AbonnementFormulier({ accountId, bestaand, artikelen, tarieven, klantna
       </div>
 
       <div style={labelStijl}>Abonnementsperiode (optioneel)</div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <input type="date" value={leveringsperiodeStart} onChange={(e) => setLeveringsperiodeStart(e.target.value)} style={inputStijl} />
         <span style={{ fontSize: 12, color: KLEUR.mutedTekst }}>t/m</span>
         <input type="date" value={leveringsperiodeEind} onChange={(e) => setLeveringsperiodeEind(e.target.value)} style={inputStijl} />
+        {leveringsperiodeStart && (
+          <button type="button" onClick={herstelAutomatischeEinddatum} style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 11, fontWeight: 600, cursor: "pointer", padding: 0 }}>
+            Automatisch invullen
+          </button>
+        )}
       </div>
       <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 4, marginBottom: 4 }}>
-        Schuift automatisch een frequentie-stap op bij elke nieuw gegenereerde factuur (bijv. bij een maandelijkse dienst).
+        Schuift automatisch een frequentie-stap op bij elke nieuw gegenereerde factuur (bijv. bij een maandelijkse dienst) — gebruik "Automatisch invullen" om de einddatum opnieuw te laten voorstellen als laatste dag van de periode.
       </div>
+      {eindeMogelijkVerschoven(leveringsperiodeEind) && (
+        <div style={{ fontSize: 11, color: KLEUR.goud, marginTop: -2, marginBottom: 4, fontWeight: 600 }}>
+          Let op: deze einddatum valt op de 1e van de maand. Bedoelt u niet de laatste dag van de periode zelf (bijv. de laatste dag van de vorige maand)? Anders schuift de periode bij elke cyclus een dag te ver op.
+        </div>
+      )}
 
       <div style={labelStijl}>Opmerkingen (optioneel)</div>
       <textarea value={opmerkingen} onChange={(e) => setOpmerkingen(e.target.value)} rows={2} style={{ ...inputStijl, resize: "vertical" }} />

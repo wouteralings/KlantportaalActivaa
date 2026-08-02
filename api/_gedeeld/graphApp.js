@@ -1,21 +1,22 @@
 /**
- * App-only Microsoft Graph-token (client credentials) — "1 kantoor login op de achtergrond".
- * Anders dan graphObo.js (dat het token van de ingelogde gebruiker omwisselt en diens EIGEN
- * SharePoint-rechten toepast) draait dit op de identiteit van de portaal-app zelf. Daarmee bepaalt
- * het portaal — niet de klant — wie welke documenten mag; de klant heeft zelf geen SharePoint-
- * toegang meer nodig.
+ * App-only (client credentials) Microsoft Graph-token. Anders dan de OBO-flow (graphObo.js),
+ * die met de rechten van de ingelogde klant werkt, gebruikt dit de rechten van de APP zelf.
+ * Zo kan de app documenten in de SharePoint-map van een klant zetten/lezen ook als die klant
+ * (bijv. een gastgebruiker) zelf geen SharePoint-rechten heeft.
  *
- * Vereist dezelfde App Registration als graphObo (AAD_*), plus een Graph application-permissie
- * met een site-grant (Sites.Selected op de Klanten-site). Zie het projectdoc
- * "Entra — Sites.Selected voor app-only SharePoint (IT-stappen)".
+ * LET OP: de app kan hiermee potentieel veel in SharePoint. De toegangscontrole moet daarom
+ * volledig in de code gebeuren: leid de doelmap altijd af uit de identiteit van de ingelogde
+ * klant (via Dynamics), nooit uit iets wat de browser meestuurt.
  *
- * App Settings: AAD_TENANT_ID, AAD_CLIENT_ID, AAD_CLIENT_SECRET.
+ * Vereist een Microsoft Graph APPLICATIE-permissie op de app-registratie (met admin-consent),
+ * bijv. Sites.Selected (aanbevolen, beperkt tot gekozen sites) of Sites.ReadWrite.All /
+ * Files.ReadWrite.All. Gebruikt dezelfde app-registratie/secret als de OBO-flow (AAD_*).
  */
 let cache = { token: null, verlooptOp: 0 };
 
-async function haalGraphAppToken() {
+async function haalAppGraphToken() {
   const nu = Date.now();
-  if (cache.token && cache.verlooptOp > nu + 60_000) return cache.token;
+  if (cache.token && nu < cache.verlooptOp - 60000) return cache.token;
 
   const tenantId = process.env.AAD_TENANT_ID;
   const clientId = process.env.AAD_CLIENT_ID;
@@ -30,10 +31,15 @@ async function haalGraphAppToken() {
     scope: "https://graph.microsoft.com/.default",
   });
 
-  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body });
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
   if (!res.ok) {
-    const fout = new Error(`App-only Graph-token ophalen mislukt (${res.status}): ${await res.text()}`);
-    fout.code = "GRAPH_APP_TOKEN_MISLUKT";
+    const tekst = await res.text();
+    const fout = new Error(`App-Graph-token ophalen mislukt: ${tekst}`);
+    fout.code = "APP_TOKEN_MISLUKT";
     throw fout;
   }
   const data = await res.json();
@@ -41,4 +47,4 @@ async function haalGraphAppToken() {
   return cache.token;
 }
 
-module.exports = { haalGraphAppToken };
+module.exports = { haalAppGraphToken };

@@ -31,17 +31,8 @@ import {
   Bot,
   MessageCircle,
   Clock,
-  BarChart3,
-  Boxes,
 } from "lucide-react";
 import { haalApiToken } from "./msal";
-import DocumentenTab from "./DocumentenTab";
-import FacturatieModule from "./FacturatieModule";
-import RittenModule from "./RittenModule";
-import RapportagesModule from "./RapportagesModule";
-import BezittingenModule from "./BezittingenModule";
-import ContractenModule from "./ContractenModule";
-import { haalMeekijkSessie, activeerMeekijkFetch, deactiveerMeekijkFetch, stopMeekijken } from "../meekijken";
 
 const KLEUR = {
   blauw: "#1C5D8C",
@@ -83,45 +74,12 @@ const TABS = [
   { key: "faq", label: "Veelgestelde vragen", icon: HelpCircle },
   { key: "review", label: "Review geven", icon: Star },
 ];
-// Verzameltab voor de zakelijke administratie (facturen, offertes, creditnota's, abonnementen,
-// klanten, producten, uren, …). De onderliggende functies zijn elk apart per klant aan te zetten
-// (facturatiemodule, urenregistratie, …); de tab zelf is zichtbaar zodra er gekoppelde
-// klant-accounts zijn — de module toont dan zelf per account/onderdeel een aanvraagkaart.
-const FACTUREN_TAB = { key: "facturen", label: "Administratie", icon: FileText, nieuw: true };
-// Fiscale dossiers (Inkomstenbelasting/Vennootschapsbelasting) uit Dynamics — zichtbaar zodra er
-// gekoppelde klant-accounts zijn; de tab toont zelf een lege staat als er (nog) geen dossiers zijn.
-const DOSSIERS_TAB = { key: "dossiers", label: "Dossiers", icon: Folder };
-// Rapportages (W&V + Balans op basis van RGS 3.5 uit Exact Online) en Bezittingen (activastaat +
-// afschrijvingen uit Exact) — twee losse modules, elk apart per klantaccount aan/uit te zetten in
-// Beheer (zie RapportagesBeheer.jsx/BezittingenBeheer.jsx), net als Facturatie/Uren. Zichtbaar
-// zodra er gekoppelde klant-accounts zijn; de module toont zelf een aanvraagkaart per account
-// waarvoor de module nog niet aan staat.
-const RAPPORTAGES_TAB = { key: "rapportages", label: "Rapportages", icon: BarChart3 };
-const BEZITTINGEN_TAB = { key: "bezittingen", label: "Bezittingen", icon: Boxes };
-// Rittenregistratie (€1,50/maand per klantaccount, los van Facturatie/Uren) — zelfde opzet als
-// FACTUREN_TAB: de tab is zichtbaar zodra er gekoppelde klant-accounts zijn, ook als de module
-// voor nog geen van die accounts aan staat; RittenModule toont dan zelf per account een
-// "niet actief"-kaart met prijsinfo en een aanvraagknop.
-const RITTEN_TAB = { key: "ritten", label: "Ritten", icon: Clock, nieuw: true };
-// Contracten (zelf geregistreerde verzekeringen/telefonie/overige doorlopende contracten, met
-// verloopherinneringen) — los per klantaccount aan/uit te zetten in Beheer (tab "Facturatie"),
-// net als Bezittingen/Rapportages/Ritten. Zichtbaar zodra er gekoppelde klant-accounts zijn; de
-// module toont zelf een aanvraagkaart per account waarvoor de module nog niet aan staat.
-const CONTRACTEN_TAB = { key: "contracten", label: "Contracten", icon: FileText, nieuw: true };
 
 export default function KlantPortaal() {
   const [ingelogd, setIngelogd] = useState(null); // null = nog aan het checken
   const [gebruiker, setGebruiker] = useState(null);
   const [tab, setTab] = useState("home");
-  // Waar de Administratie-tab op opent: standaard "facturen", maar de snelknop op Home zet 'm op
-  // "uren" zodat je direct in de urenregistratie belandt. Wordt bij een handmatige tabklik weer
-  // teruggezet (zie de Tabs-wrapper hieronder).
-  const [adminInitieelSubtab, setAdminInitieelSubtab] = useState("facturen");
   const [fout, setFout] = useState("");
-  // Actief zodra een medewerker (met het als-klant-recht) vanuit het medewerkersportaal
-  // "Bekijk als klant" heeft gekozen — zie src/meekijken.js. Alleen-lezen, zie de fetch-
-  // interceptor daar en de afdwinging in herleidAccounts() op de backend.
-  const [meekijkSessie, setMeekijkSessie] = useState(null);
 
   const [mijnGegevens, setMijnGegevens] = useState(null);
   const [taken, setTaken] = useState(null);
@@ -140,40 +98,16 @@ export default function KlantPortaal() {
   const [logoUrl, setLogoUrl] = useState("");
   const [wijzigingFormNawUrl, setWijzigingFormNawUrl] = useState("");
   const [wijzigingFormContactUrl, setWijzigingFormContactUrl] = useState("");
-  const [facturatiemodulePrijs, setFacturatiemodulePrijs] = useState(5);
-  const [urenmodulePrijs, setUrenmodulePrijs] = useState(2.5);
-  const [rittenmodulePrijs, setRittenmodulePrijs] = useState(1.5);
-  const [contractenmodulePrijs, setContractenmodulePrijs] = useState(2.5);
-  const [rapportagesmodulePrijs, setRapportagesmodulePrijs] = useState(7.5);
-  const [bezittingenmodulePrijs, setBezittingenmodulePrijs] = useState(5);
 
   useEffect(() => {
     fetch("/.auth/me")
       .then((r) => r.json())
       .then((data) => {
         const principal = data.clientPrincipal;
-        // Alleen een medewerker/beheerder mag ooit een meekijk-sessie honoreren (defense-in-depth
-        // aan de voorkant; de echte controle gebeurt sowieso op de backend in herleidAccounts()).
-        if (principal) {
-          const rollen = principal.userRoles || [];
-          if (rollen.includes("medewerker") || rollen.includes("beheerder")) {
-            const sessie = haalMeekijkSessie();
-            if (sessie) {
-              activeerMeekijkFetch(sessie.contactEmail);
-              setMeekijkSessie(sessie);
-            }
-          }
-        }
         setIngelogd(!!principal);
         setGebruiker(principal);
       })
       .catch(() => setIngelogd(false));
-  }, []);
-
-  const stopMetMeekijken = useCallback(() => {
-    deactiveerMeekijkFetch();
-    stopMeekijken();
-    window.location.href = "/medewerker";
   }, []);
 
   useEffect(() => {
@@ -186,12 +120,6 @@ export default function KlantPortaal() {
         setLogoUrl(d.logoUrl || "");
         setWijzigingFormNawUrl(d.wijzigingFormNawUrl || "");
         setWijzigingFormContactUrl(d.wijzigingFormContactUrl || "");
-        setFacturatiemodulePrijs(d.facturatiemodulePrijs != null ? d.facturatiemodulePrijs : 5);
-        setUrenmodulePrijs(d.urenmodulePrijs != null ? d.urenmodulePrijs : 2.5);
-        setRapportagesmodulePrijs(d.rapportagesmodulePrijs != null ? d.rapportagesmodulePrijs : 7.5);
-        setBezittingenmodulePrijs(d.bezittingenmodulePrijs != null ? d.bezittingenmodulePrijs : 5);
-        setRittenmodulePrijs(d.rittenmodulePrijs != null ? d.rittenmodulePrijs : 1.5);
-        setContractenmodulePrijs(d.contractenmodulePrijs != null ? d.contractenmodulePrijs : 2.5);
         zetBrowserFavicon(d.faviconUrl);
       })
       .catch(() => {}); // niet-kritisch
@@ -458,60 +386,13 @@ export default function KlantPortaal() {
     return res.json();
   }, []);
 
-  // Facturatiemodule: de tab is zichtbaar zodra er linked klant-accounts zijn, ook als de
-  // module voor nog geen van die accounts aan staat — dan toont FacturatieModule zelf per
-  // account een "niet actief"-kaart met prijsinfo en een aanvraagknop, in plaats van de
-  // hele tab te verbergen (anders kan een klant het nooit aanvragen). Welke accounts
-  // daadwerkelijk mogen werken met facturen bepaalt de module verderop zelf.
-  const alleAccounts = mijnGegevens?.accounts || [];
-  // Snelknop "Uren registreren" op Home: alleen als minstens één administratie de urenregistratie
-  // aan heeft én de klant die snelknop daar heeft aangezet (Administratie → Instellingen).
-  const kanUrenSnel = !meekijkSessie && alleAccounts.some((a) => a.urenIngeschakeld && a.toonUrenOpHome);
-  const gaNaarUrenRegistratie = () => { setAdminInitieelSubtab("uren"); setTab("facturen"); };
-  // Snelknop "Factuur maken" op Home: alleen als minstens één administratie de facturatiemodule aan
-  // heeft én de klant die snelknop daar heeft aangezet (Administratie → Instellingen).
-  const kanFacturenSnel = !meekijkSessie && alleAccounts.some((a) => a.facturatieIngeschakeld && a.toonFacturenOpHome);
-  const gaNaarFacturen = () => { setAdminInitieelSubtab("facturen"); setTab("facturen"); };
-  const zichtbareTabs = (alleAccounts.length > 0
-    ? [...TABS.slice(0, 3), DOSSIERS_TAB, FACTUREN_TAB, RITTEN_TAB, RAPPORTAGES_TAB, BEZITTINGEN_TAB, CONTRACTEN_TAB, ...TABS.slice(3)]
-    : TABS
-  // Documenten werkt via de eigen Microsoft Graph-rechten van de ingelogde gebruiker
-  // (on-behalf-of) — dat kan technisch niet "namens een andere klant" getoond worden, dus
-  // deze tab blijft verborgen tijdens meekijken.
-  ).filter((t) => !(meekijkSessie && t.key === "documenten"));
-
-  // Als de actieve tab niet (meer) zichtbaar is (bijv. geen accounts meer), terug naar Home.
-  useEffect(() => {
-    if (!zichtbareTabs.some((t) => t.key === tab) && tab !== "home") setTab("home");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [alleAccounts.length, tab]);
-
   if (ingelogd === null) return <Laadscherm />;
   if (!ingelogd) return <Inlogscherm logoUrl={logoUrl} />;
 
   return (
     <div className="kp-container" style={{ maxWidth: "none", width: "100%", margin: "0 auto", fontFamily: "system-ui, -apple-system, sans-serif", color: KLEUR.tekst }}>
       <Header gebruiker={gebruiker} logoUrl={logoUrl} />
-      {meekijkSessie && (
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10,
-          margin: "12px 0", padding: "10px 16px", background: "#FFF4E5", border: "1px solid #E8C27A",
-          borderRadius: 10, fontSize: 13, color: "#8A5A00",
-        }}>
-          <span>
-            <Eye size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />
-            Je bekijkt dit portaal <strong>alleen-lezen</strong> namens <strong>{meekijkSessie.klantnaam || "een klant"}</strong> — er
-            wordt niets gewijzigd of verstuurd.
-          </span>
-          <button
-            onClick={stopMetMeekijken}
-            style={{ padding: "6px 12px", background: "#fff", color: "#8A5A00", border: "1px solid #E8C27A", borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
-          >
-            Stop met meekijken
-          </button>
-        </div>
-      )}
-      <Tabs tab={tab} setTab={(k) => { setAdminInitieelSubtab("facturen"); setTab(k); }} tabs={zichtbareTabs} />
+      <Tabs tab={tab} setTab={setTab} />
 
       {fout && <Foutmelding tekst={fout} onSluiten={() => setFout("")} />}
 
@@ -524,34 +405,8 @@ export default function KlantPortaal() {
 
       {tab === "home" && (
         <>
-          {(kanFacturenSnel || kanUrenSnel) && (
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 22 }}>
-              {kanFacturenSnel && (
-                <button
-                  onClick={gaNaarFacturen}
-                  style={{
-                    display: "inline-flex", alignItems: "center", gap: 8, padding: "11px 18px", borderRadius: 9,
-                    background: KLEUR.blauw, color: "#fff", border: "none", cursor: "pointer", fontSize: 14, fontWeight: 700,
-                  }}
-                >
-                  <FileText size={17} /> Factuur maken
-                </button>
-              )}
-              {kanUrenSnel && (
-                <button
-                  onClick={gaNaarUrenRegistratie}
-                  style={{
-                    display: "inline-flex", alignItems: "center", gap: 8, padding: "11px 18px", borderRadius: 9,
-                    background: KLEUR.blauw, color: "#fff", border: "none", cursor: "pointer", fontSize: 14, fontWeight: 700,
-                  }}
-                >
-                  <Clock size={17} /> Uren registreren
-                </button>
-              )}
-            </div>
-          )}
           <Kopje tekst="Open taken" />
-          <TabTaken data={taken} gebruiker={gebruiker} onAkkoord={geefAkkoord} onNietAkkoord={geefNietAkkoord} onOndertekenen={geefHandtekening} alleenLezen={!!meekijkSessie} />
+          <TabTaken data={taken} gebruiker={gebruiker} onAkkoord={geefAkkoord} onNietAkkoord={geefNietAkkoord} onOndertekenen={geefHandtekening} />
 
           {content?.programmas?.length > 0 && (
             <div style={{ marginTop: 28 }}>
@@ -574,17 +429,23 @@ export default function KlantPortaal() {
         </>
       )}
       {tab === "gegevens" && (
-        <TabGegevens data={mijnGegevens} verzoeken={mijnVerzoeken} onWijzigen={dienWijzigingIn} alleenLezen={!!meekijkSessie} />
+        <TabGegevens data={mijnGegevens} verzoeken={mijnVerzoeken} onWijzigen={dienWijzigingIn} />
       )}
-      {tab === "documenten" && <DocumentenTab />}
-      {tab === "dossiers" && <TabDossiers />}
-      {tab === "facturen" && <FacturatieModule accounts={alleAccounts} prijs={facturatiemodulePrijs} urenPrijs={urenmodulePrijs} alleenLezen={!!meekijkSessie} initieelSubtab={adminInitieelSubtab} />}
-      {tab === "ritten" && <RittenModule accounts={alleAccounts} prijs={rittenmodulePrijs} alleenLezen={!!meekijkSessie} />}
-      {tab === "rapportages" && <RapportagesModule accounts={alleAccounts} prijs={rapportagesmodulePrijs} alleenLezen={!!meekijkSessie} />}
-      {tab === "bezittingen" && <BezittingenModule accounts={alleAccounts} prijs={bezittingenmodulePrijs} alleenLezen={!!meekijkSessie} />}
-      {tab === "contracten" && <ContractenModule accounts={alleAccounts} prijs={contractenmodulePrijs} alleenLezen={!!meekijkSessie} />}
+      {tab === "documenten" && (
+        <TabDocumenten
+          status={documentenStatus}
+          data={documenten}
+          foutmelding={documentenFoutmelding}
+          pad={documentenPad}
+          onOphalen={haalDocumentenOp}
+          onOpenMap={openMap}
+          onNavigeer={gaNaarPad}
+          onLabelWijzigen={wijzigLabel}
+          onEntiteitWijzigen={wijzigEntiteit}
+        />
+      )}
       {tab === "faq" && <TabFaq content={content} teamsChatUrl={teamsChatUrl} whatsappUrl={whatsappUrl} copilotEmbedUrl={copilotEmbedUrl} />}
-      {tab === "review" && <TabReview onVerzenden={verstuurReview} alleenLezen={!!meekijkSessie} />}
+      {tab === "review" && <TabReview onVerzenden={verstuurReview} />}
     </div>
   );
 }
@@ -630,7 +491,7 @@ function Header({ gebruiker, logoUrl }) {
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <Building2 size={22} color={KLEUR.blauw} />
         <div style={{ fontSize: 19, fontWeight: 600 }}>Klantportaal</div>
-        {logoUrl && <img src={logoUrl} alt="Logo" style={{ maxHeight: 42, maxWidth: 200, objectFit: "contain", display: "block", alignSelf: "center", marginLeft: 18 }} />}
+        {logoUrl && <img src={logoUrl} alt="Logo" style={{ maxHeight: 30, maxWidth: 160, objectFit: "contain", display: "block", alignSelf: "center", marginLeft: 8 }} />}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <span className="kp-header-email" style={{ fontSize: 13, color: KLEUR.subtekst }}>{gebruiker?.userDetails}</span>
@@ -647,11 +508,11 @@ function Header({ gebruiker, logoUrl }) {
   );
 }
 
-function Tabs({ tab, setTab, tabs }) {
+function Tabs({ tab, setTab }) {
   return (
     <div className="kp-tabs-wrap">
       <div className="kp-tabs" style={{ display: "flex", gap: 6, marginBottom: 24, borderBottom: `1px solid ${KLEUR.rand}` }}>
-        {(tabs || TABS).map(({ key, label, icon: Icon, nieuw }) => (
+        {TABS.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             className="kp-tab-btn"
@@ -665,11 +526,6 @@ function Tabs({ tab, setTab, tabs }) {
             }}
           >
             <Icon size={15} /> {label}
-            {nieuw && (
-              <span style={{ fontSize: 9.5, fontWeight: 700, color: KLEUR.goud, border: `1px solid ${KLEUR.goud}55`, borderRadius: 20, padding: "1px 6px", textTransform: "uppercase", letterSpacing: ".02em" }}>
-                Nieuw
-              </span>
-            )}
           </button>
         ))}
       </div>
@@ -1233,7 +1089,7 @@ function WijzigLinkKnop({ label, onClick }) {
 }
 
 // Uitklapbare detail: bedrijfsgegevens + contactpersoon, elk met een eigen wijzig-knop.
-function KlantDetail({ acc, verzoekStatus, onWijzigen, alleenLezen }) {
+function KlantDetail({ acc, verzoekStatus, onWijzigen }) {
   const [wijzigWat, setWijzigWat] = useState(null); // null | "contact" | "bedrijf"
   const [ingediend, setIngediend] = useState(false);
   const inBehandeling = verzoekStatus === "open" || ingediend;
@@ -1267,10 +1123,10 @@ function KlantDetail({ acc, verzoekStatus, onWijzigen, alleenLezen }) {
             Deze gegevens worden automatisch gesynchroniseerd met de Kamer van Koophandel.
           </div>
         )}
-        {acc.bedrijfsadresBewerkbaar && !inBehandeling && !alleenLezen && wijzigWat !== "bedrijf" && (
+        {acc.bedrijfsadresBewerkbaar && !inBehandeling && wijzigWat !== "bedrijf" && (
           <WijzigLinkKnop label="Bedrijfsadres wijzigen" onClick={() => setWijzigWat("bedrijf")} />
         )}
-        {wijzigWat === "bedrijf" && !alleenLezen && (
+        {wijzigWat === "bedrijf" && (
           <WijzigForm acc={acc} velden={BEDRIJF_VELDEN} titel="Bedrijfsadres wijzigen" onWijzigen={onWijzigen} onKlaar={sluit} />
         )}
       </div>
@@ -1298,10 +1154,10 @@ function KlantDetail({ acc, verzoekStatus, onWijzigen, alleenLezen }) {
             </span>
           </div>
         )}
-        {!inBehandeling && !alleenLezen && wijzigWat !== "contact" && (
+        {!inBehandeling && wijzigWat !== "contact" && (
           <WijzigLinkKnop label="Contactgegevens wijzigen" onClick={() => setWijzigWat("contact")} />
         )}
-        {wijzigWat === "contact" && !alleenLezen && (
+        {wijzigWat === "contact" && (
           <WijzigForm acc={acc} velden={CONTACT_VELDEN} titel="Contactgegevens wijzigen" onWijzigen={onWijzigen} onKlaar={sluit} />
         )}
       </div>
@@ -1322,19 +1178,14 @@ function KlantDetail({ acc, verzoekStatus, onWijzigen, alleenLezen }) {
   );
 }
 
-function TabGegevens({ data, verzoeken, onWijzigen, alleenLezen }) {
+function TabGegevens({ data, verzoeken, onWijzigen }) {
   const [zoek, setZoek] = useState("");
   const [openId, setOpenId] = useState(null);
 
   if (!data) return <Laadscherm />;
   if (data.accounts?.length === 0) return <LegeStaat tekst="Er zijn nog geen klantgegevens aan jouw account gekoppeld." />;
 
-  // Alleen NAW-verzoeken (contactpersoon/bedrijfsadres) tellen hier mee — een openstaand
-  // verzoek van een ander type (bijv. facturatiemodule-bedrijfsgegevens) mag deze sectie
-  // niet blokkeren/badgen.
-  const openVerzoeken = new Set(
-    (verzoeken || []).filter((v) => v.status === "open" && (v.type || "naw") === "naw").map((v) => v.accountId)
-  );
+  const openVerzoeken = new Set((verzoeken || []).filter((v) => v.status === "open").map((v) => v.accountId));
 
   const term = zoek.trim().toLowerCase();
   const lijst = data.accounts.filter((acc) =>
@@ -1411,7 +1262,6 @@ function TabGegevens({ data, verzoeken, onWijzigen, alleenLezen }) {
                   acc={acc}
                   verzoekStatus={openVerzoeken.has(acc.accountId) ? "open" : null}
                   onWijzigen={onWijzigen}
-                  alleenLezen={alleenLezen}
                 />
               )}
             </div>
@@ -1478,6 +1328,98 @@ function DocumentViewer({ url, driveId, itemId, formaat, titel }) {
   }
   return (
     <iframe title={titel} src={blobUrl} style={{ width: "100%", height: 460, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, background: "#fff" }} />
+  );
+}
+
+// Inline documenten aanleveren: de klant kiest/sleept bestanden en die worden direct in zijn
+// eigen SharePoint-map gezet (server-side, app-only) — geen apart venster meer nodig.
+function DocumentAanleveren({ taakId, uploadLink }) {
+  const [files, setFiles] = useState([]);
+  const [status, setStatus] = useState("idle"); // idle | bezig | klaar | fout
+  const [resultaat, setResultaat] = useState(null);
+  const [sleep, setSleep] = useState(false);
+  const inputRef = useRef(null);
+
+  const voegToe = (lijst) => { setFiles((h) => [...h, ...Array.from(lijst || [])]); setStatus("idle"); setResultaat(null); };
+  const kies = (e) => { voegToe(e.target.files); if (inputRef.current) inputRef.current.value = ""; };
+  const verwijder = (i) => setFiles((h) => h.filter((_, idx) => idx !== i));
+  const leesAlsDataUrl = (file) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
+
+  const uploaden = async () => {
+    if (files.length === 0) return;
+    setStatus("bezig"); setResultaat(null);
+    try {
+      const bestanden = await Promise.all(files.map(async (f) => ({ naam: f.name, dataUrl: await leesAlsDataUrl(f) })));
+      const res = await fetch("/api/document-aanleveren", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taakId, bestanden }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "");
+      setResultaat(data.resultaat || []);
+      setStatus(data.ok ? "klaar" : "fout");
+      if (data.ok) setFiles([]);
+    } catch {
+      setStatus("fout");
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div
+        onDragOver={(e) => { e.preventDefault(); setSleep(true); }}
+        onDragLeave={() => setSleep(false)}
+        onDrop={(e) => { e.preventDefault(); setSleep(false); voegToe(e.dataTransfer.files); }}
+        onClick={() => inputRef.current && inputRef.current.click()}
+        style={{ border: `1.5px dashed ${sleep ? KLEUR.blauw : KLEUR.rand}`, borderRadius: 8, padding: "16px 14px", textAlign: "center", cursor: "pointer", background: sleep ? KLEUR.lichtblauw : "#fff" }}
+      >
+        <Upload size={16} color={KLEUR.blauw} />
+        <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginTop: 4 }}>
+          Sleep bestanden hierheen of <span style={{ color: KLEUR.blauw, fontWeight: 600 }}>kies bestanden</span>
+        </div>
+        <input ref={inputRef} type="file" multiple onChange={kies} style={{ display: "none" }} />
+      </div>
+
+      {files.length > 0 && (
+        <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+          {files.map((f, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.tekst }}>
+              <FileText size={13} color={KLEUR.mutedTekst} />
+              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+              <span style={{ color: KLEUR.mutedTekst, fontSize: 11.5 }}>{Math.max(1, Math.round(f.size / 1024))} kB</span>
+              {status !== "bezig" && (
+                <button onClick={(e) => { e.stopPropagation(); verwijder(i); }} title="Verwijderen" style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.mutedTekst, fontSize: 15, lineHeight: 1, padding: 0 }}>×</button>
+              )}
+            </div>
+          ))}
+          <button onClick={uploaden} disabled={status === "bezig"} style={{ alignSelf: "flex-start", marginTop: 6, display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px", background: "#2E7D46", color: "#fff", border: "none", borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+            {status === "bezig" ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : <Upload size={13} />}
+            {status === "bezig" ? "Aanleveren…" : `Aanleveren (${files.length})`}
+          </button>
+        </div>
+      )}
+
+      {status === "klaar" && (
+        <div style={{ marginTop: 8, fontSize: 12.5, color: "#2E7D46", display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <CheckCircle2 size={14} /> Documenten aangeleverd. Bedankt!
+        </div>
+      )}
+      {status === "fout" && (
+        <div style={{ marginTop: 8, fontSize: 12.5, color: KLEUR.rood }}>
+          Aanleveren is niet (helemaal) gelukt.
+          {Array.isArray(resultaat) && resultaat.some((r) => !r.ok) && (
+            <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+              {resultaat.filter((r) => !r.ok).map((r, i) => <li key={i}>{r.naam}: {r.error}</li>)}
+            </ul>
+          )}
+          {uploadLink && (
+            <div style={{ marginTop: 4 }}>
+              Lukt het niet? <a href={uploadLink} target="_blank" rel="noopener noreferrer" style={{ color: KLEUR.blauw }}>Open de uploadpagina</a>.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1593,7 +1535,7 @@ function leidGebruikerAf(gebruiker) {
   return { naam: naam || "", email: email || "" };
 }
 
-function TabTaken({ data, gebruiker, onAkkoord, onNietAkkoord, onOndertekenen, alleenLezen }) {
+function TabTaken({ data, gebruiker, onAkkoord, onNietAkkoord, onOndertekenen }) {
   const [bevestigId, setBevestigId] = useState(null);
   const [afwijzenId, setAfwijzenId] = useState(null);
   const [afwijzenTekst, setAfwijzenTekst] = useState("");
@@ -1670,7 +1612,7 @@ function TabTaken({ data, gebruiker, onAkkoord, onNietAkkoord, onOndertekenen, a
                         {open ? "Inklappen" : "Bekijken & ondertekenen"}
                       </button>
                     )}
-                    {taak.kanAkkoord && !taak.vereistHandtekening && idle && !alleenLezen && (
+                    {taak.kanAkkoord && !taak.vereistHandtekening && idle && (
                       <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
                         <button
                           onClick={() => { setAfwijzenId(null); setBevestigId(taak.id); }}
@@ -1689,16 +1631,15 @@ function TabTaken({ data, gebruiker, onAkkoord, onNietAkkoord, onOndertekenen, a
                   </div>
 
                   {taak.uploadLink && (
-                    <div style={{ marginTop: 10 }}>
-                      <a href={taak.uploadLink} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 14px", background: KLEUR.blauw, color: "#fff", borderRadius: 6, fontSize: 12.5, fontWeight: 600, textDecoration: "none" }}>
-                        <Upload size={13} /> Bestanden uploaden
-                      </a>
+                    <>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginTop: 12 }}>Documenten aanleveren</div>
+                      <DocumentAanleveren taakId={taak.id} uploadLink={taak.uploadLink} />
                       {taak.uploadVerloopt && (
-                        <span style={{ display: "inline-block", marginLeft: 10, fontSize: 11.5, color: KLEUR.mutedTekst }}>
-                          Link verloopt op {new Date(taak.uploadVerloopt).toLocaleDateString("nl-NL")}
-                        </span>
+                        <div style={{ marginTop: 6, fontSize: 11.5, color: KLEUR.mutedTekst }}>
+                          Aanleveren kan tot {new Date(taak.uploadVerloopt).toLocaleDateString("nl-NL")}
+                        </div>
                       )}
-                    </div>
+                    </>
                   )}
 
                   {taak.documentUrl && open && (
@@ -1713,7 +1654,7 @@ function TabTaken({ data, gebruiker, onAkkoord, onNietAkkoord, onOndertekenen, a
                     </div>
                   )}
 
-                  {taak.vereistHandtekening && open && afwijzenId !== taak.id && !alleenLezen && (
+                  {taak.vereistHandtekening && open && afwijzenId !== taak.id && (
                     <HandtekeningPaneel
                       taak={taak}
                       voorinvul={voorinvul}
@@ -1829,115 +1770,6 @@ function isPreviewbaar(naam) {
 }
 function previewFormaat(naam) {
   return OFFICE_PREVIEW.includes(bestandsExtensie(naam)) ? "pdf" : "";
-}
-
-/* ── Dossiers (fiscale dossiers uit Dynamics: Inkomstenbelasting / Vennootschapsbelasting) ── */
-
-function dossierPeriode(d) {
-  if (d.jaar != null && d.jaar !== "") return `Aangifte ${d.jaar}`;
-  if (d.begindatum || d.einddatum) {
-    const jr = (x) => (x ? new Date(x).getFullYear() : "");
-    const van = jr(d.begindatum);
-    const tot = jr(d.einddatum);
-    if (van && tot && van !== tot) return `Boekjaar ${van}–${tot}`;
-    return `Boekjaar ${van || tot || ""}`.trim();
-  }
-  return d.soortLabel || "Dossier";
-}
-
-function dossierBehandelaar(d) {
-  const delen = [];
-  if (d.accountant) delen.push(`Accountant: ${d.accountant}`);
-  if (d.assistent) delen.push(`Assistent: ${d.assistent}`);
-  return delen.join("  ·  ");
-}
-
-function DossierRij({ dossier: d, eerste }) {
-  return (
-    <div style={{ padding: "14px 18px", borderTop: eerste ? "none" : `1px solid ${KLEUR.rand}` }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>
-            {dossierPeriode(d)}
-            {d.klantnaam ? <span style={{ fontWeight: 500, color: KLEUR.subtekst }}> — {d.klantnaam}</span> : null}
-          </div>
-          {dossierBehandelaar(d) && (
-            <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginTop: 2 }}>{dossierBehandelaar(d)}</div>
-          )}
-        </div>
-        {d.statusLabel && (
-          <span style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 20, padding: "4px 11px", whiteSpace: "nowrap" }}>
-            {d.statusLabel}
-          </span>
-        )}
-      </div>
-      {d.reviewNotitie && (
-        <div style={{ marginTop: 10, padding: "10px 12px", background: "#FBF6EC", border: `1px solid ${KLEUR.goud}44`, borderRadius: 8 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.goud, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 4 }}>Opmerking van je accountant</div>
-          <div style={{ fontSize: 13, color: KLEUR.tekst }} dangerouslySetInnerHTML={{ __html: d.reviewNotitie }} />
-        </div>
-      )}
-      {d.reactie && (
-        <div style={{ marginTop: 8, padding: "10px 12px", background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.blauw, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 4 }}>Jouw reactie</div>
-          <div style={{ fontSize: 13, color: KLEUR.tekst }} dangerouslySetInnerHTML={{ __html: d.reactie }} />
-        </div>
-      )}
-      {d.documentUrl && (
-        <a href={d.documentUrl} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10, fontSize: 12.5, fontWeight: 600, color: KLEUR.blauw, textDecoration: "none" }}>
-          <ExternalLink size={13} /> Documenten bekijken
-        </a>
-      )}
-    </div>
-  );
-}
-
-function TabDossiers() {
-  const [status, setStatus] = useState("laden"); // laden | klaar | fout
-  const [dossiers, setDossiers] = useState([]);
-
-  useEffect(() => {
-    let actief = true;
-    fetch("/api/dossiers")
-      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
-      .then((d) => { if (actief) { setDossiers(d.dossiers || []); setStatus("klaar"); } })
-      .catch(() => { if (actief) setStatus("fout"); });
-    return () => { actief = false; };
-  }, []);
-
-  if (status === "laden") {
-    return (
-      <div style={{ ...kaartStijl, display: "flex", alignItems: "center", gap: 8, color: KLEUR.mutedTekst, fontSize: 13 }}>
-        <Loader2 size={15} style={{ animation: "spin 1s linear infinite" }} /> Dossiers ophalen…
-      </div>
-    );
-  }
-  if (status === "fout") {
-    return <div style={{ ...kaartStijl, textAlign: "center", padding: 32, color: KLEUR.rood, fontSize: 13.5 }}>Er ging iets mis bij het ophalen van je dossiers. Probeer het later opnieuw.</div>;
-  }
-  if (dossiers.length === 0) {
-    return <div style={{ ...kaartStijl, textAlign: "center", padding: 36, color: KLEUR.mutedTekst, fontSize: 13.5 }}>Je hebt op dit moment geen fiscale dossiers in het portaal.</div>;
-  }
-
-  const perSoort = [];
-  dossiers.forEach((d) => {
-    let groep = perSoort.find((g) => g.label === d.soortLabel);
-    if (!groep) { groep = { label: d.soortLabel, items: [] }; perSoort.push(groep); }
-    groep.items.push(d);
-  });
-
-  return (
-    <div>
-      {perSoort.map((groep) => (
-        <div key={groep.label} style={{ marginBottom: 28 }}>
-          <Kopje tekst={groep.label} />
-          <div style={{ ...kaartStijl, padding: 0, overflow: "hidden" }}>
-            {groep.items.map((d, i) => <DossierRij key={d.id || i} dossier={d} eerste={i === 0} />)}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
 }
 
 function TabDocumenten({ status, data, foutmelding, pad = [], onOphalen, onOpenMap, onNavigeer, onLabelWijzigen, onEntiteitWijzigen }) {
@@ -2096,7 +1928,7 @@ function TabDocumenten({ status, data, foutmelding, pad = [], onOphalen, onOpenM
   );
 }
 
-function TabReview({ onVerzenden, alleenLezen }) {
+function TabReview({ onVerzenden }) {
   const [sterren, setSterren] = useState(0);
   const [hoverSterren, setHoverSterren] = useState(0);
   const [opmerking, setOpmerking] = useState("");
@@ -2188,9 +2020,8 @@ function TabReview({ onVerzenden, alleenLezen }) {
 
       <button
         onClick={versturen}
-        disabled={sterren === 0 || status === "versturen" || alleenLezen}
-        title={alleenLezen ? "Niet beschikbaar tijdens meekijken als klant" : undefined}
-        style={{ ...knopStijlPrimair, opacity: (sterren === 0 || alleenLezen) ? 0.5 : 1, cursor: alleenLezen ? "not-allowed" : "pointer" }}
+        disabled={sterren === 0 || status === "versturen"}
+        style={{ ...knopStijlPrimair, opacity: sterren === 0 ? 0.5 : 1 }}
       >
         <Send size={14} /> {status === "versturen" ? "Versturen..." : "Verstuur review"}
       </button>
