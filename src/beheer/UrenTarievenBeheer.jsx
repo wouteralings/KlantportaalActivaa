@@ -33,7 +33,7 @@ export default function UrenTarievenBeheer() {
   const [fout, setFout] = useState("");
   const [zoek, setZoek] = useState("");
   const [toonAantal, setToonAantal] = useState(50);
-  const [openTarieven, setOpenTarieven] = useState(true);
+  const [openTarieven, setOpenTarieven] = useState(false);
 
   const laad = () => {
     setMedewerkers(null); setFout("");
@@ -107,7 +107,7 @@ function Koppelingen({ onFout }) {
   const [schemaBezig, setSchemaBezig] = useState(false);
   const [schemaKlaar, setSchemaKlaar] = useState("");
   const [exact, setExact] = useState(null);
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
 
   const laadExact = () => fetch("/api/exact-oauth?actie=status").then((r) => (r.ok ? r.json() : null)).then(setExact).catch(() => setExact(null));
   useEffect(() => { laadExact(); }, []);
@@ -230,7 +230,7 @@ function TariefRij({ m, namen }) {
 }
 
 function Herinneringen({ begin, onFout }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const [actief, setActief] = useState(!!begin.herinneringActief);
   const [weekdag, setWeekdag] = useState(begin.herinneringWeekdag || 5);
   const [minuren, setMinuren] = useState(begin.herinneringMinuren ?? 40);
@@ -364,7 +364,7 @@ function huidigeMaandagIso() {
  * van andere codes blijven behouden. In-/uitklapbaar, met zoek + paginatie + reset naar fulltime.
  */
 function VasteUren({ medewerkers, vasteUrenMap, onFout }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const [codes, setCodes] = useState([]);
   const [codeNaam, setCodeNaam] = useState("");
   const [zoek, setZoek] = useState("");
@@ -584,7 +584,7 @@ function Urencodes({ onFout }) {
   const [nieuw, setNieuw] = useState({ naam: "", categorie: "kantoor" });
   const [bezig, setBezig] = useState(false);
   const [toonAantal, setToonAantal] = useState(50);
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
 
   const laad = () => {
     fetch("/api/beheer-urencodes")
