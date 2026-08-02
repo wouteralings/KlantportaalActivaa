@@ -18,13 +18,21 @@ const { berekenTotalen } = require("./facturenKlanten");
 const GELDIGE_FREQUENTIES = ["wekelijks", "maandelijks", "kwartaal", "jaarlijks"];
 
 /** Telt één frequentie-stap op bij een datum (UTC, want het zijn DATE-kolommen zonder tijd —
- * lokale-tijdzone-rekenwerk zou hier per ongeluk een dag kunnen laten verspringen). */
+ * lokale-tijdzone-rekenwerk zou hier per ongeluk een dag kunnen laten verspringen).
+ *
+ * Klemt de dag-van-de-maand vast op de laatste dag van de doelmaand als die oorspronkelijke dag
+ * (29, 30 of 31) daar niet bestaat — anders rolt JS' eigen Date-normalisatie stilzwijgend door
+ * naar de eerste dagen van de máánd erna (bijv. 31 augustus + 1 maand zou zonder deze correctie
+ * 1 oktober worden i.p.v. 30 september). Dit trad o.a. op zodra een leveringsperiode via
+ * verwerkGegenereerd een paar cycli had doorgeschoven en op een 31e uitkwam die niet in elke
+ * maand bestaat — zie 02-08-2026. */
 function voegFrequentieToe(datumInvoer, frequentie, aantalStappen = 1) {
   const d = new Date(datumInvoer);
+  const oorspronkelijkeDag = d.getUTCDate();
   switch (frequentie) {
     case "wekelijks":
       d.setUTCDate(d.getUTCDate() + 7 * aantalStappen);
-      break;
+      return d;
     case "maandelijks":
       d.setUTCMonth(d.getUTCMonth() + aantalStappen);
       break;
@@ -37,6 +45,9 @@ function voegFrequentieToe(datumInvoer, frequentie, aantalStappen = 1) {
     default:
       throw new Error(`Onbekende frequentie: ${frequentie}`);
   }
+  // Dag-van-de-maand veranderd? Dan bestond 'm niet in de doelmaand en is JS doorgerold naar de
+  // maand erna — zet terug op dag 0 (= de laatste dag van de vorige, dus de bedoelde, maand).
+  if (d.getUTCDate() !== oorspronkelijkeDag) d.setUTCDate(0);
   return d;
 }
 

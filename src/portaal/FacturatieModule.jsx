@@ -388,13 +388,21 @@ function berekenLeveringEindeVoorstel(startStr, frequentie) {
   const start = new Date(startStr);
   if (isNaN(start.getTime())) return "";
   const d = new Date(start);
+  const oorspronkelijkeDag = d.getUTCDate();
   switch (frequentie) {
-    case "wekelijks": d.setUTCDate(d.getUTCDate() + 7); break;
+    case "wekelijks":
+      d.setUTCDate(d.getUTCDate() + 7);
+      d.setUTCDate(d.getUTCDate() - 1);
+      return d.toISOString().slice(0, 10);
     case "maandelijks": d.setUTCMonth(d.getUTCMonth() + 1); break;
     case "kwartaal": d.setUTCMonth(d.getUTCMonth() + 3); break;
     case "jaarlijks": d.setUTCFullYear(d.getUTCFullYear() + 1); break;
     default: return "";
   }
+  // Zelfde vastklem-correctie als voegFrequentieToe in de backend (api/_gedeeld/
+  // facturenTerugkerend.js) — anders wijkt deze suggestie af zodra de startdatum op de 29e, 30e
+  // of 31e valt en die dag niet in de doelmaand bestaat.
+  if (d.getUTCDate() !== oorspronkelijkeDag) d.setUTCDate(0);
   d.setUTCDate(d.getUTCDate() - 1);
   return d.toISOString().slice(0, 10);
 }
