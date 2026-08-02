@@ -87,6 +87,8 @@ module.exports = async function (context, req) {
           // Rittenregistratie (€1,50/maand, los van Facturatie/Uren) — zie api/_gedeeld/rittenInstellingen.js.
           rittenIngeschakeld: !!(rittenStatussen[accountId] && rittenStatussen[accountId].ingeschakeld),
           rittenAangevraagdOp: (rittenStatussen[accountId] && rittenStatussen[accountId].aangevraagdOp) || null,
+          // Klant-voorkeur: snelknop "Rit toevoegen" op de homepagina tonen (zie /api/ritten-instelling).
+          toonRittenOpHome: !!(rittenStatussen[accountId] && rittenStatussen[accountId].toonOpHome),
           // Of de beheerder voor dit account de Uren↔Projecten-koppeling heeft aangezet (zie
           // api/_gedeeld/projectenInstellingen.js) — bepaalt of het urenformulier een Project-veld toont.
           projectenGekoppeld: !!(projectenStatussen[accountId] && projectenStatussen[accountId].gekoppeld),

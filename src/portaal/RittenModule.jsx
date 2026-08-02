@@ -1033,7 +1033,7 @@ const INSTELLINGEN_SUBTABS = [
   { key: "favoriete-ritten", label: "Favoriete ritten" },
 ];
 
-function RittenInstellingen({ accountId, klanten, projecten, voertuigen, onTerug }) {
+function RittenInstellingen({ accountId, account, klanten, projecten, voertuigen, onTerug }) {
   const [sub, setSub] = useState("algemeen");
   return (
     <div>
@@ -1052,9 +1052,75 @@ function RittenInstellingen({ accountId, klanten, projecten, voertuigen, onTerug
           </button>
         ))}
       </div>
-      {sub === "algemeen" && <InstellingenAlgemeen accountId={accountId} />}
+      {sub === "algemeen" && (
+        <>
+          <InstellingenAlgemeen accountId={accountId} />
+          {account && <RittenHomeKaart account={account} />}
+        </>
+      )}
       {sub === "voertuigen" && <InstellingenVoertuigen accountId={accountId} />}
       {sub === "favoriete-ritten" && <InstellingenFavorieteRitten accountId={accountId} klanten={klanten} projecten={projecten} voertuigen={voertuigen} />}
+    </div>
+  );
+}
+
+/** Klant-voorkeur: een snelknop "Rit toevoegen" op de homepagina tonen. Zelfde patroon als
+ * UrenHomeKaart/FacturenHomeKaart in FacturatieModule.jsx. Slaat direct op via
+ * /api/ritten-instelling. */
+function RittenHomeKaart({ account }) {
+  const [aan, setAan] = useState(!!account.toonRittenOpHome);
+  const [status, setStatus] = useState("idle"); // idle | bezig | fout
+  const [foutmelding, setFoutmelding] = useState("");
+
+  // Laad de écht opgeslagen stand op (i.p.v. alleen te vertrouwen op de pagina-snapshot uit
+  // mijn-gegevens) — zelfde reden als bij UrenHomeKaart/FacturenHomeKaart.
+  useEffect(() => {
+    let actief = true;
+    fetch(`/api/ritten-instelling?accountId=${encodeURIComponent(account.accountId)}`)
+      .then(haalJson)
+      .then((d) => { if (actief) setAan(!!d.toonOpHome); })
+      .catch(() => {}); // stil: val terug op de snapshot-waarde
+    return () => { actief = false; };
+  }, [account.accountId]);
+
+  const zet = async (nieuw) => {
+    setAan(nieuw);
+    setStatus("bezig");
+    setFoutmelding("");
+    try {
+      await haalJson(await fetch("/api/ritten-instelling", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId: account.accountId, toonOpHome: nieuw }),
+      }));
+      setStatus("idle");
+    } catch (e) {
+      setAan(!nieuw);
+      setFoutmelding(e.message || String(e));
+      setStatus("fout");
+    }
+  };
+
+  return (
+    <div style={{ ...kaartStijl, marginTop: 16 }}>
+      <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>Ritten op de homepagina</div>
+      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 12, maxWidth: 620 }}>
+        Toon een snelknop <strong>"Rit toevoegen"</strong> op je Home-pagina, zodat je snel een rit
+        kunt invoeren zonder eerst naar deze tab te gaan.
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <button
+          type="button"
+          onClick={() => zet(!aan)}
+          disabled={status === "bezig"}
+          title={aan ? "Snelknop verbergen" : "Snelknop tonen"}
+          style={{ position: "relative", width: 40, height: 22, borderRadius: 20, border: "none", cursor: status === "bezig" ? "default" : "pointer", background: aan ? KLEUR.blauw : KLEUR.rand, flexShrink: 0, transition: "background .15s" }}
+        >
+          <span style={{ position: "absolute", top: 2, left: aan ? 20 : 2, width: 18, height: 18, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 2px rgba(0,0,0,.25)", transition: "left .15s" }} />
+        </button>
+        <span style={{ fontSize: 13.5 }}>Snelknop op Home tonen</span>
+      </div>
+      {status === "fout" && <div style={{ fontSize: 12, color: KLEUR.rood, marginTop: 8 }}>Opslaan mislukt{foutmelding ? `: ${foutmelding}` : ""}, probeer het nog eens.</div>}
     </div>
   );
 }
@@ -1093,6 +1159,7 @@ function RittenAccountInhoud({ account, alleenLezen }) {
     return (
       <RittenInstellingen
         accountId={accountId}
+        account={account}
         klanten={klantenData.items}
         projecten={projectenData.items}
         voertuigen={voertuigenData.items}
