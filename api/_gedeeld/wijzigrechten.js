@@ -1,7 +1,7 @@
 /**
  * Rechten per medewerker (op e-mailadres) voor het medewerkersportaal.
  *
- * Vier onafhankelijke instellingen, alle vier beheerd in het beheerdersportaal
+ * Vijf onafhankelijke instellingen, alle vijf beheerd in het beheerdersportaal
  * (Beheer → Medewerkers → "Medewerkers — wijzig-rechten"):
  *   1) Wijzig-niveau (klantgegevens per klant wijzigen):
  *        - "medewerker" (standaard, niet opgeslagen) → alleen lezen
@@ -19,14 +19,22 @@
  *      verbergen, maar ook serverkant afgedwongen op alle offerte-Functions — zie
  *      api/_gedeeld/offertesRecht.js. De publieke tekenpagina (/api/teken/*) valt hier
  *      bewust buiten: die is voor klanten en heeft helemaal geen medewerkersrol.
+ *   5) Contracten-recht (Contractmanagement-plan, Stap 3 — de tab "Contracten" in het
+ *      medewerkersportaal): ook een aparte lijst met e-mailadressen. De Azure-rol 'beheerder'
+ *      mag dit sowieso altijd. Bepaalt in deze stap alleen of de tab wordt getoond (net als
+ *      als-klant); er is nog geen eigen medewerkerskant-API om serverkant af te dwingen zoals
+ *      bij offertes — die komt pas met Stap 6, wanneer `ContractenOverzicht.jsx` zijn placeholder
+ *      inruilt voor echte inhoud. Dit recht ligt dan al klaar om diezelfde Functions mee af te
+ *      schermen (zelfde opzet als api/_gedeeld/offertesRecht.js).
  *
  * Let op: een lege lijst betekent "niemand", net als bij bulk en als-klant. Bij het invoeren
- * van het offertes-recht heeft dus in eerste instantie alleen een beheerder toegang, tot er
- * medewerkers zijn aangevinkt.
+ * van het offertes- of contracten-recht heeft dus in eerste instantie alleen een beheerder
+ * toegang, tot er medewerkers zijn aangevinkt.
  *
  * Opslag in Azure Blob Storage (container portaalcontent, blob wijzigrechten.json).
  * Structuur: { "niveaus": { "naam@activaa.nl": "manager" }, "bulk": ["naam@activaa.nl"],
- *              "alsKlant": ["naam@activaa.nl"], "offertes": ["naam@activaa.nl"] }
+ *              "alsKlant": ["naam@activaa.nl"], "offertes": ["naam@activaa.nl"],
+ *              "contracten": ["naam@activaa.nl"] }
  */
 const { BlobServiceClient } = require("@azure/storage-blob");
 
@@ -61,11 +69,11 @@ function schoonLijst(lijst) {
   )];
 }
 
-const LEEG = { niveaus: {}, bulk: [], alsKlant: [], offertes: [] };
+const LEEG = { niveaus: {}, bulk: [], alsKlant: [], offertes: [], contracten: [] };
 
 /**
  * Leest het volledige rechtendocument:
- * { niveaus: {email:niveau}, bulk: [email], alsKlant: [email], offertes: [email] }.
+ * { niveaus: {email:niveau}, bulk: [email], alsKlant: [email], offertes: [email], contracten: [email] }.
  * Verwerkt ook de oude structuur { wijzigers: [emails] } (→ die golden als 'manager').
  */
 async function haalRechten() {
@@ -87,6 +95,7 @@ async function haalRechten() {
       bulk: schoonLijst(data && data.bulk),
       alsKlant: schoonLijst(data && data.alsKlant),
       offertes: schoonLijst(data && data.offertes),
+      contracten: schoonLijst(data && data.contracten),
     };
   } catch {
     return { ...LEEG };
@@ -113,8 +122,13 @@ async function haalOffertes() {
   return (await haalRechten()).offertes;
 }
 
+/** Geeft de contracten-lijst terug: [ "<email>" ] (kleine letters). */
+async function haalContracten() {
+  return (await haalRechten()).contracten;
+}
+
 /** Overschrijft het volledige rechtendocument. Normaliseert e-mail; 'medewerker' wordt niet bewaard. */
-async function zetRechten({ niveaus, bulk, alsKlant, offertes }) {
+async function zetRechten({ niveaus, bulk, alsKlant, offertes, contracten }) {
   const schoonNiveaus = {};
   for (const [email, niveau] of Object.entries(niveaus || {})) {
     const laag = String(email || "").trim().toLowerCase();
@@ -126,6 +140,7 @@ async function zetRechten({ niveaus, bulk, alsKlant, offertes }) {
     bulk: schoonLijst(bulk),
     alsKlant: schoonLijst(alsKlant),
     offertes: schoonLijst(offertes),
+    contracten: schoonLijst(contracten),
   };
   const containerClient = await haalContainerClient();
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
@@ -134,10 +149,10 @@ async function zetRechten({ niveaus, bulk, alsKlant, offertes }) {
   return nieuw;
 }
 
-/** Overschrijft alleen de niveaus; behoudt de bestaande bulk-/als-klant-/offertes-lijst. */
+/** Overschrijft alleen de niveaus; behoudt de bestaande bulk-/als-klant-/offertes-/contracten-lijst. */
 async function zetNiveaus(niveaus) {
-  const { bulk, alsKlant, offertes } = await haalRechten();
-  return (await zetRechten({ niveaus, bulk, alsKlant, offertes })).niveaus;
+  const { bulk, alsKlant, offertes, contracten } = await haalRechten();
+  return (await zetRechten({ niveaus, bulk, alsKlant, offertes, contracten })).niveaus;
 }
 
 /** Bepaalt of deze gebruiker mag wijzigen: beheerder (Azure) mag altijd; anders niveau manager/beheerder. */
@@ -173,7 +188,15 @@ async function magOffertes(email, isBeheerder) {
   return (await haalOffertes()).includes(laag);
 }
 
+/** Bepaalt of deze gebruiker de tab "Contracten" mag zien: beheerder (Azure) mag altijd; anders in de contracten-lijst. */
+async function magContracten(email, isBeheerder) {
+  if (isBeheerder) return true;
+  const laag = String(email || "").trim().toLowerCase();
+  if (!laag) return false;
+  return (await haalContracten()).includes(laag);
+}
+
 module.exports = {
-  haalRechten, haalNiveaus, haalBulk, haalAlsKlant, haalOffertes, zetRechten, zetNiveaus,
-  magWijzigen, magBulk, magAlsKlant, magOffertes, GELDIGE_NIVEAUS,
+  haalRechten, haalNiveaus, haalBulk, haalAlsKlant, haalOffertes, haalContracten, zetRechten, zetNiveaus,
+  magWijzigen, magBulk, magAlsKlant, magOffertes, magContracten, GELDIGE_NIVEAUS,
 };

@@ -4,15 +4,16 @@ const { haalRechten, zetRechten } = require("../_gedeeld/wijzigrechten");
  * Route is beveiligd via staticwebapp.config.json (alleen rol 'beheerder').
  *
  * GET → { niveaus: { "<email>": "manager"|"beheerder" }, bulk: ["<email>"],
- *          alsKlant: ["<email>"], offertes: ["<email>"] }
+ *          alsKlant: ["<email>"], offertes: ["<email>"], contracten: ["<email>"] }
  *       medewerker = standaard (niet opgeslagen).
- * PUT body { niveaus: {...}, bulk: [...], alsKlant: [...], offertes: [...] } → overschrijft de rechten.
+ * PUT body { niveaus: {...}, bulk: [...], alsKlant: [...], offertes: [...], contracten: [...] }
+ *      → overschrijft de rechten.
  */
 module.exports = async function (context, req) {
   try {
     if (req.method === "GET") {
-      const { niveaus, bulk, alsKlant, offertes } = await haalRechten();
-      context.res = { headers: { "Content-Type": "application/json" }, body: { niveaus, bulk, alsKlant, offertes } };
+      const { niveaus, bulk, alsKlant, offertes, contracten } = await haalRechten();
+      context.res = { headers: { "Content-Type": "application/json" }, body: { niveaus, bulk, alsKlant, offertes, contracten } };
       return;
     }
     if (req.method === "PUT") {
@@ -20,6 +21,7 @@ module.exports = async function (context, req) {
       const bulk = (req.body && req.body.bulk) || [];
       const alsKlant = (req.body && req.body.alsKlant) || [];
       const offertes = (req.body && req.body.offertes) || [];
+      const contracten = (req.body && req.body.contracten) || [];
       if (typeof niveaus !== "object" || Array.isArray(niveaus)) {
         context.res = { status: 400, body: { error: "Geef 'niveaus' (object van e-mail → niveau) mee." } };
         return;
@@ -36,7 +38,11 @@ module.exports = async function (context, req) {
         context.res = { status: 400, body: { error: "Geef 'offertes' (lijst met e-mailadressen) mee." } };
         return;
       }
-      const opgeslagen = await zetRechten({ niveaus, bulk, alsKlant, offertes });
+      if (!Array.isArray(contracten)) {
+        context.res = { status: 400, body: { error: "Geef 'contracten' (lijst met e-mailadressen) mee." } };
+        return;
+      }
+      const opgeslagen = await zetRechten({ niveaus, bulk, alsKlant, offertes, contracten });
       context.res = { headers: { "Content-Type": "application/json" }, body: opgeslagen };
       return;
     }

@@ -2626,7 +2626,12 @@ export default function MedewerkerPortaal() {
   // Beheer → Medewerkers. Dit bepaalt alleen of de tab "Offertes" verschijnt; de offerte-API's
   // controleren het recht zelf ook (api/_gedeeld/offertesRecht.js), dus dit is geen slot.
   const [magOffertes, setMagOffertes] = useState(false);
-  const [tab, setTab] = useState("klantoverzicht"); // klantoverzicht | verzoeken | reacties | ondertekeningen | reviews | offertes | meekijken
+  // Mag deze medewerker de tab "Contracten" zien? Beheert een beheerder via Beheer → Medewerkers
+  // (Contractmanagement-plan, Stap 3). Bepaalt vooralsnog alleen of de tab verschijnt — er is nog
+  // geen eigen medewerkerskant-API om serverkant af te dwingen zoals bij offertes; die komt met
+  // Stap 6, wanneer ContractenOverzicht.jsx zijn placeholder inruilt voor echte inhoud.
+  const [magContracten, setMagContracten] = useState(false);
+  const [tab, setTab] = useState("klantoverzicht"); // klantoverzicht | verzoeken | reacties | ondertekeningen | reviews | offertes | contracten | meekijken
   const [tellingen, setTellingen] = useState({ openWijzigingen: 0, nieuweReviews: 0 });
   const [logoUrl, setLogoUrl] = useState("");
 
@@ -2663,7 +2668,7 @@ export default function MedewerkerPortaal() {
       .catch(() => {});
     fetch("/api/medewerker-rechten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { setMagAlsKlant(!!d.magAlsKlant); setMagOffertes(!!d.magOffertes); })
+      .then((d) => { setMagAlsKlant(!!d.magAlsKlant); setMagOffertes(!!d.magOffertes); setMagContracten(!!d.magContracten); })
       .catch(() => setMagAlsKlant(false));
   }, [status]);
 
@@ -2730,9 +2735,7 @@ export default function MedewerkerPortaal() {
     ["ondertekeningen", "Ondertekeningen", 0],
     ["reviews", "Reviews", tellingen.nieuweReviews],
     ...(magOffertes || isBeheerder ? [["offertes", "Offertes", 0]] : []),
-    // Stap 1 (skelet): alleen beheerders. Stap 3 voegt een granulaire magContracten-vlag toe
-    // (wijzigrechten.js), zelfde opzet als magOffertes hierboven.
-    ...(isBeheerder ? [["contracten", "Contracten", 0]] : []),
+    ...(magContracten || isBeheerder ? [["contracten", "Contracten", 0]] : []),
     ...(magAlsKlant || isBeheerder ? [["meekijken", "Meekijken als klant", 0]] : []),
   ];
 
@@ -2798,7 +2801,7 @@ export default function MedewerkerPortaal() {
       {tab === "ondertekeningen" && <OndertekeningenLog />}
       {tab === "reviews" && <ReviewBeheer />}
       {tab === "offertes" && (magOffertes || isBeheerder) && <OffertesModule />}
-      {tab === "contracten" && isBeheerder && <ContractenOverzicht />}
+      {tab === "contracten" && (magContracten || isBeheerder) && <ContractenOverzicht />}
       {tab === "meekijken" && <MeekijkenAlsKlant gebruiker={gebruiker} />}
     </div>
   );

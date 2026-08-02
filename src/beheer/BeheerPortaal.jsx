@@ -267,6 +267,9 @@ export default function BeheerPortaal() {
   // Offertes-recht: lijst met e-mailadressen die offertes/opdrachtbevestigingen mogen maken.
   // Let op: leeg = niemand (net als bulk en als-klant); beheerders mogen altijd.
   const [offertes, setOffertes] = useState([]);
+  // Contracten-recht: lijst met e-mailadressen die de tab "Contracten" in het medewerkersportaal
+  // mogen zien (Contractmanagement-plan, Stap 3). Let op: leeg = niemand; beheerders mogen altijd.
+  const [contracten, setContracten] = useState([]);
   const [wijzigrechtenStatus, setWijzigrechtenStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [medewerkers, setMedewerkers] = useState(null); // null = laden; alle Activaa-medewerkers
   const [medewerkerZoek, setMedewerkerZoek] = useState("");
@@ -426,7 +429,7 @@ export default function BeheerPortaal() {
       .catch(() => setCategorieen([]));
     fetch("/api/beheer-wijzigrechten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { setNiveaus(d.niveaus || {}); setBulk(Array.isArray(d.bulk) ? d.bulk : []); setAlsKlant(Array.isArray(d.alsKlant) ? d.alsKlant : []); setOffertes(Array.isArray(d.offertes) ? d.offertes : []); })
+      .then((d) => { setNiveaus(d.niveaus || {}); setBulk(Array.isArray(d.bulk) ? d.bulk : []); setAlsKlant(Array.isArray(d.alsKlant) ? d.alsKlant : []); setOffertes(Array.isArray(d.offertes) ? d.offertes : []); setContracten(Array.isArray(d.contracten) ? d.contracten : []); })
       .catch(() => {});
     fetch("/api/beheer-entra-groepen")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
@@ -1101,13 +1104,19 @@ export default function BeheerPortaal() {
     setWijzigrechtenStatus("idle");
   }, []);
 
+  const zetContracten = useCallback((email, aan) => {
+    const laag = String(email).toLowerCase();
+    setContracten((h) => (aan ? [...new Set([...h, laag])] : h.filter((e) => e !== laag)));
+    setWijzigrechtenStatus("idle");
+  }, []);
+
   const slaWijzigrechtenOp = useCallback(async () => {
     setWijzigrechtenStatus("bezig");
     try {
       const res = await fetch("/api/beheer-wijzigrechten", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ niveaus, bulk, alsKlant, offertes }),
+        body: JSON.stringify({ niveaus, bulk, alsKlant, offertes, contracten }),
       });
       if (!res.ok) throw new Error(await res.text());
       const d = await res.json();
@@ -1115,11 +1124,12 @@ export default function BeheerPortaal() {
       setBulk(Array.isArray(d.bulk) ? d.bulk : []);
       setAlsKlant(Array.isArray(d.alsKlant) ? d.alsKlant : []);
       setOffertes(Array.isArray(d.offertes) ? d.offertes : []);
+      setContracten(Array.isArray(d.contracten) ? d.contracten : []);
       setWijzigrechtenStatus("gelukt");
     } catch {
       setWijzigrechtenStatus("fout");
     }
-  }, [niveaus, bulk, alsKlant, offertes]);
+  }, [niveaus, bulk, alsKlant, offertes, contracten]);
 
   const slaEntraGroepOp = useCallback(async () => {
     setEntraStatus("bezig");
@@ -2484,10 +2494,11 @@ export default function BeheerPortaal() {
           <strong> niveau</strong> (wijzigen van klantgegevens), vink aan wie <strong>bulk-aanpassingen</strong>
           {" "}op meerdere klanten tegelijk mag doen, en vink aan wie <strong>als klant mag meekijken</strong>
           {" "}(alleen-lezen het klantportaal bekijken namens een gekozen klant, via de tab "Meekijken als klant"
-          {" "}in het medewerkersportaal), en vink aan wie <strong>offertes</strong> mag maken (de tab "Offertes":
-          {" "}offertes en opdrachtbevestigingen opstellen en versturen). Beheerders mogen dit alle vier sowieso
-          {" "}altijd. Wie het offertes-recht niet heeft, ziet de tab niet en kan de bijbehorende API ook niet
-          {" "}aanroepen.
+          {" "}in het medewerkersportaal), vink aan wie <strong>offertes</strong> mag maken (de tab "Offertes":
+          {" "}offertes en opdrachtbevestigingen opstellen en versturen), en vink aan wie de tab <strong>Contracten</strong>
+          {" "}mag zien (toont vooralsnog alleen de placeholder van de Contractenmodule, die krijgt pas in een
+          {" "}latere stap echte inhoud). Beheerders mogen dit alle vijf sowieso altijd. Wie het offertes-recht
+          {" "}niet heeft, ziet de tab niet en kan de bijbehorende API ook niet aanroepen.
         </div>
 
         {medewerkers === null ? (
@@ -2508,7 +2519,7 @@ export default function BeheerPortaal() {
               />
             </div>
             <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 8 }}>
-              {Object.values(niveaus).filter((n) => n === "manager" || n === "beheerder").length} met wijzig-recht · {bulk.length} met bulk-recht · {alsKlant.length} met als-klant-recht · {offertes.length} met offertes-recht · {medewerkers.length} medewerkers
+              {Object.values(niveaus).filter((n) => n === "manager" || n === "beheerder").length} met wijzig-recht · {bulk.length} met bulk-recht · {alsKlant.length} met als-klant-recht · {offertes.length} met offertes-recht · {contracten.length} met contracten-recht · {medewerkers.length} medewerkers
             </div>
             {(() => {
             const gefilterdeMedewerkers = medewerkers
@@ -2557,6 +2568,14 @@ export default function BeheerPortaal() {
                         onChange={(e) => zetOffertes(m.email, e.target.checked)}
                       />
                       Offertes
+                    </label>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: KLEUR.subtekst, cursor: "pointer", whiteSpace: "nowrap" }} title="Mag de tab 'Contracten' zien in het medewerkersportaal">
+                      <input
+                        type="checkbox"
+                        checked={contracten.includes(String(m.email).toLowerCase())}
+                        onChange={(e) => zetContracten(m.email, e.target.checked)}
+                      />
+                      Contracten
                     </label>
                     <select
                       value={niveaus[m.email] || "medewerker"}
