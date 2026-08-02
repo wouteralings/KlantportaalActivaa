@@ -5,6 +5,7 @@ const { haalStatussen: haalRapportagesStatussen } = require("../_gedeeld/rapport
 const { haalStatussen: haalBezittingenStatussen } = require("../_gedeeld/bezittingenInstellingen");
 const { haalStatussen: haalRittenStatussen } = require("../_gedeeld/rittenInstellingen");
 const { haalStatussen: haalProjectenStatussen } = require("../_gedeeld/projectenInstellingen");
+const { haalStatussen: haalContractenStatussen } = require("../_gedeeld/contractenInstellingen");
 
 module.exports = async function (context, req) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
@@ -33,6 +34,9 @@ module.exports = async function (context, req) {
     // zie api/_gedeeld/rittenInstellingen.js resp. projectenInstellingen.js.
     const rittenStatussen = await haalRittenStatussen().catch(() => ({}));
     const projectenStatussen = await haalProjectenStatussen().catch(() => ({}));
+    // Contracten (zelf geregistreerde verzekeringen/telefonie/overige doorlopende contracten,
+    // met verloopherinneringen) — losse, standalone schakelaar, zie contractenInstellingen.js.
+    const contractenStatussen = await haalContractenStatussen().catch(() => ({}));
 
     context.res = {
       headers: { "Content-Type": "application/json" },
@@ -87,11 +91,13 @@ module.exports = async function (context, req) {
           // Rittenregistratie (€1,50/maand, los van Facturatie/Uren) — zie api/_gedeeld/rittenInstellingen.js.
           rittenIngeschakeld: !!(rittenStatussen[accountId] && rittenStatussen[accountId].ingeschakeld),
           rittenAangevraagdOp: (rittenStatussen[accountId] && rittenStatussen[accountId].aangevraagdOp) || null,
-          // Klant-voorkeur: snelknop "Rit toevoegen" op de homepagina tonen (zie /api/ritten-instelling).
-          toonRittenOpHome: !!(rittenStatussen[accountId] && rittenStatussen[accountId].toonOpHome),
           // Of de beheerder voor dit account de Uren↔Projecten-koppeling heeft aangezet (zie
           // api/_gedeeld/projectenInstellingen.js) — bepaalt of het urenformulier een Project-veld toont.
           projectenGekoppeld: !!(projectenStatussen[accountId] && projectenStatussen[accountId].gekoppeld),
+          // Contracten (verzekeringen/telefonie/overig, met verloopherinneringen) — zie
+          // api/_gedeeld/contractenInstellingen.js.
+          contractenIngeschakeld: !!(contractenStatussen[accountId] && contractenStatussen[accountId].ingeschakeld),
+          contractenAangevraagdOp: (contractenStatussen[accountId] && contractenStatussen[accountId].aangevraagdOp) || null,
         })),
       },
     };

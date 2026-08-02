@@ -342,6 +342,8 @@ export default function BeheerPortaal() {
   const [rapportagesBezig, setRapportagesBezig] = useState({});
   const [rittenStatussen, setRittenStatussen] = useState({});
   const [rittenBezig, setRittenBezig] = useState({});
+  const [contractenStatussen, setContractenStatussen] = useState({});
+  const [contractenBezig, setContractenBezig] = useState({});
 
   // BTW-tarieven met geldigheidsperiode (Facturatie → BTW-tarieven) — zelfde bewerk-per-rij
   // patroon als Standaardartikelen: "nieuw" voegt een tarief toe (sluit het vorige van die
@@ -472,6 +474,10 @@ export default function BeheerPortaal() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setRapportagesStatussen(d.statussen || {}))
       .catch(() => setRapportagesStatussen({}));
+    fetch("/api/beheer-contracten-klanten")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setContractenStatussen(d.statussen || {}))
+      .catch(() => setContractenStatussen({}));
     fetch("/api/beheer-ritten-klanten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setRittenStatussen(d.statussen || {}))
@@ -928,7 +934,8 @@ export default function BeheerPortaal() {
     !!(urenStatussen[accountId] && urenStatussen[accountId].ingeschakeld) ||
     !!(bezittingenStatussen[accountId] && bezittingenStatussen[accountId].ingeschakeld) ||
     !!(rapportagesStatussen[accountId] && rapportagesStatussen[accountId].ingeschakeld) ||
-    !!(rittenStatussen[accountId] && rittenStatussen[accountId].ingeschakeld);
+    !!(rittenStatussen[accountId] && rittenStatussen[accountId].ingeschakeld) ||
+    !!(contractenStatussen[accountId] && contractenStatussen[accountId].ingeschakeld);
 
   // Heeft deze klant bij minstens één module een openstaande aanvraag (nog uit, wel aangevraagd)?
   // Gebruikt voor het "aanvragen bovenaan"-sorteren van de tabel en de teller erboven.
@@ -939,7 +946,8 @@ export default function BeheerPortaal() {
       open(urenStatussen[accountId]) ||
       open(bezittingenStatussen[accountId]) ||
       open(rapportagesStatussen[accountId]) ||
-      open(rittenStatussen[accountId])
+      open(rittenStatussen[accountId]) ||
+      open(contractenStatussen[accountId])
     );
   };
 
@@ -2668,7 +2676,8 @@ export default function BeheerPortaal() {
         <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 14px" }}>
           Alle betaalde modules staan standaard <strong>uit</strong> voor elke klant. Zet per klant aan wat die klant mag
           gebruiken — de bijbehorende tab verschijnt dan meteen in het klantportaal. Modules: <strong>Facturen</strong>,
-          <strong> Uren</strong> (werkt bovenop Facturen), <strong>Bezittingen</strong>, <strong>Rapportages</strong> en <strong>Ritten</strong>.
+          <strong> Uren</strong> (werkt bovenop Facturen), <strong>Bezittingen</strong>, <strong>Rapportages</strong>, <strong>Ritten</strong> en
+          <strong> Contracten</strong>.
         </div>
 
         <div style={{ marginBottom: 18, padding: 14, background: KLEUR.lichtblauw, borderRadius: 8 }}>
@@ -2790,7 +2799,10 @@ export default function BeheerPortaal() {
                       const ritStatus = rittenStatussen[k.accountId] || {};
                       const ritAan = !!ritStatus.ingeschakeld;
                       const ritAangevraagd = !ritAan && !!ritStatus.aangevraagdOp;
-                      const heeftAanvraag = aangevraagd || urenAangevraagd || bezAangevraagd || rapAangevraagd || ritAangevraagd;
+                      const conStatus = contractenStatussen[k.accountId] || {};
+                      const conAan = !!conStatus.ingeschakeld;
+                      const conAangevraagd = !conAan && !!conStatus.aangevraagdOp;
+                      const heeftAanvraag = aangevraagd || urenAangevraagd || bezAangevraagd || rapAangevraagd || ritAangevraagd || conAangevraagd;
                       return (
                         <div key={k.accountId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, background: heeftAanvraag ? KLEUR.lichtblauw : "transparent" }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
@@ -2828,6 +2840,12 @@ export default function BeheerPortaal() {
                                 {ritStatus.aangevraagdDoor ? ` door ${ritStatus.aangevraagdDoor}` : ""}
                               </div>
                             )}
+                            {conAangevraagd && (
+                              <div style={{ fontSize: 11, fontWeight: 600, color: KLEUR.blauw, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                                <Clock size={11} /> Contracten aangevraagd op {new Date(conStatus.aangevraagdOp).toLocaleDateString("nl-NL")}
+                                {conStatus.aangevraagdDoor ? ` door ${conStatus.aangevraagdDoor}` : ""}
+                              </div>
+                            )}
                           </div>
                           <div style={{ display: "flex", gap: 10, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
                             <ModuleToggle label="Facturen" aan={aan} bezig={bezig} titel={aan ? "Facturatiemodule uitzetten" : "Facturatiemodule aanzetten"} onClick={() => zetFacturatieStatus(k.accountId, !aan)} />
@@ -2835,6 +2853,7 @@ export default function BeheerPortaal() {
                             <ModuleToggle label="Bezittingen" aan={bezAan} bezig={!!bezittingenBezig[k.accountId]} titel={bezAan ? "Bezittingen uitzetten" : "Bezittingen aanzetten"} onClick={() => zetModuleStatus("/api/beheer-bezittingen-klanten", setBezittingenStatussen, setBezittingenBezig, k.accountId, !bezAan)} />
                             <ModuleToggle label="Rapportages" aan={rapAan} bezig={!!rapportagesBezig[k.accountId]} titel={rapAan ? "Rapportages uitzetten" : "Rapportages aanzetten"} onClick={() => zetModuleStatus("/api/beheer-rapportages-klanten", setRapportagesStatussen, setRapportagesBezig, k.accountId, !rapAan)} />
                             <ModuleToggle label="Ritten" aan={ritAan} bezig={!!rittenBezig[k.accountId]} titel={ritAan ? "Ritten uitzetten" : "Ritten aanzetten"} onClick={() => zetModuleStatus("/api/beheer-ritten-klanten", setRittenStatussen, setRittenBezig, k.accountId, !ritAan)} />
+                            <ModuleToggle label="Contracten" aan={conAan} bezig={!!contractenBezig[k.accountId]} titel={conAan ? "Contracten uitzetten" : "Contracten aanzetten"} onClick={() => zetModuleStatus("/api/beheer-contracten-klanten", setContractenStatussen, setContractenBezig, k.accountId, !conAan)} />
                           </div>
                         </div>
                       );

@@ -158,6 +158,12 @@
       ]
     },
     {
+      "route": "/api/beheer-contracten-klanten",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
       "route": "/api/rgs-instellingen",
       "allowedRoles": [
         "beheerder"

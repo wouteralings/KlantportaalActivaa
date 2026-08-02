@@ -33,7 +33,6 @@ import {
   Clock,
   BarChart3,
   Boxes,
-  Car,
 } from "lucide-react";
 import { haalApiToken } from "./msal";
 import DocumentenTab from "./DocumentenTab";
@@ -41,6 +40,7 @@ import FacturatieModule from "./FacturatieModule";
 import RittenModule from "./RittenModule";
 import RapportagesModule from "./RapportagesModule";
 import BezittingenModule from "./BezittingenModule";
+import ContractenModule from "./ContractenModule";
 import { haalMeekijkSessie, activeerMeekijkFetch, deactiveerMeekijkFetch, stopMeekijken } from "../meekijken";
 
 const KLEUR = {
@@ -103,6 +103,11 @@ const BEZITTINGEN_TAB = { key: "bezittingen", label: "Bezittingen", icon: Boxes 
 // voor nog geen van die accounts aan staat; RittenModule toont dan zelf per account een
 // "niet actief"-kaart met prijsinfo en een aanvraagknop.
 const RITTEN_TAB = { key: "ritten", label: "Ritten", icon: Clock, nieuw: true };
+// Contracten (zelf geregistreerde verzekeringen/telefonie/overige doorlopende contracten, met
+// verloopherinneringen) — los per klantaccount aan/uit te zetten in Beheer (tab "Facturatie"),
+// net als Bezittingen/Rapportages/Ritten. Zichtbaar zodra er gekoppelde klant-accounts zijn; de
+// module toont zelf een aanvraagkaart per account waarvoor de module nog niet aan staat.
+const CONTRACTEN_TAB = { key: "contracten", label: "Contracten", icon: FileText, nieuw: true };
 
 export default function KlantPortaal() {
   const [ingelogd, setIngelogd] = useState(null); // null = nog aan het checken
@@ -465,14 +470,8 @@ export default function KlantPortaal() {
   // heeft én de klant die snelknop daar heeft aangezet (Administratie → Instellingen).
   const kanFacturenSnel = !meekijkSessie && alleAccounts.some((a) => a.facturatieIngeschakeld && a.toonFacturenOpHome);
   const gaNaarFacturen = () => { setAdminInitieelSubtab("facturen"); setTab("facturen"); };
-  // Snelknop "Rit toevoegen" op Home: alleen als minstens één administratie de Rittenregistratie
-  // aan heeft én de klant die snelknop daar heeft aangezet (Ritten → Instellingen → Algemeen).
-  // Ritten is, anders dan Facturen/Uren, een eigen top-level tab (geen subtab), dus deze knop
-  // navigeert rechtstreeks naar die tab.
-  const kanRittenSnel = !meekijkSessie && alleAccounts.some((a) => a.rittenIngeschakeld && a.toonRittenOpHome);
-  const gaNaarRitten = () => setTab("ritten");
   const zichtbareTabs = (alleAccounts.length > 0
-    ? [...TABS.slice(0, 3), DOSSIERS_TAB, FACTUREN_TAB, RITTEN_TAB, RAPPORTAGES_TAB, BEZITTINGEN_TAB, ...TABS.slice(3)]
+    ? [...TABS.slice(0, 3), DOSSIERS_TAB, FACTUREN_TAB, RITTEN_TAB, RAPPORTAGES_TAB, BEZITTINGEN_TAB, CONTRACTEN_TAB, ...TABS.slice(3)]
     : TABS
   // Documenten werkt via de eigen Microsoft Graph-rechten van de ingelogde gebruiker
   // (on-behalf-of) — dat kan technisch niet "namens een andere klant" getoond worden, dus
@@ -523,7 +522,7 @@ export default function KlantPortaal() {
 
       {tab === "home" && (
         <>
-          {(kanFacturenSnel || kanUrenSnel || kanRittenSnel) && (
+          {(kanFacturenSnel || kanUrenSnel) && (
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 22 }}>
               {kanFacturenSnel && (
                 <button
@@ -545,17 +544,6 @@ export default function KlantPortaal() {
                   }}
                 >
                   <Clock size={17} /> Uren registreren
-                </button>
-              )}
-              {kanRittenSnel && (
-                <button
-                  onClick={gaNaarRitten}
-                  style={{
-                    display: "inline-flex", alignItems: "center", gap: 8, padding: "11px 18px", borderRadius: 9,
-                    background: KLEUR.blauw, color: "#fff", border: "none", cursor: "pointer", fontSize: 14, fontWeight: 700,
-                  }}
-                >
-                  <Car size={17} /> Rit toevoegen
                 </button>
               )}
             </div>
@@ -592,6 +580,7 @@ export default function KlantPortaal() {
       {tab === "ritten" && <RittenModule accounts={alleAccounts} prijs={rittenmodulePrijs} alleenLezen={!!meekijkSessie} />}
       {tab === "rapportages" && <RapportagesModule accounts={alleAccounts} prijs={rapportagesmodulePrijs} alleenLezen={!!meekijkSessie} />}
       {tab === "bezittingen" && <BezittingenModule accounts={alleAccounts} prijs={bezittingenmodulePrijs} alleenLezen={!!meekijkSessie} />}
+      {tab === "contracten" && <ContractenModule accounts={alleAccounts} alleenLezen={!!meekijkSessie} />}
       {tab === "faq" && <TabFaq content={content} teamsChatUrl={teamsChatUrl} whatsappUrl={whatsappUrl} copilotEmbedUrl={copilotEmbedUrl} />}
       {tab === "review" && <TabReview onVerzenden={verstuurReview} alleenLezen={!!meekijkSessie} />}
     </div>

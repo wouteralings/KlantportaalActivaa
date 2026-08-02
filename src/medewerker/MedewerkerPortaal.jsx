@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ArrowLeft, ExternalLink } from "lucide-react";
 import { startMeekijken } from "../meekijken";
 import OffertesModule from "./OffertesModule";
+import ContractenOverzicht from "./ContractenOverzicht";
 import Vragenlijsten from "./Vragenlijsten";
 import Urenregistratie from "./uren/Urenregistratie";
 import ScopeToggle, { useMijnNaam, isKlantVanMij } from "./MijnFilter";
@@ -2729,6 +2730,9 @@ export default function MedewerkerPortaal() {
     ["ondertekeningen", "Ondertekeningen", 0],
     ["reviews", "Reviews", tellingen.nieuweReviews],
     ...(magOffertes || isBeheerder ? [["offertes", "Offertes", 0]] : []),
+    // Stap 1 (skelet): alleen beheerders. Stap 3 voegt een granulaire magContracten-vlag toe
+    // (wijzigrechten.js), zelfde opzet als magOffertes hierboven.
+    ...(isBeheerder ? [["contracten", "Contracten", 0]] : []),
     ...(magAlsKlant || isBeheerder ? [["meekijken", "Meekijken als klant", 0]] : []),
   ];
 
@@ -2794,6 +2798,7 @@ export default function MedewerkerPortaal() {
       {tab === "ondertekeningen" && <OndertekeningenLog />}
       {tab === "reviews" && <ReviewBeheer />}
       {tab === "offertes" && (magOffertes || isBeheerder) && <OffertesModule />}
+      {tab === "contracten" && isBeheerder && <ContractenOverzicht />}
       {tab === "meekijken" && <MeekijkenAlsKlant gebruiker={gebruiker} />}
     </div>
   );
