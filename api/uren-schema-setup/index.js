@@ -3,7 +3,7 @@
  * tabellen voor de interne urenregistratie:
  *   - cr283_urenboeking     (de urenboekingen; 1 rij per boeking)
  *   - cr283_urentarief      (uurtarieven + declarabel-doel per medewerker; 1 rij per medewerker)
- *   - cr283_verlofaanvraag  (verlofaanvragen; 1 rij per aanvraag — 03-08-2026, verlofmodule)
+ *   - cr283_verlofaanvraag  (verlofaanvragen; 1 rij per aanvraag — zie Verlofmodule, 03-08-2026)
  *
  * Zelfde aanpak en helpers als api/dataverse-schema-setup (Opdrachtbevestiging/Tarief): elke stap
  * checkt eerst op bestaan, er wordt nooit iets verwijderd/overschreven, en na afloop wordt
@@ -13,9 +13,14 @@
  * BEVEILIGING: beheerder-only (route in staticwebapp.config.json) + CSRF-drempel via de header
  * x-requested-with: 'klantportaal' + verplichte ?bevestig=ja.
  *
- * Keuzes: gecontroleerde tekstwaarden (soort/status/tariefsoort/verloftype) als String-kolommen —
- * zo bepaalt de app de waarden en is er geen fragiele option-set-nummermapping nodig. Bedragen als
- * Decimal (geen Money) om de transactievaluta-eis bij het aanmaken te vermijden. Ja/nee als Boolean.
+ * Keuzes: gecontroleerde tekstwaarden (soort/status/tariefsoort) als String-kolommen — zo bepaalt
+ * de app de waarden en is er geen fragiele option-set-nummermapping nodig. Bedragen als Decimal
+ * (geen Money) om de transactievaluta-eis bij het aanmaken te vermijden. Ja/nee als Boolean.
+ *
+ * Performance (03-08-2026): de bestaan-checks per attribuut/relatie gebeuren niet meer één-voor-één
+ * (dat waren tientallen losse round-trips naar Dataverse en liep tegen een timeout aan op de
+ * West-Europa functie-app — "Backend call failure") maar met ÉÉN opvraging van alle bestaande
+ * attributen per tabel / relaties in totaal, waarna de rest in-memory (een Set) wordt gecheckt.
  */
 const { haalDynamicsToken } = require("../_gedeeld/identiteit");
 
@@ -60,24 +65,27 @@ async function maakEntiteit(token, resource, { logicalName, schemaName, weergave
   if (!res.ok) throw verwerkFout(res, await res.text());
   return { actie: "aangemaakt", logicalName };
 }
-async function attribuutBestaat(token, resource, entity, attr) {
-  const res = await dv(token, resource, `/EntityDefinitions(LogicalName='${entity}')/Attributes?$select=LogicalName&$filter=LogicalName eq '${attr}'`);
+/** Eén opvraging van alle bestaande attribuut-LogicalNames op een entiteit (i.p.v. per attribuut een losse check). */
+async function haalBestaandeAttributen(token, resource, entity) {
+  const res = await dv(token, resource, `/EntityDefinitions(LogicalName='${entity}')/Attributes?$select=LogicalName`);
   if (!res.ok) throw verwerkFout(res, await res.text());
-  return ((await res.json()).value || []).length > 0;
+  return new Set(((await res.json()).value || []).map((a) => a.LogicalName));
 }
-async function maakAttribuut(token, resource, entity, attr, metadata) {
-  if (await attribuutBestaat(token, resource, entity, attr)) return { actie: "bestond al", attribuut: attr };
+async function maakAttribuut(token, resource, entity, attr, metadata, bestaandeSet) {
+  if (bestaandeSet.has(attr)) return { actie: "bestond al", attribuut: attr };
   const res = await dv(token, resource, `/EntityDefinitions(LogicalName='${entity}')/Attributes`, { method: "POST", body: JSON.stringify(metadata) });
   if (!res.ok) throw verwerkFout(res, await res.text());
+  bestaandeSet.add(attr);
   return { actie: "aangemaakt", attribuut: attr };
 }
-async function relatieBestaat(token, resource, schemaName) {
-  const res = await dv(token, resource, `/RelationshipDefinitions?$select=SchemaName&$filter=SchemaName eq '${schemaName}'`);
+/** Eén opvraging van alle bestaande relaties met onze prefix (i.p.v. per relatie een losse check). */
+async function haalBestaandeRelaties(token, resource, prefix) {
+  const res = await dv(token, resource, `/RelationshipDefinitions?$select=SchemaName&$filter=startswith(SchemaName,'${prefix}')`);
   if (!res.ok) throw verwerkFout(res, await res.text());
-  return ((await res.json()).value || []).length > 0;
+  return new Set(((await res.json()).value || []).map((r) => r.SchemaName));
 }
-async function maakLookupRelatie(token, resource, { schemaName, referencedEntity, referencingEntity, lookupSchemaName, weergavenaam, beschrijving }) {
-  if (await relatieBestaat(token, resource, schemaName)) return { actie: "bestond al", relatie: schemaName };
+async function maakLookupRelatie(token, resource, { schemaName, referencedEntity, referencingEntity, lookupSchemaName, weergavenaam, beschrijving }, bestaandeSet) {
+  if (bestaandeSet.has(schemaName)) return { actie: "bestond al", relatie: schemaName };
   const body = {
     SchemaName: schemaName, "@odata.type": "Microsoft.Dynamics.CRM.OneToManyRelationshipMetadata",
     ReferencedEntity: referencedEntity, ReferencingEntity: referencingEntity,
@@ -85,6 +93,7 @@ async function maakLookupRelatie(token, resource, { schemaName, referencedEntity
   };
   const res = await dv(token, resource, "/RelationshipDefinitions", { method: "POST", body: JSON.stringify(body) });
   if (!res.ok) throw verwerkFout(res, await res.text());
+  bestaandeSet.add(schemaName);
   return { actie: "aangemaakt", relatie: schemaName };
 }
 async function publiceerAlles(token, resource) {
@@ -126,6 +135,7 @@ module.exports = async function (context, req) {
       primaireAttribuutSchemaName: `${PREFIX}_Kenmerk`, primaireAttribuutWeergavenaam: "Kenmerk",
       primaireAttribuutMaxLength: 100, autoNumberFormat: "UUR-{SEQNUM:000000}",
     }));
+    const boekingBestaandeAttrs = await haalBestaandeAttributen(token, resource, B);
     const boekingAttrs = [
       [`${PREFIX}_datum`, DatumOnly(`${PREFIX}_Datum`, "Datum")],
       [`${PREFIX}_soort`, Str(`${PREFIX}_Soort`, "Soort", 20)],                 // abonnement|uxt|indirect|kantoor|verlof
@@ -152,7 +162,7 @@ module.exports = async function (context, req) {
       [`${PREFIX}_urencode`, Str(`${PREFIX}_Urencode`, "Urencode", 100)],
       [`${PREFIX}_vast`, Bool(`${PREFIX}_Vast`, "Vaste (contract)uren")],       // door beheer vastgezet, niet zelf te wijzigen
     ];
-    for (const [logisch, meta] of boekingAttrs) stappen.push(await maakAttribuut(token, resource, B, logisch, meta));
+    for (const [logisch, meta] of boekingAttrs) stappen.push(await maakAttribuut(token, resource, B, logisch, meta, boekingBestaandeAttrs));
 
     // ---- Tabel 2: Urentarief ----
     const T = `${PREFIX}_urentarief`;
@@ -163,6 +173,7 @@ module.exports = async function (context, req) {
       primaireAttribuutSchemaName: `${PREFIX}_Medewerkernaam`, primaireAttribuutWeergavenaam: "Medewerker",
       primaireAttribuutMaxLength: 256,
     }));
+    const tariefBestaandeAttrs = await haalBestaandeAttributen(token, resource, T);
     const tariefAttrs = [
       [`${PREFIX}_medewerkeremail`, Str(`${PREFIX}_Medewerkeremail`, "Medewerker e-mail", 256)],
       [`${PREFIX}_tariefnormaal`, Dec(`${PREFIX}_Tariefnormaal`, "Uurtarief normaal")],
@@ -173,44 +184,46 @@ module.exports = async function (context, req) {
       [`${PREFIX}_deadlineweekdag`, Dec(`${PREFIX}_Deadlineweekdag`, "Deadline weekdag (1=ma .. 7=zo)")],
       [`${PREFIX}_actief`, Bool(`${PREFIX}_Actief`, "Actief")],
     ];
-    for (const [logisch, meta] of tariefAttrs) stappen.push(await maakAttribuut(token, resource, T, logisch, meta));
+    for (const [logisch, meta] of tariefAttrs) stappen.push(await maakAttribuut(token, resource, T, logisch, meta, tariefBestaandeAttrs));
 
-    // ---- Tabel 3: Verlofaanvraag (03-08-2026, verlofmodule) ----
+    // ---- Tabel 3: Verlofaanvraag (03-08-2026) ----
     const V = `${PREFIX}_verlofaanvraag`;
     stappen.push(await maakEntiteit(token, resource, {
       logicalName: V, schemaName: `${PREFIX}_Verlofaanvraag`,
       weergavenaam: "Verlofaanvraag", weergavenaamMeervoud: "Verlofaanvragen",
-      beschrijving: "Een verlofaanvraag van een medewerker (vakantie/ziek/bijzonder verlof/onbetaald), incl. goedkeuring door de leidinggevende.",
+      beschrijving: "Eén verlofaanvraag van een medewerker (vakantie/ziek/bijzonder verlof/onbetaald).",
       primaireAttribuutSchemaName: `${PREFIX}_Kenmerk`, primaireAttribuutWeergavenaam: "Kenmerk",
       primaireAttribuutMaxLength: 100, autoNumberFormat: "VERLOF-{SEQNUM:000000}",
     }));
+    const verlofBestaandeAttrs = await haalBestaandeAttributen(token, resource, V);
     const verlofAttrs = [
       [`${PREFIX}_medewerkeremail`, Str(`${PREFIX}_Medewerkeremail`, "Medewerker e-mail", 256)],
       [`${PREFIX}_medewerkernaam`, Str(`${PREFIX}_Medewerkernaam`, "Medewerker", 256)],
-      [`${PREFIX}_verloftype`, Str(`${PREFIX}_Verloftype`, "Verloftype", 30)],   // sleutel uit verlof-instellingen.json
+      [`${PREFIX}_verloftype`, Str(`${PREFIX}_Verloftype`, "Verloftype", 50)],   // sleutel: vakantie|ziek|bijzonder_verlof|onbetaald|...
       [`${PREFIX}_startdatum`, DatumOnly(`${PREFIX}_Startdatum`, "Startdatum")],
       [`${PREFIX}_einddatum`, DatumOnly(`${PREFIX}_Einddatum`, "Einddatum")],
-      [`${PREFIX}_aantaluren`, Dec(`${PREFIX}_Aantaluren`, "Aantal uren (berekend uit werkrooster)")],
+      [`${PREFIX}_aantaluren`, Dec(`${PREFIX}_Aantaluren`, "Aantal verlofuren")],
       [`${PREFIX}_status`, Str(`${PREFIX}_Status`, "Status", 20)],               // aangevraagd|goedgekeurd|afgewezen|ingetrokken
-      [`${PREFIX}_toelichting`, Memo(`${PREFIX}_Toelichting`, "Toelichting (medewerker)", 2000)],
+      [`${PREFIX}_toelichting`, Memo(`${PREFIX}_Toelichting`, "Toelichting", 2000)],
       [`${PREFIX}_leidinggevendenaam`, Str(`${PREFIX}_Leidinggevendenaam`, "Leidinggevende (snapshot)", 256)],
       [`${PREFIX}_afgehandelddoor`, Str(`${PREFIX}_Afgehandelddoor`, "Afgehandeld door", 256)],
       [`${PREFIX}_afgehandeldop`, DatumTijd(`${PREFIX}_Afgehandeldop`, "Afgehandeld op")],
-      [`${PREFIX}_afwijsreden`, Str(`${PREFIX}_Afwijsreden`, "Reden afwijzing", 500)],
+      [`${PREFIX}_afwijsreden`, Str(`${PREFIX}_Afwijsreden`, "Reden van afwijzing", 500)],
     ];
-    for (const [logisch, meta] of verlofAttrs) stappen.push(await maakAttribuut(token, resource, V, logisch, meta));
+    for (const [logisch, meta] of verlofAttrs) stappen.push(await maakAttribuut(token, resource, V, logisch, meta, verlofBestaandeAttrs));
 
     // ---- Relaties (maken meteen de lookup-kolommen aan) ----
-    stappen.push(await maakLookupRelatie(token, resource, { schemaName: `${PREFIX}_account_urenboeking`, referencedEntity: "account", referencingEntity: B, lookupSchemaName: `${PREFIX}_Client`, weergavenaam: "Cliënt", beschrijving: "De cliënt (Dynamics-account) waarop deze uren zijn geschreven." }));
-    stappen.push(await maakLookupRelatie(token, resource, { schemaName: `${PREFIX}_systemuser_urenboeking`, referencedEntity: "systemuser", referencingEntity: B, lookupSchemaName: `${PREFIX}_Medewerker`, weergavenaam: "Medewerker", beschrijving: "De medewerker die deze uren heeft geschreven." }));
-    stappen.push(await maakLookupRelatie(token, resource, { schemaName: `${PREFIX}_systemuser_urentarief`, referencedEntity: "systemuser", referencingEntity: T, lookupSchemaName: `${PREFIX}_Medewerker`, weergavenaam: "Medewerker", beschrijving: "De medewerker bij dit uurtarief." }));
-    stappen.push(await maakLookupRelatie(token, resource, { schemaName: `${PREFIX}_systemuser_verlofaanvraag`, referencedEntity: "systemuser", referencingEntity: V, lookupSchemaName: `${PREFIX}_Medewerker`, weergavenaam: "Medewerker", beschrijving: "De medewerker van deze verlofaanvraag." }));
+    const relatiesBestaand = await haalBestaandeRelaties(token, resource, `${PREFIX}_`);
+    stappen.push(await maakLookupRelatie(token, resource, { schemaName: `${PREFIX}_account_urenboeking`, referencedEntity: "account", referencingEntity: B, lookupSchemaName: `${PREFIX}_Client`, weergavenaam: "Cliënt", beschrijving: "De cliënt (Dynamics-account) waarop deze uren zijn geschreven." }, relatiesBestaand));
+    stappen.push(await maakLookupRelatie(token, resource, { schemaName: `${PREFIX}_systemuser_urenboeking`, referencedEntity: "systemuser", referencingEntity: B, lookupSchemaName: `${PREFIX}_Medewerker`, weergavenaam: "Medewerker", beschrijving: "De medewerker die deze uren heeft geschreven." }, relatiesBestaand));
+    stappen.push(await maakLookupRelatie(token, resource, { schemaName: `${PREFIX}_systemuser_urentarief`, referencedEntity: "systemuser", referencingEntity: T, lookupSchemaName: `${PREFIX}_Medewerker`, weergavenaam: "Medewerker", beschrijving: "De medewerker bij dit uurtarief." }, relatiesBestaand));
+    stappen.push(await maakLookupRelatie(token, resource, { schemaName: `${PREFIX}_systemuser_verlofaanvraag`, referencedEntity: "systemuser", referencingEntity: V, lookupSchemaName: `${PREFIX}_Medewerker`, weergavenaam: "Medewerker", beschrijving: "De medewerker van deze verlofaanvraag." }, relatiesBestaand));
 
     stappen.push(await publiceerAlles(token, resource));
 
     context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, stappen, volgende: [
       "Controleer in make.powerapps.com de tabellen 'Urenboeking', 'Urentarief' en 'Verlofaanvraag'.",
-      "Zorg dat de Application User (DYNAMICS_CLIENT_ID) lees- en schrijfrechten (Aanmaken/Lezen/Bijwerken/Verwijderen) heeft op alle drie de tabellen — anders faalt het wegschrijven van uren/verlof.",
+      "Zorg dat de Application User (DYNAMICS_CLIENT_ID) lees- en schrijfrechten (Aanmaken/Lezen/Bijwerken/Verwijderen) heeft op alle drie de nieuwe tabellen — anders faalt het wegschrijven van uren/verlof.",
       "Zet de rol 'System Customizer' van de Application User daarna weer terug naar de minimale rol.",
     ] } };
   } catch (err) {
