@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ArrowLeft, ExternalLink } from "lucide-react";
+import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ArrowLeft } from "lucide-react";
 import { startMeekijken } from "../meekijken";
 import OffertesModule from "./OffertesModule";
 import ContractenOverzicht from "./ContractenOverzicht";
@@ -1686,7 +1686,10 @@ function MedewerkerDossiers({ soort }) {
   const { mijnNaam, geladen: naamGeladen } = useMijnNaam();
   const [scope, setScope] = useState("mijn"); // "mijn" | "alle"
   const [statusOpties, setStatusOpties] = useState([]);
-  const [detail, setDetail] = useState(null); // gekozen dossier → detailweergave
+  const [detailId, setDetailId] = useState(null); // id van het geopende dossier, of null
+  const [detail, setDetail] = useState(null); // volledige detailrespons ({ dossier, catalogus, secties, picklistOpties })
+  const [detailLaden, setDetailLaden] = useState(false);
+  const [detailFout, setDetailFout] = useState("");
 
   useEffect(() => {
     setDossiers(null);
@@ -1694,6 +1697,7 @@ function MedewerkerDossiers({ soort }) {
     setZoek("");
     setStatusFilter("");
     setToonAantal(25);
+    setDetailId(null);
     setDetail(null);
     let actief = true;
     fetch(`/api/medewerker-dossiers?soort=${encodeURIComponent(soort)}`)
@@ -1706,17 +1710,51 @@ function MedewerkerDossiers({ soort }) {
   const periodeLabel = soort === "vpb" ? "Boekjaar" : "Jaar";
   const periode = (d) => (d.jaar != null && d.jaar !== "" ? String(d.jaar) : dossierBoekjaar(d));
 
-  if (detail) {
+  // Volledig dossier (incl. catalogus/secties/picklistopties) apart ophalen zodra er één wordt
+  // geopend — de lijst zelf bevat alleen de basisvelden (Cliënt/Jaar/Status/Accountant/Assistent).
+  const openDossier = (id) => {
+    setDetailId(id);
+    setDetail(null);
+    setDetailFout("");
+    setDetailLaden(true);
+    fetch(`/api/medewerker-dossier?soort=${encodeURIComponent(soort)}&id=${encodeURIComponent(id)}`)
+      .then((r) => (r.ok ? r.json() : r.json().then((d) => Promise.reject(new Error((d && d.error) || `HTTP ${r.status}`)))))
+      .then((d) => setDetail(d))
+      .catch((e) => setDetailFout(e.message || "Kon het dossier niet openen."))
+      .finally(() => setDetailLaden(false));
+  };
+
+  if (detailId) {
+    if (detailLaden) {
+      return (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst }}>
+          <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Dossier ophalen…
+        </div>
+      );
+    }
+    if (detailFout || !detail) {
+      return (
+        <div>
+          <button onClick={() => { setDetailId(null); setDetail(null); }} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", color: KLEUR.blauw, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: 0, marginBottom: 14 }}>
+            <ArrowLeft size={15} /> Terug
+          </button>
+          <div style={{ fontSize: 12.5, color: KLEUR.rood }}>{detailFout || "Dossier niet gevonden."}</div>
+        </div>
+      );
+    }
     return (
       <DossierDetail
-        dossier={detail}
-        soortLabel={detail.soortLabel || (soort === "vpb" ? "Vennootschapsbelasting" : "Inkomstenbelasting")}
+        dossier={detail.dossier}
+        soortLabel={detail.dossier.soortLabel || (soort === "vpb" ? "Vennootschapsbelasting" : "Inkomstenbelasting")}
         periodeLabel={periodeLabel}
         periode={periode}
-        statusOpties={statusOpties}
-        onTerug={() => setDetail(null)}
+        statusOpties={detail.statusOpties || statusOpties}
+        catalogus={detail.catalogus || []}
+        secties={detail.secties || []}
+        picklistOpties={detail.picklistOpties || {}}
+        onTerug={() => { setDetailId(null); setDetail(null); }}
         onOpgeslagen={(bijgewerkt) => {
-          setDetail(bijgewerkt);
+          setDetail((h) => ({ ...h, dossier: bijgewerkt }));
           setDossiers((h) => (h || []).map((x) => (x.id === bijgewerkt.id ? bijgewerkt : x)));
         }}
       />
@@ -1776,7 +1814,7 @@ function MedewerkerDossiers({ soort }) {
               <div>Cliënt</div><div>{periodeLabel}</div><div>Status</div><div>Accountant</div><div>Assistent</div><div></div>
             </div>
             {zichtbaar.map((d, i) => (
-              <div key={d.id || i} onClick={() => setDetail(d)} title="Open dossier" style={{ display: "grid", gridTemplateColumns: "2fr 90px 1.6fr 1.3fr 1.3fr 20px", gap: 0, padding: "9px 14px", borderTop: `1px solid ${KLEUR.rand}`, fontSize: 12.5, alignItems: "center", cursor: "pointer" }}
+              <div key={d.id || i} onClick={() => openDossier(d.id)} title="Open dossier" style={{ display: "grid", gridTemplateColumns: "2fr 90px 1.6fr 1.3fr 1.3fr 20px", gap: 0, padding: "9px 14px", borderTop: `1px solid ${KLEUR.rand}`, fontSize: 12.5, alignItems: "center", cursor: "pointer" }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = "#FBFBF9")} onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
                 <div style={{ fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6 }}>
                   {d.klantnaam || "—"}{d.actief === false && <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 999, background: "#F0F0EC", color: KLEUR.mutedTekst }}>Inactief</span>}
@@ -1819,21 +1857,110 @@ function MedewerkerDossiers({ soort }) {
 /* Detail van één fiscaal dossier (IB/VPB) voor de medewerker — met bewerkbare status + documentlink.
    Alleen-lezen als het dossier in Dynamics op inactief (statecode) staat. Lay-out in lijn met de
    andere detailschermen (terug-knop, kop, veldenraster, bewerksectie). */
-function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, onTerug, onOpgeslagen }) {
+// Bouwt de initiële { [catalogusKey]: waarde }-bag uit een dossier — gedeeld tussen de
+// beginwaarde van het bewerkformulier en de "is er iets gewijzigd?"-vergelijking.
+function waardenUitDossier(dossier, catalogus) {
+  const resultaat = {};
+  for (const veldDef of catalogus || []) {
+    const info = (dossier.velden && dossier.velden[veldDef.key]) || {};
+    resultaat[veldDef.key] = info.waarde !== undefined ? info.waarde : (veldDef.type === "boolean" ? false : null);
+  }
+  return resultaat;
+}
+
+/** Eén besturingselement in de dossiersecties, op basis van het veldtype uit de catalogus
+ * (zie api/_gedeeld/dossierVelden.js). Ja/nee-velden (verreweg de meeste) als nette pil-toggle
+ * i.p.v. een kale HTML-checkbox — dat leest sneller in een lange lijst en sluit aan bij de
+ * toggle-stijl die de rest van het beheerportaal al gebruikt (bijv. ContractenTypesBeheer). */
+function VeldInvoer({ veldDef, waarde, onChange, picklistOpties, disabled, stijlen }) {
+  const { label, veld: veldStijl } = stijlen;
+  if (veldDef.type === "boolean") {
+    const aan = !!waarde;
+    return (
+      <div>
+        <div style={label}>{veldDef.label}</div>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onChange(!aan)}
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 999,
+            border: `1px solid ${aan ? KLEUR.groen : KLEUR.rand}`,
+            background: aan ? "#EAF6EE" : "#F2F3F0",
+            color: aan ? KLEUR.groen : KLEUR.mutedTekst,
+            fontSize: 12.5, fontWeight: 600, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.7 : 1,
+          }}
+        >
+          {aan ? <CheckCircle2 size={13} /> : <XCircle size={13} />} {aan ? "Ja" : "Nee"}
+        </button>
+      </div>
+    );
+  }
+  if (veldDef.type === "picklist") {
+    const opties = (picklistOpties && picklistOpties[veldDef.key]) || [];
+    return (
+      <div>
+        <div style={label}>{veldDef.label}</div>
+        <select disabled={disabled} value={waarde ?? ""} onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))} style={veldStijl}>
+          <option value="">— geen —</option>
+          {opties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
+        </select>
+      </div>
+    );
+  }
+  if (veldDef.type === "memo") {
+    return (
+      <div style={{ gridColumn: "1 / -1" }}>
+        <div style={label}>{veldDef.label}</div>
+        <textarea disabled={disabled} value={waarde || ""} onChange={(e) => onChange(e.target.value)} rows={3} style={{ ...veldStijl, resize: "vertical", fontFamily: "inherit" }} />
+      </div>
+    );
+  }
+  if (veldDef.type === "datetime") {
+    const datumWaarde = waarde ? String(waarde).slice(0, 10) : "";
+    return (
+      <div>
+        <div style={label}>{veldDef.label}</div>
+        <input type="date" disabled={disabled} value={datumWaarde} onChange={(e) => onChange(e.target.value || null)} style={veldStijl} />
+      </div>
+    );
+  }
+  // string
+  return (
+    <div>
+      <div style={label}>{veldDef.label}</div>
+      <input disabled={disabled} value={waarde || ""} onChange={(e) => onChange(e.target.value)} style={veldStijl} />
+    </div>
+  );
+}
+
+/* Detail van één fiscaal dossier (IB/VPB) voor de medewerker. Kop met de vaste identiteits-
+   velden (cliënt/periode/status/behandelaars/links) plus, eronder, één kaart per sectie uit de
+   Beheer-indeling (Beheer → Dossiers) met de rest van de ~70 Dynamics-dossiervelden — dezelfde
+   inhoud als het Dynamics-formulier (tabbladen Algemeen/Box I/II/III/Review), maar als één
+   doorlopende, overzichtelijke pagina i.p.v. zes aparte tabbladen. Alleen-lezen als het dossier
+   in Dynamics op inactief (statecode) staat. */
+function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, picklistOpties, onTerug, onOpgeslagen }) {
   const [status, setStatus] = useState(dossier.status != null ? String(dossier.status) : "");
+  const [urlDossier, setUrlDossier] = useState(dossier.urlDossier || "");
   const [documentUrl, setDocumentUrl] = useState(dossier.documentUrl || "");
+  const [veldenState, setVeldenState] = useState(() => waardenUitDossier(dossier, catalogus));
   const [opslaan, setOpslaan] = useState("rust"); // rust | bezig | gelukt | fout
   const [fout, setFout] = useState("");
   const bewerkbaar = dossier.actief !== false;
 
-  const gewijzigd = String(dossier.status ?? "") !== status || (dossier.documentUrl || "") !== documentUrl;
+  const oorspronkelijkeVelden = waardenUitDossier(dossier, catalogus);
+  const veldenGewijzigd = JSON.stringify(veldenState) !== JSON.stringify(oorspronkelijkeVelden);
+  const gewijzigd = String(dossier.status ?? "") !== status || (dossier.urlDossier || "") !== urlDossier || (dossier.documentUrl || "") !== documentUrl || veldenGewijzigd;
+
+  const zetVeld = (key, waarde) => { setVeldenState((h) => ({ ...h, [key]: waarde })); setOpslaan("rust"); };
 
   const bewaar = async () => {
     setOpslaan("bezig"); setFout("");
     try {
       const r = await fetch("/api/medewerker-dossier", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ soort: dossier.soort, id: dossier.id, status: status === "" ? null : Number(status), documentUrl }),
+        body: JSON.stringify({ soort: dossier.soort, id: dossier.id, status: status === "" ? null : Number(status), urlDossier, documentUrl, velden: veldenState }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
@@ -1845,6 +1972,8 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
   const label = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3 };
   const waarde = { fontSize: 13.5, color: KLEUR.tekst };
   const veld = { width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 10px", fontSize: 13, background: "#fff" };
+  const veldStijlen = { label, veld };
+  const zichtbareSecties = (secties || []).filter((s) => s.velden && s.velden.length > 0);
 
   return (
     <div>
@@ -1862,52 +1991,71 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "14px 24px" }}>
           <div><div style={label}>Cliënt</div><div style={waarde}>{dossier.klantnaam || "—"}</div></div>
           <div><div style={label}>{periodeLabel}</div><div style={waarde}>{periode(dossier) || "—"}</div></div>
-          <div><div style={label}>Huidige status</div><div style={waarde}>{dossier.statusLabel || "—"}</div></div>
           <div><div style={label}>Accountant</div><div style={waarde}>{dossier.accountant || "—"}</div></div>
           <div><div style={label}>Assistent</div><div style={waarde}>{dossier.assistent || "—"}</div></div>
-          <div>
-            <div style={label}>Documentlink</div>
-            <div style={waarde}>{dossier.documentUrl ? <a href={dossier.documentUrl} target="_blank" rel="noreferrer" style={{ color: KLEUR.blauw, display: "inline-flex", alignItems: "center", gap: 4 }}>Uitgaande stukken <ExternalLink size={13} /></a> : "—"}</div>
-          </div>
+          {dossier.manager && <div><div style={label}>Manager</div><div style={waarde}>{dossier.manager}</div></div>}
+          {dossier.groepsnaam && <div><div style={label}>Groep</div><div style={waarde}>{dossier.groepsnaam}</div></div>}
         </div>
 
-        {(dossier.reviewNotitie || dossier.reactie) && (
-          <div style={{ marginTop: 16, borderTop: `1px solid ${KLEUR.rand}`, paddingTop: 12 }}>
-            {dossier.reviewNotitie && <div style={{ marginBottom: 8 }}><div style={label}>Review-notitie (aan de klant)</div><div style={{ ...waarde, whiteSpace: "pre-wrap", color: KLEUR.subtekst }}>{dossier.reviewNotitie}</div></div>}
-            {dossier.reactie && <div><div style={label}>Reactie van de klant</div><div style={{ ...waarde, whiteSpace: "pre-wrap", color: KLEUR.subtekst }}>{dossier.reactie}</div></div>}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14, marginTop: 18, paddingTop: 16, borderTop: `1px solid ${KLEUR.rand}` }}>
+          <div>
+            <div style={label}>Status van de aangifte</div>
+            <select disabled={!bewerkbaar} value={status} onChange={(e) => { setStatus(e.target.value); setOpslaan("rust"); }} style={veld}>
+              <option value="">— geen —</option>
+              {statusOpties.map((o) => <option key={o.waarde} value={String(o.waarde)}>{o.label}</option>)}
+            </select>
           </div>
-        )}
+          <div>
+            <div style={label}>URL dossier</div>
+            <input disabled={!bewerkbaar} value={urlDossier} onChange={(e) => { setUrlDossier(e.target.value); setOpslaan("rust"); }} placeholder="https://…" style={veld} />
+          </div>
+          <div>
+            <div style={label}>Documentlink (uitgaande stukken)</div>
+            <input disabled={!bewerkbaar} value={documentUrl} onChange={(e) => { setDocumentUrl(e.target.value); setOpslaan("rust"); }} placeholder="https://…" style={veld} />
+          </div>
+        </div>
       </div>
 
-      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, padding: 20 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Bewerken</div>
-        {!bewerkbaar ? (
-          <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Dit dossier staat in Dynamics op <strong>inactief</strong> en is daarom alleen-lezen.</div>
-        ) : (
-          <>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14, marginTop: 8 }}>
-              <div>
-                <div style={label}>Status van de aangifte</div>
-                <select value={status} onChange={(e) => { setStatus(e.target.value); setOpslaan("rust"); }} style={veld}>
-                  <option value="">— geen —</option>
-                  {statusOpties.map((o) => <option key={o.waarde} value={String(o.waarde)}>{o.label}</option>)}
-                </select>
-              </div>
-              <div>
-                <div style={label}>Documentlink (uitgaande stukken)</div>
-                <input value={documentUrl} onChange={(e) => { setDocumentUrl(e.target.value); setOpslaan("rust"); }} placeholder="https://…" style={veld} />
-              </div>
-            </div>
-            {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginTop: 10 }}>{fout}</div>}
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 14 }}>
-              <button onClick={bewaar} disabled={opslaan === "bezig" || !gewijzigd} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: gewijzigd ? KLEUR.groen : "#9DB4A5", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: gewijzigd ? "pointer" : "default" }}>
-                <CheckCircle2 size={14} /> {opslaan === "bezig" ? "Opslaan…" : "Opslaan"}
-              </button>
-              {opslaan === "gelukt" && !gewijzigd && <span style={{ fontSize: 12.5, color: KLEUR.groen }}>Opgeslagen.</span>}
-            </div>
-          </>
-        )}
-      </div>
+      {!bewerkbaar && (
+        <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, marginBottom: 16 }}>
+          Dit dossier staat in Dynamics op <strong>inactief</strong> en is daarom hieronder alleen-lezen.
+        </div>
+      )}
+
+      {zichtbareSecties.map((sectie) => (
+        <div key={sectie.sleutel} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>{sectie.titel}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "14px 20px" }}>
+            {sectie.velden.map((key) => {
+              const veldDef = (catalogus || []).find((v) => v.key === key);
+              if (!veldDef) return null;
+              return (
+                <VeldInvoer
+                  key={key}
+                  veldDef={veldDef}
+                  waarde={veldenState[key]}
+                  onChange={(w) => zetVeld(key, w)}
+                  picklistOpties={picklistOpties}
+                  disabled={!bewerkbaar}
+                  stijlen={veldStijlen}
+                />
+              );
+            })}
+          </div>
+        </div>
+      ))}
+
+      {bewerkbaar && (
+        <div style={{ position: "sticky", bottom: 0, background: "#fff", paddingTop: 8 }}>
+          {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 10 }}>{fout}</div>}
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <button onClick={bewaar} disabled={opslaan === "bezig" || !gewijzigd} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: gewijzigd ? KLEUR.groen : "#9DB4A5", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: gewijzigd ? "pointer" : "default" }}>
+              <CheckCircle2 size={14} /> {opslaan === "bezig" ? "Opslaan…" : "Opslaan"}
+            </button>
+            {opslaan === "gelukt" && !gewijzigd && <span style={{ fontSize: 12.5, color: KLEUR.groen }}>Opgeslagen.</span>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

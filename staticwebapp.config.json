@@ -230,6 +230,20 @@
       ]
     },
     {
+      "route": "/api/medewerker-dossier",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
+      "route": "/api/dossier-velden",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
       "route": "/api/medewerker-contactpersoon",
       "allowedRoles": [
         "beheerder",
