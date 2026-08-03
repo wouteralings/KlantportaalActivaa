@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useState } from "react";
 import OffertetoolApp from "../medewerker/offertes/OffertetoolApp";
 import UitvraagBeheer from "./UitvraagBeheer";
 import UrenTarievenBeheer from "./UrenTarievenBeheer";
+import ContractenTypesBeheer from "./ContractenTypesBeheer";
+import ContractenDossierInstellingen from "./ContractenDossierInstellingen";
 import VerlofBeheer from "./VerlofBeheer";
 import DossierIndelingBeheer from "./DossierIndelingBeheer";
 import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Search, ArrowUp, ArrowDown, HelpCircle, ChevronDown, Plus, Pencil, Check, X, Clock } from "lucide-react";
@@ -88,6 +90,45 @@ function ModuleToggle({ label, aan, bezig, uitgeschakeld, titel, onClick }) {
         <span style={{ position: "absolute", top: 2, left: aan ? 20 : 2, width: 18, height: 18, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 2px rgba(0,0,0,.25)", transition: "left .15s" }} />
       </button>
     </div>
+  );
+}
+
+/** Eén rij in de prijzentabel "Betaalde functionaliteiten": module-naam, €-invoer en een eigen
+ *  Opslaan-knop met statusindicator — elke module heeft zijn eigen prijs, los in te stellen. */
+function PrijsRij({ label, waarde, setWaarde, status, opslaan }) {
+  return (
+    <tr>
+      <td style={{ fontSize: 12.5, fontWeight: 600, padding: "8px 10px", borderTop: `1px solid ${KLEUR.rand}` }}>{label}</td>
+      <td style={{ padding: "8px 10px", borderTop: `1px solid ${KLEUR.rand}` }}>
+        <div style={{ position: "relative", maxWidth: 130 }}>
+          <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", fontSize: 12.5, color: KLEUR.mutedTekst }}>€</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={waarde}
+            onChange={(e) => setWaarde(e.target.value)}
+            style={{ width: "100%", boxSizing: "border-box", padding: "6px 8px 6px 22px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 7 }}
+          />
+        </div>
+      </td>
+      <td style={{ padding: "8px 10px", borderTop: `1px solid ${KLEUR.rand}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <button
+            onClick={opslaan}
+            disabled={status === "bezig"}
+            style={{ padding: "6px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+          >
+            {status === "bezig" ? "Opslaan..." : "Opslaan"}
+          </button>
+          {status === "gelukt" && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: KLEUR.blauw }}>
+              <CheckCircle2 size={13} /> Opgeslagen
+            </span>
+          )}
+          {status === "fout" && <span style={{ fontSize: 12, color: KLEUR.rood }}>Ongeldig bedrag</span>}
+        </div>
+      </td>
+    </tr>
   );
 }
 
@@ -230,6 +271,9 @@ export default function BeheerPortaal() {
   // Offertes-recht: lijst met e-mailadressen die offertes/opdrachtbevestigingen mogen maken.
   // Let op: leeg = niemand (net als bulk en als-klant); beheerders mogen altijd.
   const [offertes, setOffertes] = useState([]);
+  // Contracten-recht: lijst met e-mailadressen die de tab "Contracten" in het medewerkersportaal
+  // mogen zien (Contractmanagement-plan, Stap 3). Let op: leeg = niemand; beheerders mogen altijd.
+  const [contracten, setContracten] = useState([]);
   const [wijzigrechtenStatus, setWijzigrechtenStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [medewerkers, setMedewerkers] = useState(null); // null = laden; alle Activaa-medewerkers
   const [medewerkerZoek, setMedewerkerZoek] = useState("");
@@ -276,10 +320,11 @@ export default function BeheerPortaal() {
   const [webhookOpslaanStatus, setWebhookOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
 
   // Facturatiemodule: per klant-account aan/uit (tab "Facturatie").
-  const [facturatieKlanten, setFacturatieKlanten] = useState(null); // null = laden; [{accountId, klantnaam, klantnummer}]
+  const [facturatieKlanten, setFacturatieKlanten] = useState(null); // null = laden; [{accountId, klantnaam, klantnummer, groepsnaam}]
   const [facturatieStatussen, setFacturatieStatussen] = useState({}); // accountId -> { ingeschakeld, gewijzigdOp, gewijzigdDoor }
   const [facturatieZoek, setFacturatieZoek] = useState("");
   const [facturatieStatusFilter, setFacturatieStatusFilter] = useState("alle"); // "alle" | "aan" | "uit"
+  const [facturatieGroepFilter, setFacturatieGroepFilter] = useState("alle"); // "alle" of een groepsnaam
   const [facturatieBezig, setFacturatieBezig] = useState({}); // accountId -> bool
   const [facturatieFout, setFacturatieFout] = useState("");
   // Losse urenregistratie-schakelaar (€2,50), naast de facturatiemodule — zelfde lijst klanten.
@@ -290,6 +335,13 @@ export default function BeheerPortaal() {
   const [prijsOpslaanStatus, setPrijsOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [urenmodulePrijs, setUrenmodulePrijs] = useState("2.5");
   const [urenPrijsOpslaanStatus, setUrenPrijsOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
+  // Prijzen van de overige betaalde modules — zelfde contract, samen met facturatie/uren getoond
+  // in één prijzentabel bovenaan "Betaalde functionaliteiten".
+  const [bezittingenmodulePrijs, setBezittingenmodulePrijs] = useState("5");
+  const [rapportagesmodulePrijs, setRapportagesmodulePrijs] = useState("7.5");
+  const [rittenmodulePrijs, setRittenmodulePrijs] = useState("1.5");
+  const [contractenmodulePrijs, setContractenmodulePrijs] = useState("2.5");
+  const [overigePrijsStatus, setOverigePrijsStatus] = useState({}); // veldnaam -> idle | bezig | gelukt | fout
   // Overige betaalde modules per klant aan/uit — zelfde contract als facturatie/uren
   // (GET { statussen } / PUT { accountId, ingeschakeld }). Samengebracht in één tabel.
   const [bezittingenStatussen, setBezittingenStatussen] = useState({});
@@ -298,6 +350,8 @@ export default function BeheerPortaal() {
   const [rapportagesBezig, setRapportagesBezig] = useState({});
   const [rittenStatussen, setRittenStatussen] = useState({});
   const [rittenBezig, setRittenBezig] = useState({});
+  const [contractenStatussen, setContractenStatussen] = useState({});
+  const [contractenBezig, setContractenBezig] = useState({});
 
   // BTW-tarieven met geldigheidsperiode (Facturatie → BTW-tarieven) — zelfde bewerk-per-rij
   // patroon als Standaardartikelen: "nieuw" voegt een tarief toe (sluit het vorige van die
@@ -365,6 +419,10 @@ export default function BeheerPortaal() {
         setReviewWebhookUrl(d.reviewWebhookUrl || "");
         setFacturatiemodulePrijs(d.facturatiemodulePrijs != null ? String(d.facturatiemodulePrijs) : "5");
         setUrenmodulePrijs(d.urenmodulePrijs != null ? String(d.urenmodulePrijs) : "2.5");
+        setBezittingenmodulePrijs(d.bezittingenmodulePrijs != null ? String(d.bezittingenmodulePrijs) : "5");
+        setRapportagesmodulePrijs(d.rapportagesmodulePrijs != null ? String(d.rapportagesmodulePrijs) : "7.5");
+        setRittenmodulePrijs(d.rittenmodulePrijs != null ? String(d.rittenmodulePrijs) : "1.5");
+        setContractenmodulePrijs(d.contractenmodulePrijs != null ? String(d.contractenmodulePrijs) : "2.5");
         setKoExtra((d.klantoverzicht && d.klantoverzicht.extraKolommen) || []);
         setKoVerborgen((d.klantoverzicht && d.klantoverzicht.standaardVerborgen) || []);
       })
@@ -375,7 +433,7 @@ export default function BeheerPortaal() {
       .catch(() => setCategorieen([]));
     fetch("/api/beheer-wijzigrechten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { setNiveaus(d.niveaus || {}); setBulk(Array.isArray(d.bulk) ? d.bulk : []); setAlsKlant(Array.isArray(d.alsKlant) ? d.alsKlant : []); setOffertes(Array.isArray(d.offertes) ? d.offertes : []); })
+      .then((d) => { setNiveaus(d.niveaus || {}); setBulk(Array.isArray(d.bulk) ? d.bulk : []); setAlsKlant(Array.isArray(d.alsKlant) ? d.alsKlant : []); setOffertes(Array.isArray(d.offertes) ? d.offertes : []); setContracten(Array.isArray(d.contracten) ? d.contracten : []); })
       .catch(() => {});
     fetch("/api/beheer-entra-groepen")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
@@ -406,7 +464,7 @@ export default function BeheerPortaal() {
     fetch("/api/beheer-klanten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setFacturatieKlanten(
-        (d.klanten || []).map((k) => ({ accountId: k.accountId, klantnaam: k.klantnaam, klantnummer: k.klantnummer }))
+        (d.klanten || []).map((k) => ({ accountId: k.accountId, klantnaam: k.klantnaam, klantnummer: k.klantnummer, groepsnaam: k.groepsnaam || "" }))
       ))
       .catch(() => setFacturatieKlanten([]));
     fetch("/api/beheer-facturatie-klanten")
@@ -425,6 +483,10 @@ export default function BeheerPortaal() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setRapportagesStatussen(d.statussen || {}))
       .catch(() => setRapportagesStatussen({}));
+    fetch("/api/beheer-contracten-klanten")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setContractenStatussen(d.statussen || {}))
+      .catch(() => setContractenStatussen({}));
     fetch("/api/beheer-ritten-klanten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setRittenStatussen(d.statussen || {}))
@@ -784,6 +846,29 @@ export default function BeheerPortaal() {
     }
   }, [urenmodulePrijs]);
 
+  // Generieke prijs-opslaan voor de overige betaalde modules (bezittingen/rapportages/ritten) —
+  // zelfde contract als facturatie/uren hierboven, maar met meegegeven veldnaam/waarde/setter.
+  const slaOverigePrijsOp = useCallback(async (veldNaam, waardeStr, setWaarde) => {
+    const bedrag = Number(String(waardeStr).replace(",", "."));
+    if (!Number.isFinite(bedrag) || bedrag < 0) {
+      setOverigePrijsStatus((h) => ({ ...h, [veldNaam]: "fout" }));
+      return;
+    }
+    setOverigePrijsStatus((h) => ({ ...h, [veldNaam]: "bezig" }));
+    try {
+      const res = await fetch("/api/beheer-instellingen", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [veldNaam]: bedrag }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setWaarde(String(bedrag));
+      setOverigePrijsStatus((h) => ({ ...h, [veldNaam]: "gelukt" }));
+    } catch {
+      setOverigePrijsStatus((h) => ({ ...h, [veldNaam]: "fout" }));
+    }
+  }, []);
+
   // Facturatiemodule per klant aan/uit — direct opslaan (geen aparte "Opslaan"-knop), met
   // optimistische update en terugdraaien bij een fout.
   const zetFacturatieStatus = useCallback(async (accountId, ingeschakeld) => {
@@ -858,7 +943,22 @@ export default function BeheerPortaal() {
     !!(urenStatussen[accountId] && urenStatussen[accountId].ingeschakeld) ||
     !!(bezittingenStatussen[accountId] && bezittingenStatussen[accountId].ingeschakeld) ||
     !!(rapportagesStatussen[accountId] && rapportagesStatussen[accountId].ingeschakeld) ||
-    !!(rittenStatussen[accountId] && rittenStatussen[accountId].ingeschakeld);
+    !!(rittenStatussen[accountId] && rittenStatussen[accountId].ingeschakeld) ||
+    !!(contractenStatussen[accountId] && contractenStatussen[accountId].ingeschakeld);
+
+  // Heeft deze klant bij minstens één module een openstaande aanvraag (nog uit, wel aangevraagd)?
+  // Gebruikt voor het "aanvragen bovenaan"-sorteren van de tabel en de teller erboven.
+  const heeftOpenstaandeAanvraag = (accountId) => {
+    const open = (s) => !!(s && !s.ingeschakeld && s.aangevraagdOp);
+    return (
+      open(facturatieStatussen[accountId]) ||
+      open(urenStatussen[accountId]) ||
+      open(bezittingenStatussen[accountId]) ||
+      open(rapportagesStatussen[accountId]) ||
+      open(rittenStatussen[accountId]) ||
+      open(contractenStatussen[accountId])
+    );
+  };
 
   // BTW-tarieven — "nieuw" voegt een tarief toe (de server sluit automatisch het vorige
   // tarief van diezelfde code af); een bestaand tarief bewerken corrigeert dat ene tarief
@@ -1008,13 +1108,19 @@ export default function BeheerPortaal() {
     setWijzigrechtenStatus("idle");
   }, []);
 
+  const zetContracten = useCallback((email, aan) => {
+    const laag = String(email).toLowerCase();
+    setContracten((h) => (aan ? [...new Set([...h, laag])] : h.filter((e) => e !== laag)));
+    setWijzigrechtenStatus("idle");
+  }, []);
+
   const slaWijzigrechtenOp = useCallback(async () => {
     setWijzigrechtenStatus("bezig");
     try {
       const res = await fetch("/api/beheer-wijzigrechten", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ niveaus, bulk, alsKlant, offertes }),
+        body: JSON.stringify({ niveaus, bulk, alsKlant, offertes, contracten }),
       });
       if (!res.ok) throw new Error(await res.text());
       const d = await res.json();
@@ -1022,11 +1128,12 @@ export default function BeheerPortaal() {
       setBulk(Array.isArray(d.bulk) ? d.bulk : []);
       setAlsKlant(Array.isArray(d.alsKlant) ? d.alsKlant : []);
       setOffertes(Array.isArray(d.offertes) ? d.offertes : []);
+      setContracten(Array.isArray(d.contracten) ? d.contracten : []);
       setWijzigrechtenStatus("gelukt");
     } catch {
       setWijzigrechtenStatus("fout");
     }
-  }, [niveaus, bulk, alsKlant, offertes]);
+  }, [niveaus, bulk, alsKlant, offertes, contracten]);
 
   const slaEntraGroepOp = useCallback(async () => {
     setEntraStatus("bezig");
@@ -2400,10 +2507,11 @@ export default function BeheerPortaal() {
           <strong> niveau</strong> (wijzigen van klantgegevens), vink aan wie <strong>bulk-aanpassingen</strong>
           {" "}op meerdere klanten tegelijk mag doen, en vink aan wie <strong>als klant mag meekijken</strong>
           {" "}(alleen-lezen het klantportaal bekijken namens een gekozen klant, via de tab "Meekijken als klant"
-          {" "}in het medewerkersportaal), en vink aan wie <strong>offertes</strong> mag maken (de tab "Offertes":
-          {" "}offertes en opdrachtbevestigingen opstellen en versturen). Beheerders mogen dit alle vier sowieso
-          {" "}altijd. Wie het offertes-recht niet heeft, ziet de tab niet en kan de bijbehorende API ook niet
-          {" "}aanroepen.
+          {" "}in het medewerkersportaal), vink aan wie <strong>offertes</strong> mag maken (de tab "Offertes":
+          {" "}offertes en opdrachtbevestigingen opstellen en versturen), en vink aan wie de tab <strong>Contracten</strong>
+          {" "}mag zien (toont vooralsnog alleen de placeholder van de Contractenmodule, die krijgt pas in een
+          {" "}latere stap echte inhoud). Beheerders mogen dit alle vijf sowieso altijd. Wie het offertes-recht
+          {" "}niet heeft, ziet de tab niet en kan de bijbehorende API ook niet aanroepen.
         </div>
 
         {medewerkers === null ? (
@@ -2424,7 +2532,7 @@ export default function BeheerPortaal() {
               />
             </div>
             <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 8 }}>
-              {Object.values(niveaus).filter((n) => n === "manager" || n === "beheerder").length} met wijzig-recht · {bulk.length} met bulk-recht · {alsKlant.length} met als-klant-recht · {offertes.length} met offertes-recht · {medewerkers.length} medewerkers
+              {Object.values(niveaus).filter((n) => n === "manager" || n === "beheerder").length} met wijzig-recht · {bulk.length} met bulk-recht · {alsKlant.length} met als-klant-recht · {offertes.length} met offertes-recht · {contracten.length} met contracten-recht · {medewerkers.length} medewerkers
             </div>
             {(() => {
             const gefilterdeMedewerkers = medewerkers
@@ -2473,6 +2581,14 @@ export default function BeheerPortaal() {
                         onChange={(e) => zetOffertes(m.email, e.target.checked)}
                       />
                       Offertes
+                    </label>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: KLEUR.subtekst, cursor: "pointer", whiteSpace: "nowrap" }} title="Mag de tab 'Contracten' zien in het medewerkersportaal">
+                      <input
+                        type="checkbox"
+                        checked={contracten.includes(String(m.email).toLowerCase())}
+                        onChange={(e) => zetContracten(m.email, e.target.checked)}
+                      />
+                      Contracten
                     </label>
                     <select
                       value={niveaus[m.email] || "medewerker"}
@@ -2594,75 +2710,34 @@ export default function BeheerPortaal() {
         <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 14px" }}>
           Alle betaalde modules staan standaard <strong>uit</strong> voor elke klant. Zet per klant aan wat die klant mag
           gebruiken — de bijbehorende tab verschijnt dan meteen in het klantportaal. Modules: <strong>Facturen</strong>,
-          <strong> Uren</strong> (werkt bovenop Facturen), <strong>Bezittingen</strong>, <strong>Rapportages</strong> en <strong>Ritten</strong>.
+          <strong> Uren</strong> (werkt bovenop Facturen), <strong>Bezittingen</strong>, <strong>Rapportages</strong>, <strong>Ritten</strong> en
+          <strong> Contracten</strong>.
         </div>
 
-        <div style={{ display: "flex", alignItems: "flex-end", gap: 10, flexWrap: "wrap", marginBottom: 18, padding: 14, background: KLEUR.lichtblauw, borderRadius: 8 }}>
-          <div>
-            <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Prijs per maand, per klantaccount</div>
-            <div style={{ position: "relative", maxWidth: 160 }}>
-              <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: KLEUR.mutedTekst }}>€</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={facturatiemodulePrijs}
-                onChange={(e) => setFacturatiemodulePrijs(e.target.value)}
-                style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 24px", fontSize: 13, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}
-              />
-            </div>
+        <div style={{ marginBottom: 18, padding: 14, background: KLEUR.lichtblauw, borderRadius: 8 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 10 }}>Prijzen per maand, per klantaccount</div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ borderCollapse: "collapse", minWidth: 380 }}>
+              <tbody>
+                <PrijsRij label="Facturatie" waarde={facturatiemodulePrijs} setWaarde={setFacturatiemodulePrijs} status={prijsOpslaanStatus} opslaan={slaFacturatiemodulePrijsOp} />
+                <PrijsRij label="Uren" waarde={urenmodulePrijs} setWaarde={setUrenmodulePrijs} status={urenPrijsOpslaanStatus} opslaan={slaUrenmodulePrijsOp} />
+                <PrijsRij label="Bezittingen" waarde={bezittingenmodulePrijs} setWaarde={setBezittingenmodulePrijs} status={overigePrijsStatus.bezittingenmodulePrijs} opslaan={() => slaOverigePrijsOp("bezittingenmodulePrijs", bezittingenmodulePrijs, setBezittingenmodulePrijs)} />
+                <PrijsRij label="Rapportages" waarde={rapportagesmodulePrijs} setWaarde={setRapportagesmodulePrijs} status={overigePrijsStatus.rapportagesmodulePrijs} opslaan={() => slaOverigePrijsOp("rapportagesmodulePrijs", rapportagesmodulePrijs, setRapportagesmodulePrijs)} />
+                <PrijsRij label="Ritten" waarde={rittenmodulePrijs} setWaarde={setRittenmodulePrijs} status={overigePrijsStatus.rittenmodulePrijs} opslaan={() => slaOverigePrijsOp("rittenmodulePrijs", rittenmodulePrijs, setRittenmodulePrijs)} />
+                <PrijsRij label="Contracten" waarde={contractenmodulePrijs} setWaarde={setContractenmodulePrijs} status={overigePrijsStatus.contractenmodulePrijs} opslaan={() => slaOverigePrijsOp("contractenmodulePrijs", contractenmodulePrijs, setContractenmodulePrijs)} />
+              </tbody>
+            </table>
           </div>
-          <button
-            onClick={slaFacturatiemodulePrijsOp}
-            disabled={prijsOpslaanStatus === "bezig"}
-            style={{ padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
-          >
-            {prijsOpslaanStatus === "bezig" ? "Opslaan..." : "Opslaan"}
-          </button>
-          {prijsOpslaanStatus === "gelukt" && (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: KLEUR.blauw }}>
-              <CheckCircle2 size={14} /> Opgeslagen.
-            </span>
-          )}
-          {prijsOpslaanStatus === "fout" && (
-            <span style={{ fontSize: 12.5, color: KLEUR.rood }}>Ongeldig bedrag of opslaan mislukt.</span>
-          )}
-          <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, width: "100%" }}>
-            Deze prijs wordt getoond aan klanten bij wie de module nog niet actief is (klantportaal, tab "Facturen").
+          <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 10 }}>
+            Deze prijzen worden getoond aan klanten bij wie de betreffende module nog niet actief is. Uren werkt bovenop
+            Facturatie; de overige modules staan los van elkaar.
           </div>
+
+          <ContractenDossierInstellingen />
         </div>
 
-        <div style={{ display: "flex", alignItems: "flex-end", gap: 10, flexWrap: "wrap", marginBottom: 18, padding: 14, background: KLEUR.lichtblauw, borderRadius: 8 }}>
-          <div>
-            <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Prijs urenregistratie per maand, per klantaccount</div>
-            <div style={{ position: "relative", maxWidth: 160 }}>
-              <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: KLEUR.mutedTekst }}>€</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={urenmodulePrijs}
-                onChange={(e) => setUrenmodulePrijs(e.target.value)}
-                style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 24px", fontSize: 13, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}
-              />
-            </div>
-          </div>
-          <button
-            onClick={slaUrenmodulePrijsOp}
-            disabled={urenPrijsOpslaanStatus === "bezig"}
-            style={{ padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
-          >
-            {urenPrijsOpslaanStatus === "bezig" ? "Opslaan..." : "Opslaan"}
-          </button>
-          {urenPrijsOpslaanStatus === "gelukt" && (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: KLEUR.blauw }}>
-              <CheckCircle2 size={14} /> Opgeslagen.
-            </span>
-          )}
-          {urenPrijsOpslaanStatus === "fout" && (
-            <span style={{ fontSize: 12.5, color: KLEUR.rood }}>Ongeldig bedrag of opslaan mislukt.</span>
-          )}
-          <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, width: "100%" }}>
-            De losse urenregistratie-module (werkt samen met de facturatiemodule). Deze prijs wordt getoond aan klanten bij wie de urenregistratie nog niet actief is.
-          </div>
+        <div style={{ marginBottom: 18, padding: 14, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
+          <ContractenTypesBeheer />
         </div>
 
         {facturatieFout && (
@@ -2703,11 +2778,25 @@ export default function BeheerPortaal() {
                   </button>
                 ))}
               </div>
+              {(() => {
+                const groepen = [...new Set(facturatieKlanten.map((k) => k.groepsnaam).filter(Boolean))].sort((a, b) => a.localeCompare(b, "nl"));
+                if (groepen.length === 0) return null;
+                return (
+                  <select
+                    value={facturatieGroepFilter}
+                    onChange={(e) => setFacturatieGroepFilter(e.target.value)}
+                    style={{ padding: "7px 10px", borderRadius: 6, fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.subtekst, cursor: "pointer" }}
+                  >
+                    <option value="alle">Alle groepen</option>
+                    {groepen.map((g) => <option key={g} value={g}>{g}</option>)}
+                  </select>
+                );
+              })()}
             </div>
             <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 8 }}>
               {facturatieKlanten.filter((k) => anyModuleAan(k.accountId)).length} van {facturatieKlanten.length} klanten met minstens één module aan
               {(() => {
-                const nAanvragen = Object.values(facturatieStatussen).filter((s) => s && !s.ingeschakeld && s.aangevraagdOp).length;
+                const nAanvragen = facturatieKlanten.filter((k) => heeftOpenstaandeAanvraag(k.accountId)).length;
                 return nAanvragen > 0 ? ` — ${nAanvragen} ${nAanvragen === 1 ? "aanvraag" : "aanvragen"} open` : "";
               })()}
             </div>
@@ -2722,13 +2811,12 @@ export default function BeheerPortaal() {
                   const aan = anyModuleAan(k.accountId);
                   return facturatieStatusFilter === "aan" ? aan : !aan;
                 })
+                .filter((k) => facturatieGroepFilter === "alle" || k.groepsnaam === facturatieGroepFilter)
                 .slice()
                 .sort((a, b) => {
-                  // Klanten met een openstaande aanvraag (module nog uit, wel aangevraagd) bovenaan,
-                  // zodat een beheerder die niet over het hoofd ziet tussen alle andere klanten.
-                  const aanvraag = (k) => !(facturatieStatussen[k.accountId] && facturatieStatussen[k.accountId].ingeschakeld)
-                    && !!(facturatieStatussen[k.accountId] && facturatieStatussen[k.accountId].aangevraagdOp);
-                  return (aanvraag(b) ? 1 : 0) - (aanvraag(a) ? 1 : 0);
+                  // Klanten met een openstaande aanvraag bij minstens één module (nog uit, wel
+                  // aangevraagd) bovenaan, zodat een beheerder die niet over het hoofd ziet.
+                  return (heeftOpenstaandeAanvraag(b.accountId) ? 1 : 0) - (heeftOpenstaandeAanvraag(a.accountId) ? 1 : 0);
                 });
               const zichtbareFacturatie = gefilterdFacturatie.slice(0, facturatieToonAantal);
               return (
@@ -2743,14 +2831,26 @@ export default function BeheerPortaal() {
                       const urenAan = !!urenStatus.ingeschakeld;
                       const urenBezigRow = !!urenBezig[k.accountId];
                       const urenAangevraagd = !urenAan && !!urenStatus.aangevraagdOp;
-                      const bezAan = !!(bezittingenStatussen[k.accountId] && bezittingenStatussen[k.accountId].ingeschakeld);
-                      const rapAan = !!(rapportagesStatussen[k.accountId] && rapportagesStatussen[k.accountId].ingeschakeld);
-                      const ritAan = !!(rittenStatussen[k.accountId] && rittenStatussen[k.accountId].ingeschakeld);
+                      const bezStatus = bezittingenStatussen[k.accountId] || {};
+                      const bezAan = !!bezStatus.ingeschakeld;
+                      const bezAangevraagd = !bezAan && !!bezStatus.aangevraagdOp;
+                      const rapStatus = rapportagesStatussen[k.accountId] || {};
+                      const rapAan = !!rapStatus.ingeschakeld;
+                      const rapAangevraagd = !rapAan && !!rapStatus.aangevraagdOp;
+                      const ritStatus = rittenStatussen[k.accountId] || {};
+                      const ritAan = !!ritStatus.ingeschakeld;
+                      const ritAangevraagd = !ritAan && !!ritStatus.aangevraagdOp;
+                      const conStatus = contractenStatussen[k.accountId] || {};
+                      const conAan = !!conStatus.ingeschakeld;
+                      const conAangevraagd = !conAan && !!conStatus.aangevraagdOp;
+                      const heeftAanvraag = aangevraagd || urenAangevraagd || bezAangevraagd || rapAangevraagd || ritAangevraagd || conAangevraagd;
                       return (
-                        <div key={k.accountId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, background: (aangevraagd || urenAangevraagd) ? KLEUR.lichtblauw : "transparent" }}>
+                        <div key={k.accountId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, background: heeftAanvraag ? KLEUR.lichtblauw : "transparent" }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 13, fontWeight: 600 }}>{k.klantnaam || "(geen naam)"}</div>
-                            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>Cliëntnr {k.klantnummer || "—"}</div>
+                            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>
+                              Cliëntnr {k.klantnummer || "—"}{k.groepsnaam ? ` · ${k.groepsnaam}` : ""}
+                            </div>
                             {aangevraagd && (
                               <div style={{ fontSize: 11, fontWeight: 600, color: KLEUR.blauw, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
                                 <Clock size={11} /> Facturen aangevraagd op {new Date(status.aangevraagdOp).toLocaleDateString("nl-NL")}
@@ -2763,6 +2863,30 @@ export default function BeheerPortaal() {
                                 {urenStatus.aangevraagdDoor ? ` door ${urenStatus.aangevraagdDoor}` : ""}
                               </div>
                             )}
+                            {bezAangevraagd && (
+                              <div style={{ fontSize: 11, fontWeight: 600, color: KLEUR.blauw, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                                <Clock size={11} /> Bezittingen aangevraagd op {new Date(bezStatus.aangevraagdOp).toLocaleDateString("nl-NL")}
+                                {bezStatus.aangevraagdDoor ? ` door ${bezStatus.aangevraagdDoor}` : ""}
+                              </div>
+                            )}
+                            {rapAangevraagd && (
+                              <div style={{ fontSize: 11, fontWeight: 600, color: KLEUR.blauw, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                                <Clock size={11} /> Rapportages aangevraagd op {new Date(rapStatus.aangevraagdOp).toLocaleDateString("nl-NL")}
+                                {rapStatus.aangevraagdDoor ? ` door ${rapStatus.aangevraagdDoor}` : ""}
+                              </div>
+                            )}
+                            {ritAangevraagd && (
+                              <div style={{ fontSize: 11, fontWeight: 600, color: KLEUR.blauw, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                                <Clock size={11} /> Ritten aangevraagd op {new Date(ritStatus.aangevraagdOp).toLocaleDateString("nl-NL")}
+                                {ritStatus.aangevraagdDoor ? ` door ${ritStatus.aangevraagdDoor}` : ""}
+                              </div>
+                            )}
+                            {conAangevraagd && (
+                              <div style={{ fontSize: 11, fontWeight: 600, color: KLEUR.blauw, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
+                                <Clock size={11} /> Contracten aangevraagd op {new Date(conStatus.aangevraagdOp).toLocaleDateString("nl-NL")}
+                                {conStatus.aangevraagdDoor ? ` door ${conStatus.aangevraagdDoor}` : ""}
+                              </div>
+                            )}
                           </div>
                           <div style={{ display: "flex", gap: 10, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
                             <ModuleToggle label="Facturen" aan={aan} bezig={bezig} titel={aan ? "Facturatiemodule uitzetten" : "Facturatiemodule aanzetten"} onClick={() => zetFacturatieStatus(k.accountId, !aan)} />
@@ -2770,6 +2894,7 @@ export default function BeheerPortaal() {
                             <ModuleToggle label="Bezittingen" aan={bezAan} bezig={!!bezittingenBezig[k.accountId]} titel={bezAan ? "Bezittingen uitzetten" : "Bezittingen aanzetten"} onClick={() => zetModuleStatus("/api/beheer-bezittingen-klanten", setBezittingenStatussen, setBezittingenBezig, k.accountId, !bezAan)} />
                             <ModuleToggle label="Rapportages" aan={rapAan} bezig={!!rapportagesBezig[k.accountId]} titel={rapAan ? "Rapportages uitzetten" : "Rapportages aanzetten"} onClick={() => zetModuleStatus("/api/beheer-rapportages-klanten", setRapportagesStatussen, setRapportagesBezig, k.accountId, !rapAan)} />
                             <ModuleToggle label="Ritten" aan={ritAan} bezig={!!rittenBezig[k.accountId]} titel={ritAan ? "Ritten uitzetten" : "Ritten aanzetten"} onClick={() => zetModuleStatus("/api/beheer-ritten-klanten", setRittenStatussen, setRittenBezig, k.accountId, !ritAan)} />
+                            <ModuleToggle label="Contracten" aan={conAan} bezig={!!contractenBezig[k.accountId]} titel={conAan ? "Contracten uitzetten" : "Contracten aanzetten"} onClick={() => zetModuleStatus("/api/beheer-contracten-klanten", setContractenStatussen, setContractenBezig, k.accountId, !conAan)} />
                           </div>
                         </div>
                       );
