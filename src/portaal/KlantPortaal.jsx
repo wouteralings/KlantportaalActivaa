@@ -334,6 +334,34 @@ export default function KlantPortaal() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taken, haalTakenOp]);
 
+  const geefDocumentenCompleet = useCallback(async (taakId) => {
+    const vorigeTaken = taken;
+    // Optimistisch: haal de taak uit de open lijst zodat de checkbox meteen reageert.
+    setTaken((huidig) => {
+      if (!huidig || !Array.isArray(huidig.groepen)) return huidig;
+      return {
+        ...huidig,
+        groepen: huidig.groepen.map((groep) => ({
+          ...groep,
+          taken: groep.taken.filter((t) => t.id !== taakId),
+        })),
+      };
+    });
+    try {
+      const res = await fetch(`/api/taken?id=${taakId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "documenten-compleet" }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      haalTakenOp();
+    } catch (e) {
+      setTaken(vorigeTaken); // terugzetten bij een fout
+      setFout("Afmelden als compleet is niet gelukt: " + String(e));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taken, haalTakenOp]);
+
   const geefHandtekening = useCallback(async (taakId, gegevens) => {
     // gegevens = { naam, email, toelichting, handtekening (data-URL) }
     const token = await haalApiToken(); // MSAL-token nodig voor de on-behalf-of-upload naar SharePoint
@@ -570,7 +598,7 @@ export default function KlantPortaal() {
             </div>
           )}
           <Kopje tekst="Open taken" />
-          <TabTaken data={taken} gebruiker={gebruiker} onAkkoord={geefAkkoord} onNietAkkoord={geefNietAkkoord} onOndertekenen={geefHandtekening} alleenLezen={!!meekijkSessie} />
+          <TabTaken data={taken} gebruiker={gebruiker} onAkkoord={geefAkkoord} onNietAkkoord={geefNietAkkoord} onOndertekenen={geefHandtekening} onDocumentenCompleet={geefDocumentenCompleet} alleenLezen={!!meekijkSessie} />
 
           {vragenlijstenAandacht.length > 0 && (
             <div style={{ marginTop: 28 }}>
@@ -1687,8 +1715,8 @@ function TabAanleverVerzoeken({ verzoeken, setVerzoeken, status, focusVerzoekId,
     setOpen(true);
     if (v.status === "afgerond") {
       setVoltooidOpen(true);
-      setUitgeklapt((s) => new Set(s).add(v.id));
     }
+    setUitgeklapt((s) => new Set(s).add(v.id));
     const timer = setTimeout(() => {
       const el = verzoekRefs.current[focusVerzoekId];
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1797,6 +1825,38 @@ function TabAanleverVerzoeken({ verzoeken, setVerzoeken, status, focusVerzoekId,
             {v.deadline && <span>Einddatum {datumKort(v.deadline)}</span>}
           </div>
           {v.notitie && <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 8 }}>{v.notitie}</div>}
+
+          <div style={{ marginBottom: 16, paddingBottom: 14, borderBottom: `1px solid ${KLEUR.rand}` }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+              <MessageCircle size={14} /> Vragen over deze lijst
+            </div>
+            {(v.vragen || []).length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+                {v.vragen.map((m) => (
+                  <div key={m.id} style={{ alignSelf: m.rol === "klant" ? "flex-end" : "flex-start", maxWidth: "85%", background: m.rol === "klant" ? KLEUR.lichtblauw : "#F4F1EA", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "6px 10px" }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: m.rol === "klant" ? KLEUR.blauw : KLEUR.goud, marginBottom: 2 }}>
+                      {m.rol === "klant" ? "Jij" : (m.rol === "ai" ? "Assistent" : (m.auteur || "Activaa"))}
+                      <span style={{ color: KLEUR.mutedTekst, fontWeight: 400 }}>{m.tijd ? ` · ${tijd(m.tijd)}` : ""}</span>
+                    </div>
+                    <div style={{ fontSize: 12.5, color: KLEUR.tekst, whiteSpace: "pre-wrap" }}>{m.tekst}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 6 }}>
+              <input
+                value={vraagDraft[v.id] || ""}
+                onChange={(e) => setVraagDraft((h) => ({ ...h, [v.id]: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === "Enter") stelVraag(v); }}
+                placeholder="Stel een vraag aan je accountant…"
+                style={{ flex: 1, boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 12.5, outline: "none" }}
+              />
+              <button onClick={() => stelVraag(v)} disabled={bezigVraag === v.id || !(vraagDraft[v.id] || "").trim()} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+                {bezigVraag === v.id ? "Versturen…" : "Versturen"}
+              </button>
+            </div>
+          </div>
+
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {(v.regels || []).map((r) => {
               // 'aangeleverd' (echt bestand) of 'afgemeld' (alleen een opmerking, bv. "niet van
@@ -1853,39 +1913,45 @@ function TabAanleverVerzoeken({ verzoeken, setVerzoeken, status, focusVerzoekId,
               );
             })}
           </div>
-
-          <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${KLEUR.rand}` }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
-              <MessageCircle size={14} /> Vragen over deze lijst
-            </div>
-            {(v.vragen || []).length > 0 && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
-                {v.vragen.map((m) => (
-                  <div key={m.id} style={{ alignSelf: m.rol === "klant" ? "flex-end" : "flex-start", maxWidth: "85%", background: m.rol === "klant" ? KLEUR.lichtblauw : "#F4F1EA", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "6px 10px" }}>
-                    <div style={{ fontSize: 10.5, fontWeight: 700, color: m.rol === "klant" ? KLEUR.blauw : KLEUR.goud, marginBottom: 2 }}>
-                      {m.rol === "klant" ? "Jij" : (m.rol === "ai" ? "Assistent" : (m.auteur || "Activaa"))}
-                      <span style={{ color: KLEUR.mutedTekst, fontWeight: 400 }}>{m.tijd ? ` · ${tijd(m.tijd)}` : ""}</span>
-                    </div>
-                    <div style={{ fontSize: 12.5, color: KLEUR.tekst, whiteSpace: "pre-wrap" }}>{m.tekst}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div style={{ display: "flex", gap: 6 }}>
-              <input
-                value={vraagDraft[v.id] || ""}
-                onChange={(e) => setVraagDraft((h) => ({ ...h, [v.id]: e.target.value }))}
-                onKeyDown={(e) => { if (e.key === "Enter") stelVraag(v); }}
-                placeholder="Stel een vraag aan je accountant…"
-                style={{ flex: 1, boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 12.5, outline: "none" }}
-              />
-              <button onClick={() => stelVraag(v)} disabled={bezigVraag === v.id || !(vraagDraft[v.id] || "").trim()} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
-                {bezigVraag === v.id ? "Versturen…" : "Versturen"}
-              </button>
-            </div>
-          </div>
         </div>
   );
+
+  // Compacte, per stuk inklapbare regel — zowel voor openstaande als voltooide vragenlijsten.
+  // Standaard dicht; klik op de header (of vanuit Home via focusVerzoekId) klapt 'm open.
+  const renderCompactRow = (v) => {
+    const uit = uitgeklapt.has(v.id);
+    const klaar = v.status === "afgerond";
+    return (
+      <div key={v.id} ref={(el) => { if (el) verzoekRefs.current[v.id] = el; }} style={{ scrollMarginTop: 12 }}>
+        <button
+          onClick={() => toggleUitgeklapt(v.id)}
+          style={{
+            display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
+            padding: "10px 12px", background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 10,
+            marginBottom: uit ? 0 : 8, cursor: "pointer",
+          }}
+        >
+          {klaar ? <CheckCircle2 size={15} color="#2E7D46" style={{ flexShrink: 0 }} /> : <Circle size={15} color={KLEUR.goud} style={{ flexShrink: 0 }} />}
+          {v.heeftNieuweActiviteit && (
+            <span title="Activaa heeft hier iets gevraagd/gereageerd, of een document heropend" style={{ width: 8, height: 8, borderRadius: "50%", background: KLEUR.rood, flexShrink: 0 }} />
+          )}
+          <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: KLEUR.tekst, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {v.lijstNaam || "Aanlever-verzoek"}{v.klantnaam ? ` · ${v.klantnaam}` : ""}
+          </span>
+          {v.deadline && (
+            <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: klaar ? "#F4F1EA" : "#F6E9E9", color: klaar ? KLEUR.mutedTekst : KLEUR.rood }}>
+              {klaar ? `Deadline was ${datumKort(v.deadline)}` : `Deadline ${datumKort(v.deadline)}`}
+            </span>
+          )}
+          <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: klaar ? "#E7F2EA" : "#FBF3E4", color: klaar ? "#2E7D46" : KLEUR.goud }}>
+            {klaar ? "Compleet" : "Openstaand"}
+          </span>
+          <ChevronDown size={14} color={KLEUR.mutedTekst} style={{ flexShrink: 0, transform: uit ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+        </button>
+        {uit && <div style={{ marginBottom: 8 }}>{renderVerzoek(v)}</div>}
+      </div>
+    );
+  };
 
   return (
     <div style={{ border: "1px solid #CFE0EF", borderRadius: 12, marginBottom: 20, background: KLEUR.lichtblauw, overflow: "hidden" }}>
@@ -1909,7 +1975,7 @@ function TabAanleverVerzoeken({ verzoeken, setVerzoeken, status, focusVerzoekId,
           {openVerzoeken.length === 0 && klaarVerzoeken.length === 0 && (
             <div style={{ fontSize: 13, color: KLEUR.mutedTekst }}>Geen vragenlijsten.</div>
           )}
-          {openVerzoeken.map((v) => renderVerzoek(v))}
+          {openVerzoeken.map((v) => renderCompactRow(v))}
 
           {klaarVerzoeken.length > 0 && (
             <div style={{ marginTop: openVerzoeken.length > 0 ? 4 : 0 }}>
@@ -1923,32 +1989,7 @@ function TabAanleverVerzoeken({ verzoeken, setVerzoeken, status, focusVerzoekId,
               </button>
               {voltooidOpen && (
                 <div style={{ marginTop: 4 }}>
-                  {klaarVerzoeken.map((v) => {
-                    const uit = uitgeklapt.has(v.id);
-                    return (
-                      <div key={v.id}>
-                        <button
-                          onClick={() => toggleUitgeklapt(v.id)}
-                          style={{
-                            display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
-                            padding: "10px 12px", background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 10,
-                            marginBottom: uit ? 0 : 8, cursor: "pointer",
-                          }}
-                        >
-                          <CheckCircle2 size={15} color="#2E7D46" style={{ flexShrink: 0 }} />
-                          {v.heeftNieuweActiviteit && (
-                            <span title="Activaa heeft hier iets gevraagd/gereageerd" style={{ width: 8, height: 8, borderRadius: "50%", background: KLEUR.rood, flexShrink: 0 }} />
-                          )}
-                          <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: KLEUR.tekst, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {v.lijstNaam || "Aanlever-verzoek"}
-                          </span>
-                          {v.deadline && <span style={{ flexShrink: 0, fontSize: 11, color: KLEUR.mutedTekst }}>Deadline was {datumKort(v.deadline)}</span>}
-                          <ChevronDown size={14} color={KLEUR.mutedTekst} style={{ flexShrink: 0, transform: uit ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
-                        </button>
-                        {uit && <div style={{ marginBottom: 8 }}>{renderVerzoek(v)}</div>}
-                      </div>
-                    );
-                  })}
+                  {klaarVerzoeken.map((v) => renderCompactRow(v))}
                 </div>
               )}
             </div>
@@ -2191,13 +2232,23 @@ function leidGebruikerAf(gebruiker) {
   return { naam: naam || "", email: email || "" };
 }
 
-function TabTaken({ data, gebruiker, onAkkoord, onNietAkkoord, onOndertekenen, alleenLezen }) {
+function TabTaken({ data, gebruiker, onAkkoord, onNietAkkoord, onOndertekenen, onDocumentenCompleet, alleenLezen }) {
   const [bevestigId, setBevestigId] = useState(null);
   const [afwijzenId, setAfwijzenId] = useState(null);
   const [afwijzenTekst, setAfwijzenTekst] = useState("");
   const [archiefOpen, setArchiefOpen] = useState(false);
   const [uitgeklapt, setUitgeklapt] = useState({});
+  const [completeBezig, setCompleteBezig] = useState(null);
   if (!data) return <Laadscherm />;
+
+  const markeerDocumentenCompleet = async (taakId) => {
+    setCompleteBezig(taakId);
+    try {
+      await onDocumentenCompleet(taakId);
+    } finally {
+      setCompleteBezig(null);
+    }
+  };
 
   // Backward-compat: als er onverhoopt nog een array binnenkomt, behandel die als groepen.
   const groepen = Array.isArray(data) ? data : data.groepen || [];
@@ -2295,6 +2346,22 @@ function TabTaken({ data, gebruiker, onAkkoord, onNietAkkoord, onOndertekenen, a
                           Aanleveren kan tot {new Date(taak.uploadVerloopt).toLocaleDateString("nl-NL")}
                         </div>
                       )}
+                      <label
+                        style={{
+                          display: "flex", alignItems: "center", gap: 8, marginTop: 10, padding: "8px 10px",
+                          background: "#FAFBF9", border: `1px solid ${KLEUR.rand}`, borderRadius: 8,
+                          fontSize: 12.5, color: KLEUR.tekst, cursor: completeBezig === taak.id ? "default" : "pointer",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={false}
+                          disabled={completeBezig === taak.id}
+                          onChange={() => markeerDocumentenCompleet(taak.id)}
+                          style={{ width: 15, height: 15, flexShrink: 0, cursor: completeBezig === taak.id ? "default" : "pointer" }}
+                        />
+                        {completeBezig === taak.id ? "Bezig met afmelden…" : "Ik heb alle gevraagde documenten aangeleverd (kan meerdere bestanden zijn) — meld deze taak af bij Activaa"}
+                      </label>
                     </>
                   )}
                   {taak.uploadLink && alleenLezen && (
