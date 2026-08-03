@@ -4,12 +4,17 @@
  * indeling mee samen te stellen). Alleen voor medewerker/beheerder — bevat geen klantdata, puur
  * schemametadata, maar hoort niet in de publieke, niet-ingelogde route.
  *
- *   GET ?soort=ib → { soort: "ib", catalogus: [{ key, veld, type, label, sectie }, ...] }
+ * Bevat, vóór de vrije catalogus, ook de "vaste" velden (Status van de aangifte/URL dossier/
+ * Documentlink) — die horen niet bij de vrije catalogus (zie dossierVelden.js) maar zijn wel
+ * gewoon zelf in te delen via dit scherm.
+ *
+ *   GET ?soort=ib → { soort: "ib", catalogus: [{ key, veld?, type, label, sectie? }, ...] }
  *
  * Route beveiligd via staticwebapp.config.json (rol 'medewerker'/'beheerder').
  */
 const { haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const { SOORTEN } = require("../_gedeeld/dossiers");
+const { vasteVeldenVoorSoort } = require("../_gedeeld/dossierVelden");
 
 module.exports = async function (context, req) {
   const rollen = haalRollenUitPrincipal(req);
@@ -25,5 +30,6 @@ module.exports = async function (context, req) {
     return;
   }
 
-  context.res = { headers: { "Content-Type": "application/json" }, body: { soort: soort.key, catalogus: soort.catalogus || [] } };
+  const catalogus = [...vasteVeldenVoorSoort(soort), ...(soort.catalogus || [])];
+  context.res = { headers: { "Content-Type": "application/json" }, body: { soort: soort.key, catalogus } };
 };

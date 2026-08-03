@@ -123,16 +123,65 @@ const SECTIE_TITELS_STANDAARD = {
 };
 const SECTIE_VOLGORDE_STANDAARD = ["algemeen", "boxi", "boxii", "boxiii", "review"];
 
+/** De drie "vaste" dossiervelden (Status van de aangifte / URL dossier / Documentlink) zijn GEEN
+ * onderdeel van de vrije veldencatalogus hierboven — ze staan al vast in dossiers.js
+ * (werkDossierBij/naarBuiten, elk met hun eigen Dynamics-kolom per soort) en blijven dat ook.
+ * Maar Wouter wil ze WEL zelf kunnen indelen via Beheer → Dossiers (in een sectie/subrubriek
+ * zetten, een kop meegeven, verbergen, alleen-lezen maken) net als elk ander veld. Daarom krijgen
+ * ze hier alleen een "schema-only" catalogusentry (geen "veld"-kolom nodig — dat pad loopt al via
+ * de bestaande status/urlDossier/documentUrl-parameters, zie werkDossierBij). Sleutels beginnen
+ * bewust met "__" zodat ze nooit kunnen botsen met een echte catalogussleutel.
+ * Niet elke soort heeft alle drie (VPB heeft bijv. geen "urlDossier", zie SOORTEN.optioneel in
+ * dossiers.js) — vasteVeldenVoorSoort() geeft daarom alleen terug wat voor die soort van
+ * toepassing is. */
+function vasteVeldenVoorSoort(soort) {
+  const optioneel = (soort && soort.optioneel) || {};
+  const velden = [{ key: "__status", type: "vast-status", label: "Status van de aangifte" }];
+  if (optioneel.urlDossier) velden.push({ key: "__urlDossier", type: "vast-url", label: "URL dossier" });
+  if (optioneel.documentUrl) velden.push({ key: "__documentUrl", type: "vast-url", label: "Documentlink (uitgaande stukken)" });
+  return velden;
+}
+
 /** De standaardindeling (spiegelt de Dynamics-tabbladen) — het startpunt zolang Wouter in
  * Beheer → Dossiers nog niets eigens heeft opgeslagen, en de basis waaruit hij verder kan
- * herindelen (secties hernoemen/samenvoegen/herordenen, velden verplaatsen). */
+ * herindelen (secties/subrubrieken hernoemen/samenvoegen/herordenen, velden verplaatsen).
+ *
+ * secties[].subsecties — optionele subrubrieken binnen een hoofdrubriek (elk weer { sleutel,
+ *                titel, velden }); een veld staat OFWEL rechtstreeks in sectie.velden OFWEL in
+ *                precies één van sectie.subsecties[].velden, nooit beide.
+ * verborgen    — sleutels die nooit getoond worden in het medewerkersdossier, ook al staan ze nog
+ *                gewoon in een sectie/subrubriek (in tegenstelling tot "Niet ingedeeld": de
+ *                plek/volgorde blijft bewaard voor als Wouter het veld later weer wil tonen).
+ * voorwaarden  — { childKey: parentBooleanKey }: childKey wordt alleen getoond als het
+ *                boolean-veld parentBooleanKey op dat dossier "Ja" is. Standaard leeg — Wouter
+ *                stelt dit zelf in via Beheer → Dossiers (geen door ons geraden bedrijfslogica).
+ * alleenLezen  — sleutels die in het medewerkersportaal wel getoond maar niet bewerkt mogen
+ *                worden (ook server-side afgedwongen, zie medewerker-dossier/index.js). */
 function standaardIndelingIB() {
   return {
-    secties: SECTIE_VOLGORDE_STANDAARD.map((sleutel) => ({
+    secties: SECTIE_VOLGORDE_STANDAARD.map((sleutel, i) => ({
       sleutel,
       titel: SECTIE_TITELS_STANDAARD[sleutel],
-      velden: IB_VELDEN.filter((v) => v.sectie === sleutel).map((v) => v.key),
+      velden: i === 0
+        ? ["__status", "__urlDossier", "__documentUrl", ...IB_VELDEN.filter((v) => v.sectie === sleutel).map((v) => v.key)]
+        : IB_VELDEN.filter((v) => v.sectie === sleutel).map((v) => v.key),
+      subsecties: [],
     })),
+    verborgen: [],
+    voorwaarden: {},
+    alleenLezen: [],
+  };
+}
+
+/** Minimale standaardindeling voor soorten zonder eigen veldencatalogus (vooralsnog VPB) — alleen
+ * de vaste velden die voor die soort gelden, in één "Algemeen"-sectie. Zorgt dat Status/links
+ * gewoon blijven verschijnen ook al heeft VPB (nog) geen eigen Beheer-indeling. */
+function standaardIndelingOverig(soort) {
+  return {
+    secties: [{ sleutel: "algemeen", titel: "Algemeen", velden: vasteVeldenVoorSoort(soort).map((v) => v.key), subsecties: [] }],
+    verborgen: [],
+    voorwaarden: {},
+    alleenLezen: [],
   };
 }
 
@@ -140,4 +189,11 @@ function veldOpKey(key) {
   return IB_VELDEN.find((v) => v.key === key);
 }
 
-module.exports = { IB_VELDEN, IB_DYNAMISCHE_PICKLISTS, standaardIndelingIB, veldOpKey };
+module.exports = {
+  IB_VELDEN,
+  IB_DYNAMISCHE_PICKLISTS,
+  standaardIndelingIB,
+  standaardIndelingOverig,
+  vasteVeldenVoorSoort,
+  veldOpKey,
+};

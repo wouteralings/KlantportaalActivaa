@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ArrowLeft } from "lucide-react";
+import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ArrowLeft, Lock } from "lucide-react";
 import { startMeekijken } from "../meekijken";
 import OffertesModule from "./OffertesModule";
 import ContractenOverzicht from "./ContractenOverzicht";
@@ -1751,6 +1751,9 @@ function MedewerkerDossiers({ soort }) {
         statusOpties={detail.statusOpties || statusOpties}
         catalogus={detail.catalogus || []}
         secties={detail.secties || []}
+        verborgen={detail.verborgen || []}
+        voorwaarden={detail.voorwaarden || {}}
+        alleenLezen={detail.alleenLezen || []}
         picklistOpties={detail.picklistOpties || {}}
         onTerug={() => { setDetailId(null); setDetail(null); }}
         onOpgeslagen={(bijgewerkt) => {
@@ -1862,6 +1865,7 @@ function MedewerkerDossiers({ soort }) {
 function waardenUitDossier(dossier, catalogus) {
   const resultaat = {};
   for (const veldDef of catalogus || []) {
+    if (veldDef.key.startsWith("__")) continue; // "vaste" velden (status/links) lopen via hun eigen state, niet via de vrije velden-bag
     const info = (dossier.velden && dossier.velden[veldDef.key]) || {};
     resultaat[veldDef.key] = info.waarde !== undefined ? info.waarde : (veldDef.type === "boolean" ? false : null);
   }
@@ -1872,23 +1876,49 @@ function waardenUitDossier(dossier, catalogus) {
  * (zie api/_gedeeld/dossierVelden.js). Ja/nee-velden (verreweg de meeste) als nette pil-toggle
  * i.p.v. een kale HTML-checkbox — dat leest sneller in een lange lijst en sluit aan bij de
  * toggle-stijl die de rest van het beheerportaal al gebruikt (bijv. ContractenTypesBeheer). */
-function VeldInvoer({ veldDef, waarde, onChange, picklistOpties, disabled, stijlen }) {
+function VeldInvoer({ veldDef, waarde, onChange, picklistOpties, statusOpties, disabled, alleenLezen, stijlen }) {
   const { label, veld: veldStijl } = stijlen;
+  const uitgeschakeld = disabled || alleenLezen;
+  const labelMetSlot = (
+    <div style={{ ...label, display: "flex", alignItems: "center", gap: 5 }}>
+      {veldDef.label}
+      {alleenLezen && <Lock size={10} color={KLEUR.mutedTekst} title="Alleen-lezen" />}
+    </div>
+  );
+  if (veldDef.type === "vast-status") {
+    return (
+      <div>
+        {labelMetSlot}
+        <select disabled={uitgeschakeld} value={waarde ?? ""} onChange={(e) => onChange(e.target.value)} style={veldStijl}>
+          <option value="">— geen —</option>
+          {(statusOpties || []).map((o) => <option key={o.waarde} value={String(o.waarde)}>{o.label}</option>)}
+        </select>
+      </div>
+    );
+  }
+  if (veldDef.type === "vast-url") {
+    return (
+      <div>
+        {labelMetSlot}
+        <input disabled={uitgeschakeld} value={waarde || ""} onChange={(e) => onChange(e.target.value)} placeholder="https://…" style={veldStijl} />
+      </div>
+    );
+  }
   if (veldDef.type === "boolean") {
     const aan = !!waarde;
     return (
       <div>
-        <div style={label}>{veldDef.label}</div>
+        {labelMetSlot}
         <button
           type="button"
-          disabled={disabled}
+          disabled={uitgeschakeld}
           onClick={() => onChange(!aan)}
           style={{
             display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 999,
             border: `1px solid ${aan ? KLEUR.groen : KLEUR.rand}`,
             background: aan ? "#EAF6EE" : "#F2F3F0",
             color: aan ? KLEUR.groen : KLEUR.mutedTekst,
-            fontSize: 12.5, fontWeight: 600, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.7 : 1,
+            fontSize: 12.5, fontWeight: 600, cursor: uitgeschakeld ? "default" : "pointer", opacity: uitgeschakeld ? 0.7 : 1,
           }}
         >
           {aan ? <CheckCircle2 size={13} /> : <XCircle size={13} />} {aan ? "Ja" : "Nee"}
@@ -1900,8 +1930,8 @@ function VeldInvoer({ veldDef, waarde, onChange, picklistOpties, disabled, stijl
     const opties = (picklistOpties && picklistOpties[veldDef.key]) || [];
     return (
       <div>
-        <div style={label}>{veldDef.label}</div>
-        <select disabled={disabled} value={waarde ?? ""} onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))} style={veldStijl}>
+        {labelMetSlot}
+        <select disabled={uitgeschakeld} value={waarde ?? ""} onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))} style={veldStijl}>
           <option value="">— geen —</option>
           {opties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
         </select>
@@ -1911,8 +1941,8 @@ function VeldInvoer({ veldDef, waarde, onChange, picklistOpties, disabled, stijl
   if (veldDef.type === "memo") {
     return (
       <div style={{ gridColumn: "1 / -1" }}>
-        <div style={label}>{veldDef.label}</div>
-        <textarea disabled={disabled} value={waarde || ""} onChange={(e) => onChange(e.target.value)} rows={3} style={{ ...veldStijl, resize: "vertical", fontFamily: "inherit" }} />
+        {labelMetSlot}
+        <textarea disabled={uitgeschakeld} value={waarde || ""} onChange={(e) => onChange(e.target.value)} rows={3} style={{ ...veldStijl, resize: "vertical", fontFamily: "inherit" }} />
       </div>
     );
   }
@@ -1920,27 +1950,29 @@ function VeldInvoer({ veldDef, waarde, onChange, picklistOpties, disabled, stijl
     const datumWaarde = waarde ? String(waarde).slice(0, 10) : "";
     return (
       <div>
-        <div style={label}>{veldDef.label}</div>
-        <input type="date" disabled={disabled} value={datumWaarde} onChange={(e) => onChange(e.target.value || null)} style={veldStijl} />
+        {labelMetSlot}
+        <input type="date" disabled={uitgeschakeld} value={datumWaarde} onChange={(e) => onChange(e.target.value || null)} style={veldStijl} />
       </div>
     );
   }
   // string
   return (
     <div>
-      <div style={label}>{veldDef.label}</div>
-      <input disabled={disabled} value={waarde || ""} onChange={(e) => onChange(e.target.value)} style={veldStijl} />
+      {labelMetSlot}
+      <input disabled={uitgeschakeld} value={waarde || ""} onChange={(e) => onChange(e.target.value)} style={veldStijl} />
     </div>
   );
 }
 
-/* Detail van één fiscaal dossier (IB/VPB) voor de medewerker. Kop met de vaste identiteits-
-   velden (cliënt/periode/status/behandelaars/links) plus, eronder, één kaart per sectie uit de
-   Beheer-indeling (Beheer → Dossiers) met de rest van de ~70 Dynamics-dossiervelden — dezelfde
-   inhoud als het Dynamics-formulier (tabbladen Algemeen/Box I/II/III/Review), maar als één
-   doorlopende, overzichtelijke pagina i.p.v. zes aparte tabbladen. Alleen-lezen als het dossier
-   in Dynamics op inactief (statecode) staat. */
-function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, picklistOpties, onTerug, onOpgeslagen }) {
+/* Detail van één fiscaal dossier (IB/VPB) voor de medewerker. Kop met alleen de vaste, niet
+   door Beheer indeelbare identiteitsvelden (cliënt/periode/behandelaars) plus, eronder, één
+   kaart per hoofdrubriek (met evt. subrubrieken) uit de Beheer-indeling (Beheer → Dossiers) —
+   inclusief de "vaste" velden Status van de aangifte/URL dossier/Documentlink, die daar net als
+   elk ander veld zelf een plek krijgen. Dezelfde inhoud als het Dynamics-formulier (tabbladen
+   Algemeen/Box I/II/III/Review), maar als één doorlopende, overzichtelijke pagina i.p.v. zes
+   aparte tabbladen. Alleen-lezen als het dossier in Dynamics op inactief (statecode) staat, of
+   per veld als dat veld in Beheer → Dossiers op alleen-lezen is gezet. */
+function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen, picklistOpties, onTerug, onOpgeslagen }) {
   const [status, setStatus] = useState(dossier.status != null ? String(dossier.status) : "");
   const [urlDossier, setUrlDossier] = useState(dossier.urlDossier || "");
   const [documentUrl, setDocumentUrl] = useState(dossier.documentUrl || "");
@@ -1973,7 +2005,55 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
   const waarde = { fontSize: 13.5, color: KLEUR.tekst };
   const veld = { width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 10px", fontSize: 13, background: "#fff" };
   const veldStijlen = { label, veld };
-  const zichtbareSecties = (secties || []).filter((s) => s.velden && s.velden.length > 0);
+  // Verborgen (Beheer → Dossiers, oog-icoon) → nooit tonen. Voorwaarden (Beheer → Dossiers,
+  // "Alleen tonen als") → alleen tonen zodra het gekoppelde ja/nee-veld op DIT dossier "Ja" is.
+  const verborgenSet = new Set(verborgen || []);
+  const alleenLezenSet = new Set(alleenLezen || []);
+  const magTonen = (key) => {
+    if (verborgenSet.has(key)) return false;
+    const parentKey = voorwaarden && voorwaarden[key];
+    if (parentKey) return !!veldenState[parentKey];
+    return true;
+  };
+  const zichtbareSecties = (secties || [])
+    .map((s) => {
+      const velden = (s.velden || []).filter(magTonen);
+      const subsecties = (s.subsecties || [])
+        .map((sub) => ({ ...sub, velden: (sub.velden || []).filter(magTonen) }))
+        .filter((sub) => sub.velden.length > 0);
+      return { ...s, velden, subsecties };
+    })
+    .filter((s) => s.velden.length > 0 || s.subsecties.length > 0);
+
+  // De drie "vaste" velden (__status/__urlDossier/__documentUrl) lopen niet via veldenState/
+  // zetVeld maar via hun eigen state hierboven (status/urlDossier/documentUrl) — zo blijft
+  // opslaan exact zoals het was, alleen de plek in de indeling is nu door Wouter zelf te kiezen.
+  const renderVeld = (key) => {
+    const veldDef = (catalogus || []).find((v) => v.key === key);
+    if (!veldDef) return null;
+    const isAlleenLezen = alleenLezenSet.has(key);
+    if (key === "__status") {
+      return <VeldInvoer key={key} veldDef={veldDef} waarde={status} onChange={(w) => { setStatus(w); setOpslaan("rust"); }} statusOpties={statusOpties} disabled={!bewerkbaar} alleenLezen={isAlleenLezen} stijlen={veldStijlen} />;
+    }
+    if (key === "__urlDossier") {
+      return <VeldInvoer key={key} veldDef={veldDef} waarde={urlDossier} onChange={(w) => { setUrlDossier(w); setOpslaan("rust"); }} disabled={!bewerkbaar} alleenLezen={isAlleenLezen} stijlen={veldStijlen} />;
+    }
+    if (key === "__documentUrl") {
+      return <VeldInvoer key={key} veldDef={veldDef} waarde={documentUrl} onChange={(w) => { setDocumentUrl(w); setOpslaan("rust"); }} disabled={!bewerkbaar} alleenLezen={isAlleenLezen} stijlen={veldStijlen} />;
+    }
+    return (
+      <VeldInvoer
+        key={key}
+        veldDef={veldDef}
+        waarde={veldenState[key]}
+        onChange={(w) => zetVeld(key, w)}
+        picklistOpties={picklistOpties}
+        disabled={!bewerkbaar}
+        alleenLezen={isAlleenLezen}
+        stijlen={veldStijlen}
+      />
+    );
+  };
 
   return (
     <div>
@@ -1996,24 +2076,6 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
           {dossier.manager && <div><div style={label}>Manager</div><div style={waarde}>{dossier.manager}</div></div>}
           {dossier.groepsnaam && <div><div style={label}>Groep</div><div style={waarde}>{dossier.groepsnaam}</div></div>}
         </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14, marginTop: 18, paddingTop: 16, borderTop: `1px solid ${KLEUR.rand}` }}>
-          <div>
-            <div style={label}>Status van de aangifte</div>
-            <select disabled={!bewerkbaar} value={status} onChange={(e) => { setStatus(e.target.value); setOpslaan("rust"); }} style={veld}>
-              <option value="">— geen —</option>
-              {statusOpties.map((o) => <option key={o.waarde} value={String(o.waarde)}>{o.label}</option>)}
-            </select>
-          </div>
-          <div>
-            <div style={label}>URL dossier</div>
-            <input disabled={!bewerkbaar} value={urlDossier} onChange={(e) => { setUrlDossier(e.target.value); setOpslaan("rust"); }} placeholder="https://…" style={veld} />
-          </div>
-          <div>
-            <div style={label}>Documentlink (uitgaande stukken)</div>
-            <input disabled={!bewerkbaar} value={documentUrl} onChange={(e) => { setDocumentUrl(e.target.value); setOpslaan("rust"); }} placeholder="https://…" style={veld} />
-          </div>
-        </div>
       </div>
 
       {!bewerkbaar && (
@@ -2025,23 +2087,19 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
       {zichtbareSecties.map((sectie) => (
         <div key={sectie.sleutel} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
           <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>{sectie.titel}</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "14px 20px" }}>
-            {sectie.velden.map((key) => {
-              const veldDef = (catalogus || []).find((v) => v.key === key);
-              if (!veldDef) return null;
-              return (
-                <VeldInvoer
-                  key={key}
-                  veldDef={veldDef}
-                  waarde={veldenState[key]}
-                  onChange={(w) => zetVeld(key, w)}
-                  picklistOpties={picklistOpties}
-                  disabled={!bewerkbaar}
-                  stijlen={veldStijlen}
-                />
-              );
-            })}
-          </div>
+          {sectie.velden.length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "14px 20px" }}>
+              {sectie.velden.map((key) => renderVeld(key))}
+            </div>
+          )}
+          {sectie.subsecties.map((sub) => (
+            <div key={sub.sleutel} style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${KLEUR.rand}` }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 10 }}>{sub.titel}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "14px 20px" }}>
+                {sub.velden.map((key) => renderVeld(key))}
+              </div>
+            </div>
+          ))}
         </div>
       ))}
 
