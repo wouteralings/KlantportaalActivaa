@@ -19,13 +19,24 @@
  *
  * Uitgebreid 04-08-2026 (op verzoek van Wouter): zoeken op klantgroep/klant, standaard scope
  * "Mijn cliënten" (zelfde ScopeToggle-patroon als bij Inkomstenbelasting/Dossiers, MijnFilter.jsx)
- * met een "Kantoorbreed"-knop, kolommen "wie heeft ingevoerd" en "waarde", doorklikbare rijen met
- * volledige contractdetails + documentenlijst (met downloadlink), en dezelfde 25/50/100/250/500/
- * Alle-paginering als de rest van het beheer-/medewerkersportaal. Tegelijk gefixt: de klantnaam
- * verscheen niet in de rij — de contracten-tabel gaf het klant-account-id terug zoals SQL Server
- * het opslaat (hoofdletters), terwijl /api/beheer-klanten Dynamics-GUID's in kleine letters
- * teruggeeft; een kale object-key-lookup matchte daardoor nooit. Genormaliseerd met .toLowerCase()
- * aan beide kanten (ook al normaliseert de API dit sinds kort zelf ook al, zie contractenKlanten.js).
+ * met een "Kantoorbreed"-knop, doorklikbare rijen met volledige contractdetails + documentenlijst
+ * (met downloadlink), en dezelfde 25/50/100/250/500/Alle-paginering als de rest van het
+ * beheer-/medewerkersportaal. Tegelijk gefixt: de klantnaam verscheen niet in de rij — de
+ * contracten-tabel gaf het klant-account-id terug zoals SQL Server het opslaat (hoofdletters),
+ * terwijl /api/beheer-klanten Dynamics-GUID's in kleine letters teruggeeft; een kale
+ * object-key-lookup matchte daardoor nooit. Genormaliseerd met .toLowerCase() aan beide kanten
+ * (ook al normaliseert de API dit sinds kort zelf ook al, zie contractenKlanten.js).
+ *
+ * Bovenbalk (04-08-2026, later die dag) — op verzoek van Wouter gelijkgetrokken met de bovenbalk
+ * van het klantenoverzicht "Contactpersonen" (src/medewerker/klanten/ContactpersonenOverzicht.jsx):
+ * een "Kolommen ▾"-knop om optionele velden in de rij aan/uit te zetten (i.p.v. altijd alles
+ * tonen) en een "Filters ▾"-knop die de statusfilter (Alles/Binnenkort/Verlopen) en het
+ * groepsfilter bundelt in één paneel, plus een "Filters wissen"-knop en een telregel ("X
+ * contracten") — zelfde stijlpatroon (selectStijl, overlay-paneel) als dat bestand, hier bewust
+ * herhaald i.p.v. geïmporteerd (dit bestand staat op zichzelf, net als de rest van de module).
+ * Bewust GEEN volledige, generieke sorteerbare tabel zoals Contactpersonen — de contractenlijst
+ * blijft de doorklikbare kaartenlijst (past beter bij de wisselende hoeveelheid details +
+ * documenten per contract dan een vaste tabel-kolomindeling).
  */
 import { useState, useEffect, useMemo } from "react";
 import { FileText, Search, AlertTriangle, ChevronDown, Paperclip, Loader2, Download } from "lucide-react";
@@ -36,6 +47,8 @@ const KLEUR = {
   rood: "#B23B3B", groen: "#2E7D46", amber: "#A9660C", amberAchtergrond: "#FFF4E5", lichtblauw: "#EAF2F8",
 };
 const inputStijl = { width: "100%", padding: "8px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 13.5, color: KLEUR.tekst, boxSizing: "border-box" };
+// Zelfde stijl als de "Kolommen ▾"/"Filters ▾"-knoppen in ContactpersonenOverzicht.jsx.
+const selectStijl = { border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, background: "#fff", color: KLEUR.tekst, cursor: "pointer" };
 
 const AANTAL_KEUZES = [[25, "25"], [50, "50"], [100, "100"], [250, "250"], [500, "500"], [Infinity, "Alle"]];
 
@@ -125,11 +138,22 @@ function verloopBadge(einddatum) {
   return { tekst: `Over ${dagen} dagen`, kleur: KLEUR.groen, achtergrond: "#EAF6EE" };
 }
 
-const FILTERS = [
+const STATUS_FILTERS = [
   { key: "alles", label: "Alles" },
   { key: "binnenkort", label: "Verloopt binnen 90 dagen" },
   { key: "verlopen", label: "Verlopen" },
 ];
+const STATUS_STANDAARD = "binnenkort";
+
+// Optionele velden in de (ingeklapte) rij, aan/uit te zetten via "Kolommen ▾" — zelfde idee als
+// de kolomkiezer in ContactpersonenOverzicht.jsx. Klant, type en de verloopbadge blijven altijd
+// zichtbaar (de kernidentiteit van de rij).
+const RIJ_VELDEN = [
+  { key: "ingevoerdDoor", label: "Ingevoerd door" },
+  { key: "waarde", label: "Waarde" },
+  { key: "einddatum", label: "Einddatum" },
+];
+const RIJ_VELDEN_STANDAARD = new Set(["ingevoerdDoor", "waarde", "einddatum"]);
 
 /** Documentenlijst van één contract, lazy geladen zodra de rij wordt opengeklapt
  *  (/api/mw-contracten-document, medewerker-scoped — zie de toelichting in dat bestand voor
@@ -194,16 +218,24 @@ export default function ContractenOverzicht() {
   const [klanten, setKlanten] = useState({});
   const [fout, setFout] = useState("");
   const [zoek, setZoek] = useState("");
-  const [filter, setFilter] = useState("binnenkort");
+  const [filter, setFilter] = useState(STATUS_STANDAARD);
   const [groepFilter, setGroepFilter] = useState("alle");
   const [scope, setScope] = useState("mijn"); // "mijn" | "alle" — zelfde als bij Dossiers/Inkomstenbelasting
   const [openIds, setOpenIds] = useState(() => new Set());
   const [toonAantal, setToonAantal] = useState(25);
+  const [zichtbareVelden, setZichtbareVelden] = useState(RIJ_VELDEN_STANDAARD);
+  const [kolomKiezerOpen, setKolomKiezerOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const typeLabels = useTypeLabels();
 
   const toggleOpen = (id) => setOpenIds((h) => {
     const n = new Set(h);
     if (n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
+  const toggleVeld = (key) => setZichtbareVelden((h) => {
+    const n = new Set(h);
+    if (n.has(key)) n.delete(key); else n.add(key);
     return n;
   });
 
@@ -265,6 +297,7 @@ export default function ContractenOverzicht() {
   }, [rijen, zoek, filter, groepFilter, scope, mijnNaam]);
 
   const zichtbaar = toonAantal === Infinity ? gefilterd : gefilterd.slice(0, toonAantal);
+  const filtersActief = filter !== STATUS_STANDAARD || groepFilter !== "alle";
 
   return (
     <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
@@ -282,41 +315,74 @@ export default function ContractenOverzicht() {
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10, alignItems: "center" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10, alignItems: "center" }}>
         <ScopeToggle scope={scope} setScope={setScope} />
         <div style={{ position: "relative", flex: "1 1 220px", minWidth: 200 }}>
-          <Search size={16} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
+          <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
           <input
             value={zoek}
             onChange={(e) => setZoek(e.target.value)}
             placeholder="Zoek op klant, klantgroep, contractnaam of leverancier…"
-            style={{ ...inputStijl, padding: "9px 12px 9px 36px" }}
+            style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 32px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, outline: "none" }}
           />
         </div>
-        {groepen.length > 0 && (
-          <select value={groepFilter} onChange={(e) => setGroepFilter(e.target.value)} style={{ ...inputStijl, width: "auto", flexShrink: 0 }}>
-            <option value="alle">Alle groepen</option>
-            {groepen.map((g) => <option key={g} value={g}>{g}</option>)}
-          </select>
-        )}
-      </div>
 
-      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
-        {FILTERS.map((f) => (
-          <button
-            key={f.key}
-            onClick={() => setFilter(f.key)}
-            style={{
-              padding: "8px 12px", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
-              border: `1px solid ${filter === f.key ? KLEUR.blauw : KLEUR.rand}`,
-              background: filter === f.key ? KLEUR.lichtblauw : "#fff",
-              color: filter === f.key ? KLEUR.blauw : KLEUR.subtekst,
-              whiteSpace: "nowrap",
-            }}
-          >
-            {f.label}
+        <div style={{ position: "relative" }}>
+          <button onClick={() => setKolomKiezerOpen((o) => !o)} style={selectStijl}>Kolommen ▾</button>
+          {kolomKiezerOpen && (
+            <>
+              <div onClick={() => setKolomKiezerOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+              <div style={{ position: "absolute", top: "110%", right: 0, zIndex: 41, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, boxShadow: "0 6px 24px rgba(0,0,0,0.12)", padding: 10, width: 200 }}>
+                {RIJ_VELDEN.map((v) => (
+                  <label key={v.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 12.5, cursor: "pointer" }}>
+                    <input type="checkbox" checked={zichtbareVelden.has(v.key)} onChange={() => toggleVeld(v.key)} />
+                    {v.label}
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div style={{ position: "relative" }}>
+          <button onClick={() => setFiltersOpen((o) => !o)} style={{ ...selectStijl, color: filtersActief ? KLEUR.blauw : KLEUR.tekst, fontWeight: filtersActief ? 700 : 400 }}>
+            Filters {filtersOpen ? "▴" : "▾"}
           </button>
-        ))}
+          {filtersOpen && (
+            <>
+              <div onClick={() => setFiltersOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+              <div style={{ position: "absolute", top: "110%", right: 0, zIndex: 41, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, boxShadow: "0 6px 24px rgba(0,0,0,0.12)", padding: 12, width: 260 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 6 }}>Status</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 12 }}>
+                  {STATUS_FILTERS.map((f) => (
+                    <label key={f.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 12.5, cursor: "pointer" }}>
+                      <input type="radio" name="contracten-status-filter" checked={filter === f.key} onChange={() => setFilter(f.key)} />
+                      {f.label}
+                    </label>
+                  ))}
+                </div>
+                {groepen.length > 0 && (
+                  <>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 6 }}>Klantgroep</div>
+                    <select value={groepFilter} onChange={(e) => setGroepFilter(e.target.value)} style={{ ...inputStijl, fontSize: 12.5 }}>
+                      <option value="alle">Alle groepen</option>
+                      {groepen.map((g) => <option key={g} value={g}>{g}</option>)}
+                    </select>
+                  </>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
+        {(filtersActief || zoek) && (
+          <button
+            onClick={() => { setFilter(STATUS_STANDAARD); setGroepFilter("alle"); setZoek(""); }}
+            style={{ padding: "8px 12px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+          >
+            Filters wissen
+          </button>
+        )}
       </div>
 
       {scope === "mijn" && !mijnNaam && (
@@ -324,6 +390,10 @@ export default function ContractenOverzicht() {
           Je naam kon niet bepaald worden — "Mijn cliënten" toont daarom voorlopig niemand. Klik op <strong>Kantoorbreed</strong> om alles te zien.
         </div>
       )}
+
+      <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 8 }}>
+        {gefilterd.length} contract{gefilterd.length === 1 ? "" : "en"}
+      </div>
 
       {contracten === null && !fout && <div style={{ textAlign: "center", padding: "40px 20px", color: KLEUR.mutedTekst, fontSize: 13 }}>Laden…</div>}
 
@@ -343,7 +413,7 @@ export default function ContractenOverzicht() {
                 <button
                   onClick={() => toggleOpen(c.id)}
                   style={{
-                    width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "11px 14px",
+                    width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", flexWrap: "wrap",
                     background: open ? KLEUR.lichtblauw : "#fff", border: "none", cursor: "pointer", textAlign: "left", color: KLEUR.tekst,
                   }}
                 >
@@ -363,12 +433,21 @@ export default function ContractenOverzicht() {
                   <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {c.naam}{c.leverancier ? ` — ${c.leverancier}` : ""}
                   </div>
-                  <div style={{ fontSize: 12, color: KLEUR.subtekst, flexShrink: 0, minWidth: 70, textAlign: "right" }}>
-                    {geld(c.bedrag)}
-                  </div>
-                  <div style={{ fontSize: 12, color: KLEUR.subtekst, flexShrink: 0, minWidth: 80, textAlign: "right" }}>
-                    {datum(c.einddatum)}
-                  </div>
+                  {zichtbareVelden.has("ingevoerdDoor") && (
+                    <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, flexShrink: 0, minWidth: 100, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={c.aangemaaktDoor || ""}>
+                      {c.aangemaaktDoor || "—"}
+                    </div>
+                  )}
+                  {zichtbareVelden.has("waarde") && (
+                    <div style={{ fontSize: 12, color: KLEUR.subtekst, flexShrink: 0, minWidth: 70, textAlign: "right" }}>
+                      {geld(c.bedrag)}
+                    </div>
+                  )}
+                  {zichtbareVelden.has("einddatum") && (
+                    <div style={{ fontSize: 12, color: KLEUR.subtekst, flexShrink: 0, minWidth: 80, textAlign: "right" }}>
+                      {datum(c.einddatum)}
+                    </div>
+                  )}
                   <span style={{
                     fontSize: 11, fontWeight: 600, color: badge.kleur, background: badge.achtergrond,
                     padding: "3px 9px", borderRadius: 20, flexShrink: 0, whiteSpace: "nowrap", minWidth: 90, textAlign: "center",
