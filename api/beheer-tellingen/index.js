@@ -2,7 +2,8 @@
  * Lichtgewicht tellingen voor de badges op de beheer-/medewerkerstabbladen:
  *  - openWijzigingen      : aantal wijzigingsverzoeken met status "open" (nog af te handelen)
  *  - nieuweReviews        : aantal reviews binnengekomen sinds de beheerder ze voor het laatst bekeek
- *  - vragenlijstenAandacht: aantal (nog niet afgeronde) vragenlijsten met klant-activiteit
+ *  - vragenlijstenAandacht: aantal vragenlijsten die nog aandacht nodig hebben (open, of afgerond
+ *                           maar nog niet door een medewerker geaccepteerd) mét klant-activiteit
  *                           (aangeleverd/afgemeld of een vraag) sinds medewerkers de tab
  *                           "Vragenlijsten" voor het laatst openden
  *
@@ -44,8 +45,10 @@ module.exports = async function (context, req) {
     const nieuweReviews = sinds
       ? reviews.filter((r) => r.datum && new Date(r.datum) > sinds).length
       : reviews.length;
+    // Zelfde zichtbaarheidsregel als /api/medewerker-vragenlijsten: een afgeronde vragenlijst telt
+    // hier nog mee totdat een medewerker 'm heeft geaccepteerd (anders lopen badge en rijenlijst uiteen).
     const vragenlijstenAandacht = alleVragenlijsten
-      .filter((v) => v.status !== "afgerond")
+      .filter((v) => !(v.status === "afgerond" && v.medewerkerGeaccepteerd))
       .filter((v) => aanleververzoeken.heeftKlantActiviteitSinds(v, laatstGezienVragenlijsten)).length;
 
     context.res = {

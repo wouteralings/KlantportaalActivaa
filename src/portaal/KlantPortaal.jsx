@@ -242,8 +242,10 @@ export default function KlantPortaal() {
       .catch(() => setAanleverVerzoekenStatus("fout")); // niet-kritisch; het bolletje blijft dan gewoon weg
   }, [ingelogd]);
 
-  // Aantal nog niet afgeronde vragenlijsten — voor het rode bolletje op het tabblad Documenten.
-  const openVragenlijsten = aanleverVerzoeken.filter((v) => v.status !== "afgerond").length;
+  // Nog niet afgeronde vragenlijsten — voor het rode bolletje op het tabblad Documenten en het
+  // overzichtje op Home (met deadline, zie hieronder).
+  const openVragenlijstenLijst = aanleverVerzoeken.filter((v) => v.status !== "afgerond");
+  const openVragenlijsten = openVragenlijstenLijst.length;
 
   const haalVerzoekenOp = useCallback(() => {
     fetch("/api/wijzigingsverzoek")
@@ -563,6 +565,39 @@ export default function KlantPortaal() {
           )}
           <Kopje tekst="Open taken" />
           <TabTaken data={taken} gebruiker={gebruiker} onAkkoord={geefAkkoord} onNietAkkoord={geefNietAkkoord} onOndertekenen={geefHandtekening} alleenLezen={!!meekijkSessie} />
+
+          {openVragenlijstenLijst.length > 0 && (
+            <div style={{ marginTop: 28 }}>
+              <Kopje tekst="Aan te leveren documenten" />
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {openVragenlijstenLijst.map((v) => (
+                  <button
+                    key={v.id}
+                    onClick={() => setTab("documenten")}
+                    style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+                      width: "100%", textAlign: "left", padding: "12px 14px", background: KLEUR.lichtblauw,
+                      border: "1px solid #CFE0EF", borderRadius: 10, cursor: "pointer",
+                    }}
+                  >
+                    <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                      <ClipboardList size={16} color={KLEUR.blauw} style={{ flexShrink: 0 }} />
+                      <span style={{ fontSize: 13.5, fontWeight: 600, color: KLEUR.tekst, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {v.lijstNaam || "Aanlever-verzoek"}
+                      </span>
+                    </span>
+                    {v.deadline ? (
+                      <span style={{ flexShrink: 0, fontSize: 11.5, fontWeight: 700, padding: "3px 9px", borderRadius: 999, background: "#F6E9E9", color: KLEUR.rood }}>
+                        Deadline {datumKort(v.deadline)}
+                      </span>
+                    ) : (
+                      <span style={{ flexShrink: 0, fontSize: 11.5, color: KLEUR.mutedTekst }}>Geen deadline</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {content?.programmas?.length > 0 && (
             <div style={{ marginTop: 28 }}>
@@ -1594,6 +1629,11 @@ function RegelDropzone({ regel, bezig, onBestand }) {
 // op het tabblad Documenten ook zichtbaar is als dit tabblad niet actief is, en meteen meetelt
 // zodra de klant hier iets afhandelt.
 function TabAanleverVerzoeken({ verzoeken, setVerzoeken, status }) {
+  // Hele blok in- en uitklappen — standaard dicht, de klant klikt 'm zelf open. Voltooide
+  // vragenlijsten staan daarbinnen weer in hun eigen (ook dichte) archiefje, per stuk uit te klappen.
+  const [open, setOpen] = useState(false);
+  const [voltooidOpen, setVoltooidOpen] = useState(false);
+  const [uitgeklapt, setUitgeklapt] = useState(() => new Set());
   const [bezigRegel, setBezigRegel] = useState("");
   const [openRegels, setOpenRegels] = useState(() => new Set());
   const [opmerkingDraft, setOpmerkingDraft] = useState({});
@@ -1602,6 +1642,7 @@ function TabAanleverVerzoeken({ verzoeken, setVerzoeken, status }) {
   const [bezigVraag, setBezigVraag] = useState("");
 
   const toggleRegel = (id) => setOpenRegels((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggleUitgeklapt = (id) => setUitgeklapt((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   const uploadRegel = async (verzoek, regel, file) => {
     if (!file) return;
@@ -1668,14 +1709,11 @@ function TabAanleverVerzoeken({ verzoeken, setVerzoeken, status }) {
   }
   if (status === "fout" || verzoeken.length === 0) return null; // stil weglaten: geen (zichtbare) verzoeken voor deze klant
 
-  return (
-    <div style={{ border: "1px solid #CFE0EF", borderRadius: 12, padding: 18, marginBottom: 20, background: KLEUR.lichtblauw }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-        <ClipboardList size={17} color={KLEUR.blauw} />
-        <span style={{ fontSize: 15, fontWeight: 700 }}>Aan te leveren documenten</span>
-      </div>
-      {verzoeken.map((v) => (
-        <div key={v.id} style={{ background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14, marginBottom: 10 }}>
+  const openVerzoeken = verzoeken.filter((v) => v.status !== "afgerond");
+  const klaarVerzoeken = verzoeken.filter((v) => v.status === "afgerond");
+
+  const renderVerzoek = (v) => (
+      <div key={v.id} style={{ background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14, marginBottom: 10 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
             <span style={{ fontSize: 13.5, fontWeight: 700 }}>{v.lijstNaam || "Aanlever-verzoek"}{v.klantnaam ? ` · ${v.klantnaam}` : ""}</span>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1778,7 +1816,73 @@ function TabAanleverVerzoeken({ verzoeken, setVerzoeken, status }) {
             </div>
           </div>
         </div>
-      ))}
+  );
+
+  return (
+    <div style={{ border: "1px solid #CFE0EF", borderRadius: 12, marginBottom: 20, background: KLEUR.lichtblauw, overflow: "hidden" }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", gap: 8, padding: 18, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+      >
+        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <ClipboardList size={17} color={KLEUR.blauw} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Aan te leveren documenten</span>
+          {openVerzoeken.length > 0 && (
+            <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: KLEUR.rood, color: "#fff" }}>
+              {openVerzoeken.length} open
+            </span>
+          )}
+        </span>
+        <ChevronDown size={18} color={KLEUR.mutedTekst} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s", flexShrink: 0 }} />
+      </button>
+      {open && (
+        <div style={{ padding: "0 18px 18px" }}>
+          {openVerzoeken.length === 0 && klaarVerzoeken.length === 0 && (
+            <div style={{ fontSize: 13, color: KLEUR.mutedTekst }}>Geen vragenlijsten.</div>
+          )}
+          {openVerzoeken.map((v) => renderVerzoek(v))}
+
+          {klaarVerzoeken.length > 0 && (
+            <div style={{ marginTop: openVerzoeken.length > 0 ? 4 : 0 }}>
+              <button
+                onClick={() => setVoltooidOpen((o) => !o)}
+                style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 4px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+              >
+                <CheckCircle2 size={15} color="#2E7D46" />
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: KLEUR.subtekst }}>Voltooid ({klaarVerzoeken.length})</span>
+                <ChevronDown size={14} color={KLEUR.mutedTekst} style={{ marginLeft: "auto", transform: voltooidOpen ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+              </button>
+              {voltooidOpen && (
+                <div style={{ marginTop: 4 }}>
+                  {klaarVerzoeken.map((v) => {
+                    const uit = uitgeklapt.has(v.id);
+                    return (
+                      <div key={v.id}>
+                        <button
+                          onClick={() => toggleUitgeklapt(v.id)}
+                          style={{
+                            display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
+                            padding: "10px 12px", background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 10,
+                            marginBottom: uit ? 0 : 8, cursor: "pointer",
+                          }}
+                        >
+                          <CheckCircle2 size={15} color="#2E7D46" style={{ flexShrink: 0 }} />
+                          <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: KLEUR.tekst, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {v.lijstNaam || "Aanlever-verzoek"}
+                          </span>
+                          {v.deadline && <span style={{ flexShrink: 0, fontSize: 11, color: KLEUR.mutedTekst }}>Deadline was {datumKort(v.deadline)}</span>}
+                          <ChevronDown size={14} color={KLEUR.mutedTekst} style={{ flexShrink: 0, transform: uit ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+                        </button>
+                        {uit && <div style={{ marginBottom: 8 }}>{renderVerzoek(v)}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

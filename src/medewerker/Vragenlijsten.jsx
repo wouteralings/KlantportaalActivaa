@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { ClipboardList, Search, MessageCircle, ChevronDown, Send, RefreshCw, Users, User, CheckCircle2, Circle, FileText } from "lucide-react";
+import { ClipboardList, Search, MessageCircle, ChevronDown, Send, RefreshCw, Users, User, CheckCircle2, Circle, FileText, CheckCheck, RotateCcw, Trash2 } from "lucide-react";
 
 /** Zelfde palet als de rest van het medewerkersportaal (bewust hier herhaald zodat dit bestand op
  *  zichzelf staat). */
@@ -53,6 +53,7 @@ export default function Vragenlijsten() {
   const [openId, setOpenId] = useState("");
   const [antwoord, setAntwoord] = useState({}); // verzoekId -> tekst
   const [bezig, setBezig] = useState("");
+  const [bezigActie, setBezigActie] = useState(""); // verzoekId, of "verzoekId:regelId" bij heropenen
 
   const laad = () => {
     setRijen(null); setFout("");
@@ -110,6 +111,47 @@ export default function Vragenlijsten() {
     finally { setBezig(""); }
   };
 
+  /** Medewerker keurt een afgeronde vragenlijst goed — verdwijnt daarna uit dit overzicht. */
+  const accepteren = async (r) => {
+    setBezigActie(r.id);
+    try {
+      const res = await fetch("/api/medewerker-vragenlijsten", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "accepteren", verzoekId: r.id }) });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+      setRijen((h) => (h || []).filter((x) => x.id !== r.id));
+      setOpenId((h) => (h === r.id ? "" : h));
+    } catch (e) { setFout("Accepteren mislukt: " + (e.message || e)); }
+    finally { setBezigActie(""); }
+  };
+
+  /** Eén document weer open zetten zodat de klant het opnieuw kan aanleveren. */
+  const heropenen = async (r, d) => {
+    if (!window.confirm(`"${d.naam}" heropenen? De klant moet dit document dan opnieuw aanleveren.`)) return;
+    const sleutel = `${r.id}:${d.id}`;
+    setBezigActie(sleutel);
+    try {
+      const res = await fetch("/api/medewerker-vragenlijsten", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "heropenen", verzoekId: r.id, regelId: d.id }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setRijen((h) => (h || []).map((x) => (x.id === r.id ? data.verzoek : x)));
+    } catch (e) { setFout("Heropenen mislukt: " + (e.message || e)); }
+    finally { setBezigActie(""); }
+  };
+
+  /** Hele vragenlijst verwijderen (loopt via het bestaande beheer-endpoint, zelfde als elders). */
+  const verwijderen = async (r) => {
+    if (!window.confirm(`Vragenlijst "${r.lijstNaam}" van ${r.klantnaam || r.accountId} helemaal verwijderen? Dit kan niet ongedaan worden gemaakt.`)) return;
+    setBezigActie(r.id);
+    try {
+      const res = await fetch("/api/medewerker-aanleververzoeken", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "verwijderen", id: r.id }) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || d.ok === false) throw new Error(d.error || `HTTP ${res.status}`);
+      setRijen((h) => (h || []).filter((x) => x.id !== r.id));
+      setOpenId((h) => (h === r.id ? "" : h));
+    } catch (e) { setFout("Verwijderen mislukt: " + (e.message || e)); }
+    finally { setBezigActie(""); }
+  };
+
   const balk = (r) => {
     const frac = r.aantalDocumenten ? r.aangeleverd / r.aantalDocumenten : 0;
     const kleur = frac >= 1 ? KLEUR.groen : frac > 0 ? KLEUR.blauw : KLEUR.rand;
@@ -133,8 +175,9 @@ export default function Vragenlijsten() {
             <ClipboardList size={17} color={KLEUR.blauw} /> Vragenlijsten
           </div>
           <div style={{ fontSize: 13, color: KLEUR.subtekst, marginTop: 4, maxWidth: 760 }}>
-            Openstaande vragenlijsten met hun voortgang. Klantvragen staan bovenaan; beantwoord ze direct,
-            de klant ziet je antwoord bij zijn vragenlijst.
+            Open vragenlijsten én afgeronde die nog wachten op jouw controle. Klantvragen staan bovenaan;
+            beantwoord ze direct, de klant ziet je antwoord bij zijn vragenlijst. Een afgeronde lijst
+            verdwijnt pas hier vandaan zodra je hem geaccepteerd hebt.
           </div>
         </div>
         <button onClick={laad} style={{ display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0, padding: "8px 12px", background: "#fff", color: KLEUR.blauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
@@ -180,7 +223,7 @@ export default function Vragenlijsten() {
           </thead>
           <tbody>
             {zichtbaar.length === 0 ? (
-              <tr><td style={{ ...td, color: KLEUR.mutedTekst }} colSpan={7}>Geen openstaande vragenlijsten{scope === "mijn" ? " voor jouw cliënten" : ""}.</td></tr>
+              <tr><td style={{ ...td, color: KLEUR.mutedTekst }} colSpan={7}>Geen vragenlijsten die aandacht nodig hebben{scope === "mijn" ? " voor jouw cliënten" : ""}.</td></tr>
             ) : zichtbaar.map((r) => {
               const open = openId === r.id;
               return (
@@ -191,7 +234,11 @@ export default function Vragenlijsten() {
                         {r.heeftNieuweActiviteit && (
                           <span title="Klant heeft hier iets aangeleverd, afgemeld of gevraagd sinds je hier voor het laatst keek" style={{ width: 8, height: 8, borderRadius: "50%", background: KLEUR.rood, flexShrink: 0 }} />
                         )}
-                        <div style={{ fontWeight: 600 }}>{r.lijstNaam}{r.jaar ? ` ${r.jaar}` : ""}{r.zichtbaar === false && <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, padding: "1px 6px", borderRadius: 999, background: "#FBF3E4", color: KLEUR.goud }}>Concept</span>}</div>
+                        <div style={{ fontWeight: 600 }}>
+                          {r.lijstNaam}{r.jaar ? ` ${r.jaar}` : ""}
+                          {r.zichtbaar === false && <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, padding: "1px 6px", borderRadius: 999, background: "#FBF3E4", color: KLEUR.goud }}>Concept</span>}
+                          {r.wachtOpControle && <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, padding: "1px 6px", borderRadius: 999, background: "#FBF3E4", color: KLEUR.goud }}>Wacht op controle</span>}
+                        </div>
                       </div>
                       <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>{r.klantnaam || r.accountId}{r.contactNaam ? ` · ${r.contactNaam}` : ""}</div>
                     </td>
@@ -211,6 +258,24 @@ export default function Vragenlijsten() {
                   {open && (
                     <tr>
                       <td style={{ ...td, background: "#fff" }} colSpan={7}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, maxWidth: 720, marginBottom: 12 }}>
+                          {r.wachtOpControle && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); accepteren(r); }}
+                              disabled={bezigActie === r.id}
+                              style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px", background: KLEUR.groen, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: bezigActie === r.id ? "default" : "pointer" }}
+                            >
+                              <CheckCheck size={14} /> {bezigActie === r.id ? "Bezig…" : "Accepteren"}
+                            </button>
+                          )}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); verwijderen(r); }}
+                            disabled={bezigActie === r.id}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", background: "#fff", color: KLEUR.rood, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: bezigActie === r.id ? "default" : "pointer" }}
+                          >
+                            <Trash2 size={13} /> Verwijderen
+                          </button>
+                        </div>
                         {/* Inhoud van de vragenlijst: de gevraagde documenten */}
                         <div style={{ maxWidth: 720, marginBottom: 14 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 6 }}>
@@ -223,6 +288,7 @@ export default function Vragenlijsten() {
                             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                               {r.documenten.map((d) => {
                                 const klaar = d.status !== "open"; // 'aangeleverd' (bestand) of 'afgemeld' (alleen opmerking)
+                                const heropenBezig = bezigActie === `${r.id}:${d.id}`;
                                 return (
                                   <div key={d.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, padding: "6px 9px", border: `1px solid ${klaar ? "#BFE0C8" : KLEUR.rand}`, borderRadius: 7, background: klaar ? "#F1F8F3" : "#fff" }}>
                                     {klaar ? <CheckCircle2 size={15} color={KLEUR.groen} style={{ flexShrink: 0, marginTop: 1 }} /> : <Circle size={15} color={KLEUR.mutedTekst} style={{ flexShrink: 0, marginTop: 1 }} />}
@@ -232,6 +298,16 @@ export default function Vragenlijsten() {
                                       {klaar && !d.bestandNaam && <div style={{ fontSize: 11.5, color: KLEUR.goud }}>Afgemeld (via opmerking, geen bestand){d.aangeleverdOp ? ` · ${tijd(d.aangeleverdOp)}` : ""}</div>}
                                       {d.opmerking && <div style={{ fontSize: 11.5, color: KLEUR.goud }}>Opmerking klant: {d.opmerking}</div>}
                                     </div>
+                                    {klaar && (
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); heropenen(r, d); }}
+                                        disabled={heropenBezig}
+                                        title="Document weer open zetten zodat de klant het opnieuw kan aanleveren"
+                                        style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0, padding: "4px 8px", background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 11, fontWeight: 600, color: KLEUR.blauw, cursor: heropenBezig ? "default" : "pointer" }}
+                                      >
+                                        <RotateCcw size={11} /> {heropenBezig ? "Bezig…" : "Heropenen"}
+                                      </button>
+                                    )}
                                   </div>
                                 );
                               })}

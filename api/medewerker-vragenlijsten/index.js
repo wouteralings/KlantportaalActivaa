@@ -1,10 +1,21 @@
 /**
- * /api/medewerker-vragenlijsten — werkoverzicht voor medewerkers: alle openstaande vragenlijsten
- * (aanlever-verzoeken) met voortgang en de vraag-/berichtenreeks per lijst, plus het beantwoorden van
- * vragen van klanten.
+ * /api/medewerker-vragenlijsten — werkoverzicht voor medewerkers: alle vragenlijsten (aanlever-
+ * verzoeken) die nog aandacht nodig hebben — open, of afgerond maar nog niet gecontroleerd — met
+ * voortgang en de vraag-/berichtenreeks per lijst, plus het beantwoorden van vragen van klanten.
  *
- *   - GET  → { rijen: [ ...openstaande verzoeken, verrijkt... ], mijnNaam }
- *   - POST { actie:"antwoord", verzoekId, tekst } → medewerker beantwoordt een vraag (klant ziet dit)
+ *   - GET  → { rijen: [...], mijnNaam }
+ *            Een verzoek verdwijnt pas uit dit overzicht als het 'afgerond' is (klant klaar) ÉN een
+ *            medewerker het heeft geaccepteerd — zo mist niemand de controle op een net binnengekomen
+ *            complete vragenlijst (het rode bolletje/badge blijft ook gewoon werken via de bestaande
+ *            'gezien'-tracking).
+ *   - POST { actie:"antwoord", verzoekId, tekst }    → medewerker beantwoordt een vraag (klant ziet dit)
+ *   - POST { actie:"accepteren", verzoekId }         → medewerker keurt een afgeronde vragenlijst goed;
+ *                                                       verdwijnt daarna uit dit overzicht
+ *   - POST { actie:"heropenen", verzoekId, regelId } → één document weer open zetten zodat de klant het
+ *                                                       opnieuw kan aanleveren (klant krijgt een bericht)
+ *
+ * Verwijderen van een heel verzoek loopt via de bestaande /api/medewerker-aanleververzoeken
+ * ({actie:"verwijderen", id}) — geen aparte actie hier, één plek voor die logica.
  *
  * Alleen medewerker/beheerder (rolcheck in het endpoint zelf).
  */
@@ -76,6 +87,12 @@ function verrijk(v, laatstGezien) {
     // Heeft de klant hier iets aangeleverd/afgemeld of gevraagd sinds medewerkers dit voor het laatst
     // bekeken (tab "Vragenlijsten" geopend)? Voor het rode bolletje op de rij én op de tab zelf.
     heeftNieuweActiviteit: verzoeken.heeftKlantActiviteitSinds(v, laatstGezien),
+    // Afgerond (klant klaar) maar nog niet door een medewerker gecontroleerd/geaccepteerd — dan blijft
+    // de rij zichtbaar met een "wacht op controle"-status i.p.v. stilletjes te verdwijnen.
+    wachtOpControle: v.status === "afgerond" && !v.medewerkerGeaccepteerd,
+    medewerkerGeaccepteerd: !!v.medewerkerGeaccepteerd,
+    geaccepteerdOp: v.geaccepteerdOp || null,
+    geaccepteerdDoor: v.geaccepteerdDoor || "",
   };
 }
 
@@ -92,21 +109,80 @@ module.exports = async function (context, req) {
 
   try {
     if (methode === "POST") {
-      const { actie, verzoekId, tekst } = req.body || {};
-      if (actie !== "antwoord") { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Onbekende actie." } }; return; }
-      if (!verzoekId || !String(tekst || "").trim()) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'verzoekId' en 'tekst' mee." } }; return; }
-      const v = await verzoeken.werkBij(verzoekId, (x) => {
-        if (!Array.isArray(x.vragen)) x.vragen = [];
-        x.vragen.push(verzoeken.maakBericht("medewerker", naam || email || "Medewerker", tekst));
-      });
-      if (!v) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Verzoek niet gevonden." } }; return; }
-      await logGebeurtenis({
-        door: email || "onbekend", actie: "aanleververzoek", accountId: v.accountId, accountIds: [v.accountId],
-        klantnaam: v.klantnaam, klantnummer: v.klantnummer, contactId: v.contactId, contactNaam: v.contactNaam,
-        tekst: `Vraag van klant beantwoord bij "${v.lijstNaam || "aanlever-verzoek"}".`,
-      });
-      const laatstGezienNa = await verzoeken.haalLaatstGezien().catch(() => null);
-      context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek: verrijk(v, laatstGezienNa) } };
+      const { actie, verzoekId, regelId, tekst } = req.body || {};
+
+      if (actie === "antwoord") {
+        if (!verzoekId || !String(tekst || "").trim()) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'verzoekId' en 'tekst' mee." } }; return; }
+        const v = await verzoeken.werkBij(verzoekId, (x) => {
+          if (!Array.isArray(x.vragen)) x.vragen = [];
+          x.vragen.push(verzoeken.maakBericht("medewerker", naam || email || "Medewerker", tekst));
+        });
+        if (!v) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Verzoek niet gevonden." } }; return; }
+        await logGebeurtenis({
+          door: email || "onbekend", actie: "aanleververzoek", accountId: v.accountId, accountIds: [v.accountId],
+          klantnaam: v.klantnaam, klantnummer: v.klantnummer, contactId: v.contactId, contactNaam: v.contactNaam,
+          tekst: `Vraag van klant beantwoord bij "${v.lijstNaam || "aanlever-verzoek"}".`,
+        });
+        const laatstGezienNa = await verzoeken.haalLaatstGezien().catch(() => null);
+        context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek: verrijk(v, laatstGezienNa) } };
+        return;
+      }
+
+      if (actie === "accepteren") {
+        if (!verzoekId) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'verzoekId' mee." } }; return; }
+        let foutmelding = "";
+        const v = await verzoeken.werkBij(verzoekId, (x) => {
+          if (x.status !== "afgerond") { foutmelding = "Deze vragenlijst is nog niet compleet."; return; }
+          x.medewerkerGeaccepteerd = true;
+          x.geaccepteerdOp = new Date().toISOString();
+          x.geaccepteerdDoor = naam || email || "";
+        });
+        if (!v) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Verzoek niet gevonden." } }; return; }
+        if (foutmelding) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: foutmelding } }; return; }
+        await logGebeurtenis({
+          door: email || "onbekend", actie: "aanleververzoek", accountId: v.accountId, accountIds: [v.accountId],
+          klantnaam: v.klantnaam, klantnummer: v.klantnummer, contactId: v.contactId, contactNaam: v.contactNaam,
+          tekst: `Vragenlijst "${v.lijstNaam || "aanlever-verzoek"}" gecontroleerd en geaccepteerd.`,
+        });
+        const laatstGezienNa = await verzoeken.haalLaatstGezien().catch(() => null);
+        context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek: verrijk(v, laatstGezienNa) } };
+        return;
+      }
+
+      if (actie === "heropenen") {
+        if (!verzoekId || !regelId) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'verzoekId' en 'regelId' mee." } }; return; }
+        let regelNaam = "";
+        let foutmelding = "";
+        const v = await verzoeken.werkBij(verzoekId, (x) => {
+          const r = (x.regels || []).find((rr) => rr.id === regelId);
+          if (!r) { foutmelding = "Document niet gevonden in deze vragenlijst."; return; }
+          regelNaam = r.naam || "document";
+          r.status = "open";
+          r.bestand = null;
+          r.aangeleverdOp = null;
+          r.aangeleverdDoor = null;
+          // Een geaccepteerde/afgeronde vragenlijst gaat door het heropenen van een document weer
+          // 'open' — de klant moet 'm dan opnieuw aanleveren, dus ook de acceptatie vervalt.
+          x.medewerkerGeaccepteerd = false;
+          x.geaccepteerdOp = null;
+          x.geaccepteerdDoor = "";
+          if (!Array.isArray(x.vragen)) x.vragen = [];
+          x.vragen.push(verzoeken.maakBericht("medewerker", naam || email || "Medewerker", `"${regelNaam}" is heropend — kun je deze opnieuw aanleveren?`));
+          verzoeken.herberekenStatus(x);
+        });
+        if (!v) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Verzoek niet gevonden." } }; return; }
+        if (foutmelding) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: foutmelding } }; return; }
+        await logGebeurtenis({
+          door: email || "onbekend", actie: "aanleververzoek", accountId: v.accountId, accountIds: [v.accountId],
+          klantnaam: v.klantnaam, klantnummer: v.klantnummer, contactId: v.contactId, contactNaam: v.contactNaam,
+          tekst: `Document "${regelNaam}" heropend bij "${v.lijstNaam || "aanlever-verzoek"}" — klant moet opnieuw aanleveren.`,
+        });
+        const laatstGezienNa = await verzoeken.haalLaatstGezien().catch(() => null);
+        context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek: verrijk(v, laatstGezienNa) } };
+        return;
+      }
+
+      context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Onbekende actie." } };
       return;
     }
 
@@ -114,10 +190,13 @@ module.exports = async function (context, req) {
 
     const laatstGezien = await verzoeken.haalLaatstGezien().catch(() => null);
     const alle = await verzoeken.haalAlle();
-    const rijen = alle.filter((v) => v.status !== "afgerond").map((v) => verrijk(v, laatstGezien));
-    // Nieuwste/urgentste eerst: nieuwe klant-activiteit + open vragen bovenaan, dan op deadline, dan op startdatum.
+    // Blijft zichtbaar: nog open, óf afgerond maar nog niet door een medewerker geaccepteerd.
+    const rijen = alle.filter((v) => !(v.status === "afgerond" && v.medewerkerGeaccepteerd)).map((v) => verrijk(v, laatstGezien));
+    // Nieuwste/urgentste eerst: nieuwe klant-activiteit + wacht-op-controle + open vragen bovenaan,
+    // dan op deadline, dan op startdatum.
     rijen.sort((a, b) =>
       (b.heeftNieuweActiviteit > 0) - (a.heeftNieuweActiviteit > 0) ||
+      (b.wachtOpControle > 0) - (a.wachtOpControle > 0) ||
       (b.openVragen > 0) - (a.openVragen > 0) ||
       String(a.deadline || "9999").localeCompare(String(b.deadline || "9999")) ||
       String(b.startdatum).localeCompare(String(a.startdatum))
