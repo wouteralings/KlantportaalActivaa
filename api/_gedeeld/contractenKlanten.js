@@ -73,8 +73,12 @@ async function haalContracten(klantAccountId, { type = "", verlooptVoor = "" } =
     request.input("verlooptVoor", sql.Date, new Date(verlooptVoor));
     where += " AND einddatum IS NOT NULL AND einddatum <= @verlooptVoor";
   }
+  // LET OP: "ORDER BY (einddatum IS NULL)" is geldige syntax in Postgres/MySQL maar NIET in
+  // SQL Server/Azure SQL — T-SQL staat een los IS NULL-predicaat niet toe als scalaire waarde
+  // zonder CASE WHEN (Msg 4145, "expression of non-boolean type ... near IS"). Dat gaf hier een
+  // query-fout zodra deze functie voor het eerst met echte data werd aangeroepen (Stap 6).
   const result = await request.query(
-    `SELECT * FROM dbo.contracten_klanten WHERE ${where} ORDER BY (einddatum IS NULL), einddatum ASC, aangemaakt_op DESC`
+    `SELECT * FROM dbo.contracten_klanten WHERE ${where} ORDER BY CASE WHEN einddatum IS NULL THEN 1 ELSE 0 END, einddatum ASC, aangemaakt_op DESC`
   );
   return result.recordset.map(naarBuiten);
 }
@@ -110,8 +114,10 @@ async function haalTeControlererenVoorReminders() {
  */
 async function haalAlleContractenVoorOverzicht() {
   const pool = await haalPool();
+  // Zelfde T-SQL-kanttekening als bij haalContracten() hierboven: CASE WHEN i.p.v. een los
+  // IS NULL-predicaat als sorteerwaarde.
   const result = await pool.request().query(
-    "SELECT * FROM dbo.contracten_klanten ORDER BY (einddatum IS NULL), einddatum ASC, aangemaakt_op DESC"
+    "SELECT * FROM dbo.contracten_klanten ORDER BY CASE WHEN einddatum IS NULL THEN 1 ELSE 0 END, einddatum ASC, aangemaakt_op DESC"
   );
   return result.recordset.map(naarBuitenMetAccount);
 }
