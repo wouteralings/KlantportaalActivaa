@@ -1532,12 +1532,40 @@ function DocumentAanleveren({ taakId, uploadLink }) {
         onDragLeave={() => setSleep(false)}
         onDrop={(e) => { e.preventDefault(); setSleep(false); voegToe(e.dataTransfer.files); }}
         onClick={() => inputRef.current && inputRef.current.click()}
-        style={{ border: `1.5px dashed ${sleep ? KLEUR.blauw : KLEUR.rand}`, borderRadius: 8, padding: "16px 14px", textAlign: "center", cursor: "pointer", background: sleep ? KLEUR.lichtblauw : "#fff" }}
+        style={{
+          border: `1.5px dashed ${sleep ? KLEUR.blauw : KLEUR.rand}`,
+          borderRadius: 12,
+          padding: "28px 20px",
+          textAlign: "center",
+          cursor: "pointer",
+          background: sleep ? KLEUR.lichtblauw : "#fff",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 14,
+        }}
       >
-        <Upload size={16} color={KLEUR.blauw} />
-        <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginTop: 4 }}>
-          Sleep bestanden hierheen of <span style={{ color: KLEUR.blauw, fontWeight: 600 }}>kies bestanden</span>
+        <div
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: "50%",
+            background: "#fff",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            boxShadow: "0 2px 8px rgba(28,35,33,0.16)",
+          }}
+        >
+          <Upload size={18} color={KLEUR.tekst} />
         </div>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); inputRef.current && inputRef.current.click(); }}
+          style={{ padding: "9px 18px", background: KLEUR.tekst, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+        >
+          Bestanden uploaden
+        </button>
         <input ref={inputRef} type="file" multiple onChange={kies} style={{ display: "none" }} />
       </div>
 
