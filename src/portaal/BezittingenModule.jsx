@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Boxes, CheckCircle2, Clock, Download, Lock, Package } from "lucide-react";
+import { Boxes, CheckCircle2, Clock, Download, Lock, Package, PackageX } from "lucide-react";
 
 /** Zelfde palet als de rest van het klantportaal (bewust hier herhaald, zie RapportagesModule.jsx). */
 const KLEUR = {
@@ -114,20 +114,124 @@ function useBezittingen(accountId, jaar) {
       .catch((e) => { setFoutmelding(e.message || String(e)); setStatus("fout"); });
   }, [accountId, jaar]);
 
-  return { status, items, foutmelding };
+  return { status, items, setItems, foutmelding };
 }
 
-function OverzichtTab({ items, accountId }) {
+/** Knop + inline formuliertje om een bezitting als "niet meer in bezit" te (de)markeren —
+ * POST naar /api/bezittingen-status, met optimistische update van de lokale lijst na succes. */
+function NietMeerInBezitActie({ b, accountId, alleenLezen, onBijgewerkt }) {
+  const [open, setOpen] = useState(false);
+  const [bezig, setBezig] = useState(false);
+  const [fout, setFout] = useState("");
+  const [datumVeld, setDatumVeld] = useState(() => new Date().toISOString().slice(0, 10));
+  const [opmerking, setOpmerking] = useState("");
+
+  const verstuur = async (nietMeerInBezit) => {
+    setBezig(true);
+    setFout("");
+    try {
+      const d = await haalJson(await fetch("/api/bezittingen-status", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accountId, bezittingId: b.id, nietMeerInBezit,
+          datum: nietMeerInBezit ? datumVeld : undefined,
+          opmerking: nietMeerInBezit ? opmerking : undefined,
+        }),
+      }));
+      onBijgewerkt(b.id, {
+        nietMeerInBezit: !!(d.status && d.status.nietMeerInBezit),
+        nietMeerInBezitOp: (d.status && d.status.datum) || null,
+        nietMeerInBezitOpmerking: (d.status && d.status.opmerking) || "",
+      });
+      setOpen(false);
+      setOpmerking("");
+    } catch (e) {
+      setFout(e.message || String(e));
+    } finally {
+      setBezig(false);
+    }
+  };
+
+  if (b.nietMeerInBezit) {
+    return (
+      <div style={{ fontSize: 11.5 }}>
+        <div style={{ color: KLEUR.mutedTekst, display: "flex", alignItems: "center", gap: 5 }}>
+          <PackageX size={12} /> Niet meer in bezit{b.nietMeerInBezitOp ? ` sinds ${datum(b.nietMeerInBezitOp)}` : ""}
+        </div>
+        {b.nietMeerInBezitOpmerking && (
+          <div style={{ color: KLEUR.mutedTekst, marginTop: 2 }}>{b.nietMeerInBezitOpmerking}</div>
+        )}
+        {!alleenLezen && (
+          <button onClick={() => verstuur(false)} disabled={bezig} style={{
+            border: "none", background: "none", color: KLEUR.blauw, fontSize: 11.5, fontWeight: 600,
+            cursor: bezig ? "default" : "pointer", padding: 0, marginTop: 3,
+          }}>
+            {bezig ? "Bezig…" : "Ongedaan maken"}
+          </button>
+        )}
+        {fout && <div style={{ color: KLEUR.rood, marginTop: 3 }}>{fout}</div>}
+      </div>
+    );
+  }
+
+  if (alleenLezen) return null;
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} style={{
+        border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.subtekst, borderRadius: 6,
+        padding: "4px 9px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5,
+      }}>
+        <PackageX size={12} /> Niet meer in bezit
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ fontSize: 11.5, minWidth: 170 }} onClick={(e) => e.stopPropagation()}>
+      <input type="date" value={datumVeld} onChange={(e) => setDatumVeld(e.target.value)}
+        style={{ width: "100%", padding: "4px 6px", border: `1px solid ${KLEUR.rand}`, borderRadius: 5, fontSize: 11.5, marginBottom: 4 }} />
+      <input type="text" placeholder="Reden (optioneel)" value={opmerking} onChange={(e) => setOpmerking(e.target.value)}
+        style={{ width: "100%", padding: "4px 6px", border: `1px solid ${KLEUR.rand}`, borderRadius: 5, fontSize: 11.5, marginBottom: 4, boxSizing: "border-box" }} />
+      <div style={{ display: "flex", gap: 6 }}>
+        <button onClick={() => verstuur(true)} disabled={bezig} style={{
+          border: "none", background: KLEUR.blauw, color: "#fff", borderRadius: 5, padding: "4px 9px",
+          fontSize: 11.5, fontWeight: 600, cursor: bezig ? "default" : "pointer",
+        }}>
+          {bezig ? "Bezig…" : "Bevestigen"}
+        </button>
+        <button onClick={() => { setOpen(false); setFout(""); }} disabled={bezig} style={{
+          border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.subtekst, borderRadius: 5, padding: "4px 9px",
+          fontSize: 11.5, fontWeight: 600, cursor: bezig ? "default" : "pointer",
+        }}>
+          Annuleren
+        </button>
+      </div>
+      {fout && <div style={{ color: KLEUR.rood, marginTop: 3 }}>{fout}</div>}
+    </div>
+  );
+}
+
+const OVERZICHT_KOLOMMEN = "2fr 1.1fr 1fr 1fr 1fr 1.4fr";
+
+function OverzichtTab({ items, accountId, setItems, alleenLezen }) {
   const [groepFilter, setGroepFilter] = useState("alle");
   const [statusFilter, setStatusFilter] = useState("alle");
   const groepen = useMemo(() => [...new Set(items.map((b) => b.groepLabel))], [items]);
   const gefilterd = items.filter((b) =>
     (groepFilter === "alle" || b.groepLabel === groepFilter)
-    && (statusFilter === "alle" || (statusFilter === "afgeschreven" ? b.volledigAfgeschreven : !b.volledigAfgeschreven))
+    && (statusFilter === "alle"
+      || (statusFilter === "niet-meer-in-bezit" ? b.nietMeerInBezit
+        : statusFilter === "afgeschreven" ? b.volledigAfgeschreven
+        : !b.volledigAfgeschreven))
   );
-  const totaalBoekwaarde = gefilterd.reduce((s, b) => s + b.boekwaardeNu, 0);
+  const totaalBoekwaarde = gefilterd.filter((b) => !b.nietMeerInBezit).reduce((s, b) => s + b.boekwaardeNu, 0);
 
   const downloadCsv = () => { window.location.href = `/api/bezittingen?accountId=${encodeURIComponent(accountId)}&formaat=csv`; };
+
+  const bijgewerkt = (bezittingId, patch) => {
+    setItems((huidig) => huidig.map((b) => (b.id === bezittingId ? { ...b, ...patch } : b)));
+  };
 
   return (
     <div>
@@ -140,17 +244,22 @@ function OverzichtTab({ items, accountId }) {
           <option value="alle">Alle statussen</option>
           <option value="in-gebruik">In gebruik</option>
           <option value="afgeschreven">Volledig afgeschreven</option>
+          <option value="niet-meer-in-bezit">Niet meer in bezit</option>
         </select>
         <div style={{ marginLeft: "auto" }}><Knop icon={Download} onClick={downloadCsv}>Download CSV</Knop></div>
       </div>
 
       {gefilterd.length === 0 ? <LegeStaat tekst="Geen bezittingen gevonden." /> : (
         <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1.2fr 1fr 1fr 1fr", background: KLEUR.lichtblauw, padding: "9px 14px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
-            <div>Omschrijving</div><div>Groep</div><div>Aanschafdatum</div><div style={{ textAlign: "right" }}>Aanschafwaarde</div><div style={{ textAlign: "right" }}>Boekwaarde nu</div>
+          <div style={{ display: "grid", gridTemplateColumns: OVERZICHT_KOLOMMEN, background: KLEUR.lichtblauw, padding: "9px 14px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
+            <div>Omschrijving</div><div>Groep</div><div>Aanschafdatum</div><div style={{ textAlign: "right" }}>Aanschafwaarde</div><div style={{ textAlign: "right" }}>Boekwaarde nu</div><div>Status</div>
           </div>
           {gefilterd.map((b) => (
-            <div key={b.id} style={{ display: "grid", gridTemplateColumns: "2fr 1.2fr 1fr 1fr 1fr", padding: "9px 14px", borderTop: `1px solid ${KLEUR.rand}`, fontSize: 13, alignItems: "center" }}>
+            <div key={b.id} style={{
+              display: "grid", gridTemplateColumns: OVERZICHT_KOLOMMEN, padding: "9px 14px",
+              borderTop: `1px solid ${KLEUR.rand}`, fontSize: 13, alignItems: "center",
+              opacity: b.nietMeerInBezit ? 0.65 : 1,
+            }}>
               <div style={{ fontWeight: 600 }}>{b.omschrijving}</div>
               <div style={{ color: KLEUR.subtekst }}>{b.groepLabel}</div>
               <div>{datum(b.aanschafdatum)}</div>
@@ -158,10 +267,13 @@ function OverzichtTab({ items, accountId }) {
               <div style={{ textAlign: "right", fontWeight: 600, color: b.volledigAfgeschreven ? KLEUR.mutedTekst : KLEUR.tekst }}>
                 {geld(b.boekwaardeNu)}{b.volledigAfgeschreven && <span style={{ fontSize: 10.5, color: KLEUR.mutedTekst, display: "block", fontWeight: 500 }}>Volledig afgeschreven</span>}
               </div>
+              <div>
+                <NietMeerInBezitActie b={b} accountId={accountId} alleenLezen={alleenLezen} onBijgewerkt={bijgewerkt} />
+              </div>
             </div>
           ))}
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1.2fr 1fr 1fr 1fr", padding: "10px 14px", borderTop: `1px solid ${KLEUR.rand}`, fontSize: 13, fontWeight: 700, background: KLEUR.lichtblauw }}>
-            <div>Totaal</div><div /><div /><div /><div style={{ textAlign: "right" }}>{geld(totaalBoekwaarde)}</div>
+          <div style={{ display: "grid", gridTemplateColumns: OVERZICHT_KOLOMMEN, padding: "10px 14px", borderTop: `1px solid ${KLEUR.rand}`, fontSize: 13, fontWeight: 700, background: KLEUR.lichtblauw }}>
+            <div>Totaal</div><div /><div /><div /><div style={{ textAlign: "right" }}>{geld(totaalBoekwaarde)}</div><div />
           </div>
         </div>
       )}
@@ -251,7 +363,7 @@ function AfschrijvingenTab({ accountId }) {
 
 function BezittingenInhoud({ account, alleenLezen }) {
   const [subtab, setSubtab] = useState("overzicht");
-  const { status, items, foutmelding } = useBezittingen(account.accountId, null);
+  const { status, items, setItems, foutmelding } = useBezittingen(account.accountId, null);
 
   return (
     <div>
@@ -270,7 +382,7 @@ function BezittingenInhoud({ account, alleenLezen }) {
 
       {status === "laden" && <LegeStaat tekst="Bezittingen ophalen…" />}
       {status === "fout" && <Melding tekst={foutmelding} />}
-      {status === "klaar" && subtab === "overzicht" && <OverzichtTab items={items} accountId={account.accountId} />}
+      {status === "klaar" && subtab === "overzicht" && <OverzichtTab items={items} accountId={account.accountId} setItems={setItems} alleenLezen={alleenLezen} />}
       {status === "klaar" && subtab === "activastaat" && <ActivastaatTab items={items} />}
       {subtab === "afschrijvingen" && <AfschrijvingenTab accountId={account.accountId} />}
 

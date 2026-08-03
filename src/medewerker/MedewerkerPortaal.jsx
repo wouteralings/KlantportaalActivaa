@@ -1755,6 +1755,7 @@ function MedewerkerDossiers({ soort }) {
         voorwaarden={detail.voorwaarden || {}}
         alleenLezen={detail.alleenLezen || []}
         picklistOpties={detail.picklistOpties || {}}
+        gekoppeldeUitvragen={detail.gekoppeldeUitvragen || []}
         onTerug={() => { setDetailId(null); setDetail(null); }}
         onOpgeslagen={(bijgewerkt) => {
           setDetail((h) => ({ ...h, dossier: bijgewerkt }));
@@ -1955,6 +1956,21 @@ function VeldInvoer({ veldDef, waarde, onChange, picklistOpties, statusOpties, d
       </div>
     );
   }
+  if (veldDef.type === "decimal") {
+    return (
+      <div>
+        {labelMetSlot}
+        <input
+          type="number"
+          step="any"
+          disabled={uitgeschakeld}
+          value={waarde ?? ""}
+          onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
+          style={veldStijl}
+        />
+      </div>
+    );
+  }
   // string
   return (
     <div>
@@ -1971,8 +1987,11 @@ function VeldInvoer({ veldDef, waarde, onChange, picklistOpties, statusOpties, d
    elk ander veld zelf een plek krijgen. Dezelfde inhoud als het Dynamics-formulier (tabbladen
    Algemeen/Box I/II/III/Review), maar als één doorlopende, overzichtelijke pagina i.p.v. zes
    aparte tabbladen. Alleen-lezen als het dossier in Dynamics op inactief (statecode) staat, of
-   per veld als dat veld in Beheer → Dossiers op alleen-lezen is gezet. */
-function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen, picklistOpties, onTerug, onOpgeslagen }) {
+   per veld als dat veld in Beheer → Dossiers op alleen-lezen is gezet. Als Beheer → Dossiers een
+   onderwerp aan deze dossiersoort heeft gekoppeld (zie DossierIndelingBeheer.jsx), toont een aparte
+   kaart bovenaan (vóór de secties) de gekoppelde uitvraaglijst(en) — read-only samenvatting;
+   beantwoorden/controleren blijft via het tabblad Vragenlijsten. */
+function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen, picklistOpties, gekoppeldeUitvragen, onTerug, onOpgeslagen }) {
   const [status, setStatus] = useState(dossier.status != null ? String(dossier.status) : "");
   const [urlDossier, setUrlDossier] = useState(dossier.urlDossier || "");
   const [documentUrl, setDocumentUrl] = useState(dossier.documentUrl || "");
@@ -2081,6 +2100,37 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
       {!bewerkbaar && (
         <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, marginBottom: 16 }}>
           Dit dossier staat in Dynamics op <strong>inactief</strong> en is daarom hieronder alleen-lezen.
+        </div>
+      )}
+
+      {gekoppeldeUitvragen && gekoppeldeUitvragen.length > 0 && (
+        <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700, marginBottom: 12 }}>
+            <FileText size={16} color={KLEUR.blauw} /> Gekoppelde uitvraaglijst{gekoppeldeUitvragen.length > 1 ? "en" : ""}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {gekoppeldeUitvragen.map((u) => (
+              <div key={u.id} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "8px 10px", borderRadius: 8, background: "#FBFBF9" }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: KLEUR.tekst }}>{u.lijstNaam || u.onderwerp || "Uitvraaglijst"}</span>
+                <span
+                  style={{
+                    fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, textTransform: "uppercase", letterSpacing: ".02em",
+                    background: u.status === "afgerond" ? "#EAF6EE" : "#FCEFE0",
+                    color: u.status === "afgerond" ? KLEUR.groen : "#B98237",
+                  }}
+                >
+                  {u.status === "afgerond" ? "Afgerond" : "Open"}
+                </span>
+                {!u.zichtbaar && <span style={{ fontSize: 10.5, color: KLEUR.mutedTekst }}>(concept — nog niet zichtbaar voor de klant)</span>}
+                <span style={{ fontSize: 12, color: KLEUR.subtekst }}>{u.voortgang.afgerond}/{u.voortgang.totaal} aangeleverd</span>
+                {u.jaar && <span style={{ fontSize: 12, color: KLEUR.mutedTekst }}>· {u.jaar}</span>}
+                {u.deadline && <span style={{ fontSize: 12, color: KLEUR.mutedTekst }}>· deadline {u.deadline}</span>}
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 10 }}>
+            Beantwoorden/controleren doe je via het tabblad "Vragenlijsten".
+          </div>
         </div>
       )}
 

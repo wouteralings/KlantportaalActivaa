@@ -15,8 +15,8 @@ async function controleerBezittingenToegang(req) {
     fout.code = "GEEN_ACCOUNT_ID";
     throw fout;
   }
-  const magToegang = accounts.some((a) => a.accountId === accountId);
-  if (!magToegang) {
+  const account = accounts.find((a) => a.accountId === accountId);
+  if (!account) {
     const fout = new Error("Geen toegang tot dit klantaccount.");
     fout.code = "GEEN_TOEGANG";
     throw fout;
@@ -26,7 +26,7 @@ async function controleerBezittingenToegang(req) {
     fout.code = "BEZITTINGEN_MODULE_UITGESCHAKELD";
     throw fout;
   }
-  return { email, accountId };
+  return { email, accountId, account };
 }
 
 function afhandelFout(context, err) {

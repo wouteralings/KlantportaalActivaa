@@ -163,7 +163,12 @@ module.exports = async function (context, req) {
       // keer misgaat maar IBAN via Dynamics wél lukt, komt de waarde alsnog bij de klant terecht.
       let verwerkingsfout = null;
       try {
-        if (verzoek.type === "bedrijfsgegevens_facturatie") {
+        if (verzoek.type === "bezitting_niet_meer_in_bezit") {
+          // Geen geautomatiseerd doelsysteem: de "niet meer in bezit"-vlag staat al (direct bij
+          // het indienen) in bezittingenStatus.js. Goedkeuren betekent hier alleen dat een
+          // medewerker heeft gezien dat dit nog handmatig verwerkt moet worden (bijv. afvoeren in
+          // Exact Online) — er is dus niets om automatisch weg te schrijven.
+        } else if (verzoek.type === "bedrijfsgegevens_facturatie") {
           const sqlFout = await zetBedrijfsgegevens(verzoek.accountId, verzoek.voorstel, beheerder)
             .then(() => null)
             .catch((fout) => fout);
