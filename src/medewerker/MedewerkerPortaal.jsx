@@ -2632,13 +2632,17 @@ export default function MedewerkerPortaal() {
   // Stap 6, wanneer ContractenOverzicht.jsx zijn placeholder inruilt voor echte inhoud.
   const [magContracten, setMagContracten] = useState(false);
   const [tab, setTab] = useState("klantoverzicht"); // klantoverzicht | verzoeken | reacties | ondertekeningen | reviews | offertes | contracten | meekijken
-  const [tellingen, setTellingen] = useState({ openWijzigingen: 0, nieuweReviews: 0 });
+  const [tellingen, setTellingen] = useState({ openWijzigingen: 0, nieuweReviews: 0, vragenlijstenAandacht: 0 });
   const [logoUrl, setLogoUrl] = useState("");
 
   const laadTellingen = useCallback(() => {
     fetch("/api/beheer-tellingen")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => setTellingen({ openWijzigingen: d.openWijzigingen || 0, nieuweReviews: d.nieuweReviews || 0 }))
+      .then((d) => setTellingen({
+        openWijzigingen: d.openWijzigingen || 0,
+        nieuweReviews: d.nieuweReviews || 0,
+        vragenlijstenAandacht: d.vragenlijstenAandacht || 0,
+      }))
       .catch(() => {});
   }, []);
 
@@ -2672,15 +2676,16 @@ export default function MedewerkerPortaal() {
       .catch(() => setMagAlsKlant(false));
   }, [status]);
 
-  // Tellingen bijwerken bij elke tabwissel. Op het reviews-tabblad worden de reviews
-  // eerst als "gezien" gemarkeerd (badge naar 0) en daarna worden de tellingen ververst.
+  // Tellingen bijwerken bij elke tabwissel. Op het reviews- en vragenlijsten-tabblad wordt eerst
+  // "gezien" gemarkeerd (badge naar 0) en daarna worden de tellingen ververst.
   useEffect(() => {
     if (status !== "klaar") return;
-    if (tab === "reviews") {
+    const gezienActie = tab === "reviews" ? "reviews-gezien" : tab === "vragenlijsten" ? "vragenlijsten-gezien" : null;
+    if (gezienActie) {
       fetch("/api/beheer-tellingen", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ actie: "reviews-gezien" }),
+        body: JSON.stringify({ actie: gezienActie }),
       })
         .then(() => laadTellingen())
         .catch(() => laadTellingen());
@@ -2728,7 +2733,7 @@ export default function MedewerkerPortaal() {
 
   const tabs = [
     ["klantoverzicht", "Klantoverzicht", 0],
-    ["vragenlijsten", "Vragenlijsten", 0],
+    ["vragenlijsten", "Vragenlijsten", tellingen.vragenlijstenAandacht],
     ["uren", "Uren", 0],
     ["verzoeken", "Wijzigingsverzoeken", tellingen.openWijzigingen],
     ["reacties", "Log klantreacties", 0],

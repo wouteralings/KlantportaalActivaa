@@ -40,9 +40,10 @@ function openVragen(vragen) {
   return vragen.filter((m, i) => m.rol === "klant" && i > laatsteAntwoord).length;
 }
 
-function verrijk(v) {
+function verrijk(v, laatstGezien) {
   const regels = Array.isArray(v.regels) ? v.regels : [];
-  const aangeleverd = regels.filter((r) => r.status === "aangeleverd").length;
+  // 'afgemeld' (opmerking zonder bestand) telt hier ook mee als afgehandeld, zelfde als 'aangeleverd'.
+  const aangeleverd = regels.filter((r) => r.status !== "open").length;
   const vragen = Array.isArray(v.vragen) ? v.vragen : [];
   return {
     id: v.id,
@@ -72,6 +73,9 @@ function verrijk(v) {
     vragen,
     openVragen: openVragen(vragen),
     heeftVragen: vragen.some((m) => m.rol === "klant"),
+    // Heeft de klant hier iets aangeleverd/afgemeld of gevraagd sinds medewerkers dit voor het laatst
+    // bekeken (tab "Vragenlijsten" geopend)? Voor het rode bolletje op de rij én op de tab zelf.
+    heeftNieuweActiviteit: verzoeken.heeftKlantActiviteitSinds(v, laatstGezien),
   };
 }
 
@@ -101,16 +105,19 @@ module.exports = async function (context, req) {
         klantnaam: v.klantnaam, klantnummer: v.klantnummer, contactId: v.contactId, contactNaam: v.contactNaam,
         tekst: `Vraag van klant beantwoord bij "${v.lijstNaam || "aanlever-verzoek"}".`,
       });
-      context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek: verrijk(v) } };
+      const laatstGezienNa = await verzoeken.haalLaatstGezien().catch(() => null);
+      context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek: verrijk(v, laatstGezienNa) } };
       return;
     }
 
     if (methode !== "GET") { context.res = { status: 405, body: { error: "Methode niet toegestaan." } }; return; }
 
+    const laatstGezien = await verzoeken.haalLaatstGezien().catch(() => null);
     const alle = await verzoeken.haalAlle();
-    const rijen = alle.filter((v) => v.status !== "afgerond").map(verrijk);
-    // Nieuwste/urgentste eerst: open vragen bovenaan, dan op deadline, dan op startdatum.
+    const rijen = alle.filter((v) => v.status !== "afgerond").map((v) => verrijk(v, laatstGezien));
+    // Nieuwste/urgentste eerst: nieuwe klant-activiteit + open vragen bovenaan, dan op deadline, dan op startdatum.
     rijen.sort((a, b) =>
+      (b.heeftNieuweActiviteit > 0) - (a.heeftNieuweActiviteit > 0) ||
       (b.openVragen > 0) - (a.openVragen > 0) ||
       String(a.deadline || "9999").localeCompare(String(b.deadline || "9999")) ||
       String(b.startdatum).localeCompare(String(a.startdatum))

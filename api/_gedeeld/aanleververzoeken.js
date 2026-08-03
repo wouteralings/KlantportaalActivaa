@@ -8,8 +8,13 @@
  *     lijstId, lijstNaam, notitie, status ("open"|"afgerond"),
  *     aangemaaktOp, aangemaaktDoor,
  *     regels: [ { id, naam, bestandsnaam, toelichting, verplicht,
- *                 status ("open"|"aangeleverd"), aangeleverdOp, aangeleverdDoor,
+ *                 status ("open"|"aangeleverd"|"afgemeld"), aangeleverdOp, aangeleverdDoor,
  *                 bestand: { naam, url, driveId, itemId } | null } ] }
+ *
+ * Regelstatus 'afgemeld': de klant heeft geen bestand geüpload maar wél een opmerking geplaatst
+ * (bv. "niet van toepassing" / "zit in de bijlage") — dat tekent de regel af zonder bestand. Telt
+ * voor de voortgang/afronding hetzelfde als 'aangeleverd'; alleen bij een echte upload wordt de
+ * regel 'aangeleverd'.
  */
 const { BlobServiceClient } = require("@azure/storage-blob");
 const crypto = require("crypto");
@@ -137,13 +142,56 @@ function maakBericht(rol, auteur, tekst) {
   };
 }
 
-/** Herberekent de verzoekstatus: 'afgerond' zodra alle verplichte regels zijn aangeleverd. */
+/** Herberekent de verzoekstatus: 'afgerond' zodra alle verplichte regels niet meer 'open' staan
+ * (aangeleverd mét bestand, óf afgemeld via een opmerking). */
 function herberekenStatus(verzoek) {
   const verplicht = verzoek.regels.filter((r) => r.verplicht !== false);
   const relevant = verplicht.length ? verplicht : verzoek.regels;
-  const klaar = relevant.length > 0 && relevant.every((r) => r.status === "aangeleverd");
+  const klaar = relevant.length > 0 && relevant.every((r) => r.status !== "open");
   verzoek.status = klaar ? "afgerond" : "open";
   return verzoek.status;
 }
 
-module.exports = { haalAlle, maakVerzoek, maakBericht, voegToe, werkBij, verwijder, haalVoorAccounts, herberekenStatus };
+// ── "Gezien" door medewerkers — één gedeeld, globaal moment (geen per-medewerker tracking, zelfde
+// eenvoudige opzet als reviewopslag.js) — voor het rode aantal-bolletje bij Vragenlijsten. ──
+const GEZIEN_BLOB_NAAM = "vragenlijsten-gezien.json";
+
+async function haalLaatstGezien() {
+  const containerClient = await haalContainerClient();
+  const blobClient = containerClient.getBlockBlobClient(GEZIEN_BLOB_NAAM);
+  if (!(await blobClient.exists())) return null;
+  try {
+    const data = JSON.parse(await streamNaarTekst((await blobClient.download()).readableStreamBody));
+    return data.laatstGezien || null;
+  } catch {
+    return null;
+  }
+}
+
+async function zetLaatstGezien(iso) {
+  const containerClient = await haalContainerClient();
+  const blobClient = containerClient.getBlockBlobClient(GEZIEN_BLOB_NAAM);
+  const moment = iso || new Date().toISOString();
+  const buffer = Buffer.from(JSON.stringify({ laatstGezien: moment }, null, 2), "utf-8");
+  await blobClient.upload(buffer, buffer.length, { overwrite: true });
+  return moment;
+}
+
+/** Heeft dit verzoek klant-activiteit (een aangeleverde/afgemelde regel, of een klantvraag) ná
+ * 'sindsIso'? Zonder 'sindsIso' (nog nooit gezien) telt élke bestaande klant-activiteit mee. Voor
+ * het rode "nieuw"-bolletje bij medewerkers op de tab/rij Vragenlijsten. */
+function heeftKlantActiviteitSinds(verzoek, sindsIso) {
+  const sinds = sindsIso ? new Date(sindsIso) : null;
+  const regels = Array.isArray(verzoek.regels) ? verzoek.regels : [];
+  const vragen = Array.isArray(verzoek.vragen) ? verzoek.vragen : [];
+  const momenten = [
+    ...regels.filter((r) => r.status !== "open" && r.aangeleverdOp).map((r) => r.aangeleverdOp),
+    ...vragen.filter((m) => m.rol === "klant").map((m) => m.tijd),
+  ];
+  return sinds ? momenten.some((t) => t && new Date(t) > sinds) : momenten.length > 0;
+}
+
+module.exports = {
+  haalAlle, maakVerzoek, maakBericht, voegToe, werkBij, verwijder, haalVoorAccounts, herberekenStatus,
+  haalLaatstGezien, zetLaatstGezien, heeftKlantActiviteitSinds,
+};

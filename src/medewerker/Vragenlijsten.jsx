@@ -187,7 +187,12 @@ export default function Vragenlijsten() {
                 <Fragment key={r.id}>
                   <tr style={{ cursor: "pointer", background: open ? KLEUR.lichtblauw : "transparent" }} onClick={() => setOpenId(open ? "" : r.id)}>
                     <td style={td}>
-                      <div style={{ fontWeight: 600 }}>{r.lijstNaam}{r.jaar ? ` ${r.jaar}` : ""}{r.zichtbaar === false && <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, padding: "1px 6px", borderRadius: 999, background: "#FBF3E4", color: KLEUR.goud }}>Concept</span>}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        {r.heeftNieuweActiviteit && (
+                          <span title="Klant heeft hier iets aangeleverd, afgemeld of gevraagd sinds je hier voor het laatst keek" style={{ width: 8, height: 8, borderRadius: "50%", background: KLEUR.rood, flexShrink: 0 }} />
+                        )}
+                        <div style={{ fontWeight: 600 }}>{r.lijstNaam}{r.jaar ? ` ${r.jaar}` : ""}{r.zichtbaar === false && <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, padding: "1px 6px", borderRadius: 999, background: "#FBF3E4", color: KLEUR.goud }}>Concept</span>}</div>
+                      </div>
                       <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>{r.klantnaam || r.accountId}{r.contactNaam ? ` · ${r.contactNaam}` : ""}</div>
                     </td>
                     <td style={td}>{r.startdatum || <span style={{ color: KLEUR.mutedTekst }}>—</span>}</td>
@@ -217,13 +222,14 @@ export default function Vragenlijsten() {
                           ) : (
                             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                               {r.documenten.map((d) => {
-                                const klaar = d.status === "aangeleverd";
+                                const klaar = d.status !== "open"; // 'aangeleverd' (bestand) of 'afgemeld' (alleen opmerking)
                                 return (
                                   <div key={d.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, padding: "6px 9px", border: `1px solid ${klaar ? "#BFE0C8" : KLEUR.rand}`, borderRadius: 7, background: klaar ? "#F1F8F3" : "#fff" }}>
                                     {klaar ? <CheckCircle2 size={15} color={KLEUR.groen} style={{ flexShrink: 0, marginTop: 1 }} /> : <Circle size={15} color={KLEUR.mutedTekst} style={{ flexShrink: 0, marginTop: 1 }} />}
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                       <div><span style={{ fontWeight: 600 }}>{d.naam}</span>{d.verplicht === false && <span style={{ color: KLEUR.mutedTekst }}> · optioneel</span>}</div>
                                       {klaar && d.bestandNaam && <div style={{ fontSize: 11.5, color: KLEUR.groen }}>Aangeleverd: {d.bestandNaam}{d.aangeleverdOp ? ` · ${tijd(d.aangeleverdOp)}` : ""}</div>}
+                                      {klaar && !d.bestandNaam && <div style={{ fontSize: 11.5, color: KLEUR.goud }}>Afgemeld (via opmerking, geen bestand){d.aangeleverdOp ? ` · ${tijd(d.aangeleverdOp)}` : ""}</div>}
                                       {d.opmerking && <div style={{ fontSize: 11.5, color: KLEUR.goud }}>Opmerking klant: {d.opmerking}</div>}
                                     </div>
                                   </div>

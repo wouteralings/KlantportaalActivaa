@@ -99,10 +99,28 @@ module.exports = async function (context, req) {
     if (!regel) { context.res = { status: 404, body: { error: "Regel niet gevonden." } }; return; }
 
     // ── Alleen een opmerking opslaan (zonder upload) ──
+    // Een opmerking tekent de regel af zonder bestand (bv. "niet van toepassing"/"zit in de
+    // bijlage"): staat er nog geen bestand op de regel, dan zet een ingevulde opmerking 'm op
+    // 'afgemeld' (telt mee voor afronding); wordt de opmerking weer gewist, dan gaat 'ie terug naar
+    // 'open'. Is er al een bestand aangeleverd, dan blijft die status leidend.
     if (actie === "opmerking") {
       const bijgewerkt = await verzoeken.werkBij(verzoekId, (v) => {
         const r = v.regels.find((x) => x.id === regelId);
-        if (r) r.opmerking = String(b.opmerking || "").slice(0, 1000);
+        if (!r) return;
+        const opmerkingTekst = String(b.opmerking || "").slice(0, 1000);
+        r.opmerking = opmerkingTekst;
+        if (!r.bestand) {
+          if (opmerkingTekst) {
+            r.status = "afgemeld";
+            r.aangeleverdOp = new Date().toISOString();
+            r.aangeleverdDoor = haalEmailUitPrincipal(req) || "";
+          } else {
+            r.status = "open";
+            r.aangeleverdOp = null;
+            r.aangeleverdDoor = null;
+          }
+        }
+        verzoeken.herberekenStatus(v);
       });
       context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek: bijgewerkt } };
       return;
