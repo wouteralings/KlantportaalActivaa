@@ -284,6 +284,12 @@
       ]
     },
     {
+      "route": "/api/contracten-reminders",
+      "allowedRoles": [
+        "anonymous"
+      ]
+    },
+    {
       "route": "/api/verwerk-periodieke-uitvragen",
       "allowedRoles": [
         "anonymous"

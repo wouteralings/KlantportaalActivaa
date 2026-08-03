@@ -79,6 +79,37 @@ async function haalContracten(klantAccountId, { type = "", verlooptVoor = "" } =
   return result.recordset.map(naarBuiten);
 }
 
+function naarBuitenMetAccount(row) {
+  return { ...naarBuiten(row), klantAccountId: row.klant_account_id };
+}
+
+/**
+ * Alle contracten (over ALLE klantaccounts heen) met een einddatum die nog niet verstreken is —
+ * voor de dagelijkse verloopherinneringen-job (Stap 5, zie api/_gedeeld/contractenReminders.js
+ * en api/contracten-reminders). Bewust geen klantAccountId-filter (dit is geen klant-gerichte
+ * aanroep) en bewust alleen nog-niet-verlopen contracten (een reeds verlopen contract heeft
+ * niets meer aan een "verloopt binnenkort"-herinnering).
+ */
+async function haalTeControlererenVoorReminders() {
+  const pool = await haalPool();
+  const result = await pool.request().query(
+    "SELECT * FROM dbo.contracten_klanten WHERE einddatum IS NOT NULL AND einddatum >= CAST(SYSUTCDATETIME() AS DATE) ORDER BY einddatum ASC"
+  );
+  return result.recordset.map(naarBuitenMetAccount);
+}
+
+/** Legt vast dat er zojuist een herinnering is verstuurd voor deze drempel (dagenVoorEinddatum),
+ * zodat dezelfde of een grotere drempel niet nogmaals verstuurd wordt (zie contractenReminders.js). */
+async function markeerReminderVerzonden(id, dagenVoorEinddatum) {
+  const pool = await haalPool();
+  const request = pool.request();
+  request.input("id", sql.UniqueIdentifier, id);
+  request.input("dagen", sql.Int, dagenVoorEinddatum);
+  await request.query(
+    "UPDATE dbo.contracten_klanten SET laatste_reminder_dagen = @dagen, laatste_reminder_verzonden_op = SYSUTCDATETIME() WHERE id = @id"
+  );
+}
+
 async function haalContract(klantAccountId, id) {
   if (!id) return null;
   const pool = await haalPool();
@@ -190,4 +221,6 @@ module.exports = {
   haalContract,
   maakContract,
   wijzigContract,
+  haalTeControlererenVoorReminders,
+  markeerReminderVerzonden,
 };
