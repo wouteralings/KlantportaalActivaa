@@ -19,27 +19,31 @@
  *
  * Uitgebreid 04-08-2026 (op verzoek van Wouter): zoeken op klantgroep/klant, standaard scope
  * "Mijn cliënten" (zelfde ScopeToggle-patroon als bij Inkomstenbelasting/Dossiers, MijnFilter.jsx)
- * met een "Kantoorbreed"-knop, doorklikbare rijen met volledige contractdetails + documentenlijst
- * (met downloadlink), en dezelfde 25/50/100/250/500/Alle-paginering als de rest van het
+ * met een "Kantoorbreed"-knop, en dezelfde 25/50/100/250/500/Alle-paginering als de rest van het
  * beheer-/medewerkersportaal. Tegelijk gefixt: de klantnaam verscheen niet in de rij — de
  * contracten-tabel gaf het klant-account-id terug zoals SQL Server het opslaat (hoofdletters),
  * terwijl /api/beheer-klanten Dynamics-GUID's in kleine letters teruggeeft; een kale
  * object-key-lookup matchte daardoor nooit. Genormaliseerd met .toLowerCase() aan beide kanten
  * (ook al normaliseert de API dit sinds kort zelf ook al, zie contractenKlanten.js).
  *
- * Bovenbalk (04-08-2026, later die dag) — op verzoek van Wouter gelijkgetrokken met de bovenbalk
- * van het klantenoverzicht "Contactpersonen" (src/medewerker/klanten/ContactpersonenOverzicht.jsx):
- * een "Kolommen ▾"-knop om optionele velden in de rij aan/uit te zetten (i.p.v. altijd alles
- * tonen) en een "Filters ▾"-knop die de statusfilter (Alles/Binnenkort/Verlopen) en het
- * groepsfilter bundelt in één paneel, plus een "Filters wissen"-knop en een telregel ("X
- * contracten") — zelfde stijlpatroon (selectStijl, overlay-paneel) als dat bestand, hier bewust
- * herhaald i.p.v. geïmporteerd (dit bestand staat op zichzelf, net als de rest van de module).
- * Bewust GEEN volledige, generieke sorteerbare tabel zoals Contactpersonen — de contractenlijst
- * blijft de doorklikbare kaartenlijst (past beter bij de wisselende hoeveelheid details +
- * documenten per contract dan een vaste tabel-kolomindeling).
+ * Bovenbalk (04-08-2026, later die dag): op verzoek van Wouter gelijkgetrokken met de bovenbalk
+ * van het klantenoverzicht "Contactpersonen" (src/medewerker/klanten/ContactpersonenOverzicht.jsx)
+ * — zoekveld, "Kolommen ▾"-knop en een "Filters ▾"-knop, met dezelfde stijl (selectStijl,
+ * overlay-paneel) als dat bestand, hier bewust herhaald i.p.v. geïmporteerd (dit bestand staat op
+ * zichzelf, net als de rest van de module).
+ *
+ * Volledige tabel (04-08-2026, weer later die dag): Wouter wilde de layout écht gelijk aan
+ * Contactpersonen, inclusief kolomkoppen — de eerdere "doorklikbare kaartenlijst" is daarom
+ * vervangen door een echte <table> met sorteerbare kolomkoppen (klik op een kop = sorteren,
+ * dezelfde ▲/▼-indicator) en een volwaardige kolomkiezer (niet meer 3 optionele velden, maar elk
+ * veld een eigen, aan/uit te zetten kolom — zelfde KOLOMMEN-patroon als Contactpersonen). Klikken
+ * op een rij vervangt de lijst door een detailweergave (i.p.v. de rij inline uit te klappen), ook
+ * dat conform Contactpersonen's ContactpersoonDetail-patroon. De statusfilter (Alles/Binnenkort
+ * binnen 90 dagen/Verlopen) en het klantgroepfilter blijven gebundeld in het "Filters ▾"-paneel —
+ * die zijn domeinspecifiek (afgeleide/enum-achtige waarden, geen vrije tekst) en pasten al goed.
  */
 import { useState, useEffect, useMemo } from "react";
-import { FileText, Search, AlertTriangle, ChevronDown, Paperclip, Loader2, Download } from "lucide-react";
+import { FileText, Search, AlertTriangle, ArrowLeft, Paperclip, Loader2, Download } from "lucide-react";
 import ScopeToggle, { useMijnNaam, isKlantVanMij } from "./MijnFilter";
 
 const KLEUR = {
@@ -47,8 +51,10 @@ const KLEUR = {
   rood: "#B23B3B", groen: "#2E7D46", amber: "#A9660C", amberAchtergrond: "#FFF4E5", lichtblauw: "#EAF2F8",
 };
 const inputStijl = { width: "100%", padding: "8px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 13.5, color: KLEUR.tekst, boxSizing: "border-box" };
-// Zelfde stijl als de "Kolommen ▾"/"Filters ▾"-knoppen in ContactpersonenOverzicht.jsx.
+// Zelfde stijl als de "Kolommen ▾"/"Filters ▾"-knoppen en de tabelkoppen in ContactpersonenOverzicht.jsx.
 const selectStijl = { border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, background: "#fff", color: KLEUR.tekst, cursor: "pointer" };
+const th = { textAlign: "left", fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", padding: "6px 10px", borderBottom: `1px solid ${KLEUR.rand}`, whiteSpace: "nowrap" };
+const td = { fontSize: 12.5, padding: "8px 10px", borderBottom: `1px solid ${KLEUR.rand}`, verticalAlign: "top" };
 
 const AANTAL_KEUZES = [[25, "25"], [50, "50"], [100, "100"], [250, "250"], [500, "500"], [Infinity, "Alle"]];
 
@@ -145,17 +151,101 @@ const STATUS_FILTERS = [
 ];
 const STATUS_STANDAARD = "binnenkort";
 
-// Optionele velden in de (ingeklapte) rij, aan/uit te zetten via "Kolommen ▾" — zelfde idee als
-// de kolomkiezer in ContactpersonenOverzicht.jsx. Klant, type en de verloopbadge blijven altijd
-// zichtbaar (de kernidentiteit van de rij).
-const RIJ_VELDEN = [
-  { key: "ingevoerdDoor", label: "Ingevoerd door" },
-  { key: "waarde", label: "Waarde" },
-  { key: "einddatum", label: "Einddatum" },
+/** Alle kolommen van het contractenoverzicht — zelfde idee als KOLOMMEN in
+ *  ContactpersonenOverzicht.jsx: `standaard: false` betekent wel beschikbaar, maar standaard uit
+ *  (aan te zetten via "Kolommen ▾"). Klant, type, contract en status vormen de kernidentiteit van
+ *  een rij en staan daarom standaard aan. */
+const KOLOM_DEFINITIES = [
+  { key: "klant", label: "Klant", standaard: true },
+  { key: "groep", label: "Klantgroep", standaard: false },
+  { key: "type", label: "Type", standaard: true },
+  { key: "contract", label: "Contract", standaard: true },
+  { key: "contractnummer", label: "Contractnummer", standaard: false },
+  { key: "waarde", label: "Waarde", standaard: true },
+  { key: "ingangsdatum", label: "Ingangsdatum", standaard: false },
+  { key: "einddatum", label: "Einddatum", standaard: true },
+  { key: "status", label: "Status", standaard: true },
+  { key: "ingevoerdDoor", label: "Ingevoerd door", standaard: true },
+  { key: "frequentie", label: "Frequentie", standaard: false },
+  { key: "verlenging", label: "Auto. verlenging", standaard: false },
 ];
-const RIJ_VELDEN_STANDAARD = new Set(["ingevoerdDoor", "waarde", "einddatum"]);
 
-/** Documentenlijst van één contract, lazy geladen zodra de rij wordt opengeklapt
+/** Platte tekstweergave van een kolomwaarde — gebruikt voor de celweergave (bij de meeste kolommen)
+ *  én voor zoeken. Kolommen met een eigen visuele weergave (klant/type/status) hebben in de
+ *  tabelcel een eigen renderer (zie <Cel>), maar leunen voor zoeken/zoektermmatching ook op deze
+ *  functie. */
+function tekstVoor(key, r, typeLabels) {
+  switch (key) {
+    case "klant": return `${r.klantnummer || ""} ${r.klantnaam || ""}`.trim();
+    case "groep": return r.groepsnaam || "";
+    case "type": return typeLabels[r.type] || r.type || "";
+    case "contract": return [r.naam, r.leverancier].filter(Boolean).join(" — ");
+    case "contractnummer": return r.contractnummer || "";
+    case "waarde": return geld(r.bedrag);
+    case "ingangsdatum": return datum(r.ingangsdatum);
+    case "einddatum": return datum(r.einddatum);
+    case "status": return verloopBadge(r.einddatum).tekst;
+    case "ingevoerdDoor": return r.aangemaaktDoor || "";
+    case "frequentie": return r.frequentie || "";
+    case "verlenging": return r.automatischeVerlenging ? "Ja" : "Nee";
+    default: return "";
+  }
+}
+
+/** Sorteerwaarde per kolom — voor bedrag/datums/status een echt getal (chronologisch/numeriek
+ *  correct), voor de rest de tekstweergave (alfabetisch, net als Contactpersonen). */
+function sorteerWaardeVoor(key, r, typeLabels) {
+  switch (key) {
+    case "klant": return (r.klantnaam || "").toLowerCase();
+    case "waarde": return Number(r.bedrag) || 0;
+    case "ingangsdatum": return r.ingangsdatum ? new Date(r.ingangsdatum).getTime() : 0;
+    case "einddatum": return r.einddatum ? new Date(r.einddatum).getTime() : Infinity;
+    case "status": return r.dagen == null ? Infinity : r.dagen;
+    default: return tekstVoor(key, r, typeLabels).toLowerCase();
+  }
+}
+
+function vergelijk(a, b) {
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  return String(a).localeCompare(String(b), "nl", { numeric: true, sensitivity: "base" });
+}
+
+/** Eigen celweergave voor de kolommen die meer zijn dan platte tekst (klant = twee regels,
+ *  type/status = gekleurde badge, met een waarschuwingsicoon bij status als het contract binnen
+ *  30 dagen afloopt of al verlopen is). */
+function Cel({ kolKey, r, typeLabels }) {
+  if (kolKey === "klant") {
+    return (
+      <div>
+        <div style={{ fontSize: 12.5, fontWeight: 700 }}>{r.klantnummer || "—"}</div>
+        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{r.klantnaam}</div>
+      </div>
+    );
+  }
+  if (kolKey === "type") {
+    const label = typeLabels[r.type] || r.type || "—";
+    return (
+      <span style={{ fontSize: 11, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, padding: "3px 8px", borderRadius: 5, whiteSpace: "nowrap" }}>
+        {label}
+      </span>
+    );
+  }
+  if (kolKey === "status") {
+    const badge = verloopBadge(r.einddatum);
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+        {r.dagen != null && r.dagen <= 30 && <AlertTriangle size={13} color={KLEUR.rood} style={{ flexShrink: 0 }} />}
+        <span style={{ fontSize: 11, fontWeight: 600, color: badge.kleur, background: badge.achtergrond, padding: "3px 9px", borderRadius: 20, whiteSpace: "nowrap" }}>
+          {badge.tekst}
+        </span>
+      </span>
+    );
+  }
+  const t = tekstVoor(kolKey, r, typeLabels);
+  return t ? <span>{t}</span> : <span style={{ color: KLEUR.mutedTekst }}>—</span>;
+}
+
+/** Documentenlijst van één contract, geladen zodra de detailweergave van dat contract opent
  *  (/api/mw-contracten-document, medewerker-scoped — zie de toelichting in dat bestand voor
  *  waarom dit een ander endpoint is dan de klantkant se /api/contracten-documenten). */
 function ContractDocumentenLijst({ accountId, contractId }) {
@@ -177,7 +267,7 @@ function ContractDocumentenLijst({ accountId, contractId }) {
   }, [accountId, contractId]);
 
   return (
-    <div style={{ marginTop: 12 }}>
+    <div style={{ marginTop: 14 }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 6 }}>
         Documenten
       </div>
@@ -212,6 +302,57 @@ function ContractDocumentenLijst({ accountId, contractId }) {
   );
 }
 
+/** Volledige details van één contract — vervangt de lijst zodra er op een rij geklikt wordt,
+ *  zelfde patroon als ContactpersoonDetail in ContactpersonenOverzicht.jsx. */
+function ContractDetail({ contract: c, typeLabels, onTerug }) {
+  const badge = verloopBadge(c.einddatum);
+  return (
+    <div>
+      <button
+        onClick={onTerug}
+        style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", color: KLEUR.blauw, fontSize: 13, fontWeight: 600, cursor: "pointer", padding: 0, marginBottom: 14 }}
+      >
+        <ArrowLeft size={15} /> Terug naar contracten
+      </button>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 4 }}>
+        <div style={{ fontSize: 15, fontWeight: 700 }}>{c.naam}{c.leverancier ? ` — ${c.leverancier}` : ""}</div>
+        <span style={{ fontSize: 11, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, padding: "3px 8px", borderRadius: 5 }}>
+          {typeLabels[c.type] || c.type || "—"}
+        </span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: badge.kleur, background: badge.achtergrond, padding: "3px 9px", borderRadius: 20 }}>
+          {badge.tekst}
+        </span>
+      </div>
+      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 14 }}>
+        {c.klantnummer} — {c.klantnaam}{c.groepsnaam ? ` · ${c.groepsnaam}` : ""}
+      </div>
+
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 24px", fontSize: 12.5 }}>
+          <div><span style={{ color: KLEUR.mutedTekst }}>Contractnummer:</span> {c.contractnummer || "—"}</div>
+          <div><span style={{ color: KLEUR.mutedTekst }}>Ingangsdatum:</span> {datum(c.ingangsdatum)}</div>
+          <div><span style={{ color: KLEUR.mutedTekst }}>Einddatum:</span> {datum(c.einddatum)}</div>
+          <div><span style={{ color: KLEUR.mutedTekst }}>Opzegtermijn:</span> {c.opzegtermijnDagen != null ? `${c.opzegtermijnDagen} dagen` : "—"}</div>
+          <div><span style={{ color: KLEUR.mutedTekst }}>Automatische verlenging:</span> {c.automatischeVerlenging ? "Ja" : "Nee"}</div>
+          <div><span style={{ color: KLEUR.mutedTekst }}>Frequentie:</span> {c.frequentie || "—"}</div>
+          <div><span style={{ color: KLEUR.mutedTekst }}>Waarde:</span> {geld(c.bedrag)}</div>
+          <div><span style={{ color: KLEUR.mutedTekst }}>Ingevoerd door:</span> {c.aangemaaktDoor || "—"} op {datum(c.aangemaaktOp)}</div>
+          {c.gewijzigdOp && (
+            <div><span style={{ color: KLEUR.mutedTekst }}>Laatst gewijzigd door:</span> {c.gewijzigdDoor || "—"} op {datum(c.gewijzigdOp)}</div>
+          )}
+        </div>
+        {c.opmerkingen && (
+          <div style={{ fontSize: 12.5, marginTop: 10, whiteSpace: "pre-wrap" }}>
+            <span style={{ color: KLEUR.mutedTekst }}>Opmerkingen:</span> {c.opmerkingen}
+          </div>
+        )}
+        <ContractDocumentenLijst accountId={c.klantAccountId} contractId={c.id} />
+      </div>
+    </div>
+  );
+}
+
 export default function ContractenOverzicht() {
   const { mijnNaam } = useMijnNaam();
   const [contracten, setContracten] = useState(null);
@@ -221,23 +362,25 @@ export default function ContractenOverzicht() {
   const [filter, setFilter] = useState(STATUS_STANDAARD);
   const [groepFilter, setGroepFilter] = useState("alle");
   const [scope, setScope] = useState("mijn"); // "mijn" | "alle" — zelfde als bij Dossiers/Inkomstenbelasting
-  const [openIds, setOpenIds] = useState(() => new Set());
+  const [detail, setDetail] = useState(null); // gekozen contract → detailweergave
   const [toonAantal, setToonAantal] = useState(25);
-  const [zichtbareVelden, setZichtbareVelden] = useState(RIJ_VELDEN_STANDAARD);
+  const [zichtbaar, setZichtbaar] = useState(() => new Set(KOLOM_DEFINITIES.filter((k) => k.standaard).map((k) => k.key)));
   const [kolomKiezerOpen, setKolomKiezerOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [sortKey, setSortKey] = useState("einddatum");
+  const [sortDir, setSortDir] = useState("asc");
   const typeLabels = useTypeLabels();
 
-  const toggleOpen = (id) => setOpenIds((h) => {
-    const n = new Set(h);
-    if (n.has(id)) n.delete(id); else n.add(id);
-    return n;
-  });
-  const toggleVeld = (key) => setZichtbareVelden((h) => {
+  const toggleKolom = (key) => setZichtbaar((h) => {
     const n = new Set(h);
     if (n.has(key)) n.delete(key); else n.add(key);
     return n;
   });
+  const sorteerOp = (key) => {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(key); setSortDir("asc"); }
+  };
+  const pijl = (key) => (sortKey === key ? (sortDir === "asc" ? " ▲" : " ▼") : "");
 
   useEffect(() => {
     fetch("/api/beheer-klanten")
@@ -281,6 +424,8 @@ export default function ContractenOverzicht() {
     [klanten]
   );
 
+  const zichtKols = KOLOM_DEFINITIES.filter((k) => zichtbaar.has(k.key));
+
   const gefilterd = useMemo(() => {
     const term = zoek.trim().toLowerCase();
     return rijen.filter((r) => {
@@ -296,8 +441,21 @@ export default function ContractenOverzicht() {
     });
   }, [rijen, zoek, filter, groepFilter, scope, mijnNaam]);
 
-  const zichtbaar = toonAantal === Infinity ? gefilterd : gefilterd.slice(0, toonAantal);
+  const gesorteerd = useMemo(() => {
+    const richting = sortDir === "asc" ? 1 : -1;
+    return [...gefilterd].sort((a, b) => vergelijk(sorteerWaardeVoor(sortKey, a, typeLabels), sorteerWaardeVoor(sortKey, b, typeLabels)) * richting);
+  }, [gefilterd, sortKey, sortDir, typeLabels]);
+
+  const zichtbareRijen = toonAantal === Infinity ? gesorteerd : gesorteerd.slice(0, toonAantal);
   const filtersActief = filter !== STATUS_STANDAARD || groepFilter !== "alle";
+
+  if (detail) {
+    return (
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
+        <ContractDetail contract={detail} typeLabels={typeLabels} onTerug={() => setDetail(null)} />
+      </div>
+    );
+  }
 
   return (
     <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
@@ -305,8 +463,8 @@ export default function ContractenOverzicht() {
         <FileText size={17} color={KLEUR.blauw} /> Contracten — overzicht alle klanten
       </div>
       <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 16 }}>
-        Zelf geregistreerde doorlopende contracten van klanten, gesorteerd op eerstvolgende afloop. Klik op een rij
-        voor de volledige details en documenten.
+        Zelf geregistreerde doorlopende contracten van klanten. Klik op een kolomkop om te sorteren,
+        en op een rij voor de volledige details en documenten.
       </div>
 
       {fout && (
@@ -332,11 +490,11 @@ export default function ContractenOverzicht() {
           {kolomKiezerOpen && (
             <>
               <div onClick={() => setKolomKiezerOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
-              <div style={{ position: "absolute", top: "110%", right: 0, zIndex: 41, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, boxShadow: "0 6px 24px rgba(0,0,0,0.12)", padding: 10, width: 200 }}>
-                {RIJ_VELDEN.map((v) => (
-                  <label key={v.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 12.5, cursor: "pointer" }}>
-                    <input type="checkbox" checked={zichtbareVelden.has(v.key)} onChange={() => toggleVeld(v.key)} />
-                    {v.label}
+              <div style={{ position: "absolute", top: "110%", right: 0, zIndex: 41, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, boxShadow: "0 6px 24px rgba(0,0,0,0.12)", padding: 10, width: 220, maxHeight: 320, overflowY: "auto" }}>
+                {KOLOM_DEFINITIES.map((kol) => (
+                  <label key={kol.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 12.5, cursor: "pointer" }}>
+                    <input type="checkbox" checked={zichtbaar.has(kol.key)} onChange={() => toggleKolom(kol.key)} />
+                    {kol.label}
                   </label>
                 ))}
               </div>
@@ -403,84 +561,43 @@ export default function ContractenOverzicht() {
         </div>
       )}
 
-      {zichtbaar.length > 0 && (
-        <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
-          {zichtbaar.map((c, i) => {
-            const badge = verloopBadge(c.einddatum);
-            const open = openIds.has(c.id);
-            return (
-              <div key={c.id} style={{ borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}` }}>
-                <button
-                  onClick={() => toggleOpen(c.id)}
-                  style={{
-                    width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", flexWrap: "wrap",
-                    background: open ? KLEUR.lichtblauw : "#fff", border: "none", cursor: "pointer", textAlign: "left", color: KLEUR.tekst,
-                  }}
+      {zichtbareRijen.length > 0 && (
+        <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: Math.max(640, zichtKols.length * 120) }}>
+            <thead>
+              <tr>
+                {zichtKols.map((kol) => {
+                  const actief = sortKey === kol.key;
+                  return (
+                    <th
+                      key={kol.key}
+                      onClick={() => sorteerOp(kol.key)}
+                      title="Klik om te sorteren"
+                      style={{ ...th, cursor: "pointer", userSelect: "none", color: actief ? KLEUR.blauw : th.color }}
+                    >
+                      {kol.label}{pijl(kol.key)}
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {zichtbareRijen.map((r) => (
+                <tr
+                  key={r.id}
+                  onClick={() => setDetail(r)}
+                  title="Klik om te openen"
+                  style={{ cursor: "pointer" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = KLEUR.lichtblauw)}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                 >
-                  {c.dagen != null && c.dagen <= 30 && (
-                    <AlertTriangle size={15} color={KLEUR.rood} style={{ flexShrink: 0 }} />
-                  )}
-                  <div style={{ minWidth: 130, flexShrink: 0 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 700 }}>{c.klantnummer || "—"}</div>
-                    <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.klantnaam}</div>
-                  </div>
-                  <span style={{
-                    fontSize: 11, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw,
-                    padding: "3px 8px", borderRadius: 5, flexShrink: 0,
-                  }}>
-                    {typeLabels[c.type] || c.type || "—"}
-                  </span>
-                  <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {c.naam}{c.leverancier ? ` — ${c.leverancier}` : ""}
-                  </div>
-                  {zichtbareVelden.has("ingevoerdDoor") && (
-                    <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, flexShrink: 0, minWidth: 100, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={c.aangemaaktDoor || ""}>
-                      {c.aangemaaktDoor || "—"}
-                    </div>
-                  )}
-                  {zichtbareVelden.has("waarde") && (
-                    <div style={{ fontSize: 12, color: KLEUR.subtekst, flexShrink: 0, minWidth: 70, textAlign: "right" }}>
-                      {geld(c.bedrag)}
-                    </div>
-                  )}
-                  {zichtbareVelden.has("einddatum") && (
-                    <div style={{ fontSize: 12, color: KLEUR.subtekst, flexShrink: 0, minWidth: 80, textAlign: "right" }}>
-                      {datum(c.einddatum)}
-                    </div>
-                  )}
-                  <span style={{
-                    fontSize: 11, fontWeight: 600, color: badge.kleur, background: badge.achtergrond,
-                    padding: "3px 9px", borderRadius: 20, flexShrink: 0, whiteSpace: "nowrap", minWidth: 90, textAlign: "center",
-                  }}>
-                    {badge.tekst}
-                  </span>
-                  <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ flexShrink: 0, transition: "transform .15s", transform: open ? "rotate(180deg)" : "none" }} />
-                </button>
-                {open && (
-                  <div style={{ padding: "14px 16px", background: "#fff" }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 20px", fontSize: 12.5 }}>
-                      <div><span style={{ color: KLEUR.mutedTekst }}>Contractnummer:</span> {c.contractnummer || "—"}</div>
-                      <div><span style={{ color: KLEUR.mutedTekst }}>Ingangsdatum:</span> {datum(c.ingangsdatum)}</div>
-                      <div><span style={{ color: KLEUR.mutedTekst }}>Opzegtermijn:</span> {c.opzegtermijnDagen != null ? `${c.opzegtermijnDagen} dagen` : "—"}</div>
-                      <div><span style={{ color: KLEUR.mutedTekst }}>Automatische verlenging:</span> {c.automatischeVerlenging ? "Ja" : "Nee"}</div>
-                      <div><span style={{ color: KLEUR.mutedTekst }}>Frequentie:</span> {c.frequentie || "—"}</div>
-                      <div><span style={{ color: KLEUR.mutedTekst }}>Waarde:</span> {geld(c.bedrag)}</div>
-                      <div><span style={{ color: KLEUR.mutedTekst }}>Ingevoerd door:</span> {c.aangemaaktDoor || "—"} op {datum(c.aangemaaktOp)}</div>
-                      {c.gewijzigdOp && (
-                        <div><span style={{ color: KLEUR.mutedTekst }}>Laatst gewijzigd door:</span> {c.gewijzigdDoor || "—"} op {datum(c.gewijzigdOp)}</div>
-                      )}
-                    </div>
-                    {c.opmerkingen && (
-                      <div style={{ fontSize: 12.5, marginTop: 8, whiteSpace: "pre-wrap" }}>
-                        <span style={{ color: KLEUR.mutedTekst }}>Opmerkingen:</span> {c.opmerkingen}
-                      </div>
-                    )}
-                    <ContractDocumentenLijst accountId={c.klantAccountId} contractId={c.id} />
-                  </div>
-                )}
-              </div>
-            );
-          })}
+                  {zichtKols.map((kol) => (
+                    <td key={kol.key} style={td}><Cel kolKey={kol.key} r={r} typeLabels={typeLabels} /></td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
