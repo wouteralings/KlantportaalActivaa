@@ -4,8 +4,11 @@
  * 'aanleveren'. De upload gaat app-only (via de portaal-identiteit) naar de 'Aanleveren'-map van de
  * cliënt in SharePoint, met de vaste bestandsnaam uit de regel; elke aanlevering wordt gelogd.
  *
- *   - GET → { verzoeken: [...] }  (alleen de eigen, waar recht 'aanleveren' geldt)
+ *   - GET → { verzoeken: [...] }  (alleen de eigen, waar recht 'aanleveren' geldt; elk verzoek krijgt
+ *            een 'heeftNieuweActiviteit'-vlag: heeft een medewerker hier iets gevraagd/gereageerd of
+ *            een document heropend sinds de klant hier voor het laatst keek — voor het rode bolletje)
  *   - POST { actie:"upload", verzoekId, regelId, origineleNaam, contentBase64, contentType } → upload
+ *   - POST { actie:"gezien" } → markeert alle vragenlijsten als gezien voor deze klant (rode bolletje weg)
  */
 const { haalDynamicsToken, herleidAccounts, haalEmailUitPrincipal } = require("../_gedeeld/identiteit");
 const { haalVoorContact } = require("../_gedeeld/documentrechten");
@@ -45,6 +48,8 @@ module.exports = async function (context, req) {
     for (const a of accounts) perAccount.set(a.accountId, { contactId: a.contactId, klantnaam: a.klantnaam, klantnummer: a.klantnummer });
 
     if (methode === "GET") {
+      const email = haalEmailUitPrincipal(req);
+      const laatstGezien = await verzoeken.haalKlantLaatstGezien(email).catch(() => null);
       const alle = await verzoeken.haalVoorAccounts([...perAccount.keys()]);
       const zichtbaar = [];
       for (const v of alle) {
@@ -54,7 +59,7 @@ module.exports = async function (context, req) {
         if (v.contactId && acc.contactId && v.contactId !== acc.contactId) continue; // niet aan mij gericht
         const rechten = await haalVoorContact(acc.contactId);
         if (!rechten.aanleveren) continue;
-        zichtbaar.push(v);
+        zichtbaar.push({ ...v, heeftNieuweActiviteit: verzoeken.heeftMedewerkerActiviteitSinds(v, laatstGezien) });
       }
       zichtbaar.sort((a, b) => String(b.aangemaaktOp).localeCompare(String(a.aangemaaktOp)));
       context.res = { headers: { "Content-Type": "application/json" }, body: { verzoeken: zichtbaar } };
@@ -65,6 +70,14 @@ module.exports = async function (context, req) {
 
     const b = req.body || {};
     const { actie, verzoekId, regelId } = b;
+
+    // Markeert alles als gezien voor deze klant — los van een specifiek verzoek.
+    if (actie === "gezien") {
+      const moment = await verzoeken.zetKlantLaatstGezien(haalEmailUitPrincipal(req), new Date().toISOString());
+      context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, laatstGezien: moment } };
+      return;
+    }
+
     if (actie !== "upload" && actie !== "opmerking" && actie !== "vraag") { context.res = { status: 400, body: { error: "Onbekende of ontbrekende 'actie'." } }; return; }
     if (!verzoekId) { context.res = { status: 400, body: { error: "Geef 'verzoekId' mee." } }; return; }
     if ((actie === "upload" || actie === "opmerking") && !regelId) { context.res = { status: 400, body: { error: "Geef 'regelId' mee." } }; return; }

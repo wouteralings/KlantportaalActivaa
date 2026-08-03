@@ -136,6 +136,11 @@ module.exports = async function (context, req) {
           x.medewerkerGeaccepteerd = true;
           x.geaccepteerdOp = new Date().toISOString();
           x.geaccepteerdDoor = naam || email || "";
+          // Kort berichtje in de vragen-/berichtenreeks zodat de klant ook echt merkt dat alles is
+          // gecontroleerd en in orde is (en dit meteen het klant-rode-bolletje triggert, zie
+          // heeftMedewerkerActiviteitSinds in aanleververzoeken.js).
+          if (!Array.isArray(x.vragen)) x.vragen = [];
+          x.vragen.push(verzoeken.maakBericht("medewerker", naam || email || "Medewerker", "Vragenlijst gecontroleerd en akkoord bevonden — bedankt voor het aanleveren!"));
         });
         if (!v) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Verzoek niet gevonden." } }; return; }
         if (foutmelding) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: foutmelding } }; return; }
@@ -161,6 +166,8 @@ module.exports = async function (context, req) {
           r.bestand = null;
           r.aangeleverdOp = null;
           r.aangeleverdDoor = null;
+          // Voor het rode bolletje bij de klant (zie aanleververzoeken.js, heeftMedewerkerActiviteitSinds).
+          r.heropendOp = new Date().toISOString();
           // Een geaccepteerde/afgeronde vragenlijst gaat door het heropenen van een document weer
           // 'open' — de klant moet 'm dan opnieuw aanleveren, dus ook de acceptatie vervalt.
           x.medewerkerGeaccepteerd = false;

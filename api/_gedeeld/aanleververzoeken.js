@@ -97,6 +97,10 @@ function maakVerzoek({ accountId, klantnaam, klantnummer, contactId, contactNaam
       aangeleverdOp: null,
       aangeleverdDoor: null,
       bestand: null,
+      // Gezet door een medewerker via 'heropenen' (zie api/medewerker-vragenlijsten): wanneer een
+      // eerder aangeleverd/afgemeld document weer open wordt gezet omdat de klant het opnieuw moet
+      // aanleveren. Alleen gebruikt voor de "nieuwe activiteit"-detectie bij de klant hieronder.
+      heropendOp: null,
     })),
   };
 }
@@ -191,7 +195,59 @@ function heeftKlantActiviteitSinds(verzoek, sindsIso) {
   return sinds ? momenten.some((t) => t && new Date(t) > sinds) : momenten.length > 0;
 }
 
+// ── "Gezien" door de klant zelf — per e-mailadres (in tegenstelling tot het gedeelde, globale
+// moment van medewerkers hierboven: elke klant heeft hier zijn eigen laatst-bekeken-moment nodig).
+// Zelfde eenvoudige opzet als nieuwsgelezen.js: { "<email in kleine letters>": "<iso-moment>" }.
+// Voor het rode bolletje/aantal in het klantportaal (Home + tabblad Documenten) wanneer een
+// medewerker iets heeft gevraagd/gereageerd, of een document heeft heropend.
+const KLANT_GEZIEN_BLOB_NAAM = "vragenlijsten-klant-gezien.json";
+
+async function haalKlantGezienAlles() {
+  const containerClient = await haalContainerClient();
+  const blobClient = containerClient.getBlockBlobClient(KLANT_GEZIEN_BLOB_NAAM);
+  if (!(await blobClient.exists())) return {};
+  try {
+    const data = JSON.parse(await streamNaarTekst((await blobClient.download()).readableStreamBody));
+    return data && typeof data === "object" ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+async function haalKlantLaatstGezien(email) {
+  const alle = await haalKlantGezienAlles();
+  return alle[(email || "").toLowerCase()] || null;
+}
+
+async function zetKlantLaatstGezien(email, iso) {
+  const containerClient = await haalContainerClient();
+  const blobClient = containerClient.getBlockBlobClient(KLANT_GEZIEN_BLOB_NAAM);
+  const alle = await haalKlantGezienAlles();
+  const moment = iso || new Date().toISOString();
+  alle[(email || "").toLowerCase()] = moment;
+  const buffer = Buffer.from(JSON.stringify(alle, null, 2), "utf-8");
+  await blobClient.upload(buffer, buffer.length, { overwrite: true });
+  return moment;
+}
+
+/** Heeft een medewerker hier iets gedaan (een vraag/reactie, of een document heropend) ná
+ * 'sindsIso' — of is het verzoek zelf pas ná 'sindsIso' aangemaakt (dus voor het eerst te zien voor
+ * de klant)? Zonder 'sindsIso' (klant heeft nog nooit gekeken) telt alles mee. Voor het rode
+ * bolletje/aantal bij de klant op Home en het tabblad Documenten. */
+function heeftMedewerkerActiviteitSinds(verzoek, sindsIso) {
+  const sinds = sindsIso ? new Date(sindsIso) : null;
+  const regels = Array.isArray(verzoek.regels) ? verzoek.regels : [];
+  const vragen = Array.isArray(verzoek.vragen) ? verzoek.vragen : [];
+  const momenten = [
+    verzoek.aangemaaktOp,
+    ...regels.filter((r) => r.heropendOp).map((r) => r.heropendOp),
+    ...vragen.filter((m) => m.rol === "medewerker" || m.rol === "ai").map((m) => m.tijd),
+  ];
+  return sinds ? momenten.some((t) => t && new Date(t) > sinds) : momenten.length > 0;
+}
+
 module.exports = {
   haalAlle, maakVerzoek, maakBericht, voegToe, werkBij, verwijder, haalVoorAccounts, herberekenStatus,
   haalLaatstGezien, zetLaatstGezien, heeftKlantActiviteitSinds,
+  haalKlantLaatstGezien, zetKlantLaatstGezien, heeftMedewerkerActiviteitSinds,
 };

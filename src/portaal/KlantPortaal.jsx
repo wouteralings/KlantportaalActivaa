@@ -134,6 +134,9 @@ export default function KlantPortaal() {
   // actief is, en meteen meetelt zodra de klant iets afhandelt.
   const [aanleverVerzoeken, setAanleverVerzoeken] = useState([]);
   const [aanleverVerzoekenStatus, setAanleverVerzoekenStatus] = useState("laden"); // laden | klaar | fout
+  // Vanaf Home op een vragenlijst geklikt → dit verzoek moet direct open/zichtbaar staan op het
+  // tabblad Documenten (zie TabAanleverVerzoeken hieronder, die dit oppikt en weer op "" zet).
+  const [focusVerzoekId, setFocusVerzoekId] = useState("");
   const [documenten, setDocumenten] = useState(null);
   const [documentenStatus, setDocumentenStatus] = useState("nietOpgehaald");
   const [documentenFoutmelding, setDocumentenFoutmelding] = useState("");
@@ -242,10 +245,13 @@ export default function KlantPortaal() {
       .catch(() => setAanleverVerzoekenStatus("fout")); // niet-kritisch; het bolletje blijft dan gewoon weg
   }, [ingelogd]);
 
-  // Nog niet afgeronde vragenlijsten — voor het rode bolletje op het tabblad Documenten en het
-  // overzichtje op Home (met deadline, zie hieronder).
-  const openVragenlijstenLijst = aanleverVerzoeken.filter((v) => v.status !== "afgerond");
-  const openVragenlijsten = openVragenlijstenLijst.length;
+  // Vragenlijsten die aandacht nodig hebben: nog niet afgerond, óf afgerond maar met nieuwe
+  // activiteit van een medewerker (vraag/reactie of een heropend document) sinds de klant hier voor
+  // het laatst keek. Voor het overzichtje + rode bolletje op Home, en het aantal-bolletje op het
+  // tabblad Documenten.
+  const vragenlijstenAandacht = aanleverVerzoeken.filter((v) => v.status !== "afgerond" || v.heeftNieuweActiviteit);
+  const openVragenlijsten = vragenlijstenAandacht.length;
+  const nieuweActiviteitAantal = aanleverVerzoeken.filter((v) => v.heeftNieuweActiviteit).length;
 
   const haalVerzoekenOp = useCallback(() => {
     fetch("/api/wijzigingsverzoek")
@@ -566,14 +572,14 @@ export default function KlantPortaal() {
           <Kopje tekst="Open taken" />
           <TabTaken data={taken} gebruiker={gebruiker} onAkkoord={geefAkkoord} onNietAkkoord={geefNietAkkoord} onOndertekenen={geefHandtekening} alleenLezen={!!meekijkSessie} />
 
-          {openVragenlijstenLijst.length > 0 && (
+          {vragenlijstenAandacht.length > 0 && (
             <div style={{ marginTop: 28 }}>
-              <Kopje tekst="Aan te leveren documenten" />
+              <Kopje tekst="Aan te leveren documenten" badge={nieuweActiviteitAantal} />
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {openVragenlijstenLijst.map((v) => (
+                {vragenlijstenAandacht.map((v) => (
                   <button
                     key={v.id}
-                    onClick={() => setTab("documenten")}
+                    onClick={() => { setFocusVerzoekId(v.id); setTab("documenten"); }}
                     style={{
                       display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
                       width: "100%", textAlign: "left", padding: "12px 14px", background: KLEUR.lichtblauw,
@@ -581,9 +587,19 @@ export default function KlantPortaal() {
                     }}
                   >
                     <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                      {v.heeftNieuweActiviteit && (
+                        <span title="Activaa heeft hier iets gevraagd/gereageerd, of een document heropend" style={{ width: 8, height: 8, borderRadius: "50%", background: KLEUR.rood, flexShrink: 0 }} />
+                      )}
                       <ClipboardList size={16} color={KLEUR.blauw} style={{ flexShrink: 0 }} />
-                      <span style={{ fontSize: 13.5, fontWeight: 600, color: KLEUR.tekst, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {v.lijstNaam || "Aanlever-verzoek"}
+                      <span style={{ minWidth: 0, overflow: "hidden" }}>
+                        <span style={{ display: "block", fontSize: 13.5, fontWeight: 600, color: KLEUR.tekst, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {v.lijstNaam || "Aanlever-verzoek"}
+                        </span>
+                        {v.klantnaam && (
+                          <span style={{ display: "block", fontSize: 11, color: KLEUR.mutedTekst, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {v.klantnaam}
+                          </span>
+                        )}
                       </span>
                     </span>
                     {v.deadline ? (
@@ -624,7 +640,13 @@ export default function KlantPortaal() {
       )}
       {tab === "documenten" && (
         <>
-        <TabAanleverVerzoeken verzoeken={aanleverVerzoeken} setVerzoeken={setAanleverVerzoeken} status={aanleverVerzoekenStatus} />
+        <TabAanleverVerzoeken
+          verzoeken={aanleverVerzoeken}
+          setVerzoeken={setAanleverVerzoeken}
+          status={aanleverVerzoekenStatus}
+          focusVerzoekId={focusVerzoekId}
+          onFocusHandled={() => setFocusVerzoekId("")}
+        />
         <TabDocumenten
           status={documentenStatus}
           data={documenten}
@@ -764,10 +786,21 @@ function Foutmelding({ tekst, onSluiten }) {
 
 const kaartStijl = { border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginBottom: 16, background: "#fff" };
 
-function Kopje({ tekst }) {
+function Kopje({ tekst, badge }) {
   return (
-    <div style={{ fontSize: 13, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 12 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 12 }}>
       {tekst}
+      {badge > 0 && (
+        <span
+          style={{
+            display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 17, height: 17,
+            padding: "0 5px", borderRadius: 999, background: KLEUR.rood, color: "#fff", fontSize: 10.5,
+            fontWeight: 700, lineHeight: 1, textTransform: "none", letterSpacing: "normal",
+          }}
+        >
+          {badge > 99 ? "99+" : badge}
+        </span>
+      )}
     </div>
   );
 }
@@ -1628,7 +1661,7 @@ function RegelDropzone({ regel, bezig, onBestand }) {
 // verzoeken/setVerzoeken/status komen van KlantPortaal (zie daar) zodat het rode aantal-bolletje
 // op het tabblad Documenten ook zichtbaar is als dit tabblad niet actief is, en meteen meetelt
 // zodra de klant hier iets afhandelt.
-function TabAanleverVerzoeken({ verzoeken, setVerzoeken, status }) {
+function TabAanleverVerzoeken({ verzoeken, setVerzoeken, status, focusVerzoekId, onFocusHandled }) {
   // Hele blok in- en uitklappen — standaard dicht, de klant klikt 'm zelf open. Voltooide
   // vragenlijsten staan daarbinnen weer in hun eigen (ook dichte) archiefje, per stuk uit te klappen.
   const [open, setOpen] = useState(false);
@@ -1640,9 +1673,40 @@ function TabAanleverVerzoeken({ verzoeken, setVerzoeken, status }) {
   const [bezigOpm, setBezigOpm] = useState("");
   const [vraagDraft, setVraagDraft] = useState({});
   const [bezigVraag, setBezigVraag] = useState("");
+  const verzoekRefs = useRef({}); // id -> DOM-node, om vanuit Home direct naar de juiste kaart te scrollen
 
   const toggleRegel = (id) => setOpenRegels((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const toggleUitgeklapt = (id) => setUitgeklapt((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+
+  // Vanaf Home op een specifieke vragenlijst geklikt: blok openklappen, indien nodig het
+  // "Voltooid"-archiefje openklappen + die kaart uitklappen, en er dan naartoe scrollen.
+  useEffect(() => {
+    if (!focusVerzoekId) return;
+    const v = verzoeken.find((x) => x.id === focusVerzoekId);
+    if (!v) return;
+    setOpen(true);
+    if (v.status === "afgerond") {
+      setVoltooidOpen(true);
+      setUitgeklapt((s) => new Set(s).add(v.id));
+    }
+    const timer = setTimeout(() => {
+      const el = verzoekRefs.current[focusVerzoekId];
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+    if (onFocusHandled) onFocusHandled();
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusVerzoekId]);
+
+  // Zodra de klant het blok openklapt (handmatig, of via de focus hierboven): alles als gezien
+  // markeren bij Activaa (rode bolletjes gaan uit) — zelfde eenvoudige opzet als bij medewerkers.
+  useEffect(() => {
+    if (!open) return;
+    fetch("/api/mijn-aanleververzoeken", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "gezien" }) })
+      .then(() => setVerzoeken((h) => h.map((v) => (v.heeftNieuweActiviteit ? { ...v, heeftNieuweActiviteit: false } : v))))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const uploadRegel = async (verzoek, regel, file) => {
     if (!file) return;
@@ -1713,9 +1777,14 @@ function TabAanleverVerzoeken({ verzoeken, setVerzoeken, status }) {
   const klaarVerzoeken = verzoeken.filter((v) => v.status === "afgerond");
 
   const renderVerzoek = (v) => (
-      <div key={v.id} style={{ background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14, marginBottom: 10 }}>
+      <div key={v.id} ref={(el) => { if (el) verzoekRefs.current[v.id] = el; }} style={{ background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14, marginBottom: 10, scrollMarginTop: 12 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
-            <span style={{ fontSize: 13.5, fontWeight: 700 }}>{v.lijstNaam || "Aanlever-verzoek"}{v.klantnaam ? ` · ${v.klantnaam}` : ""}</span>
+            <span style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13.5, fontWeight: 700 }}>
+              {v.heeftNieuweActiviteit && (
+                <span title="Activaa heeft hier iets gevraagd/gereageerd, of een document heropend" style={{ width: 8, height: 8, borderRadius: "50%", background: KLEUR.rood, flexShrink: 0 }} />
+              )}
+              {v.lijstNaam || "Aanlever-verzoek"}{v.klantnaam ? ` · ${v.klantnaam}` : ""}
+            </span>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               {v.deadline && <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "#F6E9E9", color: KLEUR.rood }}>Deadline {v.deadline}</span>}
               <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: v.status === "afgerond" ? "#E7F2EA" : "#FBF3E4", color: v.status === "afgerond" ? "#2E7D46" : KLEUR.goud }}>
@@ -1867,6 +1936,9 @@ function TabAanleverVerzoeken({ verzoeken, setVerzoeken, status }) {
                           }}
                         >
                           <CheckCircle2 size={15} color="#2E7D46" style={{ flexShrink: 0 }} />
+                          {v.heeftNieuweActiviteit && (
+                            <span title="Activaa heeft hier iets gevraagd/gereageerd" style={{ width: 8, height: 8, borderRadius: "50%", background: KLEUR.rood, flexShrink: 0 }} />
+                          )}
                           <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: KLEUR.tekst, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {v.lijstNaam || "Aanlever-verzoek"}
                           </span>
