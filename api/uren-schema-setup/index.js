@@ -1,8 +1,9 @@
 /**
  * /api/uren-schema-setup?bevestig=ja — eenmalige (veilig herhaalbare) opzet van de Dataverse-
  * tabellen voor de interne urenregistratie:
- *   - cr283_urenboeking  (de urenboekingen; 1 rij per boeking)
- *   - cr283_urentarief   (uurtarieven + declarabel-doel per medewerker; 1 rij per medewerker)
+ *   - cr283_urenboeking     (de urenboekingen; 1 rij per boeking)
+ *   - cr283_urentarief      (uurtarieven + declarabel-doel per medewerker; 1 rij per medewerker)
+ *   - cr283_verlofaanvraag  (verlofaanvragen; 1 rij per aanvraag — 03-08-2026, verlofmodule)
  *
  * Zelfde aanpak en helpers als api/dataverse-schema-setup (Opdrachtbevestiging/Tarief): elke stap
  * checkt eerst op bestaan, er wordt nooit iets verwijderd/overschreven, en na afloop wordt
@@ -12,9 +13,9 @@
  * BEVEILIGING: beheerder-only (route in staticwebapp.config.json) + CSRF-drempel via de header
  * x-requested-with: 'klantportaal' + verplichte ?bevestig=ja.
  *
- * Keuzes: gecontroleerde tekstwaarden (soort/status/tariefsoort) als String-kolommen — zo bepaalt
- * de app de waarden en is er geen fragiele option-set-nummermapping nodig. Bedragen als Decimal
- * (geen Money) om de transactievaluta-eis bij het aanmaken te vermijden. Ja/nee als Boolean.
+ * Keuzes: gecontroleerde tekstwaarden (soort/status/tariefsoort/verloftype) als String-kolommen —
+ * zo bepaalt de app de waarden en is er geen fragiele option-set-nummermapping nodig. Bedragen als
+ * Decimal (geen Money) om de transactievaluta-eis bij het aanmaken te vermijden. Ja/nee als Boolean.
  */
 const { haalDynamicsToken } = require("../_gedeeld/identiteit");
 
@@ -121,13 +122,13 @@ module.exports = async function (context, req) {
     stappen.push(await maakEntiteit(token, resource, {
       logicalName: B, schemaName: `${PREFIX}_Urenboeking`,
       weergavenaam: "Urenboeking", weergavenaamMeervoud: "Urenboekingen",
-      beschrijving: "Eén interne urenboeking van een medewerker (abonnement/UXT/indirect/kantoor).",
+      beschrijving: "Eén interne urenboeking van een medewerker (abonnement/UXT/indirect/kantoor/verlof).",
       primaireAttribuutSchemaName: `${PREFIX}_Kenmerk`, primaireAttribuutWeergavenaam: "Kenmerk",
       primaireAttribuutMaxLength: 100, autoNumberFormat: "UUR-{SEQNUM:000000}",
     }));
     const boekingAttrs = [
       [`${PREFIX}_datum`, DatumOnly(`${PREFIX}_Datum`, "Datum")],
-      [`${PREFIX}_soort`, Str(`${PREFIX}_Soort`, "Soort", 20)],                 // abonnement|uxt|indirect|kantoor
+      [`${PREFIX}_soort`, Str(`${PREFIX}_Soort`, "Soort", 20)],                 // abonnement|uxt|indirect|kantoor|verlof
       [`${PREFIX}_declarabel`, Bool(`${PREFIX}_Declarabel`, "Declarabel")],
       [`${PREFIX}_omschrijving`, Memo(`${PREFIX}_Omschrijving`, "Omschrijving", 2000)],
       [`${PREFIX}_uren`, Dec(`${PREFIX}_Uren`, "Uren")],
@@ -174,16 +175,42 @@ module.exports = async function (context, req) {
     ];
     for (const [logisch, meta] of tariefAttrs) stappen.push(await maakAttribuut(token, resource, T, logisch, meta));
 
+    // ---- Tabel 3: Verlofaanvraag (03-08-2026, verlofmodule) ----
+    const V = `${PREFIX}_verlofaanvraag`;
+    stappen.push(await maakEntiteit(token, resource, {
+      logicalName: V, schemaName: `${PREFIX}_Verlofaanvraag`,
+      weergavenaam: "Verlofaanvraag", weergavenaamMeervoud: "Verlofaanvragen",
+      beschrijving: "Een verlofaanvraag van een medewerker (vakantie/ziek/bijzonder verlof/onbetaald), incl. goedkeuring door de leidinggevende.",
+      primaireAttribuutSchemaName: `${PREFIX}_Kenmerk`, primaireAttribuutWeergavenaam: "Kenmerk",
+      primaireAttribuutMaxLength: 100, autoNumberFormat: "VERLOF-{SEQNUM:000000}",
+    }));
+    const verlofAttrs = [
+      [`${PREFIX}_medewerkeremail`, Str(`${PREFIX}_Medewerkeremail`, "Medewerker e-mail", 256)],
+      [`${PREFIX}_medewerkernaam`, Str(`${PREFIX}_Medewerkernaam`, "Medewerker", 256)],
+      [`${PREFIX}_verloftype`, Str(`${PREFIX}_Verloftype`, "Verloftype", 30)],   // sleutel uit verlof-instellingen.json
+      [`${PREFIX}_startdatum`, DatumOnly(`${PREFIX}_Startdatum`, "Startdatum")],
+      [`${PREFIX}_einddatum`, DatumOnly(`${PREFIX}_Einddatum`, "Einddatum")],
+      [`${PREFIX}_aantaluren`, Dec(`${PREFIX}_Aantaluren`, "Aantal uren (berekend uit werkrooster)")],
+      [`${PREFIX}_status`, Str(`${PREFIX}_Status`, "Status", 20)],               // aangevraagd|goedgekeurd|afgewezen|ingetrokken
+      [`${PREFIX}_toelichting`, Memo(`${PREFIX}_Toelichting`, "Toelichting (medewerker)", 2000)],
+      [`${PREFIX}_leidinggevendenaam`, Str(`${PREFIX}_Leidinggevendenaam`, "Leidinggevende (snapshot)", 256)],
+      [`${PREFIX}_afgehandelddoor`, Str(`${PREFIX}_Afgehandelddoor`, "Afgehandeld door", 256)],
+      [`${PREFIX}_afgehandeldop`, DatumTijd(`${PREFIX}_Afgehandeldop`, "Afgehandeld op")],
+      [`${PREFIX}_afwijsreden`, Str(`${PREFIX}_Afwijsreden`, "Reden afwijzing", 500)],
+    ];
+    for (const [logisch, meta] of verlofAttrs) stappen.push(await maakAttribuut(token, resource, V, logisch, meta));
+
     // ---- Relaties (maken meteen de lookup-kolommen aan) ----
     stappen.push(await maakLookupRelatie(token, resource, { schemaName: `${PREFIX}_account_urenboeking`, referencedEntity: "account", referencingEntity: B, lookupSchemaName: `${PREFIX}_Client`, weergavenaam: "Cliënt", beschrijving: "De cliënt (Dynamics-account) waarop deze uren zijn geschreven." }));
     stappen.push(await maakLookupRelatie(token, resource, { schemaName: `${PREFIX}_systemuser_urenboeking`, referencedEntity: "systemuser", referencingEntity: B, lookupSchemaName: `${PREFIX}_Medewerker`, weergavenaam: "Medewerker", beschrijving: "De medewerker die deze uren heeft geschreven." }));
     stappen.push(await maakLookupRelatie(token, resource, { schemaName: `${PREFIX}_systemuser_urentarief`, referencedEntity: "systemuser", referencingEntity: T, lookupSchemaName: `${PREFIX}_Medewerker`, weergavenaam: "Medewerker", beschrijving: "De medewerker bij dit uurtarief." }));
+    stappen.push(await maakLookupRelatie(token, resource, { schemaName: `${PREFIX}_systemuser_verlofaanvraag`, referencedEntity: "systemuser", referencingEntity: V, lookupSchemaName: `${PREFIX}_Medewerker`, weergavenaam: "Medewerker", beschrijving: "De medewerker van deze verlofaanvraag." }));
 
     stappen.push(await publiceerAlles(token, resource));
 
     context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, stappen, volgende: [
-      "Controleer in make.powerapps.com de tabellen 'Urenboeking' en 'Urentarief'.",
-      "Zorg dat de Application User (DYNAMICS_CLIENT_ID) lees- en schrijfrechten (Aanmaken/Lezen/Bijwerken/Verwijderen) heeft op beide nieuwe tabellen — anders faalt het wegschrijven van uren.",
+      "Controleer in make.powerapps.com de tabellen 'Urenboeking', 'Urentarief' en 'Verlofaanvraag'.",
+      "Zorg dat de Application User (DYNAMICS_CLIENT_ID) lees- en schrijfrechten (Aanmaken/Lezen/Bijwerken/Verwijderen) heeft op alle drie de tabellen — anders faalt het wegschrijven van uren/verlof.",
       "Zet de rol 'System Customizer' van de Application User daarna weer terug naar de minimale rol.",
     ] } };
   } catch (err) {

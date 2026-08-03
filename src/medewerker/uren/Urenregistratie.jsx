@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Clock, Plus, Trash2, Pencil, X, Check, ChevronLeft, ChevronRight, Lock, RefreshCw, CheckSquare, ClipboardCheck, BarChart3, Gauge, Wallet, Loader2, Send } from "lucide-react";
+import { Clock, Plus, Trash2, Pencil, X, Check, ChevronLeft, ChevronRight, Lock, RefreshCw, CheckSquare, ClipboardCheck, BarChart3, Gauge, Wallet, Loader2, Send, CalendarPlus, CalendarCheck, CalendarDays } from "lucide-react";
 import {
   KLEUR, SOORTEN, soortVan, isDeclarabel, TARIEF_SOORTEN, euro, uur, datumNL,
   WEEKDAG_VOL, maandagVan, voegDagenToe, vandaagIso, useKlanten, KlantPicker, SoortBadge,
@@ -10,18 +10,26 @@ import UrenFacturatie from "./UrenFacturatie";
 import UrenRapportage from "./UrenRapportage";
 import UrenGoedkeuren from "./UrenGoedkeuren";
 import UrenBezetting from "./UrenBezetting";
+import VerlofAanvragen from "./VerlofAanvragen";
+import VerlofGoedkeuren from "./VerlofGoedkeuren";
+import VerlofOverzicht from "./VerlofOverzicht";
 
 /**
  * Interne urenregistratie voor medewerkers. Sub-tabs:
- *   - Schrijven   : je eigen uren per week schrijven/bewerken (4 soorten)
- *   - Controle    : maandcontrole van je cliënten (manager)
- *   - Facturatie  : OHW + facturatiestatus, gesplitst in UXT en abonnement
- *   - Rapportage  : declarabel-% en indirecte uren per medewerker
- *   - Bezetting   : ingeplande uren per medewerker per maand t.o.v. beschikbare capaciteit
+ *   - Schrijven          : je eigen uren per week schrijven/bewerken (incl. vaste + goedgekeurd verlof)
+ *   - Verlof              : verlof aanvragen + eigen verlofsaldo
+ *   - Verlof goedkeuren   : (leidinggevende) openstaande verlofaanvragen van je team afhandelen
+ *   - Vakantieoverzicht   : bedrijfsbreed overzicht van goedgekeurd verlof — lijst + kalender
+ *   - Goedkeuren          : wekelijkse weekstaat-goedkeuring (leidinggevende)
+ *   - Controle            : maandcontrole van je cliënten (manager)
+ *   - Facturatie          : OHW + facturatiestatus, gesplitst in UXT en abonnement
+ *   - Rapportage          : declarabel-% en indirecte uren per medewerker
+ *   - Bezetting           : ingeplande uren per medewerker per maand t.o.v. beschikbare capaciteit
  */
 export default function Urenregistratie({ isBeheerder }) {
   const [sub, setSub] = useState("schrijven");
   const [teGoedkeuren, setTeGoedkeuren] = useState(0);
+  const [verlofTeGoedkeuren, setVerlofTeGoedkeuren] = useState(0);
 
   // Telling van weekstaten die op mijn goedkeuring wachten (badge op de Goedkeuren-tab).
   const laadTelling = useCallback(() => {
@@ -32,8 +40,20 @@ export default function Urenregistratie({ isBeheerder }) {
   }, []);
   useEffect(() => { laadTelling(); }, [laadTelling]);
 
+  // Telling van verlofaanvragen die op mijn goedkeuring wachten (badge op de Verlof goedkeuren-tab).
+  const laadVerlofTelling = useCallback(() => {
+    fetch("/api/mw-verlof-goedkeuren")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setVerlofTeGoedkeuren(d.aantalOpen || 0))
+      .catch(() => {});
+  }, []);
+  useEffect(() => { laadVerlofTelling(); }, [laadVerlofTelling]);
+
   const subs = [
     ["schrijven", "Schrijven", Clock, 0],
+    ["verlof", "Verlof", CalendarPlus, 0],
+    ["verlofgoedkeuren", "Verlof goedkeuren", CalendarCheck, verlofTeGoedkeuren],
+    ["vakantieoverzicht", "Vakantieoverzicht", CalendarDays, 0],
     ["goedkeuren", "Goedkeuren", ClipboardCheck, teGoedkeuren],
     ["controle", "Facturatiecontrole", CheckSquare, 0],
     ["facturatie", "Facturatie", Wallet, 0],
@@ -59,6 +79,9 @@ export default function Urenregistratie({ isBeheerder }) {
       </div>
 
       {sub === "schrijven" && <Schrijven />}
+      {sub === "verlof" && <VerlofAanvragen />}
+      {sub === "verlofgoedkeuren" && <VerlofGoedkeuren isBeheerder={isBeheerder} onGewijzigd={laadVerlofTelling} />}
+      {sub === "vakantieoverzicht" && <VerlofOverzicht />}
       {sub === "goedkeuren" && <UrenGoedkeuren isBeheerder={isBeheerder} onGewijzigd={laadTelling} />}
       {sub === "controle" && <UrenControle isBeheerder={isBeheerder} />}
       {sub === "facturatie" && <UrenFacturatie isBeheerder={isBeheerder} />}
@@ -79,6 +102,7 @@ function Schrijven() {
   const [tarief, setTarief] = useState(null);
   const [codes, setCodes] = useState([]);
   const [vasteUren, setVasteUren] = useState([]); // virtuele vaste (contract)uren voor deze week
+  const [verlofUren, setVerlofUren] = useState([]); // virtueel goedgekeurd (nog niet vastgelegd) verlof voor deze week
   const [weekEis, setWeekEis] = useState(40);
   const [fout, setFout] = useState("");
   const [form, setForm] = useState({ ...LEEG, datum: vandaagIso() });
@@ -90,7 +114,7 @@ function Schrijven() {
     setBoekingen(null); setFout("");
     fetch(`/api/mw-uren-boekingen?vanaf=${weekStart}&tot=${weekEinde}`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { setBoekingen(d.boekingen || []); setTarief(d.tarief || null); setCodes(d.urencodes || []); setVasteUren(d.vasteUren || []); setWeekEis(d.weekUrenEis || 40); })
+      .then((d) => { setBoekingen(d.boekingen || []); setTarief(d.tarief || null); setCodes(d.urencodes || []); setVasteUren(d.vasteUren || []); setVerlofUren(d.verlofUren || []); setWeekEis(d.weekUrenEis || 40); })
       .catch(() => { setBoekingen([]); setFout("Kon je uren niet laden. Controleer of de database-koppeling is ingesteld."); });
   }, [weekStart, weekEinde]);
   useEffect(() => { laad(); }, [laad]);
@@ -159,8 +183,9 @@ function Schrijven() {
 
   // Codes die niet meetellen in de noemer van het declarabel-% (verlof/overuren/parttime).
   const nietMeetellend = useMemo(() => new Set((codes || []).filter((c) => c.teltDeclarabelMee === false).map((c) => c.naam)), [codes]);
-  // Echte boekingen + virtuele vaste uren samen (vaste uren tellen mee voor totaal en de 40u-eis).
-  const alleRijen = useMemo(() => ([...(boekingen || []), ...(vasteUren || [])]), [boekingen, vasteUren]);
+  // Echte boekingen + virtuele vaste uren + virtueel goedgekeurd verlof samen (tellen alle drie mee
+  // voor het weektotaal en de 40u-eis).
+  const alleRijen = useMemo(() => ([...(boekingen || []), ...(vasteUren || []), ...(verlofUren || [])]), [boekingen, vasteUren, verlofUren]);
 
   const perDag = useMemo(() => {
     const map = {};
@@ -173,13 +198,13 @@ function Schrijven() {
     let totaal = 0, declU = 0, indU = 0, basis = 0;
     alleRijen.forEach((b) => {
       totaal += b.uren; if (b.declarabel) declU += b.uren; else indU += b.uren;
-      if (!(b.urencode && nietMeetellend.has(b.urencode))) basis += b.uren;
+      if (!(b.soort === "verlof" || (b.urencode && nietMeetellend.has(b.urencode)))) basis += b.uren;
     });
     return { totaal, declU, indU, basis, pct: basis ? Math.round((declU / basis) * 1000) / 10 : 0 };
   }, [alleRijen, nietMeetellend]);
 
   const weekCompleet = Math.abs(totalen.totaal - weekEis) < 0.001;
-  const heeftInTeDienen = heeftConcept || (vasteUren || []).length > 0;
+  const heeftInTeDienen = heeftConcept || (vasteUren || []).length > 0 || (verlofUren || []).length > 0;
 
   const decl = isDeclarabel(form.soort);
   const dezeWeek = () => setWeekStart(maandagVan(vandaagIso()));
@@ -247,7 +272,7 @@ function Schrijven() {
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <select value={form.urencode} onChange={(e) => { const c = codes.find((x) => x.naam === e.target.value); if (c) kiesCode(c); }} style={{ ...veldStijl, width: 210 }}>
                     <option value="">Kies urencode…</option>
-                    {SOORTEN.map((s) => {
+                    {SOORTEN.filter((s) => s.key !== "verlof").map((s) => {
                       const inCat = codes.filter((c) => c.categorie === s.key);
                       return inCat.length ? <optgroup key={s.key} label={s.label}>{inCat.map((c) => <option key={c.id} value={c.naam}>{c.naam}</option>)}</optgroup> : null;
                     })}
@@ -258,7 +283,7 @@ function Schrijven() {
             ) : (
               <Veld label="Soort">
                 <div style={{ display: "flex", gap: 6 }}>
-                  {SOORTEN.map((s) => <button key={s.key} onClick={() => kiesSoort(s.key)} title={s.uitleg} style={{ ...knopStijl(form.soort === s.key), padding: "8px 10px", borderColor: form.soort === s.key ? s.kleur : KLEUR.rand, background: form.soort === s.key ? s.kleur : "#fff" }}>{s.label}</button>)}
+                  {SOORTEN.filter((s) => s.key !== "verlof").map((s) => <button key={s.key} onClick={() => kiesSoort(s.key)} title={s.uitleg} style={{ ...knopStijl(form.soort === s.key), padding: "8px 10px", borderColor: form.soort === s.key ? s.kleur : KLEUR.rand, background: form.soort === s.key ? s.kleur : "#fff" }}>{s.label}</button>)}
                 </div>
               </Veld>
             )}
@@ -337,7 +362,7 @@ function Schrijven() {
                         </div>
                         <div style={{ fontSize: 12.5, fontWeight: 700, minWidth: 52, textAlign: "right" }}>{uur(b.uren)} u</div>
                         {b.vast ? (
-                          <span title="Vaste (contract)uren — door beheer vastgezet, niet zelf te wijzigen" style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10.5, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 999, padding: "2px 8px" }}><Lock size={11} /> Vast</span>
+                          <span title={b.soort === "verlof" ? "Goedgekeurd verlof — niet zelf te wijzigen" : "Vaste (contract)uren — door beheer vastgezet, niet zelf te wijzigen"} style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10.5, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 999, padding: "2px 8px" }}><Lock size={11} /> {b.soort === "verlof" ? "Verlof" : "Vast"}</span>
                         ) : b.status === "concept" ? (
                           <div style={{ display: "flex", gap: 4 }}>
                             <button onClick={() => bewerk(b)} title="Bewerken" style={ikoonKnop}><Pencil size={13} color={KLEUR.subtekst} /></button>

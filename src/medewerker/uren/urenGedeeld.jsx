@@ -15,14 +15,18 @@ export const KLEUR = {
   rood: "#B23B3B",
   groen: "#2E7D46",
   goud: "#B98237",
+  paars: "#6B4C9A", // eigen kleur voor verlof, zodat het visueel duidelijk apart staat van de 4 urensoorten
 };
 
-// De vier urensoorten. declarabel = telt mee voor OHW/facturatie en het declarabel-%.
+// De urensoorten. declarabel = telt mee voor OHW/facturatie en het declarabel-%. 'verlof' wordt nooit
+// handmatig gekozen door de medewerker (zie Schrijven) — die rijen ontstaan automatisch uit een
+// goedgekeurde verlofaanvraag (Verlof-tab) en worden hier alleen gebruikt om ze mooi weer te geven.
 export const SOORTEN = [
   { key: "abonnement", label: "Abonnement", declarabel: true, kleur: KLEUR.groen, uitleg: "Standaard diensten binnen het abonnement" },
   { key: "uxt", label: "UXT", declarabel: true, kleur: KLEUR.blauw, uitleg: "Meerwerk / uitloop — apart te factureren" },
   { key: "indirect", label: "Indirect", declarabel: false, kleur: KLEUR.goud, uitleg: "Indirecte (niet-declarabele) uren" },
-  { key: "kantoor", label: "Kantoor", declarabel: false, kleur: KLEUR.mutedTekst, uitleg: "Kantooruren (verlof, opleiding, overig)" },
+  { key: "kantoor", label: "Kantoor", declarabel: false, kleur: KLEUR.mutedTekst, uitleg: "Kantooruren (opleiding, overig)" },
+  { key: "verlof", label: "Verlof", declarabel: false, kleur: KLEUR.paars, uitleg: "Goedgekeurd verlof (vakantie/ziek/bijzonder verlof/onbetaald)" },
 ];
 export const soortVan = (key) => SOORTEN.find((s) => s.key === key) || { key, label: key, declarabel: false, kleur: KLEUR.mutedTekst };
 export const isDeclarabel = (key) => key === "abonnement" || key === "uxt";

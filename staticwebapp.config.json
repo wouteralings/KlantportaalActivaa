@@ -485,6 +485,39 @@
       ]
     },
     {
+      "route": "/api/mw-verlof-aanvraag",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
+      "route": "/api/mw-verlof-goedkeuren",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
+      "route": "/api/mw-verlof-overzicht",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
+      "route": "/api/beheer-verlof-instellingen",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
+      "route": "/api/beheer-verlof-saldo",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
       "route": "/api/mw-contracten-overzicht",
       "allowedRoles": [
         "beheerder",

@@ -6,6 +6,13 @@
  * op één plek. Gebruikt de app-only token uit identiteit.js (zelfde als dossiers.js). De
  * herinnering-instellingen staan NIET in Dataverse maar in Blob (urenInstellingenIntern.js) — dat
  * is app-configuratie, geen urendata.
+ *
+ * 03-08-2026: SOORTEN uitgebreid met 'verlof' (niet-declarabel) t.b.v. de verlofmodule
+ * (api/_gedeeld/verlofDataverse.js). Verlof-boekingen worden nooit handmatig gekozen door de
+ * medewerker — ze worden automatisch aangemaakt (vast=true) op basis van een goedgekeurde
+ * verlofaanvraag, zodra de betreffende week wordt ingediend (zelfde materialisatiemoment als de
+ * vaste/contract-uren, zie vasteUrenSlots hieronder — nu ook geëxporteerd zodat verlofDataverse.js
+ * 'm kan hergebruiken voor het berekenen van de "normaal te werken uren op deze dag").
  */
 const { haalDynamicsToken } = require("./identiteit");
 const vasteUrenStore = require("./vasteUrenStore");
@@ -21,7 +28,7 @@ const BOEKING = `${P}_urenboeking`;
 const TARIEF = `${P}_urentarief`;
 const CLIENT_VALUE = `_${P}_client_value`;
 
-const SOORTEN = ["abonnement", "uxt", "indirect", "kantoor"];
+const SOORTEN = ["abonnement", "uxt", "indirect", "kantoor", "verlof"];
 const DECLARABELE_SOORTEN = new Set(["abonnement", "uxt"]);
 const isDeclarabel = (s) => DECLARABELE_SOORTEN.has(String(s || "").toLowerCase());
 const TARIEF_SOORTEN = ["normaal", "hoog", "laag"];
@@ -610,9 +617,12 @@ async function rapportageDeclarabel({ vanaf, tot }) {
   const per = new Map();
   for (const b of boekingen) {
     const key = (b.medewerkerEmail || "?").toLowerCase();
-    if (!per.has(key)) per.set(key, { email: b.medewerkerEmail, naam: b.medewerkerNaam || b.medewerkerEmail, totaal: 0, basis: 0, declarabelUren: 0, openUren: 0, goedgekeurdUren: 0, abonnement: 0, uxt: 0, indirect: 0, kantoor: 0 });
+    if (!per.has(key)) per.set(key, { email: b.medewerkerEmail, naam: b.medewerkerNaam || b.medewerkerEmail, totaal: 0, basis: 0, declarabelUren: 0, openUren: 0, goedgekeurdUren: 0, abonnement: 0, uxt: 0, indirect: 0, kantoor: 0, verlof: 0 });
     const r = per.get(key);
-    const meetelt = !(b.urencode && teltNietMee.has(b.urencode));
+    // Verlof telt (net als vroeger de urencode-gebaseerde uitzondering voor verlof/overuren/parttime)
+    // bewust NIET mee in de noemer van het declarabel-% — het is automatisch gematerialiseerd verlof,
+    // geen keuze van de medewerker, en zou het declarabel-doel anders onterecht drukken.
+    const meetelt = b.soort !== "verlof" && !(b.urencode && teltNietMee.has(b.urencode));
     r.totaal += b.uren;
     if (meetelt) r.basis += b.uren;                 // noemer voor het declarabel-%
     if (b.declarabel) r.declarabelUren += b.uren;

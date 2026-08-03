@@ -8,13 +8,17 @@
  *   - PATCH { id, ...velden }                 → eigen open boeking bijwerken
  *   - DELETE ?id=  (of body { id })           → eigen open boeking verwijderen
  *
- * soort ∈ abonnement|uxt|indirect|kantoor. Voor declarabele soorten (abonnement/uxt) is een
+ * soort ∈ abonnement|uxt|indirect|kantoor|verlof. Voor declarabele soorten (abonnement/uxt) is een
  * cliënt (accountId) vereist; het uurtarief en de cliënt-/manager-naam worden server-side als
  * snapshot vastgelegd. Route beveiligd via staticwebapp.config.json (medewerker/beheerder).
+ *
+ * 03-08-2026: bij "indienen" wordt eerst goedgekeurd-maar-nog-niet-vastgelegd verlof voor die week
+ * gematerialiseerd (zelfde moment als de vaste/contract-uren) — zie verlofDataverse.js.
  */
 const { haalDynamicsToken, haalEmailUitPrincipal, haalNaamUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const uren = require("../_gedeeld/urenDataverse");
 const urencodes = require("../_gedeeld/urencodesStore");
+const verlof = require("../_gedeeld/verlofDataverse");
 
 function json(context, status, body) {
   context.res = { status, headers: { "Content-Type": "application/json" }, body };
@@ -52,13 +56,20 @@ module.exports = async function (context, req) {
         uren.haalTarief(email),
         urencodes.haalCodes().catch(() => []),
       ]);
-      // Vaste (contract)uren voor deze week: virtuele boekingen die nog niet zijn vastgelegd. Alleen
-      // relevant als er een volledige week wordt opgevraagd (Schrijven vraagt precies één week op).
+      // Vaste (contract)uren + goedgekeurd (nog niet vastgelegd) verlof voor deze week: virtuele
+      // boekingen die nog niet zijn vastgelegd. Alleen relevant als er een volledige week wordt
+      // opgevraagd (Schrijven vraagt precies één week op).
       let vasteUren = [];
-      if (vanaf && tot) { try { vasteUren = await uren.vasteUrenVirtueel(email, uren.maandagVan(vanaf), boekingen); } catch { vasteUren = []; } }
+      let verlofUren = [];
+      if (vanaf && tot) {
+        const weekStart = uren.maandagVan(vanaf);
+        try { vasteUren = await uren.vasteUrenVirtueel(email, weekStart, boekingen); } catch { vasteUren = []; }
+        try { verlofUren = await verlof.virtueleRijenVoorWeek(email, weekStart, boekingen); } catch { verlofUren = []; }
+      }
       return json(context, 200, {
         boekingen,
         vasteUren,
+        verlofUren,
         weekUrenEis: uren.WEEK_UREN_EIS,
         soorten: uren.SOORTEN,
         urencodes: (codes || []).filter((c) => c.actief !== false),
@@ -78,6 +89,8 @@ module.exports = async function (context, req) {
       // Weekstaat indienen: alle concept-boekingen van die week → 'ingediend' (wacht op leidinggevende).
       if (b.actie === "indienen") {
         if (!b.weekStart || !/^\d{4}-\d{2}-\d{2}$/.test(b.weekStart)) return json(context, 400, { error: "Geef een geldige weekStart (maandag) mee." });
+        // Eerst goedgekeurd verlof voor deze week vastleggen (idempotent), zodat de 40-uur-eis het meetelt.
+        await verlof.materialiseerVoorWeek(email, b.weekStart);
         const r = await uren.dienWeekIn(email, b.weekStart);
         if (r.fout === "NIET_COMPLEET") {
           const u = Number(r.urenTotaal || 0).toLocaleString("nl-NL", { maximumFractionDigits: 2 });
