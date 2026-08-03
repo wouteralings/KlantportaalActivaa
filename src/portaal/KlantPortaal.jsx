@@ -576,6 +576,8 @@ export default function KlantPortaal() {
         <TabGegevens data={mijnGegevens} verzoeken={mijnVerzoeken} onWijzigen={dienWijzigingIn} alleenLezen={!!meekijkSessie} />
       )}
       {tab === "documenten" && (
+        <>
+        <TabAanleverVerzoeken />
         <TabDocumenten
           status={documentenStatus}
           data={documenten}
@@ -587,6 +589,7 @@ export default function KlantPortaal() {
           onLabelWijzigen={wijzigLabel}
           onEntiteitWijzigen={wijzigEntiteit}
         />
+        </>
       )}
       {tab === "dossiers" && <TabDossiers />}
       {tab === "facturen" && <FacturatieModule accounts={alleAccounts} prijs={facturatiemodulePrijs} urenPrijs={urenmodulePrijs} alleenLezen={!!meekijkSessie} initieelSubtab={adminInitieelSubtab} />}
@@ -1489,6 +1492,215 @@ function DocumentViewer({ url, driveId, itemId, formaat, titel }) {
   }
   return (
     <iframe title={titel} src={blobUrl} style={{ width: "100%", height: 460, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, background: "#fff" }} />
+  );
+}
+
+function tijd(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? "" : d.toLocaleString("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function leesAlsBase64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(String(r.result).split(",")[1] || "");
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
+// Vragenlijsten / aanlever-verzoeken: de openstaande "lijst met te leveren documenten" die een
+// medewerker voor deze klant heeft klaargezet (zie Uitvraag dynamisch). Los van de gewone
+// Documenten-weergave hieronder — deze widget praat met /api/mijn-aanleververzoeken (app-only,
+// werkt onafhankelijk van de SharePoint/Graph on-behalf-of-koppeling van de rest van dit tabblad).
+function TabAanleverVerzoeken() {
+  const [verzoeken, setVerzoeken] = useState([]);
+  const [status, setStatus] = useState("laden"); // laden | klaar | fout
+  const [bezigRegel, setBezigRegel] = useState("");
+  const [openRegels, setOpenRegels] = useState(() => new Set());
+  const [opmerkingDraft, setOpmerkingDraft] = useState({});
+  const [bezigOpm, setBezigOpm] = useState("");
+  const [vraagDraft, setVraagDraft] = useState({});
+  const [bezigVraag, setBezigVraag] = useState("");
+
+  const toggleRegel = (id) => setOpenRegels((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+
+  const laadVerzoeken = useCallback(() => {
+    setStatus("laden");
+    fetch("/api/mijn-aanleververzoeken")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => { setVerzoeken(d.verzoeken || []); setStatus("klaar"); })
+      .catch(() => setStatus("fout"));
+  }, []);
+
+  useEffect(() => { laadVerzoeken(); }, [laadVerzoeken]);
+
+  const uploadRegel = async (verzoek, regel, file) => {
+    if (!file) return;
+    setBezigRegel(regel.id);
+    try {
+      const contentBase64 = await leesAlsBase64(file);
+      const r = await fetch("/api/mijn-aanleververzoeken", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "upload", verzoekId: verzoek.id, regelId: regel.id, origineleNaam: file.name, contentBase64, contentType: file.type }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      const d = await r.json();
+      if (d.verzoek) setVerzoeken((huidig) => huidig.map((v) => (v.id === d.verzoek.id ? d.verzoek : v)));
+    } catch (e) {
+      alert("Aanleveren mislukt: " + (e.message || e));
+    } finally {
+      setBezigRegel("");
+    }
+  };
+
+  const saveOpmerking = async (verzoek, regel) => {
+    const opmerking = opmerkingDraft[regel.id] != null ? opmerkingDraft[regel.id] : (regel.opmerking || "");
+    setBezigOpm(regel.id);
+    try {
+      const r = await fetch("/api/mijn-aanleververzoeken", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "opmerking", verzoekId: verzoek.id, regelId: regel.id, opmerking }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      const d = await r.json();
+      if (d.verzoek) setVerzoeken((huidig) => huidig.map((v) => (v.id === d.verzoek.id ? d.verzoek : v)));
+    } catch (e) {
+      alert("Opmerking opslaan mislukt: " + (e.message || e));
+    } finally {
+      setBezigOpm("");
+    }
+  };
+
+  const stelVraag = async (verzoek) => {
+    const tekst = (vraagDraft[verzoek.id] || "").trim();
+    if (!tekst) return;
+    setBezigVraag(verzoek.id);
+    try {
+      const r = await fetch("/api/mijn-aanleververzoeken", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "vraag", verzoekId: verzoek.id, tekst }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      const d = await r.json();
+      if (d.verzoek) setVerzoeken((huidig) => huidig.map((v) => (v.id === d.verzoek.id ? d.verzoek : v)));
+      setVraagDraft((h) => ({ ...h, [verzoek.id]: "" }));
+    } catch (e) {
+      alert("Vraag versturen mislukt: " + (e.message || e));
+    } finally {
+      setBezigVraag("");
+    }
+  };
+
+  if (status === "laden") {
+    return <div style={{ display: "flex", alignItems: "center", gap: 8, color: KLEUR.mutedTekst, fontSize: 13, marginBottom: 16 }}><Loader2 size={15} style={{ animation: "spin 1s linear infinite" }} /> Vragenlijsten ophalen…</div>;
+  }
+  if (status === "fout" || verzoeken.length === 0) return null; // stil weglaten: geen (zichtbare) verzoeken voor deze klant
+
+  return (
+    <div style={{ border: "1px solid #CFE0EF", borderRadius: 12, padding: 18, marginBottom: 20, background: KLEUR.lichtblauw }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <ClipboardList size={17} color={KLEUR.blauw} />
+        <span style={{ fontSize: 15, fontWeight: 700 }}>Aan te leveren documenten</span>
+      </div>
+      {verzoeken.map((v) => (
+        <div key={v.id} style={{ background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14, marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+            <span style={{ fontSize: 13.5, fontWeight: 700 }}>{v.lijstNaam || "Aanlever-verzoek"}{v.klantnaam ? ` · ${v.klantnaam}` : ""}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {v.deadline && <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "#F6E9E9", color: KLEUR.rood }}>Deadline {v.deadline}</span>}
+              <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: v.status === "afgerond" ? "#E7F2EA" : "#FBF3E4", color: v.status === "afgerond" ? "#2E7D46" : KLEUR.goud }}>
+                {v.status === "afgerond" ? "Compleet" : "Openstaand"}
+              </span>
+            </div>
+          </div>
+          {v.notitie && <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 8 }}>{v.notitie}</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {(v.regels || []).map((r) => {
+              const klaar = r.status === "aangeleverd";
+              const open = openRegels.has(r.id);
+              const opmWaarde = opmerkingDraft[r.id] != null ? opmerkingDraft[r.id] : (r.opmerking || "");
+              return (
+                <div key={r.id} style={{ border: `1px solid ${klaar ? "#BFE0C8" : KLEUR.rand}`, borderRadius: 8, background: klaar ? "#F1F8F3" : "#fff", overflow: "hidden" }}>
+                  <button onClick={() => toggleRegel(r.id)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", background: "none", border: "none", padding: "10px 12px", cursor: "pointer" }}>
+                    {klaar ? <CheckCircle2 size={17} color="#2E7D46" /> : <Circle size={17} color={KLEUR.mutedTekst} />}
+                    <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: KLEUR.tekst }}>
+                      {r.naam}{r.verplicht === false ? <span style={{ fontWeight: 400, color: KLEUR.mutedTekst }}> · optioneel</span> : null}
+                    </span>
+                    {klaar && <span style={{ fontSize: 11.5, color: "#2E7D46", fontWeight: 700 }}>Aangeleverd</span>}
+                    {!klaar && r.opmerking && <span style={{ fontSize: 11, color: KLEUR.goud, fontWeight: 600 }}>opmerking</span>}
+                    <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+                  </button>
+                  {open && (
+                    <div style={{ padding: "0 12px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+                      {r.toelichting && <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>{r.toelichting}</div>}
+                      {klaar && r.bestand && <div style={{ fontSize: 12, color: "#2E7D46" }}>Aangeleverd: {r.bestand.naam}{r.aangeleverdOp ? ` · ${tijd(r.aangeleverdOp)}` : ""}</div>}
+                      <div>
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", background: klaar ? "#fff" : KLEUR.blauw, color: klaar ? KLEUR.blauw : "#fff", border: klaar ? `1px solid ${KLEUR.blauw}` : "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+                          {bezigRegel === r.id ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Upload size={14} />}
+                          {bezigRegel === r.id ? "Uploaden…" : (r.bestand ? "Vervangen" : "Bestand uploaden")}
+                          <input type="file" style={{ display: "none" }} disabled={bezigRegel === r.id} onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; uploadRegel(v, r, f); }} />
+                        </label>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Opmerking (zichtbaar voor je accountant)</div>
+                        <textarea
+                          value={opmWaarde}
+                          onChange={(e) => setOpmerkingDraft((d) => ({ ...d, [r.id]: e.target.value }))}
+                          rows={2}
+                          placeholder="bv. zit in de bijlage / niet van toepassing"
+                          style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 12.5, resize: "vertical", outline: "none" }}
+                        />
+                        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4 }}>
+                          <button onClick={() => saveOpmerking(v, r)} disabled={bezigOpm === r.id} style={{ padding: "5px 11px", background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 11.5, fontWeight: 600, color: KLEUR.blauw, cursor: "pointer" }}>
+                            {bezigOpm === r.id ? "Opslaan…" : "Opmerking opslaan"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${KLEUR.rand}` }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+              <MessageCircle size={14} /> Vragen over deze lijst
+            </div>
+            {(v.vragen || []).length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+                {v.vragen.map((m) => (
+                  <div key={m.id} style={{ alignSelf: m.rol === "klant" ? "flex-end" : "flex-start", maxWidth: "85%", background: m.rol === "klant" ? KLEUR.lichtblauw : "#F4F1EA", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "6px 10px" }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: m.rol === "klant" ? KLEUR.blauw : KLEUR.goud, marginBottom: 2 }}>
+                      {m.rol === "klant" ? "Jij" : (m.rol === "ai" ? "Assistent" : (m.auteur || "Activaa"))}
+                      <span style={{ color: KLEUR.mutedTekst, fontWeight: 400 }}>{m.tijd ? ` · ${tijd(m.tijd)}` : ""}</span>
+                    </div>
+                    <div style={{ fontSize: 12.5, color: KLEUR.tekst, whiteSpace: "pre-wrap" }}>{m.tekst}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 6 }}>
+              <input
+                value={vraagDraft[v.id] || ""}
+                onChange={(e) => setVraagDraft((h) => ({ ...h, [v.id]: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === "Enter") stelVraag(v); }}
+                placeholder="Stel een vraag aan je accountant…"
+                style={{ flex: 1, boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 12.5, outline: "none" }}
+              />
+              <button onClick={() => stelVraag(v)} disabled={bezigVraag === v.id || !(vraagDraft[v.id] || "").trim()} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+                {bezigVraag === v.id ? "Versturen…" : "Versturen"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
