@@ -4,11 +4,20 @@
  * Inactief (statecode) staat is alleen-lezen.
  *
  *   - GET  ?soort=ib|vpb&id=<guid>
- *       → { dossier, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen, picklistOpties }
+ *       → { dossier, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen,
+ *           picklistOpties, gekoppeldeUitvragen }
  *         (catalogus bevat naast de vrije catalogus ook de "vaste" velden __status/__urlDossier/
- *         __documentUrl, zie vasteVeldenVoorSoort() in dossierVelden.js; secties/subsecties zijn
- *         voor soorten zonder eigen vrije catalogus — momenteel alleen "ib" heeft die — beperkt
- *         tot één "Algemeen"-sectie met alleen die vaste velden)
+ *         __documentUrl (zie vasteVeldenVoorSoort() in dossierVelden.js) en eventuele door Wouter
+ *         zelf via Beheer → Dossiers aangemaakte extra velden (dossierIndeling.<soort>.
+ *         aangepasteVelden — zie api/dossier-kolom-aanmaken), met eventuele eigen labels
+ *         (dossierIndeling.<soort>.labels) al toegepast; secties/subsecties zijn voor soorten
+ *         zonder eigen vrije catalogus — momenteel alleen "ib" heeft die — beperkt tot één
+ *         "Algemeen"-sectie met alleen die vaste velden. gekoppeldeUitvragen = de aanleververzoeken
+ *         ("uitvraaglijsten", zie api/_gedeeld/aanleververzoeken.js) van deze cliënt die bij het aan
+ *         deze dossiersoort gekoppelde onderwerp (dossierIndeling.<soort>.onderwerpId, door Wouter
+ *         ingesteld via Beheer → Dossiers) en, indien het dossier een jaar heeft, hetzelfde jaar
+ *         horen — leeg als er geen onderwerp gekoppeld is. Zie gekoppeldeUitvragenVoorDossier()
+ *         hieronder.)
  *   - POST { soort, id, status?, urlDossier?, documentUrl?, velden? }  → bijwerken (weigert bij
  *         inactief). "velden" is de vrije bag met catalogussleutels, bijv. { loon: true }.
  *         Velden die in Beheer → Dossiers op alleen-lezen staan worden hier genegeerd, ook al
@@ -17,16 +26,18 @@
  * Route beveiligd via staticwebapp.config.json (rol 'medewerker'/'beheerder'); extra rolcheck hier.
  */
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
-const { SOORTEN, haalEenDossier, werkDossierBij, haalDynamischePicklistOpties } = require("../_gedeeld/dossiers");
+const { SOORTEN, haalEenDossier, werkDossierBij, haalDynamischePicklistOpties, metAangepasteVelden } = require("../_gedeeld/dossiers");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
-const { standaardIndelingIB, standaardIndelingOverig, vasteVeldenVoorSoort } = require("../_gedeeld/dossierVelden");
+const { standaardIndelingIB, standaardIndelingOverig, vasteVeldenVoorSoort, metLabels } = require("../_gedeeld/dossierVelden");
+const { haalVoorAccounts } = require("../_gedeeld/aanleververzoeken");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
 
 /** Haalt de (door Beheer → Dossiers ingestelde) indeling van een soort op — secties (met
- * eventuele subrubrieken), verborgen velden, tonen-alleen-als-voorwaarden en alleen-lezen velden
- * — met een standaardindeling als terugval zolang er nog niets eigens is opgeslagen. Soorten
- * zonder eigen vrije catalogus (vooralsnog VPB) krijgen een minimale standaardindeling met alleen
- * de vaste velden (Status/links), zodat die blijven verschijnen ook zonder Beheer-indeling. */
+ * eventuele subrubrieken), verborgen velden, tonen-alleen-als-voorwaarden, alleen-lezen velden,
+ * eigen labels en zelf aangemaakte extra velden — met een standaardindeling als terugval zolang
+ * er nog niets eigens is opgeslagen. Soorten zonder eigen vrije catalogus (vooralsnog VPB)
+ * krijgen een minimale standaardindeling met alleen de vaste velden (Status/links), zodat die
+ * blijven verschijnen ook zonder Beheer-indeling. */
 async function haalIndeling(soort) {
   const standaard = soort.key === "ib" ? standaardIndelingIB() : standaardIndelingOverig(soort);
   try {
@@ -36,9 +47,42 @@ async function haalIndeling(soort) {
     const verborgen = eigen && Array.isArray(eigen.verborgen) ? eigen.verborgen : standaard.verborgen;
     const voorwaarden = eigen && eigen.voorwaarden && typeof eigen.voorwaarden === "object" ? eigen.voorwaarden : standaard.voorwaarden;
     const alleenLezen = eigen && Array.isArray(eigen.alleenLezen) ? eigen.alleenLezen : standaard.alleenLezen;
-    return { secties, verborgen, voorwaarden, alleenLezen };
+    const labels = eigen && eigen.labels && typeof eigen.labels === "object" ? eigen.labels : standaard.labels;
+    const aangepasteVelden = eigen && Array.isArray(eigen.aangepasteVelden) ? eigen.aangepasteVelden : standaard.aangepasteVelden;
+    const onderwerpId = eigen && typeof eigen.onderwerpId === "string" ? eigen.onderwerpId : standaard.onderwerpId;
+    return { secties, verborgen, voorwaarden, alleenLezen, labels, aangepasteVelden, onderwerpId };
   } catch {
     return standaard;
+  }
+}
+
+/** Zoekt de aanleververzoeken ("uitvraaglijsten") die bij dit dossier horen — zelfde cliënt
+ * (accountId), gekoppeld onderwerp (Beheer → Dossiers stelt per dossiersoort in welk onderwerp uit
+ * Beheer → Onderwerpen erbij hoort) en, als het dossier een jaar heeft, ook hetzelfde jaar. Geeft
+ * een compacte samenvatting terug (geen volledige regels/vragen — dat blijft in Vragenlijsten).
+ * Best-effort: als de aanleververzoeken-opslag niet gelezen kan worden, blokkeert dat het dossier
+ * niet (lege lijst). Zonder gekoppeld onderwerp (onderwerpId leeg) meteen een lege lijst terug. */
+async function gekoppeldeUitvragenVoorDossier(dossier, onderwerpId) {
+  if (!onderwerpId || !dossier || !dossier.accountId) return [];
+  try {
+    const alle = await haalVoorAccounts([dossier.accountId]);
+    const jaarDossier = dossier.jaar != null && dossier.jaar !== "" ? String(dossier.jaar) : "";
+    return alle
+      .filter((v) => v.onderwerpId === onderwerpId && (!jaarDossier || !v.jaar || v.jaar === jaarDossier))
+      .map((v) => ({
+        id: v.id,
+        lijstNaam: v.lijstNaam,
+        onderwerp: v.onderwerp,
+        jaar: v.jaar,
+        status: v.status,
+        zichtbaar: v.zichtbaar,
+        deadline: v.deadline,
+        aangemaaktOp: v.aangemaaktOp,
+        voortgang: { totaal: (v.regels || []).length, afgerond: (v.regels || []).filter((r) => r.status !== "open").length },
+      }))
+      .sort((a, b) => String(b.aangemaaktOp || "").localeCompare(String(a.aangemaaktOp || "")));
+  } catch {
+    return [];
   }
 }
 
@@ -63,14 +107,21 @@ module.exports = async function (context, req) {
       const soort = soortVan((req.query && req.query.soort) || "");
       const id = (req.query && req.query.id) || "";
       if (!soort || !id) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'soort' (ib/vpb) en 'id' mee." } }; return; }
-      const dossier = await haalEenDossier(resource, token, soort, id);
-      if (!dossier) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Dossier niet gevonden." } }; return; }
-      const [indeling, picklistOpties] = await Promise.all([
-        haalIndeling(soort),
-        haalDynamischePicklistOpties(resource, token, soort),
+      const indeling = await haalIndeling(soort);
+      // soortEffectief kent ook Wouters zelf aangemaakte extra velden (Dynamics-kolom + key),
+      // zodat haalEenDossier/haalDynamischePicklistOpties die ook echt meeselecteren/ophalen.
+      const soortEffectief = metAangepasteVelden(soort, indeling.aangepasteVelden);
+      const [dossier, picklistOpties] = await Promise.all([
+        haalEenDossier(resource, token, soortEffectief, id),
+        haalDynamischePicklistOpties(resource, token, soortEffectief),
       ]);
-      const catalogus = [...vasteVeldenVoorSoort(soort), ...(soort.catalogus || [])];
-      context.res = { headers: { "Content-Type": "application/json" }, body: { dossier, statusOpties: soort.statusOpties, catalogus, secties: indeling.secties, verborgen: indeling.verborgen, voorwaarden: indeling.voorwaarden, alleenLezen: indeling.alleenLezen, picklistOpties } };
+      if (!dossier) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Dossier niet gevonden." } }; return; }
+      const catalogusRuw = [...vasteVeldenVoorSoort(soort), ...(soortEffectief.catalogus || [])];
+      const catalogus = metLabels(catalogusRuw, indeling.labels);
+      // Gekoppelde uitvraaglijst(en) (aanleververzoeken) — alleen als Wouter in Beheer → Dossiers
+      // een onderwerp aan deze dossiersoort heeft gekoppeld (indeling.onderwerpId).
+      const gekoppeldeUitvragen = await gekoppeldeUitvragenVoorDossier(dossier, indeling.onderwerpId);
+      context.res = { headers: { "Content-Type": "application/json" }, body: { dossier, statusOpties: soort.statusOpties, catalogus, secties: indeling.secties, verborgen: indeling.verborgen, voorwaarden: indeling.voorwaarden, alleenLezen: indeling.alleenLezen, picklistOpties, gekoppeldeUitvragen } };
       return;
     }
 
@@ -79,15 +130,18 @@ module.exports = async function (context, req) {
       const soort = soortVan(soortKey);
       if (!soort || !id) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'soort' (ib/vpb) en 'id' mee." } }; return; }
 
+      // Indeling (incl. alleen-lezen én zelf aangemaakte extra velden) eerst ophalen — nodig
+      // vóór het lezen/schrijven van het dossier zelf, zodat aangepaste velden ook echt
+      // meeselecteren/terugschrijven (soortEffectief) en alleen-lezen server-side afgedwongen kan
+      // worden (niet alleen de invoervelden in het scherm uitschakelen).
+      const indeling = await haalIndeling(soort);
+      const soortEffectief = metAangepasteVelden(soort, indeling.aangepasteVelden);
+
       // Actueel dossier ophalen om de status (inactief?) te controleren vóór het schrijven.
-      const huidig = await haalEenDossier(resource, token, soort, id);
+      const huidig = await haalEenDossier(resource, token, soortEffectief, id);
       if (!huidig) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Dossier niet gevonden." } }; return; }
       if (!huidig.actief) { context.res = { status: 409, headers: { "Content-Type": "application/json" }, body: { error: "Dit dossier staat op inactief en kan niet worden bewerkt." } }; return; }
 
-      // Alleen-lezen velden (Beheer → Dossiers) ook server-side afdwingen — niet alleen de
-      // invoervelden in het scherm uitschakelen, anders kan een rechtstreekse API-aanroep ze
-      // alsnog wijzigen.
-      const indeling = await haalIndeling(soort);
       const alleenLezenSet = new Set(indeling.alleenLezen || []);
 
       const velden = {};
@@ -100,8 +154,8 @@ module.exports = async function (context, req) {
       }
       if (Object.keys(velden).length === 0) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Niets om bij te werken." } }; return; }
 
-      await werkDossierBij(resource, token, soort, id, velden);
-      const bijgewerkt = await haalEenDossier(resource, token, soort, id);
+      await werkDossierBij(resource, token, soortEffectief, id, velden);
+      const bijgewerkt = await haalEenDossier(resource, token, soortEffectief, id);
 
       // Best-effort log bij de cliënt.
       if (bijgewerkt) {

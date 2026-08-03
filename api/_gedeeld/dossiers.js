@@ -150,6 +150,8 @@ function catalogusVeldNaarBuiten(rij, veldDef) {
       return { waarde: ruw ?? null, label: rij[veldDef.veld + FV] || "" };
     case "datetime":
       return { waarde: ruw || null };
+    case "decimal":
+      return { waarde: ruw == null ? null : ruw };
     default: // string, memo
       return { waarde: ruw || "" };
   }
@@ -190,6 +192,25 @@ function naarBuiten(rij, soort) {
   return basis;
 }
 
+/** Breidt een SOORTEN-item uit met door Wouter via Beheer → Dossiers zelf aangemaakte extra
+ * velden (dossierIndeling.<soort>.aangepasteVelden, zie dossierVelden.js) — nodig zodat zulke
+ * velden niet alleen in het scherm getoond worden, maar ook echt uit Dynamics gelezen (select)
+ * en teruggeschreven worden, precies zoals de vaste catalogusvelden (IB_VELDEN). Geen wijziging
+ * op de statische SOORTEN zelf — geeft een nieuw object terug, of hetzelfde soort-object als er
+ * niets aangepast is (geen onnodige allocaties/rerenders bij de veelvoorkomende lege-lijst-case). */
+function metAangepasteVelden(soort, aangepasteVelden) {
+  if (!Array.isArray(aangepasteVelden) || aangepasteVelden.length === 0) return soort;
+  return {
+    ...soort,
+    catalogus: [...(soort.catalogus || []), ...aangepasteVelden],
+    optioneel: { ...soort.optioneel, ...Object.fromEntries(aangepasteVelden.map((v) => [v.key, v.veld])) },
+    dynamischePicklists: [
+      ...(soort.dynamischePicklists || []),
+      ...aangepasteVelden.filter((v) => v.type === "picklist").map((v) => v.veld),
+    ],
+  };
+}
+
 /** Mapt de ruwe rijen van één soort naar de portaal-vorm. Gooit door bij een harde fout. */
 async function haalDossiersVoorSoort(resource, token, soort, accountIds) {
   const rijen = await haalRuweRijen(resource, token, soort, accountIds);
@@ -226,7 +247,8 @@ function catalogusWaardeNaarDynamics(veldDef, waarde) {
     case "boolean":
       return waarde === null ? null : !!waarde;
     case "picklist":
-    case "integer": {
+    case "integer":
+    case "decimal": {
       if (waarde === null || waarde === "") return null;
       const n = Number(waarde);
       return Number.isFinite(n) ? n : null;
@@ -315,4 +337,4 @@ async function haalDynamischePicklistOpties(resource, token, soort) {
   return resultaat;
 }
 
-module.exports = { SOORTEN, haalDossiersVoorSoort, haalEenDossier, werkDossierBij, haalDynamischePicklistOpties };
+module.exports = { SOORTEN, haalDossiersVoorSoort, haalEenDossier, werkDossierBij, haalDynamischePicklistOpties, metAangepasteVelden };

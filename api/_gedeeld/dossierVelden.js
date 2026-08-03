@@ -156,7 +156,18 @@ function vasteVeldenVoorSoort(soort) {
  *                boolean-veld parentBooleanKey op dat dossier "Ja" is. Standaard leeg — Wouter
  *                stelt dit zelf in via Beheer → Dossiers (geen door ons geraden bedrijfslogica).
  * alleenLezen  — sleutels die in het medewerkersportaal wel getoond maar niet bewerkt mogen
- *                worden (ook server-side afgedwongen, zie medewerker-dossier/index.js). */
+ *                worden (ook server-side afgedwongen, zie medewerker-dossier/index.js).
+ * labels       — { sleutel: eigenLabel } — overschrijft het standaardlabel van een veld (vast,
+ *                catalogus- of aangepast veld) met een eigen, door Wouter ingetypte tekst.
+ * aangepasteVelden — extra catalogusvelden die Wouter zelf via Beheer → Dossiers heeft
+ *                aangemaakt (incl. een echte nieuwe kolom in Dynamics, zie
+ *                api/dossier-kolom-aanmaken) — zelfde vorm als IB_VELDEN-items (key/veld/type/
+ *                label), maar hier opgeslagen i.p.v. in code, want pas tijdens gebruik bepaald.
+ * onderwerpId  — het "onderwerp" (uit Beheer → Onderwerpen, zie api/_gedeeld/aanleveronderwerpen.js)
+ *                dat bij deze dossiersoort hoort, voor het automatisch tonen van gekoppelde
+ *                uitvraaglijsten (aanleververzoeken) in het dossier — zie
+ *                gekoppeldeUitvragenVoorDossier() in api/medewerker-dossier/index.js. Leeg = geen
+ *                koppeling, Wouter stelt dit zelf per dossiersoort in via Beheer → Dossiers. */
 function standaardIndelingIB() {
   return {
     secties: SECTIE_VOLGORDE_STANDAARD.map((sleutel, i) => ({
@@ -170,6 +181,9 @@ function standaardIndelingIB() {
     verborgen: [],
     voorwaarden: {},
     alleenLezen: [],
+    labels: {},
+    aangepasteVelden: [],
+    onderwerpId: "",
   };
 }
 
@@ -182,7 +196,19 @@ function standaardIndelingOverig(soort) {
     verborgen: [],
     voorwaarden: {},
     alleenLezen: [],
+    labels: {},
+    aangepasteVelden: [],
+    onderwerpId: "",
   };
+}
+
+// Past een { sleutel: eigenLabel }-overschrijving toe op een catalogus — gebruikt door zowel
+// /api/dossier-velden (Beheer) als /api/medewerker-dossier (portaalscherm) zodat een door Wouter
+// aangepast veldlabel overal hetzelfde verschijnt, zonder dat elke aanroeper de merge-logica zelf
+// hoeft te herhalen.
+function metLabels(catalogus, labels) {
+  if (!labels || typeof labels !== "object" || Object.keys(labels).length === 0) return catalogus;
+  return (catalogus || []).map((v) => (labels[v.key] ? { ...v, label: labels[v.key] } : v));
 }
 
 function veldOpKey(key) {
@@ -195,5 +221,6 @@ module.exports = {
   standaardIndelingIB,
   standaardIndelingOverig,
   vasteVeldenVoorSoort,
+  metLabels,
   veldOpKey,
 };

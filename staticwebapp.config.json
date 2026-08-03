@@ -244,6 +244,12 @@
       ]
     },
     {
+      "route": "/api/dossier-kolom-aanmaken",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
       "route": "/api/medewerker-contactpersoon",
       "allowedRoles": [
         "beheerder",

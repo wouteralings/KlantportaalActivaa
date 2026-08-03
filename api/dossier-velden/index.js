@@ -6,7 +6,10 @@
  *
  * Bevat, vóór de vrije catalogus, ook de "vaste" velden (Status van de aangifte/URL dossier/
  * Documentlink) — die horen niet bij de vrije catalogus (zie dossierVelden.js) maar zijn wel
- * gewoon zelf in te delen via dit scherm.
+ * gewoon zelf in te delen via dit scherm — en, ná de vrije catalogus, eventuele door Wouter zelf
+ * aangemaakte extra velden (dossierIndeling.<soort>.aangepasteVelden, zie
+ * api/dossier-kolom-aanmaken). Eigen labels (dossierIndeling.<soort>.labels) zijn al toegepast,
+ * zodat Beheer altijd het actuele label ziet, niet de standaardtekst uit de code.
  *
  *   GET ?soort=ib → { soort: "ib", catalogus: [{ key, veld?, type, label, sectie? }, ...] }
  *
@@ -14,7 +17,8 @@
  */
 const { haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const { SOORTEN } = require("../_gedeeld/dossiers");
-const { vasteVeldenVoorSoort } = require("../_gedeeld/dossierVelden");
+const { vasteVeldenVoorSoort, metLabels } = require("../_gedeeld/dossierVelden");
+const { haalInstellingen } = require("../_gedeeld/instellingen");
 
 module.exports = async function (context, req) {
   const rollen = haalRollenUitPrincipal(req);
@@ -30,6 +34,18 @@ module.exports = async function (context, req) {
     return;
   }
 
-  const catalogus = [...vasteVeldenVoorSoort(soort), ...(soort.catalogus || [])];
+  let aangepasteVelden = [];
+  let labels = {};
+  try {
+    const { dossierIndeling } = await haalInstellingen();
+    const eigen = dossierIndeling && dossierIndeling[soortKey];
+    if (eigen && Array.isArray(eigen.aangepasteVelden)) aangepasteVelden = eigen.aangepasteVelden;
+    if (eigen && eigen.labels && typeof eigen.labels === "object") labels = eigen.labels;
+  } catch {
+    // Best-effort: geen instellingen kunnen lezen mag de standaardcatalogus niet blokkeren.
+  }
+
+  const catalogusRuw = [...vasteVeldenVoorSoort(soort), ...(soort.catalogus || []), ...aangepasteVelden];
+  const catalogus = metLabels(catalogusRuw, labels);
   context.res = { headers: { "Content-Type": "application/json" }, body: { soort: soort.key, catalogus } };
 };

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FolderKanban, Plus, Trash2, ChevronUp, ChevronDown, ChevronRight, X, Eye, EyeOff, Lock, Unlock } from "lucide-react";
+import { FolderKanban, Plus, Trash2, ChevronUp, ChevronDown, ChevronRight, X, Eye, EyeOff, Lock, Unlock, Sparkles } from "lucide-react";
 
 /** Zelfde palet als de rest van het beheerdersportaal (bewust hier herhaald, zie bijv.
  *  ContractenTypesBeheer.jsx — deze bestanden staan bewust op zichzelf). */
@@ -8,6 +8,18 @@ const KLEUR = {
   rand: "#E2E4DF", lichtblauw: "#EAF2F8", rood: "#B23B3B", groen: "#2E7D46", goud: "#A67C00",
 };
 const invoerStijl = { boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 13, outline: "none" };
+
+// Types die via "Nieuw veld aanmaken" in Dynamics aangemaakt kunnen worden — zelfde vijf typen
+// als de rest van de catalogus ondersteunt (zie VeldInvoer in MedewerkerPortaal.jsx). Keuzelijst
+// (picklist) zit hier bewust nog niet bij: dat vraagt ook eigen opties/optionset-beheer, een
+// aparte, latere uitbreiding.
+const NIEUW_VELD_TYPES = [
+  { type: "boolean", label: "Ja/Nee" },
+  { type: "string", label: "Tekst (kort)" },
+  { type: "memo", label: "Tekst (lang)" },
+  { type: "decimal", label: "Getal" },
+  { type: "datetime", label: "Datum" },
+];
 
 function nieuweSectieSleutel(bestaande) {
   let n = bestaande.length + 1;
@@ -19,14 +31,25 @@ function nieuweSubsectieSleutel(sectieSleutel, bestaande) {
   while (bestaande.some((s) => s.sleutel === `${sectieSleutel}-sub${n}`)) n++;
   return `${sectieSleutel}-sub${n}`;
 }
+// Zelfde diakrieten-strip als api/dossier-kolom-aanmaken (los gehouden, dit bestand is frontend).
+function maakSleutelSlug(tekst) {
+  const basis = String(tekst || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+  return basis || "veld";
+}
 
 /** Eén regel voor één veld — zowel in een hoofdrubriek (pad = sectieSleutel) als in een
- * subrubriek (pad = "sectieSleutel::subSleutel") — met alle beheeracties: voorwaarde, alleen-
- * lezen, verbergen, herordenen, verplaatsen en uit de sectie halen. */
-function VeldRij({ veldKey, veld, pad, padOpties, index, laatsteIndex, isVerborgen, isAlleenLezen, voorwaardeParent, booleanVelden, onZetVoorwaarde, onToggleVerborgen, onToggleAlleenLezen, onOmhoog, onOmlaag, onVerplaats, onVerwijderUitSectie }) {
+ * subrubriek (pad = "sectieSleutel::subSleutel") — met alle beheeracties: label hernoemen,
+ * voorwaarde, alleen-lezen, verbergen, herordenen, verplaatsen en uit de sectie halen. */
+function VeldRij({ veldKey, veld, weergaveLabel, pad, padOpties, index, laatsteIndex, isVerborgen, isAlleenLezen, voorwaardeParent, booleanVelden, onZetLabel, onLabelBlur, onZetVoorwaarde, onToggleVerborgen, onToggleAlleenLezen, onOmhoog, onOmlaag, onVerplaats, onVerwijderUitSectie }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 6, background: "#FBFBF9", opacity: isVerborgen ? 0.6 : 1 }}>
-      <span style={{ fontSize: 12.5, flex: 1, minWidth: 0 }}>{veld ? veld.label : veldKey}</span>
+      <input
+        value={weergaveLabel}
+        onChange={(e) => onZetLabel(e.target.value)}
+        onBlur={onLabelBlur}
+        title="Weergavenaam van dit veld in Beheer en het medewerkersportaal"
+        style={{ ...invoerStijl, flex: 1, minWidth: 0, fontSize: 12.5, padding: "4px 7px", background: "#fff" }}
+      />
       {isVerborgen && <span style={{ fontSize: 10, fontWeight: 700, color: KLEUR.rood, textTransform: "uppercase", letterSpacing: ".02em" }}>Verborgen</span>}
       {isAlleenLezen && <span style={{ fontSize: 10, fontWeight: 700, color: KLEUR.goud, textTransform: "uppercase", letterSpacing: ".02em" }}>Alleen-lezen</span>}
       <span style={{ fontSize: 10.5, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".02em" }}>{veld ? veld.type.replace("vast-", "") : ""}</span>
@@ -58,18 +81,21 @@ function VeldRij({ veldKey, veld, pad, padOpties, index, laatsteIndex, isVerborg
 /**
  * Beheer → Dossiers: hiermee bepaalt Wouter zelf hoe de IB-dossiervelden (rechtstreeks uit
  * Dynamics, zie api/_gedeeld/dossierVelden.js — inclusief de "vaste" velden Status van de
- * aangifte/URL dossier/Documentlink) verdeeld worden over hoofdrubrieken (secties) en optionele
- * subrubrieken daarbinnen, op de dossierpagina in het medewerkersportaal — i.p.v. een vaste, door
- * ons opgelegde indeling. Standaard staat de indeling gelijk aan de tabbladen van het echte
- * Dynamics-formulier (Algemeen/Box I/II/III/Review), maar elk veld is vrij naar een andere (of
- * nieuwe) hoofd-/subrubriek te verplaatsen en te herordenen. Een veld dat in geen enkele rubriek
- * zit, wordt in het medewerkersportaal niet getoond (zie de "Niet ingedeeld"-lijst onderaan). Elk
- * veld kan daarnaast verborgen (nooit tonen) en/of alleen-lezen (tonen maar niet bewerkbaar, ook
- * server-side afgedwongen) gezet worden, en voorwaardelijk gemaakt worden op een ander ja/nee-veld.
+ * aangifte/URL dossier/Documentlink) verdeeld worden over hoofdrubrieken (secties, zelf ook in
+ * volgorde te zetten) en optionele subrubrieken daarbinnen, op de dossierpagina in het
+ * medewerkersportaal — i.p.v. een vaste, door ons opgelegde indeling. Standaard staat de indeling
+ * gelijk aan de tabbladen van het echte Dynamics-formulier (Algemeen/Box I/II/III/Review), maar
+ * elk veld is vrij naar een andere (of nieuwe) hoofd-/subrubriek te verplaatsen en te herordenen,
+ * en elk veld (ook de vaste) heeft een zelf aan te passen weergavenaam. Een veld dat in geen
+ * enkele rubriek zit, wordt in het medewerkersportaal niet getoond (zie de "Niet ingedeeld"-lijst
+ * onderaan). Elk veld kan daarnaast verborgen (nooit tonen) en/of alleen-lezen (tonen maar niet
+ * bewerkbaar, ook server-side afgedwongen) gezet worden, en voorwaardelijk gemaakt worden op een
+ * ander ja/nee-veld. Onderaan kan Wouter ook zelf een volledig nieuw veld aanmaken — dat maakt
+ * een echte nieuwe kolom aan op de Dynamics-tabel (zie api/dossier-kolom-aanmaken).
  *
  * Opslag: hergebruikt het generieke /api/beheer-instellingen (PUT { dossierIndeling }) — geen
- * eigen endpoint nodig. Alleen de "ib"-sleutel wordt hier gelezen/geschreven; eventuele latere
- * andere soorten (bijv. straks vpb) blijven met rust (zie bewaar()).
+ * eigen endpoint nodig voor de indeling zelf. Alleen de "ib"-sleutel wordt hier gelezen/
+ * geschreven; eventuele latere andere soorten (bijv. straks vpb) blijven met rust (zie bewaar()).
  */
 export default function DossierIndelingBeheer() {
   const [open, setOpen] = useState(false); // hele paneel dichtgeklapt bij openen van de pagina
@@ -79,17 +105,30 @@ export default function DossierIndelingBeheer() {
   const [verborgen, setVerborgen] = useState([]); // sleutels die in het medewerkersdossier nooit getoond worden
   const [voorwaarden, setVoorwaarden] = useState({}); // { childKey: parentBooleanKey } — child alleen tonen als parent Ja is
   const [alleenLezen, setAlleenLezen] = useState([]); // sleutels die wel getoond maar niet bewerkt mogen worden
+  const [labels, setLabels] = useState({}); // { sleutel: eigen weergavenaam } — overschrijft het standaardlabel
+  const [aangepasteVelden, setAangepasteVelden] = useState([]); // zelf aangemaakte extra catalogusvelden (incl. Dynamics-kolom)
+  const [onderwerpen, setOnderwerpen] = useState([]); // catalogus uit Beheer → Onderwerpen (Uitvraag dynamisch), voor de koppel-dropdown
+  const [onderwerpId, setOnderwerpId] = useState(""); // gekoppeld onderwerp voor deze dossiersoort — leeg = geen koppeling
   const [fout, setFout] = useState("");
   const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
   const [nieuweSectieTitel, setNieuweSectieTitel] = useState("");
   const [nieuweSubsectieTitel, setNieuweSubsectieTitel] = useState({}); // { sectieSleutel: draftTitel }
+  const [nieuwVeldLabel, setNieuwVeldLabel] = useState("");
+  const [nieuwVeldType, setNieuwVeldType] = useState("boolean");
+  const [nieuwVeldBezig, setNieuwVeldBezig] = useState(false);
+  const [nieuwVeldFout, setNieuwVeldFout] = useState("");
 
   useEffect(() => {
     Promise.all([
       fetch("/api/dossier-velden?soort=ib").then((r) => (r.ok ? r.json() : Promise.reject())),
       fetch("/api/beheer-instellingen").then((r) => (r.ok ? r.json() : Promise.reject())),
+      // Best-effort: de onderwerpen-catalogus (Beheer → Onderwerpen, zie "Uitvraag dynamisch") is
+      // alleen nodig voor de koppel-dropdown hieronder — als die nog niet geconfigureerd is, mag
+      // dat de rest van dit scherm niet blokkeren (dan toont de dropdown gewoon "nog geen
+      // onderwerpen ingericht").
+      fetch("/api/beheer-aanleveronderwerpen").then((r) => (r.ok ? r.json() : { onderwerpen: [] })).catch(() => ({ onderwerpen: [] })),
     ])
-      .then(([veldenData, instellingenData]) => {
+      .then(([veldenData, instellingenData, onderwerpenData]) => {
         setCatalogus(veldenData.catalogus || []);
         const huidigeIndeling = instellingenData.dossierIndeling || {};
         setDossierIndeling(huidigeIndeling);
@@ -99,11 +138,16 @@ export default function DossierIndelingBeheer() {
         setVerborgen((huidigeIndeling.ib && huidigeIndeling.ib.verborgen) || []);
         setVoorwaarden((huidigeIndeling.ib && huidigeIndeling.ib.voorwaarden) || {});
         setAlleenLezen((huidigeIndeling.ib && huidigeIndeling.ib.alleenLezen) || []);
+        setLabels((huidigeIndeling.ib && huidigeIndeling.ib.labels) || {});
+        setAangepasteVelden((huidigeIndeling.ib && huidigeIndeling.ib.aangepasteVelden) || []);
+        setOnderwerpId((huidigeIndeling.ib && huidigeIndeling.ib.onderwerpId) || "");
+        setOnderwerpen(onderwerpenData.onderwerpen || []);
       })
       .catch(() => { setCatalogus([]); setSecties([]); setFout("Kon de dossierindeling niet laden."); });
   }, []);
 
   const veldInfo = (key) => (catalogus || []).find((v) => v.key === key);
+  const weergaveLabel = (key) => labels[key] || (veldInfo(key)?.label) || key;
   const ingedeeldeKeys = new Set((secties || []).flatMap((s) => [...(s.velden || []), ...(s.subsecties || []).flatMap((sub) => sub.velden || [])]));
   const nietIngedeeld = (catalogus || []).filter((v) => !ingedeeldeKeys.has(v.key));
   // Alleen boolean-velden komen in aanmerking als "voorwaarde" (een ja/nee-poortje voor een ander veld).
@@ -117,8 +161,18 @@ export default function DossierIndelingBeheer() {
     const volgendeVerborgen = overrides.verborgen !== undefined ? overrides.verborgen : verborgen;
     const volgendeVoorwaarden = overrides.voorwaarden !== undefined ? overrides.voorwaarden : voorwaarden;
     const volgendeAlleenLezen = overrides.alleenLezen !== undefined ? overrides.alleenLezen : alleenLezen;
+    const volgendeLabels = overrides.labels !== undefined ? overrides.labels : labels;
+    const volgendeAangepasteVelden = overrides.aangepasteVelden !== undefined ? overrides.aangepasteVelden : aangepasteVelden;
+    const volgendeOnderwerpId = overrides.onderwerpId !== undefined ? overrides.onderwerpId : onderwerpId;
     try {
-      const volledigeIndeling = { ...(dossierIndeling || {}), ib: { secties: volgendeSecties, verborgen: volgendeVerborgen, voorwaarden: volgendeVoorwaarden, alleenLezen: volgendeAlleenLezen } };
+      const volledigeIndeling = {
+        ...(dossierIndeling || {}),
+        ib: {
+          secties: volgendeSecties, verborgen: volgendeVerborgen, voorwaarden: volgendeVoorwaarden,
+          alleenLezen: volgendeAlleenLezen, labels: volgendeLabels, aangepasteVelden: volgendeAangepasteVelden,
+          onderwerpId: volgendeOnderwerpId,
+        },
+      };
       const r = await fetch("/api/beheer-instellingen", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -130,6 +184,9 @@ export default function DossierIndelingBeheer() {
       setVerborgen(volgendeVerborgen);
       setVoorwaarden(volgendeVoorwaarden);
       setAlleenLezen(volgendeAlleenLezen);
+      setLabels(volgendeLabels);
+      setAangepasteVelden(volgendeAangepasteVelden);
+      setOnderwerpId(volgendeOnderwerpId);
       setStatus("opgeslagen");
     } catch (e) {
       setFout(e.message || "Opslaan mislukt.");
@@ -156,6 +213,17 @@ export default function DossierIndelingBeheer() {
     const aantal = (sectie.velden || []).length + (sectie.subsecties || []).reduce((n, sub) => n + (sub.velden || []).length, 0);
     if (aantal > 0 && !confirm(`Rubriek "${sectie.titel}" bevat nog ${aantal} veld(en) (incl. eventuele subrubrieken). Deze gaan naar "Niet ingedeeld". Doorgaan?`)) return;
     bewaar({ secties: (secties || []).filter((s) => s.sleutel !== sleutel) });
+  };
+
+  // Hoofdrubrieken zelf herordenen — bepaalt ook de volgorde van de kaarten in het
+  // medewerkersdossier (die volgt gewoon de array-volgorde van secties).
+  const verplaatsSectie = (sleutel, richting) => {
+    const volgende = [...(secties || [])];
+    const i = volgende.findIndex((s) => s.sleutel === sleutel);
+    const j = i + richting;
+    if (i < 0 || j < 0 || j >= volgende.length) return;
+    [volgende[i], volgende[j]] = [volgende[j], volgende[i]];
+    bewaar({ secties: volgende });
   };
 
   const voegSubsectieToe = (sectieSleutel) => {
@@ -253,6 +321,50 @@ export default function DossierIndelingBeheer() {
     bewaar({ voorwaarden: volgende });
   };
 
+  // Label: alleen lokaal bijwerken tijdens het typen (zelfde patroon als sectie-/subrubriektitel
+  // hierboven), pas opslaan bij onBlur — voorkomt een save-aanroep per toetsaanslag.
+  const zetLabel = (key, waarde) => {
+    setLabels((h) => ({ ...h, [key]: waarde }));
+  };
+  const labelBlurOpslaan = () => bewaar({ labels });
+
+  // Nieuw veld aanmaken: maakt een echte kolom aan op de Dynamics-tabel (zie
+  // api/dossier-kolom-aanmaken) en voegt het resultaat toe aan de catalogus + aangepasteVelden
+  // (waarna het meteen als "Niet ingedeeld" verschijnt, klaar om in een rubriek te slepen).
+  const maakNieuwVeld = async () => {
+    const labelTekst = nieuwVeldLabel.trim();
+    if (!labelTekst) return;
+    if (!confirm(`Nieuw veld "${labelTekst}" aanmaken? Dit voegt een echte nieuwe kolom toe aan de tabel Inkomstenbelasting in Dynamics.`)) return;
+    setNieuwVeldBezig(true);
+    setNieuwVeldFout("");
+    try {
+      const bestaandeKeys = (catalogus || []).map((v) => v.key);
+      const slug = maakSleutelSlug(labelTekst);
+      let key = `extra_${slug}`;
+      let n = 2;
+      while (bestaandeKeys.includes(key)) { key = `extra_${slug}_${n}`; n++; }
+
+      const r = await fetch("/api/dossier-kolom-aanmaken", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-requested-with": "klantportaal" },
+        body: JSON.stringify({ soort: "ib", key, label: labelTekst, type: nieuwVeldType }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) throw new Error(d.error || `HTTP ${r.status}`);
+
+      const nieuwVeld = { key: d.key, veld: d.veld, type: d.type, label: d.label };
+      const volgendeCatalogus = [...(catalogus || []), nieuwVeld];
+      const volgendeAangepast = [...aangepasteVelden, nieuwVeld];
+      setCatalogus(volgendeCatalogus);
+      setNieuwVeldLabel("");
+      await bewaar({ aangepasteVelden: volgendeAangepast });
+    } catch (e) {
+      setNieuwVeldFout(e.message || "Aanmaken van het veld is mislukt.");
+    } finally {
+      setNieuwVeldBezig(false);
+    }
+  };
+
   if (catalogus === null || secties === null) {
     return <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Dossierindeling ophalen…</div>;
   }
@@ -273,6 +385,7 @@ export default function DossierIndelingBeheer() {
   const veldRijProps = (key, pad, i, laatsteIndex) => ({
     veldKey: key,
     veld: veldInfo(key),
+    weergaveLabel: weergaveLabel(key),
     pad,
     padOpties,
     index: i,
@@ -281,6 +394,8 @@ export default function DossierIndelingBeheer() {
     isAlleenLezen: alleenLezen.includes(key),
     voorwaardeParent: voorwaarden[key],
     booleanVelden,
+    onZetLabel: (waarde) => zetLabel(key, waarde),
+    onLabelBlur: labelBlurOpslaan,
     onZetVoorwaarde: (parentKey) => zetVoorwaarde(key, parentKey),
     onToggleVerborgen: () => toggleVerborgen(key),
     onToggleAlleenLezen: () => toggleAlleenLezen(key),
@@ -313,23 +428,45 @@ export default function DossierIndelingBeheer() {
         velden "Status van de aangifte", "URL dossier" en "Documentlink" staan hieronder gewoon
         tussen de rest en zijn vrij te verplaatsen/hernoemen. Standaard gelijk aan de tabbladen van
         het Dynamics-formulier — versleep een veld gerust naar een andere hoofd- of subrubriek,
-        hernoem rubrieken, of maak nieuwe (ook subrubrieken, binnen een hoofdrubriek). Een veld dat
-        bij "Niet ingedeeld" staat, wordt niet getoond. Met het slot-icoon maak je een veld
-        alleen-lezen (wel zichtbaar, niet meer te bewerken), met het oog-icoon verberg je het
-        helemaal zonder het uit zijn plek te halen, en met "Alleen tonen als" laat je een veld pas
-        verschijnen zodra een ander ja/nee-veld op dat dossier "Ja" is (bijv. "Eigen woning schuld"
-        alleen als "Eigen woning" Ja is).
+        hernoem rubrieken en zet ze zelf in volgorde (pijltjes bij de rubriektitel), of maak nieuwe
+        (ook subrubrieken, binnen een hoofdrubriek). Elke veldnaam is ook zelf te wijzigen — typ
+        gewoon een eigen tekst in het naamveld. Een veld dat bij "Niet ingedeeld" staat, wordt niet
+        getoond. Met het slot-icoon maak je een veld alleen-lezen (wel zichtbaar, niet meer te
+        bewerken), met het oog-icoon verberg je het helemaal zonder het uit zijn plek te halen, en
+        met "Alleen tonen als" laat je een veld pas verschijnen zodra een ander ja/nee-veld op dat
+        dossier "Ja" is (bijv. "Eigen woning schuld" alleen als "Eigen woning" Ja is). Helemaal
+        onderaan kun je ook een volledig nieuw veld aanmaken — dat zet meteen een echte nieuwe
+        kolom in Dynamics klaar.
       </div>
 
       {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 10 }}>{fout}</div>}
 
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14, marginBottom: 18, background: KLEUR.lichtblauw }}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Gekoppelde uitvraaglijst</div>
+        <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 10, maxWidth: 640 }}>
+          Kies het onderwerp (uit Beheer → Onderwerpen) dat bij Inkomstenbelasting hoort. Uitvraaglijsten
+          (aanleververzoeken) met dit onderwerp verschijnen dan automatisch — bij dezelfde cliënt en,
+          als het dossier een jaar heeft, hetzelfde jaar — in het IB-dossier zelf.
+        </div>
+        {onderwerpen.length === 0 ? (
+          <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Nog geen onderwerpen ingericht — stel die eerst in via Beheer → Onderwerpen.</div>
+        ) : (
+          <select value={onderwerpId} onChange={(e) => bewaar({ onderwerpId: e.target.value })} style={{ ...invoerStijl, flex: "0 1 320px", background: "#fff" }}>
+            <option value="">— geen koppeling —</option>
+            {onderwerpen.map((o) => <option key={o.id} value={o.id}>{o.naam}</option>)}
+          </select>
+        )}
+      </div>
+
       <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 18 }}>
-        {(secties || []).map((sectie) => {
+        {(secties || []).map((sectie, sectieIndex) => {
           const directeVelden = sectie.velden || [];
           const subsecties = sectie.subsecties || [];
           return (
             <div key={sectie.sleutel} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <button onClick={() => verplaatsSectie(sectie.sleutel, -1)} disabled={sectieIndex === 0} title="Rubriek omhoog" style={{ background: "none", border: "none", color: sectieIndex === 0 ? KLEUR.rand : KLEUR.subtekst, cursor: sectieIndex === 0 ? "default" : "pointer", padding: 2, display: "flex" }}><ChevronUp size={16} /></button>
+                <button onClick={() => verplaatsSectie(sectie.sleutel, 1)} disabled={sectieIndex === (secties || []).length - 1} title="Rubriek omlaag" style={{ background: "none", border: "none", color: sectieIndex === (secties || []).length - 1 ? KLEUR.rand : KLEUR.subtekst, cursor: sectieIndex === (secties || []).length - 1 ? "default" : "pointer", padding: 2, display: "flex" }}><ChevronDown size={16} /></button>
                 <input
                   value={sectie.titel}
                   onChange={(e) => hernoemSectie(sectie.sleutel, e.target.value)}
@@ -442,7 +579,7 @@ export default function DossierIndelingBeheer() {
         {status === "opgeslagen" && <span style={{ fontSize: 12, color: KLEUR.groen, alignSelf: "center" }}>Opgeslagen</span>}
       </div>
 
-      <div style={{ borderTop: `1px solid ${KLEUR.rand}`, paddingTop: 14 }}>
+      <div style={{ borderTop: `1px solid ${KLEUR.rand}`, paddingTop: 14, marginBottom: 20 }}>
         <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Niet ingedeeld ({nietIngedeeld.length})</div>
         {nietIngedeeld.length === 0 ? (
           <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Alle velden zijn ingedeeld.</div>
@@ -450,7 +587,12 @@ export default function DossierIndelingBeheer() {
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             {nietIngedeeld.map((v) => (
               <div key={v.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 6, background: "#FBFBF9", opacity: 0.85 }}>
-                <span style={{ fontSize: 12.5, flex: 1, minWidth: 0 }}>{v.label}</span>
+                <input
+                  value={weergaveLabel(v.key)}
+                  onChange={(e) => zetLabel(v.key, e.target.value)}
+                  onBlur={labelBlurOpslaan}
+                  style={{ ...invoerStijl, flex: 1, minWidth: 0, fontSize: 12.5, padding: "4px 7px", background: "#fff" }}
+                />
                 <span style={{ fontSize: 10.5, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".02em" }}>{v.type.replace("vast-", "")}</span>
                 <select value="" onChange={(e) => verplaatsVeld(v.key, e.target.value)} style={{ ...invoerStijl, padding: "4px 6px", fontSize: 11.5 }}>
                   {padOpties("")}
@@ -459,6 +601,41 @@ export default function DossierIndelingBeheer() {
             ))}
           </div>
         )}
+      </div>
+
+      <div style={{ borderTop: `1px solid ${KLEUR.rand}`, paddingTop: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700, marginBottom: 6 }}>
+          <Sparkles size={14} color={KLEUR.blauw} /> Nieuw veld aanmaken
+        </div>
+        <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 10, maxWidth: 640 }}>
+          Maakt een echte nieuwe kolom aan op de tabel Inkomstenbelasting in Dynamics en zet het
+          veld daarna klaar bij "Niet ingedeeld" hierboven. Keuzelijsten (met eigen opties) kunnen
+          op deze manier nog niet aangemaakt worden.
+        </div>
+        {nieuwVeldFout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 8 }}>{nieuwVeldFout}</div>}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <input
+            value={nieuwVeldLabel}
+            onChange={(e) => setNieuwVeldLabel(e.target.value)}
+            placeholder="Naam van het nieuwe veld, bijv. Crypto-portefeuille"
+            style={{ ...invoerStijl, flex: "0 1 320px" }}
+          />
+          <select value={nieuwVeldType} onChange={(e) => setNieuwVeldType(e.target.value)} style={{ ...invoerStijl, flex: "0 1 160px" }}>
+            {NIEUW_VELD_TYPES.map((t) => <option key={t.type} value={t.type}>{t.label}</option>)}
+          </select>
+          <button
+            onClick={maakNieuwVeld}
+            disabled={!nieuwVeldLabel.trim() || nieuwVeldBezig}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px",
+              background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8,
+              fontSize: 12.5, fontWeight: 600, cursor: (!nieuwVeldLabel.trim() || nieuwVeldBezig) ? "default" : "pointer",
+              opacity: (!nieuwVeldLabel.trim() || nieuwVeldBezig) ? 0.6 : 1,
+            }}
+          >
+            <Plus size={14} /> {nieuwVeldBezig ? "Bezig…" : "Veld aanmaken"}
+          </button>
+        </div>
       </div>
       </>)}
     </div>
