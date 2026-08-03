@@ -98,6 +98,24 @@ async function haalTeControlererenVoorReminders() {
   return result.recordset.map(naarBuitenMetAccount);
 }
 
+/**
+ * Alle contracten over ALLE klantaccounts heen, voor het medewerkersoverzicht (Stap 6, zie
+ * api/mw-contracten-overzicht en src/medewerker/ContractenOverzicht.jsx) — het "mini-dashboard
+ * voor relatiebeheerders" uit het contractmanagement-plan. In tegenstelling tot
+ * haalTeControlererenVoorReminders() hierboven (alleen nog-niet-verlopen contracten, voor de
+ * dagelijkse herinneringenjob) geeft deze functie ALLES terug, inclusief al verlopen contracten
+ * en contracten zonder einddatum — een relatiebeheerder moet ook een net verlopen contract nog
+ * kunnen terugvinden. Sortering: contracten zonder einddatum laatst, daarna oplopend op
+ * einddatum (dus de eerstvolgende afloop bovenaan).
+ */
+async function haalAlleContractenVoorOverzicht() {
+  const pool = await haalPool();
+  const result = await pool.request().query(
+    "SELECT * FROM dbo.contracten_klanten ORDER BY (einddatum IS NULL), einddatum ASC, aangemaakt_op DESC"
+  );
+  return result.recordset.map(naarBuitenMetAccount);
+}
+
 /** Legt vast dat er zojuist een herinnering is verstuurd voor deze drempel (dagenVoorEinddatum),
  * zodat dezelfde of een grotere drempel niet nogmaals verstuurd wordt (zie contractenReminders.js). */
 async function markeerReminderVerzonden(id, dagenVoorEinddatum) {
@@ -222,5 +240,6 @@ module.exports = {
   maakContract,
   wijzigContract,
   haalTeControlererenVoorReminders,
+  haalAlleContractenVoorOverzicht,
   markeerReminderVerzonden,
 };
