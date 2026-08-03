@@ -38,6 +38,7 @@ function RubriekKop({ open, setOpen, icoon: Icoon, children }) {
  */
 export default function VerlofBeheer() {
   const [openInstellingen, setOpenInstellingen] = useState(false);
+  const [openBeginbalans, setOpenBeginbalans] = useState(false);
   const [openSaldo, setOpenSaldo] = useState(false);
   const [instellingen, setInstellingen] = useState(null);
   const [fout, setFout] = useState("");
@@ -70,10 +71,132 @@ export default function VerlofBeheer() {
         {openInstellingen && !instellingen && <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginTop: 10 }}>Instellingen ophalen…</div>}
       </div>
 
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 16, marginBottom: 24 }}>
+        <RubriekKop open={openBeginbalans} setOpen={setOpenBeginbalans} icoon={Plus}>Beginbalans invoeren</RubriekKop>
+        {openBeginbalans && <BeginbalansInvoeren onFout={setFout} />}
+      </div>
+
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 16 }}>
         <RubriekKop open={openSaldo} setOpen={setOpenSaldo} icoon={History}>Verlofsaldo per medewerker &amp; correcties</RubriekKop>
         {openSaldo && <SaldoOverzicht onFout={setFout} />}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Bulklijst om voor elke medewerker in één keer een beginbalans in te voeren (bijv. saldo dat is
+ * meegenomen vanuit een vorig systeem, vóórdat deze module bestond). Hergebruikt gewoon de bestaande
+ * correctie-API (GET/POST /api/beheer-verlof-saldo) — er komt géén apart opslagmechanisme bij: elke
+ * ingevoerde beginbalans wordt een normale, gelogde correctie (Wouter, 03-08-2026: "Bulklijst bovenop
+ * bestaande correcties"). De toelichting is voor alle rijen gelijk (standaard "Beginbalans", aan te
+ * passen) zodat je in het logboek later precies ziet welke correcties bij deze bulkactie hoorden.
+ */
+function BeginbalansInvoeren({ onFout }) {
+  const [medewerkers, setMedewerkers] = useState(null);
+  const [waarden, setWaarden] = useState({});
+  const [toelichting, setToelichting] = useState("Beginbalans");
+  const [zoek, setZoek] = useState("");
+  const [bezig, setBezig] = useState(false);
+  const [voortgang, setVoortgang] = useState(null);
+  const [klaarMelding, setKlaarMelding] = useState("");
+
+  const laad = () => {
+    setMedewerkers(null);
+    fetch("/api/beheer-verlof-saldo")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setMedewerkers(d.medewerkers || []))
+      .catch(() => { setMedewerkers([]); onFout("Kon de medewerkerslijst niet laden."); });
+  };
+  useEffect(() => { laad(); }, []);
+
+  const gefilterd = (medewerkers || []).filter((m) => { const q = zoek.trim().toLowerCase(); return !q || `${m.naam} ${m.email}`.toLowerCase().includes(q); });
+
+  const teVerwerken = () => gefilterd.filter((m) => {
+    const v = waarden[m.email];
+    if (v == null || v === "") return false;
+    const n = Number(String(v).replace(",", "."));
+    return !isNaN(n) && n !== 0;
+  });
+
+  const allesOpslaan = async () => {
+    if (!toelichting.trim()) { onFout('Geef een toelichting mee voor de beginbalans (bijv. "Beginbalans 2026").'); return; }
+    const rijen = teVerwerken();
+    if (!rijen.length) { onFout("Vul bij minstens één medewerker een aantal uren in."); return; }
+    setBezig(true); onFout(""); setKlaarMelding(""); setVoortgang({ gedaan: 0, totaal: rijen.length });
+    let fouten = 0;
+    for (const m of rijen) {
+      try {
+        const aantal = Number(String(waarden[m.email]).replace(",", "."));
+        const res = await fetch("/api/beheer-verlof-saldo", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: m.email, uren: aantal, toelichting: toelichting.trim() }),
+        });
+        if (!res.ok) fouten++;
+        else setWaarden((w) => { const n = { ...w }; delete n[m.email]; return n; });
+      } catch { fouten++; }
+      setVoortgang((v) => ({ ...v, gedaan: v.gedaan + 1 }));
+    }
+    setBezig(false);
+    setKlaarMelding(fouten ? `Klaar, met ${fouten} fout(en) — controleer en probeer die opnieuw.` : `Beginbalans voor ${rijen.length} medewerker(s) opgeslagen.`);
+    laad();
+  };
+
+  const aantalTeVerwerken = teVerwerken().length;
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 12, display: "flex", gap: 6, alignItems: "flex-start", maxWidth: 720 }}>
+        <Info size={12} style={{ marginTop: 1, flexShrink: 0 }} /> Vul per medewerker het aantal beginbalans-uren in (leeg of 0 = overslaan) en klik onderaan op "Alles opslaan".
+        Elke ingevulde rij wordt een normale, gelogde correctie met de onderstaande toelichting — je kunt dit dus ook later nog een keer doen (bijv. per jaar).
+      </div>
+
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 12 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: "1 1 260px", maxWidth: 340 }}>
+          <span style={lbl}>Toelichting (voor alle rijen)</span>
+          <input value={toelichting} onChange={(e) => setToelichting(e.target.value)} placeholder="bijv. Beginbalans 2026" style={{ ...veld, width: "100%" }} />
+        </div>
+        <div style={{ position: "relative", flex: "1 1 240px", maxWidth: 320 }}>
+          <Search size={13} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)" }} />
+          <input value={zoek} onChange={(e) => setZoek(e.target.value)} placeholder="Zoek medewerker…" style={{ ...veld, width: "100%", padding: "8px 9px 8px 28px" }} />
+        </div>
+      </div>
+
+      {medewerkers === null ? (
+        <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Medewerkers ophalen…</div>
+      ) : gefilterd.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Geen medewerkers gevonden.</div>
+      ) : (
+        <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, marginBottom: 12 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 480 }}>
+            <thead><tr style={{ background: "#FBFBF9" }}><th style={th}>Medewerker</th><th style={th}>Huidig saldo</th><th style={th}>Beginbalans (uren)</th></tr></thead>
+            <tbody>
+              {gefilterd.map((m) => (
+                <tr key={m.email}>
+                  <td style={td}>
+                    <div style={{ fontWeight: 600 }}>{m.naam}</div>
+                    <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>{m.email}</div>
+                  </td>
+                  <td style={{ ...td, color: KLEUR.blauw, fontWeight: 700 }}>{uur(m.saldo.resterend)} u</td>
+                  <td style={td}>
+                    <input
+                      value={waarden[m.email] ?? ""}
+                      onChange={(e) => setWaarden((w) => ({ ...w, [m.email]: e.target.value }))}
+                      inputMode="decimal" placeholder="0" style={{ ...veld, width: 100 }}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <button onClick={allesOpslaan} disabled={bezig || !aantalTeVerwerken} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: bezig || !aantalTeVerwerken ? "default" : "pointer", opacity: bezig || !aantalTeVerwerken ? 0.6 : 1 }}>
+        {bezig ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Save size={14} />}
+        {bezig && voortgang ? `Opslaan… (${voortgang.gedaan}/${voortgang.totaal})` : `Alles opslaan${aantalTeVerwerken ? ` (${aantalTeVerwerken})` : ""}`}
+      </button>
+      {klaarMelding && <div style={{ fontSize: 12, color: KLEUR.groen, marginTop: 8, display: "flex", alignItems: "center", gap: 5 }}><CheckCircle2 size={13} /> {klaarMelding}</div>}
     </div>
   );
 }
@@ -233,6 +356,7 @@ function MedewerkerSaldoRij({ m, open, onToggle, onGewijzigd, onFout }) {
         </div>
         <div style={{ display: "flex", gap: 14, fontSize: 12 }}>
           <span>Basis <strong>{uur(s.basis)} u</strong></span>
+          {s.instroomFactor != null && s.instroomFactor < 1 && <span style={{ color: KLEUR.goud }} title="Pro rata i.v.m. datum in dienst dit jaar">Instroom <strong>{Math.round(s.instroomFactor * 100)}%</strong></span>}
           {s.correcties !== 0 && <span style={{ color: s.correcties > 0 ? KLEUR.groen : KLEUR.rood }}>Correcties <strong>{s.correcties > 0 ? "+" : ""}{uur(s.correcties)} u</strong></span>}
           <span>Opgenomen <strong>{uur(s.opgenomen)} u</strong></span>
           <span style={{ color: KLEUR.blauw }}>Resterend <strong>{uur(s.resterend)} u</strong></span>

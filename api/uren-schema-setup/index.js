@@ -182,6 +182,7 @@ module.exports = async function (context, req) {
       [`${PREFIX}_declarabeldoel`, Dec(`${PREFIX}_Declarabeldoel`, "Declarabel-doel (%)")],
       [`${PREFIX}_leidinggevendenaam`, Str(`${PREFIX}_Leidinggevendenaam`, "Leidinggevende (keurt weekstaat goed)", 256)],
       [`${PREFIX}_deadlineweekdag`, Dec(`${PREFIX}_Deadlineweekdag`, "Deadline weekdag (1=ma .. 7=zo)")],
+      [`${PREFIX}_indiensttredingsdatum`, DatumOnly(`${PREFIX}_Indiensttredingsdatum`, "Datum in dienst")],
       [`${PREFIX}_actief`, Bool(`${PREFIX}_Actief`, "Actief")],
     ];
     for (const [logisch, meta] of tariefAttrs) stappen.push(await maakAttribuut(token, resource, T, logisch, meta, tariefBestaandeAttrs));

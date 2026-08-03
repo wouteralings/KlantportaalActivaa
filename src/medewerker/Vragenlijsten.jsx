@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { ClipboardList, Search, MessageCircle, ChevronDown, Send, RefreshCw, Users, User, CheckCircle2, Circle, FileText, CheckCheck, RotateCcw, Trash2, Plus } from "lucide-react";
+import { ClipboardList, Search, MessageCircle, ChevronDown, Send, RefreshCw, Users, User, CheckCircle2, Circle, FileText, CheckCheck, RotateCcw, Trash2, Plus, Pencil } from "lucide-react";
 
 /** Zelfde palet als de rest van het medewerkersportaal (bewust hier herhaald zodat dit bestand op
  *  zichzelf staat). */
@@ -56,8 +56,14 @@ export default function Vragenlijsten() {
   const [bezigActie, setBezigActie] = useState(""); // verzoekId, of "verzoekId:regelId" bij heropenen
   const [deadlineDraft, setDeadlineDraft] = useState({}); // verzoekId -> yyyy-mm-dd
   const [bezigDeadline, setBezigDeadline] = useState("");
+  const [titelDraft, setTitelDraft] = useState({}); // verzoekId -> naam
+  const [jaarDraft, setJaarDraft] = useState({}); // verzoekId -> jaar
+  const [bezigTitel, setBezigTitel] = useState("");
   const [nieuweVraag, setNieuweVraag] = useState({}); // verzoekId -> { tonen, naam, toelichting, verplicht }
   const [bezigVraagToevoegen, setBezigVraagToevoegen] = useState("");
+  const [bewerkRegelId, setBewerkRegelId] = useState(""); // regelId die nu bewerkt wordt (één tegelijk)
+  const [regelDraft, setRegelDraft] = useState({}); // regelId -> { naam, toelichting, verplicht }
+  const [bezigRegelWijzigen, setBezigRegelWijzigen] = useState("");
 
   const laad = () => {
     setRijen(null); setFout("");
@@ -167,6 +173,45 @@ export default function Vragenlijsten() {
       setRijen((h) => (h || []).map((x) => (x.id === r.id ? d.verzoek : x)));
     } catch (e) { setFout("Deadline aanpassen mislukt: " + (e.message || e)); }
     finally { setBezigDeadline(""); }
+  };
+
+  /** Naam en/of jaar van een al uitgezet verzoek aanpassen (jaar bepaalt mede de opslagmap). */
+  const wijzigTitel = async (r) => {
+    const lijstNaam = (titelDraft[r.id] != null ? titelDraft[r.id] : (r.lijstNaam || "")).trim();
+    const jaar = (jaarDraft[r.id] != null ? jaarDraft[r.id] : (r.jaar || "")).trim();
+    if (!lijstNaam) return;
+    setBezigTitel(r.id);
+    try {
+      const res = await fetch("/api/medewerker-vragenlijsten", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "titel-zetten", verzoekId: r.id, lijstNaam, jaar }) });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+      setRijen((h) => (h || []).map((x) => (x.id === r.id ? d.verzoek : x)));
+    } catch (e) { setFout("Naam/jaar aanpassen mislukt: " + (e.message || e)); }
+    finally { setBezigTitel(""); }
+  };
+
+  const beginRegelBewerken = (d) => {
+    setRegelDraft((h) => ({ ...h, [d.id]: { naam: d.naam || "", toelichting: d.toelichting || "", verplicht: d.verplicht !== false } }));
+    setBewerkRegelId(d.id);
+  };
+
+  /** Een al bestaande vraag/document aanpassen (naam/toelichting/verplicht), ongeacht de status. */
+  const regelWijzigen = async (r, d) => {
+    const draft = regelDraft[d.id] || {};
+    const naam = (draft.naam || "").trim();
+    if (!naam) return;
+    setBezigRegelWijzigen(d.id);
+    try {
+      const res = await fetch("/api/medewerker-vragenlijsten", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "regel-bewerken", verzoekId: r.id, regelId: d.id, naam, toelichting: draft.toelichting || "", verplicht: draft.verplicht !== false }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setRijen((h) => (h || []).map((x) => (x.id === r.id ? data.verzoek : x)));
+      setBewerkRegelId("");
+    } catch (e) { setFout("Vraag aanpassen mislukt: " + (e.message || e)); }
+    finally { setBezigRegelWijzigen(""); }
   };
 
   const toggleVraagForm = (id) => setNieuweVraag((h) => ({ ...h, [id]: { naam: "", toelichting: "", verplicht: true, ...(h[id] || {}), tonen: !(h[id]?.tonen) } }));
@@ -296,6 +341,32 @@ export default function Vragenlijsten() {
                   {open && (
                     <tr>
                       <td style={{ ...td, background: "#fff" }} colSpan={7}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", maxWidth: 720, marginBottom: 8 }} onClick={(e) => e.stopPropagation()}>
+                          <label style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.subtekst }}>Naam</label>
+                          <input
+                            value={titelDraft[r.id] != null ? titelDraft[r.id] : (r.lijstNaam || "")}
+                            onChange={(e) => setTitelDraft((h) => ({ ...h, [r.id]: e.target.value }))}
+                            style={{ flex: "1 1 220px", minWidth: 140, boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "5px 8px", fontSize: 12.5, color: KLEUR.tekst }}
+                          />
+                          <label style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.subtekst }}>Jaar</label>
+                          <input
+                            value={jaarDraft[r.id] != null ? jaarDraft[r.id] : (r.jaar || "")}
+                            onChange={(e) => setJaarDraft((h) => ({ ...h, [r.id]: e.target.value }))}
+                            placeholder="bv. 2026"
+                            style={{ width: 70, boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "5px 8px", fontSize: 12.5, color: KLEUR.tekst }}
+                          />
+                          <button
+                            onClick={() => wijzigTitel(r)}
+                            disabled={
+                              bezigTitel === r.id ||
+                              !(titelDraft[r.id] != null ? titelDraft[r.id] : (r.lijstNaam || "")).trim() ||
+                              ((titelDraft[r.id] ?? (r.lijstNaam || "")) === (r.lijstNaam || "") && (jaarDraft[r.id] ?? (r.jaar || "")) === (r.jaar || ""))
+                            }
+                            style={{ padding: "5px 10px", background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 11.5, fontWeight: 600, color: KLEUR.blauw, cursor: "pointer" }}
+                          >
+                            {bezigTitel === r.id ? "Opslaan…" : "Opslaan"}
+                          </button>
+                        </div>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", maxWidth: 720, marginBottom: 12 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }} onClick={(e) => e.stopPropagation()}>
                             <label style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.subtekst }}>Einddatum</label>
@@ -345,6 +416,48 @@ export default function Vragenlijsten() {
                               {r.documenten.map((d) => {
                                 const klaar = d.status !== "open"; // 'aangeleverd' (bestand) of 'afgemeld' (alleen opmerking)
                                 const heropenBezig = bezigActie === `${r.id}:${d.id}`;
+                                const bewerken = bewerkRegelId === d.id;
+                                if (bewerken) {
+                                  const draft = regelDraft[d.id] || { naam: d.naam || "", toelichting: d.toelichting || "", verplicht: d.verplicht !== false };
+                                  return (
+                                    <div key={d.id} onClick={(e) => e.stopPropagation()} style={{ padding: 10, border: `1px dashed ${KLEUR.rand}`, borderRadius: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+                                      <input
+                                        value={draft.naam}
+                                        onChange={(e) => setRegelDraft((h) => ({ ...h, [d.id]: { ...draft, naam: e.target.value } }))}
+                                        placeholder="Naam van het document/de vraag…"
+                                        style={{ boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "6px 9px", fontSize: 12.5, outline: "none" }}
+                                      />
+                                      <input
+                                        value={draft.toelichting}
+                                        onChange={(e) => setRegelDraft((h) => ({ ...h, [d.id]: { ...draft, toelichting: e.target.value } }))}
+                                        placeholder="Toelichting (optioneel)…"
+                                        style={{ boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "6px 9px", fontSize: 12.5, outline: "none" }}
+                                      />
+                                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                                        <label style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: KLEUR.subtekst }}>
+                                          <input
+                                            type="checkbox"
+                                            checked={draft.verplicht !== false}
+                                            onChange={(e) => setRegelDraft((h) => ({ ...h, [d.id]: { ...draft, verplicht: e.target.checked } }))}
+                                          />
+                                          Verplicht
+                                        </label>
+                                        <div style={{ display: "flex", gap: 6 }}>
+                                          <button onClick={() => setBewerkRegelId("")} style={{ padding: "6px 10px", background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 11.5, fontWeight: 600, color: KLEUR.subtekst, cursor: "pointer" }}>
+                                            Annuleren
+                                          </button>
+                                          <button
+                                            onClick={() => regelWijzigen(r, d)}
+                                            disabled={bezigRegelWijzigen === d.id || !draft.naam.trim()}
+                                            style={{ padding: "6px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 6, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}
+                                          >
+                                            {bezigRegelWijzigen === d.id ? "Opslaan…" : "Opslaan"}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                }
                                 return (
                                   <div key={d.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, padding: "6px 9px", border: `1px solid ${klaar ? "#BFE0C8" : KLEUR.rand}`, borderRadius: 7, background: klaar ? "#F1F8F3" : "#fff" }}>
                                     {klaar ? <CheckCircle2 size={15} color={KLEUR.groen} style={{ flexShrink: 0, marginTop: 1 }} /> : <Circle size={15} color={KLEUR.mutedTekst} style={{ flexShrink: 0, marginTop: 1 }} />}
@@ -353,7 +466,15 @@ export default function Vragenlijsten() {
                                       {klaar && d.bestandNaam && <div style={{ fontSize: 11.5, color: KLEUR.groen }}>Aangeleverd: {d.bestandNaam}{d.aangeleverdOp ? ` · ${tijd(d.aangeleverdOp)}` : ""}</div>}
                                       {klaar && !d.bestandNaam && <div style={{ fontSize: 11.5, color: KLEUR.goud }}>Afgemeld (via opmerking, geen bestand){d.aangeleverdOp ? ` · ${tijd(d.aangeleverdOp)}` : ""}</div>}
                                       {d.opmerking && <div style={{ fontSize: 11.5, color: KLEUR.goud }}>Opmerking klant: {d.opmerking}</div>}
+                                      {d.toelichting && <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{d.toelichting}</div>}
                                     </div>
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); beginRegelBewerken(d); }}
+                                      title="Naam/toelichting/verplicht van deze vraag aanpassen"
+                                      style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0, padding: "4px 8px", background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 11, fontWeight: 600, color: KLEUR.subtekst, cursor: "pointer" }}
+                                    >
+                                      <Pencil size={11} /> Wijzigen
+                                    </button>
                                     {klaar && (
                                       <button
                                         onClick={(e) => { e.stopPropagation(); heropenen(r, d); }}

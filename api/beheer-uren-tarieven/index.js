@@ -105,6 +105,7 @@ module.exports = async function (context, req) {
         tarief_normaal: num(b.tarief_normaal), tarief_hoog: num(b.tarief_hoog), tarief_laag: num(b.tarief_laag),
         declarabel_doel: num(b.declarabel_doel), leidinggevende: b.leidinggevende || null,
         deadline_weekdag: b.deadline_weekdag === "" || b.deadline_weekdag == null ? null : Number(b.deadline_weekdag),
+        indiensttredingsdatum: b.indiensttredingsdatum || null,
         actief: b.actief == null ? true : !!b.actief,
       }, email);
       return json(context, 200, { ok: true, tarief: tariefUit(opgeslagen) });
@@ -119,7 +120,7 @@ module.exports = async function (context, req) {
 };
 
 function tariefUit(t) {
-  if (!t) return { normaal: null, hoog: null, laag: null, declarabelDoel: null, leidinggevende: "", actief: true, gewijzigdOp: null, gewijzigdDoor: "" };
+  if (!t) return { normaal: null, hoog: null, laag: null, declarabelDoel: null, leidinggevende: "", indiensttredingsdatum: null, actief: true, gewijzigdOp: null, gewijzigdDoor: "" };
   return {
     normaal: t.tarief_normaal == null ? null : Number(t.tarief_normaal),
     hoog: t.tarief_hoog == null ? null : Number(t.tarief_hoog),
@@ -127,6 +128,7 @@ function tariefUit(t) {
     declarabelDoel: t.declarabel_doel == null ? null : Number(t.declarabel_doel),
     leidinggevende: t.leidinggevende || "",
     deadlineWeekdag: t.deadline_weekdag == null ? null : Number(t.deadline_weekdag),
+    indiensttredingsdatum: t.indiensttredingsdatum || null,
     actief: t.actief == null ? true : !!t.actief,
     gewijzigdOp: t.gewijzigd_op || null, gewijzigdDoor: t.gewijzigd_door || "",
   };

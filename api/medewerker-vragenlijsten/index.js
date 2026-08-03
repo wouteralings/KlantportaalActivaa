@@ -20,6 +20,14 @@
  *                                                       extra document/vraag toevoegen aan een al
  *                                                       uitgezet verzoek (heropent 'm eventueel, klant
  *                                                       krijgt een bericht)
+ *   - POST { actie:"regel-bewerken", verzoekId, regelId, naam?, toelichting?, verplicht? } →
+ *                                                       een al bestaande vraag/document aanpassen
+ *                                                       (naam/toelichting/verplicht), ongeacht de status
+ *   - POST { actie:"titel-zetten", verzoekId, lijstNaam, jaar? } → naam en/of jaar van een al uitgezet
+ *                                                       verzoek aanpassen. Wijzigt het jaar, dan wordt de
+ *                                                       SharePoint-opslagmap (voor nog te uploaden
+ *                                                       documenten) opnieuw berekend via hetzelfde
+ *                                                       pad-sjabloon (onderwerp/lijst) als bij het aanmaken.
  *
  * Verwijderen van een heel verzoek loopt via de bestaande /api/medewerker-aanleververzoeken
  * ({actie:"verwijderen", id}) — geen aparte actie hier, één plek voor die logica.
@@ -29,6 +37,8 @@
 const { haalDynamicsToken, haalEmailUitPrincipal, haalNaamUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const verzoeken = require("../_gedeeld/aanleververzoeken");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
+const { haalOnderwerpen, resolvePad } = require("../_gedeeld/aanleveronderwerpen");
+const { haalLijsten } = require("../_gedeeld/aanleverlijsten");
 
 /**
  * Zoekt de volledige naam (systemuser fullname) van de ingelogde medewerker op basis van het
@@ -117,7 +127,7 @@ module.exports = async function (context, req) {
   try {
     if (methode === "POST") {
       const {
-        actie, verzoekId, regelId, tekst, deadline,
+        actie, verzoekId, regelId, tekst, deadline, lijstNaam, jaar,
         naam: nieuweRegelNaam, toelichting: nieuweRegelToelichting, verplicht: nieuweRegelVerplicht, bestandsnaam: nieuweRegelBestandsnaam,
       } = req.body || {};
 
@@ -254,6 +264,102 @@ module.exports = async function (context, req) {
           klantnaam: v.klantnaam, klantnummer: v.klantnummer, contactId: v.contactId, contactNaam: v.contactNaam,
           tekst: `Nieuwe vraag "${nieuweRegel.naam}" toegevoegd aan "${v.lijstNaam || "aanlever-verzoek"}".`,
         });
+        const laatstGezienNa = await verzoeken.haalLaatstGezien().catch(() => null);
+        context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek: verrijk(v, laatstGezienNa) } };
+        return;
+      }
+
+      if (actie === "regel-bewerken") {
+        if (!verzoekId || !regelId) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'verzoekId' en 'regelId' mee." } }; return; }
+        const naamTrim = nieuweRegelNaam != null ? String(nieuweRegelNaam).trim().slice(0, 200) : null;
+        if (naamTrim !== null && !naamTrim) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Naam mag niet leeg zijn." } }; return; }
+        let foutmelding = "";
+        let wijziging = "";
+        const v = await verzoeken.werkBij(verzoekId, (x) => {
+          const r = (x.regels || []).find((rr) => rr.id === regelId);
+          if (!r) { foutmelding = "Document niet gevonden in deze vragenlijst."; return; }
+          const oudeNaam = r.naam || "";
+          const oudeToelichting = r.toelichting || "";
+          if (naamTrim !== null) r.naam = naamTrim;
+          if (nieuweRegelToelichting != null) r.toelichting = String(nieuweRegelToelichting).slice(0, 600);
+          if (nieuweRegelBestandsnaam != null) r.bestandsnaam = String(nieuweRegelBestandsnaam).trim().slice(0, 200);
+          if (nieuweRegelVerplicht != null) r.verplicht = nieuweRegelVerplicht !== false;
+          // Alleen een berichtje aan de klant als er echt iets in naam/toelichting is veranderd —
+          // verplicht/bestandsnaam zijn interne details die geen extra bericht nodig hebben.
+          if (r.naam !== oudeNaam || (r.toelichting || "") !== oudeToelichting) {
+            wijziging = r.naam !== oudeNaam
+              ? `Vraag aangepast: "${oudeNaam}" → "${r.naam}"${r.toelichting ? ` — ${r.toelichting}` : ""}.`
+              : `Vraag "${r.naam}" aangepast — ${r.toelichting || "toelichting verwijderd"}.`;
+            if (!Array.isArray(x.vragen)) x.vragen = [];
+            x.vragen.push(verzoeken.maakBericht("medewerker", naam || email || "Medewerker", wijziging));
+          }
+        });
+        if (!v) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Verzoek niet gevonden." } }; return; }
+        if (foutmelding) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: foutmelding } }; return; }
+        if (wijziging) {
+          await logGebeurtenis({
+            door: email || "onbekend", actie: "aanleververzoek", accountId: v.accountId, accountIds: [v.accountId],
+            klantnaam: v.klantnaam, klantnummer: v.klantnummer, contactId: v.contactId, contactNaam: v.contactNaam,
+            tekst: `${wijziging} (bij "${v.lijstNaam || "aanlever-verzoek"}")`,
+          });
+        }
+        const laatstGezienNa = await verzoeken.haalLaatstGezien().catch(() => null);
+        context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek: verrijk(v, laatstGezienNa) } };
+        return;
+      }
+
+      if (actie === "titel-zetten") {
+        if (!verzoekId) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'verzoekId' mee." } }; return; }
+        const nieuweLijstNaam = String(lijstNaam || "").trim().slice(0, 200);
+        if (!nieuweLijstNaam) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Naam mag niet leeg zijn." } }; return; }
+        const nieuweJaar = String(jaar || "").trim().slice(0, 4);
+
+        const alleVoorLookup = await verzoeken.haalAlle();
+        const bestaand = alleVoorLookup.find((x) => x.id === verzoekId);
+        if (!bestaand) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Verzoek niet gevonden." } }; return; }
+
+        const oudeLijstNaam = bestaand.lijstNaam || "";
+        const oudeJaar = bestaand.jaar || "";
+
+        // Als het jaar wijzigt, moet de opslagmap (voor nog te uploaden documenten) mee — anders
+        // blijven nieuwe aanleveringen in de map van het oude jaar belanden. We herberekenen 'm via
+        // hetzelfde pad-sjabloon (onderwerp of lijst) als bij het aanmaken van dit verzoek. Dit moet
+        // vóór werkBij gebeuren: de mutator daarin is synchroon en wordt niet ge-awaited.
+        let nieuweMap = null; // null = map ongewijzigd laten
+        if (nieuweJaar !== oudeJaar) {
+          try {
+            if (bestaand.onderwerpId) {
+              const onderwerp = (await haalOnderwerpen()).find((o) => o.id === bestaand.onderwerpId);
+              if (onderwerp && onderwerp.pad) nieuweMap = resolvePad(onderwerp.pad, { jaar: nieuweJaar, onderwerp: onderwerp.naam });
+            } else if (bestaand.lijstId) {
+              const lijst = (await haalLijsten()).find((l) => l.id === bestaand.lijstId);
+              if (lijst && lijst.pad) nieuweMap = resolvePad(lijst.pad, { jaar: nieuweJaar, lijst: lijst.naam, onderwerp: lijst.naam });
+            }
+          } catch (opzoekFout) {
+            context.log.error("Opslagmap herberekenen bij jaarwijziging mislukt:", opzoekFout);
+          }
+        }
+
+        const v = await verzoeken.werkBij(verzoekId, (x) => {
+          x.lijstNaam = nieuweLijstNaam;
+          x.jaar = nieuweJaar;
+          if (nieuweMap) x.map = nieuweMap;
+          if (oudeLijstNaam !== nieuweLijstNaam || oudeJaar !== nieuweJaar) {
+            const delen = [];
+            if (oudeLijstNaam !== nieuweLijstNaam) delen.push(`titel gewijzigd naar "${nieuweLijstNaam}"`);
+            if (oudeJaar !== nieuweJaar) delen.push(`jaar gewijzigd naar ${nieuweJaar || "(geen jaar)"}`);
+            if (!Array.isArray(x.vragen)) x.vragen = [];
+            x.vragen.push(verzoeken.maakBericht("medewerker", naam || email || "Medewerker", delen.join(", ") + "."));
+          }
+        });
+        if (!v) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Verzoek niet gevonden." } }; return; }
+        if (oudeLijstNaam !== nieuweLijstNaam || oudeJaar !== nieuweJaar) {
+          await logGebeurtenis({
+            door: email || "onbekend", actie: "aanleververzoek", accountId: v.accountId, accountIds: [v.accountId],
+            klantnaam: v.klantnaam, klantnummer: v.klantnummer, contactId: v.contactId, contactNaam: v.contactNaam,
+            tekst: `Titel/jaar van "${oudeLijstNaam}" gewijzigd naar "${nieuweLijstNaam}"${nieuweJaar ? ` ${nieuweJaar}` : ""}.`,
+          });
+        }
         const laatstGezienNa = await verzoeken.haalLaatstGezien().catch(() => null);
         context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek: verrijk(v, laatstGezienNa) } };
         return;

@@ -81,12 +81,12 @@ export default function UrenTarievenBeheer() {
             <thead>
               <tr style={{ background: "#FBFBF9" }}>
                 <th style={th}>Medewerker</th><th style={th}>Normaal €/u</th><th style={th}>Hoog €/u</th><th style={th}>Laag €/u</th>
-                <th style={th}>Declarabel-doel %</th><th style={th}>Leidinggevende</th><th style={th}>Deadline</th><th style={th}>Actief</th><th style={{ ...th, width: 1 }}></th>
+                <th style={th}>Declarabel-doel %</th><th style={th}>Leidinggevende</th><th style={th}>Deadline</th><th style={th}>Datum in dienst</th><th style={th}>Actief</th><th style={{ ...th, width: 1 }}></th>
               </tr>
             </thead>
             <tbody>
               {gefilterd.length === 0 ? (
-                <tr><td style={{ ...td, color: KLEUR.mutedTekst }} colSpan={9}>Geen medewerkers gevonden.</td></tr>
+                <tr><td style={{ ...td, color: KLEUR.mutedTekst }} colSpan={10}>Geen medewerkers gevonden.</td></tr>
               ) : zichtbaar.map((m) => <TariefRij key={m.email} m={m} namen={alleNamen} />)}
             </tbody>
           </table>
@@ -179,6 +179,7 @@ function TariefRij({ m, namen }) {
   const [doel, setDoel] = useState(t.declarabelDoel ?? "");
   const [leidinggevende, setLeidinggevende] = useState(t.leidinggevende ?? "");
   const [deadline, setDeadline] = useState(t.deadlineWeekdag ?? "");
+  const [indienst, setIndienst] = useState(t.indiensttredingsdatum ?? "");
   const [actief, setActief] = useState(t.actief !== false);
   const [bezig, setBezig] = useState(false);
   const [ok, setOk] = useState(false);
@@ -189,7 +190,7 @@ function TariefRij({ m, namen }) {
     try {
       const res = await fetch("/api/beheer-uren-tarieven", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ actie: "tarief", email: m.email, naam: m.naam, tarief_normaal: normaal, tarief_hoog: hoog, tarief_laag: laag, declarabel_doel: doel, leidinggevende, deadline_weekdag: deadline, actief }),
+        body: JSON.stringify({ actie: "tarief", email: m.email, naam: m.naam, tarief_normaal: normaal, tarief_hoog: hoog, tarief_laag: laag, declarabel_doel: doel, leidinggevende, deadline_weekdag: deadline, indiensttredingsdatum: indienst || null, actief }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
@@ -219,6 +220,7 @@ function TariefRij({ m, namen }) {
           {WEEKDAGEN.map(([n, l]) => <option key={n} value={n}>{l}</option>)}
         </select>
       </td>
+      <td style={td}><input type="date" value={indienst} onChange={(e) => setIndienst(e.target.value)} title="Datum in dienst — bepaalt de pro-rata verlofopbouw in het instroomjaar" style={{ ...veld, width: 140 }} /></td>
       <td style={td}><label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}><input type="checkbox" checked={actief} onChange={(e) => setActief(e.target.checked)} /></label></td>
       <td style={td}>
         <button onClick={opslaan} disabled={bezig} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 11px", background: ok ? KLEUR.groen : KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>

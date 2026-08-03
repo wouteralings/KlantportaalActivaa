@@ -151,6 +151,7 @@ function tariefNaarBuiten(r) {
     declarabel_doel: n(r[`${P}_declarabeldoel`]),
     leidinggevende: r[`${P}_leidinggevendenaam`] || "",
     deadline_weekdag: r[`${P}_deadlineweekdag`] == null ? null : Number(r[`${P}_deadlineweekdag`]),
+    indiensttredingsdatum: r[`${P}_indiensttredingsdatum`] ? String(r[`${P}_indiensttredingsdatum`]).slice(0, 10) : null,
     actief: r[`${P}_actief`] == null ? true : !!r[`${P}_actief`],
     gewijzigd_op: r.modifiedon || null,
   };
@@ -175,7 +176,7 @@ async function lijstTarieven() {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   const token = await haalDynamicsToken();
   const set = await entitySet(resource, token, TARIEF);
-  const res = await fetch(`${resource}/api/data/v9.2/${set}?$select=${P}_medewerkeremail,${P}_medewerkernaam,${P}_tariefnormaal,${P}_tariefhoog,${P}_tarieflaag,${P}_declarabeldoel,${P}_leidinggevendenaam,${P}_deadlineweekdag,${P}_actief`, { headers: leesHeaders(token) });
+  const res = await fetch(`${resource}/api/data/v9.2/${set}?$select=${P}_medewerkeremail,${P}_medewerkernaam,${P}_tariefnormaal,${P}_tariefhoog,${P}_tarieflaag,${P}_declarabeldoel,${P}_leidinggevendenaam,${P}_deadlineweekdag,${P}_indiensttredingsdatum,${P}_actief`, { headers: leesHeaders(token) });
   if (!res.ok) throw new Error(`Tarieven ophalen mislukt: ${await res.text()}`);
   return (await res.json()).value.map(tariefNaarBuiten);
 }
@@ -193,6 +194,7 @@ async function zetTarief(email, velden, door) {
     [`${P}_declarabeldoel`]: velden.declarabel_doel ?? null,
     [`${P}_leidinggevendenaam`]: velden.leidinggevende ?? (bestaand ? bestaand[`${P}_leidinggevendenaam`] : null),
     [`${P}_deadlineweekdag`]: velden.deadline_weekdag ?? (bestaand ? bestaand[`${P}_deadlineweekdag`] : null),
+    [`${P}_indiensttredingsdatum`]: velden.indiensttredingsdatum ?? (bestaand ? bestaand[`${P}_indiensttredingsdatum`] : null),
     [`${P}_actief`]: velden.actief == null ? true : !!velden.actief,
   };
   const suId = await haalSystemuserId(resource, token, email);

@@ -184,6 +184,28 @@ async function berekenParttimeFactor(email) {
   return Math.max(0, Math.min(1, weekUren / uren.WEEK_UREN_EIS));
 }
 
+/** Instroomfactor (0..1) voor het HUIDIGE kalenderjaar, op basis van de datum in dienst
+ *  (cr283_urentarief.indiensttredingsdatum). Iemand die dit jaar in dienst kwam, bouwt alleen
+ *  verlof op vanaf die datum t/m 31 december (pro rata); vanaf het volgende jaar telt gewoon het
+ *  volledige jaar mee (factor 1) — alleen het instroomjaar zelf wordt verrekend, geen doorlopende
+ *  meerjaren-opbouw (Wouter, 03-08-2026: "alleen instroomjaar pro rata"). Geen datum ingevuld =
+ *  factor 1 (bestaand gedrag, niet strenger maken voor wie al langer in dienst is). */
+function berekenInstroomFactor(indiensttredingsdatumStr) {
+  if (!indiensttredingsdatumStr) return 1;
+  const nu = new Date();
+  const huidigJaar = nu.getUTCFullYear();
+  const start = new Date(indiensttredingsdatumStr + "T00:00:00Z");
+  if (isNaN(start.getTime())) return 1;
+  const startJaar = start.getUTCFullYear();
+  if (startJaar < huidigJaar) return 1; // al langer in dienst, volledige opbouw
+  if (startJaar > huidigJaar) return 0; // moet nog beginnen
+  const jaarStart = new Date(Date.UTC(huidigJaar, 0, 1));
+  const jaarEindExclusief = new Date(Date.UTC(huidigJaar + 1, 0, 1));
+  const totaalDagen = Math.round((jaarEindExclusief - jaarStart) / 86400000); // 365 of 366
+  const dagenVanafStart = Math.round((jaarEindExclusief - start) / 86400000);
+  return Math.max(0, Math.min(1, dagenVanafStart / totaalDagen));
+}
+
 // ===========================================================================
 // Aanvragen — medewerker
 // ===========================================================================
@@ -332,18 +354,20 @@ async function materialiseerVoorWeek(email, weekStart) {
 // Verlofsaldo — pro-rata basis (landelijk fulltime-aantal × parttime-factor) + correcties − opgenomen.
 // ===========================================================================
 async function berekenSaldo(email) {
-  const [instellingen, parttimeFactor, correcties, aanvragen] = await Promise.all([
+  const [instellingen, parttimeFactor, correcties, aanvragen, tarief] = await Promise.all([
     verlofInstellingen.haalInstellingen(),
     berekenParttimeFactor(email),
     verlofCorrectieStore.haalCorrecties(email),
     aanvragenVanMedewerker(email),
+    uren.haalTarief(email).catch(() => null),
   ]);
-  const basis = Math.round(instellingen.verlofUrenFulltime * parttimeFactor * 100) / 100;
+  const instroomFactor = berekenInstroomFactor(tarief && tarief.indiensttredingsdatum);
+  const basis = Math.round(instellingen.verlofUrenFulltime * parttimeFactor * instroomFactor * 100) / 100;
   const correctieTotaal = Math.round(correcties.reduce((s, c) => s + (c.uren || 0), 0) * 100) / 100;
   const opgenomen = Math.round(aanvragen.filter((a) => a.status === "goedgekeurd").reduce((s, a) => s + a.aantalUren, 0) * 100) / 100;
   const inBehandeling = Math.round(aanvragen.filter((a) => a.status === "aangevraagd").reduce((s, a) => s + a.aantalUren, 0) * 100) / 100;
   const resterend = Math.round((basis + correctieTotaal - opgenomen) * 100) / 100;
-  return { basis, parttimeFactor: Math.round(parttimeFactor * 1000) / 1000, correcties: correctieTotaal, opgenomen, inBehandeling, resterend, correctieHistorie: correcties };
+  return { basis, parttimeFactor: Math.round(parttimeFactor * 1000) / 1000, instroomFactor: Math.round(instroomFactor * 1000) / 1000, correcties: correctieTotaal, opgenomen, inBehandeling, resterend, correctieHistorie: correcties };
 }
 
 module.exports = {
@@ -352,5 +376,5 @@ module.exports = {
   aanvragenVoorLeidinggevende, keurAanvraagGoed, keurAanvraagAf,
   goedgekeurdVerlof,
   virtueleRijenVoorWeek, materialiseerVoorWeek,
-  berekenParttimeFactor, berekenAantalUren, berekenSaldo,
+  berekenParttimeFactor, berekenAantalUren, berekenSaldo, berekenInstroomFactor,
 };
