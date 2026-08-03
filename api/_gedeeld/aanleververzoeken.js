@@ -59,6 +59,28 @@ async function schrijfAlle(verzoeken) {
   await blobClient.upload(buffer, buffer.length, { overwrite: true });
 }
 
+/** Maakt één regel (gevraagd document) aan — gebruikt bij het aanmaken van een verzoek, én om
+ * later (via 'regel-toevoegen' in medewerker-vragenlijsten) een extra vraag aan een bestaand,
+ * al uitgezet verzoek toe te voegen. */
+function maakRegel(r) {
+  return {
+    id: crypto.randomUUID(),
+    naam: String(r && r.naam ? r.naam : "").slice(0, 200),
+    bestandsnaam: String(r && r.bestandsnaam ? r.bestandsnaam : "").slice(0, 200),
+    toelichting: String(r && r.toelichting ? r.toelichting : "").slice(0, 600),
+    verplicht: r && r.verplicht === false ? false : true,
+    status: "open",
+    opmerking: "",
+    aangeleverdOp: null,
+    aangeleverdDoor: null,
+    bestand: null,
+    // Gezet door een medewerker via 'heropenen' (zie api/medewerker-vragenlijsten): wanneer een
+    // eerder aangeleverd/afgemeld document weer open wordt gezet omdat de klant het opnieuw moet
+    // aanleveren. Alleen gebruikt voor de "nieuwe activiteit"-detectie bij de klant hieronder.
+    heropendOp: null,
+  };
+}
+
 /** Maakt een nieuw verzoek uit een set regels (bv. gekopieerd uit een aanleverlijst). */
 function maakVerzoek({ accountId, klantnaam, klantnummer, contactId, contactNaam, lijstId, lijstNaam, onderwerpId, onderwerp, jaar, map, notitie, regels, aangemaaktDoor, zichtbaar, deadline, bron }) {
   return {
@@ -86,22 +108,7 @@ function maakVerzoek({ accountId, klantnaam, klantnummer, contactId, contactNaam
     vragen: [],
     aangemaaktOp: new Date().toISOString(),
     aangemaaktDoor: aangemaaktDoor || "",
-    regels: (Array.isArray(regels) ? regels : []).map((r) => ({
-      id: crypto.randomUUID(),
-      naam: String(r && r.naam ? r.naam : "").slice(0, 200),
-      bestandsnaam: String(r && r.bestandsnaam ? r.bestandsnaam : "").slice(0, 200),
-      toelichting: String(r && r.toelichting ? r.toelichting : "").slice(0, 600),
-      verplicht: r && r.verplicht === false ? false : true,
-      status: "open",
-      opmerking: "",
-      aangeleverdOp: null,
-      aangeleverdDoor: null,
-      bestand: null,
-      // Gezet door een medewerker via 'heropenen' (zie api/medewerker-vragenlijsten): wanneer een
-      // eerder aangeleverd/afgemeld document weer open wordt gezet omdat de klant het opnieuw moet
-      // aanleveren. Alleen gebruikt voor de "nieuwe activiteit"-detectie bij de klant hieronder.
-      heropendOp: null,
-    })),
+    regels: (Array.isArray(regels) ? regels : []).map(maakRegel),
   };
 }
 
@@ -247,7 +254,7 @@ function heeftMedewerkerActiviteitSinds(verzoek, sindsIso) {
 }
 
 module.exports = {
-  haalAlle, maakVerzoek, maakBericht, voegToe, werkBij, verwijder, haalVoorAccounts, herberekenStatus,
+  haalAlle, maakVerzoek, maakRegel, maakBericht, voegToe, werkBij, verwijder, haalVoorAccounts, herberekenStatus,
   haalLaatstGezien, zetLaatstGezien, heeftKlantActiviteitSinds,
   haalKlantLaatstGezien, zetKlantLaatstGezien, heeftMedewerkerActiviteitSinds,
 };

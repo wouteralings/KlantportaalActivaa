@@ -13,6 +13,13 @@
  *                                                       verdwijnt daarna uit dit overzicht
  *   - POST { actie:"heropenen", verzoekId, regelId } → één document weer open zetten zodat de klant het
  *                                                       opnieuw kan aanleveren (klant krijgt een bericht)
+ *   - POST { actie:"deadline-zetten", verzoekId, deadline } → deadline (YYYY-MM-DD, leeg mag) aanpassen
+ *                                                       op een al uitgezet verzoek (klant krijgt een bericht
+ *                                                       als de deadline echt wijzigt)
+ *   - POST { actie:"regel-toevoegen", verzoekId, naam, toelichting?, verplicht?, bestandsnaam? } →
+ *                                                       extra document/vraag toevoegen aan een al
+ *                                                       uitgezet verzoek (heropent 'm eventueel, klant
+ *                                                       krijgt een bericht)
  *
  * Verwijderen van een heel verzoek loopt via de bestaande /api/medewerker-aanleververzoeken
  * ({actie:"verwijderen", id}) — geen aparte actie hier, één plek voor die logica.
@@ -109,7 +116,10 @@ module.exports = async function (context, req) {
 
   try {
     if (methode === "POST") {
-      const { actie, verzoekId, regelId, tekst } = req.body || {};
+      const {
+        actie, verzoekId, regelId, tekst, deadline,
+        naam: nieuweRegelNaam, toelichting: nieuweRegelToelichting, verplicht: nieuweRegelVerplicht, bestandsnaam: nieuweRegelBestandsnaam,
+      } = req.body || {};
 
       if (actie === "antwoord") {
         if (!verzoekId || !String(tekst || "").trim()) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'verzoekId' en 'tekst' mee." } }; return; }
@@ -183,6 +193,66 @@ module.exports = async function (context, req) {
           door: email || "onbekend", actie: "aanleververzoek", accountId: v.accountId, accountIds: [v.accountId],
           klantnaam: v.klantnaam, klantnummer: v.klantnummer, contactId: v.contactId, contactNaam: v.contactNaam,
           tekst: `Document "${regelNaam}" heropend bij "${v.lijstNaam || "aanlever-verzoek"}" — klant moet opnieuw aanleveren.`,
+        });
+        const laatstGezienNa = await verzoeken.haalLaatstGezien().catch(() => null);
+        context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek: verrijk(v, laatstGezienNa) } };
+        return;
+      }
+
+      if (actie === "deadline-zetten") {
+        if (!verzoekId) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'verzoekId' mee." } }; return; }
+        const nieuweDeadline = String(deadline || "").slice(0, 10);
+        let oudeDeadline = "";
+        const v = await verzoeken.werkBij(verzoekId, (x) => {
+          oudeDeadline = x.deadline || "";
+          x.deadline = nieuweDeadline;
+          if (oudeDeadline !== nieuweDeadline) {
+            if (!Array.isArray(x.vragen)) x.vragen = [];
+            x.vragen.push(verzoeken.maakBericht(
+              "medewerker", naam || email || "Medewerker",
+              nieuweDeadline ? `Deadline gewijzigd naar ${nieuweDeadline}.` : "Deadline verwijderd."
+            ));
+          }
+        });
+        if (!v) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Verzoek niet gevonden." } }; return; }
+        if (oudeDeadline !== nieuweDeadline) {
+          await logGebeurtenis({
+            door: email || "onbekend", actie: "aanleververzoek", accountId: v.accountId, accountIds: [v.accountId],
+            klantnaam: v.klantnaam, klantnummer: v.klantnummer, contactId: v.contactId, contactNaam: v.contactNaam,
+            tekst: `Deadline van "${v.lijstNaam || "aanlever-verzoek"}" gewijzigd naar ${nieuweDeadline || "(geen deadline)"}.`,
+          });
+        }
+        const laatstGezienNa = await verzoeken.haalLaatstGezien().catch(() => null);
+        context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek: verrijk(v, laatstGezienNa) } };
+        return;
+      }
+
+      if (actie === "regel-toevoegen") {
+        if (!verzoekId || !String(nieuweRegelNaam || "").trim()) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'verzoekId' en 'naam' mee." } }; return; }
+        let nieuweRegel = null;
+        const v = await verzoeken.werkBij(verzoekId, (x) => {
+          nieuweRegel = verzoeken.maakRegel({
+            naam: nieuweRegelNaam, toelichting: nieuweRegelToelichting, bestandsnaam: nieuweRegelBestandsnaam,
+            verplicht: nieuweRegelVerplicht,
+          });
+          if (!Array.isArray(x.regels)) x.regels = [];
+          x.regels.push(nieuweRegel);
+          // Een nieuwe vraag maakt een eerder geaccepteerde/afgeronde lijst weer actief.
+          x.medewerkerGeaccepteerd = false;
+          x.geaccepteerdOp = null;
+          x.geaccepteerdDoor = "";
+          if (!Array.isArray(x.vragen)) x.vragen = [];
+          x.vragen.push(verzoeken.maakBericht(
+            "medewerker", naam || email || "Medewerker",
+            `Nieuwe vraag toegevoegd: "${nieuweRegel.naam}"${nieuweRegel.toelichting ? ` — ${nieuweRegel.toelichting}` : ""}`
+          ));
+          verzoeken.herberekenStatus(x);
+        });
+        if (!v) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Verzoek niet gevonden." } }; return; }
+        await logGebeurtenis({
+          door: email || "onbekend", actie: "aanleververzoek", accountId: v.accountId, accountIds: [v.accountId],
+          klantnaam: v.klantnaam, klantnummer: v.klantnummer, contactId: v.contactId, contactNaam: v.contactNaam,
+          tekst: `Nieuwe vraag "${nieuweRegel.naam}" toegevoegd aan "${v.lijstNaam || "aanlever-verzoek"}".`,
         });
         const laatstGezienNa = await verzoeken.haalLaatstGezien().catch(() => null);
         context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek: verrijk(v, laatstGezienNa) } };

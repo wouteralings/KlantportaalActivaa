@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { ClipboardList, Search, MessageCircle, ChevronDown, Send, RefreshCw, Users, User, CheckCircle2, Circle, FileText, CheckCheck, RotateCcw, Trash2 } from "lucide-react";
+import { ClipboardList, Search, MessageCircle, ChevronDown, Send, RefreshCw, Users, User, CheckCircle2, Circle, FileText, CheckCheck, RotateCcw, Trash2, Plus } from "lucide-react";
 
 /** Zelfde palet als de rest van het medewerkersportaal (bewust hier herhaald zodat dit bestand op
  *  zichzelf staat). */
@@ -54,6 +54,10 @@ export default function Vragenlijsten() {
   const [antwoord, setAntwoord] = useState({}); // verzoekId -> tekst
   const [bezig, setBezig] = useState("");
   const [bezigActie, setBezigActie] = useState(""); // verzoekId, of "verzoekId:regelId" bij heropenen
+  const [deadlineDraft, setDeadlineDraft] = useState({}); // verzoekId -> yyyy-mm-dd
+  const [bezigDeadline, setBezigDeadline] = useState("");
+  const [nieuweVraag, setNieuweVraag] = useState({}); // verzoekId -> { tonen, naam, toelichting, verplicht }
+  const [bezigVraagToevoegen, setBezigVraagToevoegen] = useState("");
 
   const laad = () => {
     setRijen(null); setFout("");
@@ -150,6 +154,40 @@ export default function Vragenlijsten() {
       setOpenId((h) => (h === r.id ? "" : h));
     } catch (e) { setFout("Verwijderen mislukt: " + (e.message || e)); }
     finally { setBezigActie(""); }
+  };
+
+  /** Deadline van een al uitgezet verzoek aanpassen (leeg = geen deadline). */
+  const wijzigDeadline = async (r) => {
+    const deadline = deadlineDraft[r.id] != null ? deadlineDraft[r.id] : (r.deadline || "");
+    setBezigDeadline(r.id);
+    try {
+      const res = await fetch("/api/medewerker-vragenlijsten", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "deadline-zetten", verzoekId: r.id, deadline }) });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+      setRijen((h) => (h || []).map((x) => (x.id === r.id ? d.verzoek : x)));
+    } catch (e) { setFout("Deadline aanpassen mislukt: " + (e.message || e)); }
+    finally { setBezigDeadline(""); }
+  };
+
+  const toggleVraagForm = (id) => setNieuweVraag((h) => ({ ...h, [id]: { naam: "", toelichting: "", verplicht: true, ...(h[id] || {}), tonen: !(h[id]?.tonen) } }));
+
+  /** Extra vraag/document toevoegen aan een al uitgezet verzoek. */
+  const vraagToevoegen = async (r) => {
+    const draft = nieuweVraag[r.id] || {};
+    const naam = (draft.naam || "").trim();
+    if (!naam) return;
+    setBezigVraagToevoegen(r.id);
+    try {
+      const res = await fetch("/api/medewerker-vragenlijsten", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "regel-toevoegen", verzoekId: r.id, naam, toelichting: draft.toelichting || "", verplicht: draft.verplicht !== false }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+      setRijen((h) => (h || []).map((x) => (x.id === r.id ? d.verzoek : x)));
+      setNieuweVraag((h) => ({ ...h, [r.id]: { naam: "", toelichting: "", verplicht: true, tonen: false } }));
+    } catch (e) { setFout("Vraag toevoegen mislukt: " + (e.message || e)); }
+    finally { setBezigVraagToevoegen(""); }
   };
 
   const balk = (r) => {
@@ -258,7 +296,24 @@ export default function Vragenlijsten() {
                   {open && (
                     <tr>
                       <td style={{ ...td, background: "#fff" }} colSpan={7}>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, maxWidth: 720, marginBottom: 12 }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", maxWidth: 720, marginBottom: 12 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }} onClick={(e) => e.stopPropagation()}>
+                            <label style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.subtekst }}>Einddatum</label>
+                            <input
+                              type="date"
+                              value={deadlineDraft[r.id] != null ? deadlineDraft[r.id] : (r.deadline || "")}
+                              onChange={(e) => setDeadlineDraft((h) => ({ ...h, [r.id]: e.target.value }))}
+                              style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "5px 7px", fontSize: 12, color: KLEUR.tekst }}
+                            />
+                            <button
+                              onClick={() => wijzigDeadline(r)}
+                              disabled={bezigDeadline === r.id || (deadlineDraft[r.id] ?? (r.deadline || "")) === (r.deadline || "")}
+                              style={{ padding: "5px 10px", background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 11.5, fontWeight: 600, color: KLEUR.blauw, cursor: "pointer" }}
+                            >
+                              {bezigDeadline === r.id ? "Opslaan…" : "Opslaan"}
+                            </button>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           {r.wachtOpControle && (
                             <button
                               onClick={(e) => { e.stopPropagation(); accepteren(r); }}
@@ -275,6 +330,7 @@ export default function Vragenlijsten() {
                           >
                             <Trash2 size={13} /> Verwijderen
                           </button>
+                          </div>
                         </div>
                         {/* Inhoud van de vragenlijst: de gevraagde documenten */}
                         <div style={{ maxWidth: 720, marginBottom: 14 }}>
@@ -312,6 +368,52 @@ export default function Vragenlijsten() {
                                 );
                               })}
                             </div>
+                          )}
+
+                          {nieuweVraag[r.id]?.tonen ? (
+                            <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 8, padding: 10, border: `1px dashed ${KLEUR.rand}`, borderRadius: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+                              <input
+                                value={nieuweVraag[r.id]?.naam || ""}
+                                onChange={(e) => setNieuweVraag((h) => ({ ...h, [r.id]: { ...(h[r.id] || {}), naam: e.target.value } }))}
+                                placeholder="Naam van het document/de vraag…"
+                                style={{ boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "6px 9px", fontSize: 12.5, outline: "none" }}
+                              />
+                              <input
+                                value={nieuweVraag[r.id]?.toelichting || ""}
+                                onChange={(e) => setNieuweVraag((h) => ({ ...h, [r.id]: { ...(h[r.id] || {}), toelichting: e.target.value } }))}
+                                placeholder="Toelichting (optioneel)…"
+                                style={{ boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "6px 9px", fontSize: 12.5, outline: "none" }}
+                              />
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                                <label style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: KLEUR.subtekst }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={nieuweVraag[r.id]?.verplicht !== false}
+                                    onChange={(e) => setNieuweVraag((h) => ({ ...h, [r.id]: { ...(h[r.id] || {}), verplicht: e.target.checked } }))}
+                                  />
+                                  Verplicht
+                                </label>
+                                <div style={{ display: "flex", gap: 6 }}>
+                                  <button onClick={() => toggleVraagForm(r.id)} style={{ padding: "6px 10px", background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 11.5, fontWeight: 600, color: KLEUR.subtekst, cursor: "pointer" }}>
+                                    Annuleren
+                                  </button>
+                                  <button
+                                    onClick={() => vraagToevoegen(r)}
+                                    disabled={bezigVraagToevoegen === r.id || !(nieuweVraag[r.id]?.naam || "").trim()}
+                                    style={{ padding: "6px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 6, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}
+                                  >
+                                    {bezigVraagToevoegen === r.id ? "Toevoegen…" : "Toevoegen"}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); toggleVraagForm(r.id); }}
+                              style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 8, padding: "6px 10px", background: "#fff", border: `1px dashed ${KLEUR.rand}`, borderRadius: 6, fontSize: 11.5, fontWeight: 600, color: KLEUR.blauw, cursor: "pointer" }}
+                            >
+                              <Plus size={12} /> Vraag toevoegen
+                            </button>
                           )}
                         </div>
 
