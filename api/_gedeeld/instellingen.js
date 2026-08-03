@@ -30,7 +30,7 @@ async function haalInstellingen() {
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
 
   const bestaat = await blobClient.exists();
-  if (!bestaat) return { medewerkersGroepId: "", medewerkersGroepNaam: "", googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "", reviewWebhookUrl: "", facturatiemodulePrijs: 5, urenmodulePrijs: 2.5, rapportagesmodulePrijs: 7.5, bezittingenmodulePrijs: 5, rittenmodulePrijs: 1.5, contractenmodulePrijs: 2.5, klantoverzicht: { extraKolommen: [], standaardVerborgen: [] } };
+  if (!bestaat) return { medewerkersGroepId: "", medewerkersGroepNaam: "", googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "", reviewWebhookUrl: "", facturatiemodulePrijs: 5, urenmodulePrijs: 2.5, rapportagesmodulePrijs: 7.5, bezittingenmodulePrijs: 5, rittenmodulePrijs: 1.5, contractenmodulePrijs: 2.5, contractenSharepointOpslag: false, contractenSharepointMap: "Contracten", klantoverzicht: { extraKolommen: [], standaardVerborgen: [] } };
 
   const downloadResponse = await blobClient.download();
   const tekst = await streamNaarTekst(downloadResponse.readableStreamBody);
@@ -77,6 +77,19 @@ async function haalInstellingen() {
     // doorlopende contracten, met verloopherinneringen) per klantaccount per maand — volledig los
     // van de andere modules, instelbaar in Beheer → Facturatie.
     contractenmodulePrijs: 2.5,
+    // Sinds 04-08-2026: contractdocumenten (bijlagen bij een contract, zie
+    // api/_gedeeld/contractenDocumenten.js) óók als kopie wegschrijven naar het SharePoint-
+    // klantdossier van de klant (cr283_sharepoint), net als bij de bestaande aanlever-uitvragen —
+    // instelbaar in Beheer → Facturatie. Standaard UIT (bewuste, expliciete keuze nodig, o.a.
+    // omdat het de Sites.Selected-Graph-grant vereist, zie het projectdoc "Documenten & rechten").
+    // De blob-opslag (contractenDocumenten.js) blijft ALTIJD de bron voor de documentenlijst/
+    // -download in het portaal zelf; de SharePoint-kopie is puur een archiefkopie in het dossier.
+    contractenSharepointOpslag: false,
+    // Naam van de submap onder de basismap van de klant waarin die archiefkopie terechtkomt
+    // (er wordt daaronder nog een submap per contract aangemaakt). Zelfde idee als de vaste
+    // Directie/Administratie/Aanleveren-submappen in api/_gedeeld/documentmappen.js, maar hier via
+    // Beheer instelbaar i.p.v. een App Setting, zoals Wouter vroeg ("Dit willen we kunnen instellen").
+    contractenSharepointMap: "Contracten",
     // Kolom-configuratie voor het klantoverzicht in het medewerkersportaal.
     // extraKolommen: [{ veld, label, type: "tekst"|"keuze"|"lookup" }]; standaardVerborgen: [kolom-keys].
     klantoverzicht: { extraKolommen: [], standaardVerborgen: [] },

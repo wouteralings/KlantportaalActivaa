@@ -17,9 +17,11 @@ const inputStijl = { width: "100%", padding: "8px 10px", border: `1px solid ${KL
 const labelStijl = { display: "block", fontSize: 11.5, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 4, textTransform: "uppercase", letterSpacing: ".02em" };
 const sectieKopStijl = { fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase", letterSpacing: ".03em", margin: "0 0 8px" };
 
-// Moet in sync blijven met GELDIGE_TYPES / GELDIGE_FREQUENTIES in api/_gedeeld/contractenKlanten.js
-// (bewust een JS-array daar i.p.v. een DB-constraint, zie de toelichting in dat bestand).
-const TYPES = [
+// Contracttypes zijn sinds 04-08-2026 beheerbaar in Beheer → Facturatie → Contracttypes
+// (api/_gedeeld/contractenTypes.js, opgehaald via /api/contracten-typeopties) i.p.v. een vaste
+// lijst — TYPES_FALLBACK hieronder is alleen nog de terugval zolang die aanroep nog laadt of
+// (bijv. bij een storing) mislukt, zodat het formulier nooit zonder keuzes komt te staan.
+const TYPES_FALLBACK = [
   { waarde: "verzekering", label: "Verzekering" },
   { waarde: "telefonie", label: "Telefonie" },
   { waarde: "internet", label: "Internet" },
@@ -27,6 +29,7 @@ const TYPES = [
   { waarde: "lease", label: "Lease" },
   { waarde: "overig", label: "Overig" },
 ];
+// Frequenties blijven wél een vaste lijst (niet gevraagd om uit te breiden).
 const FREQUENTIES = [
   { waarde: "", label: "— geen —" },
   { waarde: "maandelijks", label: "Maandelijks" },
@@ -35,8 +38,26 @@ const FREQUENTIES = [
   { waarde: "eenmalig", label: "Eenmalig" },
 ];
 
-function typeLabel(waarde) {
-  return TYPES.find((t) => t.waarde === waarde)?.label || waarde || "—";
+function typeLabel(waarde, opties) {
+  return (opties || TYPES_FALLBACK).find((t) => t.waarde === waarde)?.label || waarde || "—";
+}
+
+/** Haalt de actieve contracttype-lijst op; valt terug op TYPES_FALLBACK zolang dat nog niet is
+ *  gelukt, zie de toelichting hierboven. */
+function useTypeOpties() {
+  const [opties, setOpties] = useState(TYPES_FALLBACK);
+  useEffect(() => {
+    let actief = true;
+    fetch("/api/contracten-typeopties")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => {
+        const lijst = (d.typen || []).map((t) => ({ waarde: t.sleutel, label: t.label }));
+        if (actief && lijst.length) setOpties(lijst);
+      })
+      .catch(() => {});
+    return () => { actief = false; };
+  }, []);
+  return opties;
 }
 function geld(n) {
   return new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(Number(n) || 0);
@@ -174,9 +195,10 @@ function ContractenNietActief({ account, prijs }) {
 }
 
 /** Bewerk-/aanmaakformulier voor één contract. */
-function ContractFormulier({ bestaand, onOpslaan, onAnnuleren, bezig, fout }) {
+function ContractFormulier({ bestaand, onOpslaan, onAnnuleren, bezig, fout, typeOpties }) {
+  const opties = typeOpties && typeOpties.length ? typeOpties : TYPES_FALLBACK;
   const [waarden, setWaarden] = useState(() => ({
-    type: bestaand?.type || "verzekering",
+    type: bestaand?.type || opties[0]?.waarde || "verzekering",
     naam: bestaand?.naam || "",
     leverancier: bestaand?.leverancier || "",
     contractnummer: bestaand?.contractnummer || "",
@@ -221,7 +243,7 @@ function ContractFormulier({ bestaand, onOpslaan, onAnnuleren, bezig, fout }) {
         <div>
           <label style={labelStijl}>Type *</label>
           <select value={waarden.type} onChange={zet("type")} style={inputStijl} required>
-            {TYPES.map((t) => <option key={t.waarde} value={t.waarde}>{t.label}</option>)}
+            {opties.map((t) => <option key={t.waarde} value={t.waarde}>{t.label}</option>)}
           </select>
         </div>
         <div>
@@ -377,6 +399,7 @@ function ContractDocumenten({ accountId, contractId, alleenLezen }) {
 
 /** De echte contracteninhoud voor één klantaccount: lijst + aanmaken/bewerken + documenten. */
 function ContractenInhoud({ accountId, alleenLezen }) {
+  const typeOpties = useTypeOpties();
   const [contracten, setContracten] = useState(null);
   const [fout, setFout] = useState("");
   const [nieuwOpen, setNieuwOpen] = useState(false);
@@ -437,6 +460,7 @@ function ContractenInhoud({ accountId, alleenLezen }) {
 
       {nieuwOpen && (
         <ContractFormulier
+          typeOpties={typeOpties}
           bezig={opslaanBezig}
           fout={opslaanFout}
           onAnnuleren={() => { setNieuwOpen(false); setOpslaanFout(""); }}
@@ -446,6 +470,7 @@ function ContractenInhoud({ accountId, alleenLezen }) {
       {bewerkContract && (
         <ContractFormulier
           bestaand={bewerkContract}
+          typeOpties={typeOpties}
           bezig={opslaanBezig}
           fout={opslaanFout}
           onAnnuleren={() => { setBewerkId(null); setOpslaanFout(""); }}
@@ -476,7 +501,7 @@ function ContractenInhoud({ accountId, alleenLezen }) {
                     fontSize: 11, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw,
                     padding: "3px 8px", borderRadius: 5, flexShrink: 0,
                   }}>
-                    {typeLabel(c.type)}
+                    {typeLabel(c.type, typeOpties)}
                   </span>
                   <span style={{ fontSize: 14, fontWeight: 600, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {c.naam}{c.leverancier ? ` — ${c.leverancier}` : ""}

@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useState } from "react";
 import OffertetoolApp from "../medewerker/offertes/OffertetoolApp";
 import UitvraagBeheer from "./UitvraagBeheer";
 import UrenTarievenBeheer from "./UrenTarievenBeheer";
+import ContractenTypesBeheer from "./ContractenTypesBeheer";
+import ContractenDossierInstellingen from "./ContractenDossierInstellingen";
 import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Search, ArrowUp, ArrowDown, HelpCircle, ChevronDown, Plus, Pencil, Check, X, Clock } from "lucide-react";
 
 const KLEUR = {
@@ -2719,6 +2721,12 @@ export default function BeheerPortaal() {
             Deze prijzen worden getoond aan klanten bij wie de betreffende module nog niet actief is. Uren werkt bovenop
             Facturatie; de overige modules staan los van elkaar.
           </div>
+
+          <ContractenDossierInstellingen />
+        </div>
+
+        <div style={{ marginBottom: 18, padding: 14, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
+          <ContractenTypesBeheer />
         </div>
 
         {facturatieFout && (

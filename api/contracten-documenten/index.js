@@ -17,6 +17,8 @@
 const { controleerContractenToegang, afhandelFout } = require("../_gedeeld/contractenToegang");
 const { haalContract } = require("../_gedeeld/contractenKlanten");
 const { uploadDocument, haalDocumenten, haalDocument, verwijderDocument } = require("../_gedeeld/contractenDocumenten");
+const { haalInstellingen } = require("../_gedeeld/instellingen");
+const { kopieerNaarDossier } = require("../_gedeeld/contractenSharepoint");
 
 async function controleerContract(accountId, contractId) {
   if (!contractId) {
@@ -65,10 +67,34 @@ module.exports = async function (context, req) {
     }
 
     if (req.method === "POST") {
-      await controleerContract(accountId, contractId);
+      const contract = await controleerContract(accountId, contractId);
       const { bestandsnaam, dataUrl } = req.body || {};
       const document = await uploadDocument(accountId, contractId, dataUrl, bestandsnaam, email);
-      context.res = { status: 201, headers: { "Content-Type": "application/json" }, body: document };
+
+      // Optionele archiefkopie in het SharePoint-klantdossier (Beheer → Facturatie, standaard
+      // uit) — best-effort: als dit misgaat blijft het document gewoon in de eigen Blob-opslag
+      // staan (die hierboven al is gelukt); we melden alleen of de dossierkopie ook is gelukt.
+      let sharepoint = { gedaan: false };
+      try {
+        const instellingen = await haalInstellingen();
+        if (instellingen.contractenSharepointOpslag) {
+          const match = /^data:([^;]*);base64,(.+)$/.exec(dataUrl || "");
+          if (match) {
+            sharepoint = await kopieerNaarDossier({
+              accountId,
+              contract,
+              bestandsnaam: document.bestandsnaam,
+              buffer: Buffer.from(match[2], "base64"),
+              contentType: match[1] || "application/octet-stream",
+              submap: instellingen.contractenSharepointMap || "Contracten",
+            });
+          }
+        }
+      } catch (e) {
+        sharepoint = { gedaan: false, reden: String((e && e.message) || e) };
+      }
+
+      context.res = { status: 201, headers: { "Content-Type": "application/json" }, body: { ...document, dossierkopie: sharepoint } };
       return;
     }
 

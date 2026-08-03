@@ -6,13 +6,15 @@
  * verwijderen door de klant niet toe (audit-overweging); alleen toevoegen en aanpassen. Een
  * eventuele "archiveren"-optie is een latere, aparte afweging (nog niet gebouwd).
  *
- * GELDIGE_TYPES is de "vaste lijst" uit besluit §5.2 — bewust hier als JS-array i.p.v. een DB
- * CHECK-constraint, zodat Wouter de lijst later kan bijstellen zonder migratie. Pas deze lijst
- * aan zodra de definitieve typen zijn doorgegeven.
+ * Contracttypes waren aanvankelijk een vaste, hardcoded JS-array (GELDIGE_TYPES) — sinds
+ * 04-08-2026 op verzoek van Wouter ("Type contract zou ik graag uitbreiden. En willen kunnen
+ * uitbreiden in beheer.") vervangen door een in Beheer bewerkbare lijst, zie
+ * api/_gedeeld/contractenTypes.js. valideerType() is daardoor nu async (vraagt de actuele lijst
+ * op) — alle aanroepers hieronder waren al async, dus dat vereist verder geen aanpassingen.
  */
 const { sql, haalPool } = require("./facturatieDb");
+const { magSleutel, maakSleutel } = require("./contractenTypes");
 
-const GELDIGE_TYPES = ["verzekering", "telefonie", "internet", "software", "lease", "overig"];
 const GELDIGE_FREQUENTIES = ["maandelijks", "kwartaal", "jaarlijks", "eenmalig"];
 
 function naarBuiten(row) {
@@ -32,16 +34,21 @@ function naarBuiten(row) {
     laatsteReminderDagen: row.laatste_reminder_dagen != null ? Number(row.laatste_reminder_dagen) : null,
     laatsteReminderVerzondenOp: row.laatste_reminder_verzonden_op || null,
     aangemaaktOp: row.aangemaakt_op,
+    // Stonden al in het schema (migratie 011) en werden al gevuld bij het aanmaken (zie
+    // maakContract hieronder), maar waren tot 04-08-2026 nooit naar buiten toe blootgesteld —
+    // Wouter vroeg in het medewerkersoverzicht te kunnen zien "wie heeft ingevoerd".
+    aangemaaktDoor: row.aangemaakt_door || "",
     gewijzigdOp: row.gewijzigd_op,
+    gewijzigdDoor: row.gewijzigd_door || "",
   };
 }
 
-function valideerType(waarde) {
+async function valideerType(waarde) {
   const v = String(waarde || "").trim();
-  if (!GELDIGE_TYPES.includes(v)) {
-    throw new Error(`VALIDATIE: type moet een van de volgende zijn: ${GELDIGE_TYPES.join(", ")}.`);
+  if (!(await magSleutel(v))) {
+    throw new Error(`VALIDATIE: onbekend contracttype ('${v}'). Ga naar Beheer → Facturatie → Contracttypes om typen toe te voegen.`);
   }
-  return v;
+  return maakSleutel(v) || v;
 }
 
 function valideerFrequentie(waarde) {
@@ -84,7 +91,14 @@ async function haalContracten(klantAccountId, { type = "", verlooptVoor = "" } =
 }
 
 function naarBuitenMetAccount(row) {
-  return { ...naarBuiten(row), klantAccountId: row.klant_account_id };
+  // .toLowerCase(): de mssql-driver geeft een UNIQUEIDENTIFIER-kolom terug als hoofdletter-GUID,
+  // terwijl Dynamics/Dataverse GUID's (bijv. accountId uit api/beheer-klanten) kleine letters
+  // gebruikt — een simpele object-key-lookup zoals klanten[c.klantAccountId] in
+  // ContractenOverzicht.jsx matcht dan NOOIT (JS-stringvergelijking is hoofdlettergevoelig), met
+  // als zichtbaar symptoom dat de klantnaam in het medewerkersoverzicht niet verscheen ("Onbekende
+  // klant"). Hier normaliseren i.p.v. alleen aan de UI-kant, zodat elke toekomstige consument van
+  // deze functie (nu ook api/mw-contracten-document) hetzelfde, consistente formaat krijgt.
+  return { ...naarBuiten(row), klantAccountId: String(row.klant_account_id || "").toLowerCase() };
 }
 
 /**
@@ -150,7 +164,7 @@ async function maakContract(klantAccountId, data, email) {
   if (!data) throw new Error("VALIDATIE: geen gegevens meegegeven.");
   if (!String(data.naam || "").trim()) throw new Error("VALIDATIE: naam is verplicht.");
 
-  const type = valideerType(data.type);
+  const type = await valideerType(data.type);
   const frequentie = valideerFrequentie(data.frequentie);
   const ingangsdatum = valideerDatum(data.ingangsdatum, "ingangsdatum");
   const einddatum = valideerDatum(data.einddatum, "einddatum");
@@ -191,7 +205,7 @@ async function wijzigContract(klantAccountId, id, data, email) {
   const bestaand = await haalContract(klantAccountId, id);
   if (!bestaand) return null;
 
-  const type = data.type !== undefined ? valideerType(data.type) : bestaand.type;
+  const type = data.type !== undefined ? await valideerType(data.type) : bestaand.type;
   const frequentie = data.frequentie !== undefined ? valideerFrequentie(data.frequentie) : (bestaand.frequentie || null);
   const ingangsdatum = data.ingangsdatum !== undefined ? valideerDatum(data.ingangsdatum, "ingangsdatum") : (bestaand.ingangsdatum ? new Date(bestaand.ingangsdatum) : null);
   const einddatum = data.einddatum !== undefined ? valideerDatum(data.einddatum, "einddatum") : (bestaand.einddatum ? new Date(bestaand.einddatum) : null);
@@ -239,7 +253,6 @@ async function wijzigContract(klantAccountId, id, data, email) {
 }
 
 module.exports = {
-  GELDIGE_TYPES,
   GELDIGE_FREQUENTIES,
   haalContracten,
   haalContract,

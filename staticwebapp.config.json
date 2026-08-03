@@ -164,6 +164,12 @@
       ]
     },
     {
+      "route": "/api/beheer-contractentypes",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
       "route": "/api/rgs-instellingen",
       "allowedRoles": [
         "beheerder"
@@ -480,6 +486,13 @@
     },
     {
       "route": "/api/mw-contracten-overzicht",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
+      "route": "/api/mw-contracten-document",
       "allowedRoles": [
         "beheerder",
         "medewerker"
