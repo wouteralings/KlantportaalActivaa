@@ -98,8 +98,8 @@ function Knop({ children, variant = "normaal", icon: Icon, disabled, style, ...p
       disabled={disabled}
       {...props}
       style={{
-        display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 7,
-        fontSize: 13, fontWeight: 600, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.6 : 1,
+        display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 13px", borderRadius: 7,
+        fontSize: 12.5, fontWeight: 600, cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.6 : 1,
         whiteSpace: "nowrap", ...varianten[variant], ...style,
       }}
     >
@@ -590,7 +590,7 @@ function RittenLijst({ accountId, ritten, status, foutmelding, verversen, klante
 
       {status === "klaar" && gefilterd.length > 0 && (
         <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "100px 90px 1.4fr 1.4fr 1fr 90px 90px 70px", background: KLEUR.lichtblauw, padding: "9px 14px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "100px 90px 1.4fr 1.4fr 1fr 90px 90px 70px", background: KLEUR.lichtblauw, padding: "9px 14px", fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>
             <div>Datum</div><div>Type</div><div>Van</div><div>Naar</div><div>Voertuig</div><div>Declarabel</div><div>Afstand</div><div>Acties</div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "100px 90px 1.4fr 1.4fr 1fr 90px 90px 70px", padding: "8px 14px", borderTop: `1px solid ${KLEUR.rand}`, fontSize: 12.5, color: KLEUR.mutedTekst }}>
@@ -1042,8 +1042,8 @@ function RittenInstellingen({ accountId, account, klanten, projecten, voertuigen
           <ChevronLeft size={16} /> Terug naar Ritten
         </button>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 17, fontWeight: 700, margin: "10px 0 16px" }}>
-        <Settings size={18} /> Ritten
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700, margin: "10px 0 16px" }}>
+        <Settings size={17} color={KLEUR.blauw} /> Ritten
       </div>
       <div style={{ display: "flex", gap: 22, borderBottom: `1px solid ${KLEUR.rand}`, marginBottom: 18 }}>
         {INSTELLINGEN_SUBTABS.map((s) => (
@@ -1171,8 +1171,8 @@ function RittenAccountInhoud({ account, alleenLezen }) {
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 17, fontWeight: 700 }}>
-          <Car size={18} color={KLEUR.blauw} /> Ritten
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700 }}>
+          <Car size={17} color={KLEUR.blauw} /> Ritten
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <div style={{ display: "inline-flex", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, overflow: "hidden" }}>

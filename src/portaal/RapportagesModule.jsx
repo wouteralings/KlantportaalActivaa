@@ -7,6 +7,10 @@ const KLEUR = {
   blauw: "#1C5D8C", goud: "#B98237", tekst: "#1C2321", subtekst: "#5B6259",
   mutedTekst: "#8A9089", rand: "#E2E4DF", lichtblauw: "#EAF2F8", rood: "#B23B3B", groen: "#2E7D46",
 };
+// Zelfde kaart-/selectstijl als Contracten (ContractenModule.jsx) — op verzoek van Wouter
+// visueel gelijkgetrokken (05-08-2026): alleen stijl, geen tabel-/sorteer-gedrag toegevoegd.
+const kaartStijl = { border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginBottom: 16, background: "#fff" };
+const selectStijl = { border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, background: "#fff", color: KLEUR.tekst, cursor: "pointer" };
 
 function geld(n) {
   return new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(Number(n) || 0);
@@ -72,7 +76,7 @@ function RapportagesNietActief({ account, prijs }) {
   };
 
   return (
-    <div style={{ padding: "4px 2px" }}>
+    <div style={{ ...kaartStijl, marginBottom: 0 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <Lock size={15} color={KLEUR.mutedTekst} />
         <div style={{ fontSize: 14, fontWeight: 700 }}>Rapportages nog niet actief voor dit klantaccount</div>
@@ -168,7 +172,7 @@ function JaarKiezer({ jaar, setJaar }) {
   const huidig = new Date().getFullYear();
   const jaren = [huidig, huidig - 1, huidig - 2, huidig - 3, huidig - 4];
   return (
-    <select value={jaar} onChange={(e) => setJaar(Number(e.target.value))} style={{ padding: "7px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 13, background: "#fff" }}>
+    <select value={jaar} onChange={(e) => setJaar(Number(e.target.value))} style={selectStijl}>
       {jaren.map((j) => <option key={j} value={j}>{j}</option>)}
     </select>
   );

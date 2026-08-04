@@ -6,6 +6,10 @@ const KLEUR = {
   blauw: "#1C5D8C", tekst: "#1C2321", subtekst: "#5B6259",
   mutedTekst: "#8A9089", rand: "#E2E4DF", lichtblauw: "#EAF2F8", rood: "#B23B3B", groen: "#2E7D46",
 };
+// Zelfde kaart-/selectstijl als Contracten (ContractenModule.jsx) — op verzoek van Wouter
+// visueel gelijkgetrokken (05-08-2026): alleen stijl, geen tabel-/sorteer-gedrag toegevoegd.
+const kaartStijl = { border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginBottom: 16, background: "#fff" };
+const selectStijl = { border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, background: "#fff", color: KLEUR.tekst, cursor: "pointer" };
 
 function geld(n) {
   return new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(Number(n) || 0);
@@ -68,7 +72,7 @@ function BezittingenNietActief({ account, prijs }) {
   };
 
   return (
-    <div style={{ padding: "4px 2px" }}>
+    <div style={{ ...kaartStijl, marginBottom: 0 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <Lock size={15} color={KLEUR.mutedTekst} />
         <div style={{ fontSize: 14, fontWeight: 700 }}>Bezittingen nog niet actief voor dit klantaccount</div>
@@ -236,11 +240,11 @@ function OverzichtTab({ items, accountId, setItems, alleenLezen }) {
   return (
     <div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, alignItems: "center" }}>
-        <select value={groepFilter} onChange={(e) => setGroepFilter(e.target.value)} style={{ padding: "7px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5 }}>
+        <select value={groepFilter} onChange={(e) => setGroepFilter(e.target.value)} style={selectStijl}>
           <option value="alle">Alle groepen</option>
           {groepen.map((g) => <option key={g} value={g}>{g}</option>)}
         </select>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ padding: "7px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5 }}>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={selectStijl}>
           <option value="alle">Alle statussen</option>
           <option value="in-gebruik">In gebruik</option>
           <option value="afgeschreven">Volledig afgeschreven</option>
@@ -251,7 +255,7 @@ function OverzichtTab({ items, accountId, setItems, alleenLezen }) {
 
       {gefilterd.length === 0 ? <LegeStaat tekst="Geen bezittingen gevonden." /> : (
         <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: OVERZICHT_KOLOMMEN, background: KLEUR.lichtblauw, padding: "9px 14px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
+          <div style={{ display: "grid", gridTemplateColumns: OVERZICHT_KOLOMMEN, background: KLEUR.lichtblauw, padding: "9px 14px", fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>
             <div>Omschrijving</div><div>Groep</div><div>Aanschafdatum</div><div style={{ textAlign: "right" }}>Aanschafwaarde</div><div style={{ textAlign: "right" }}>Boekwaarde nu</div><div>Status</div>
           </div>
           {gefilterd.map((b) => (
@@ -340,7 +344,7 @@ function AfschrijvingenTab({ accountId }) {
       {status === "klaar" && (
         items.length === 0 ? <LegeStaat tekst="Geen bezittingen gevonden." /> : (
           <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", background: KLEUR.lichtblauw, padding: "9px 14px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", background: KLEUR.lichtblauw, padding: "9px 14px", fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>
               <div>Bezitting</div><div style={{ textAlign: "right" }}>Boekwaarde begin</div><div style={{ textAlign: "right" }}>Afschrijving {jaar}</div><div style={{ textAlign: "right" }}>Boekwaarde eind</div>
             </div>
             {items.map((b) => (
