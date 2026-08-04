@@ -226,6 +226,21 @@ export default function DossierIndelingBeheer() {
     bewaar({ secties: volgende });
   };
 
+  // Subrubrieken binnen één hoofdrubriek herordenen — zelfde patroon als verplaatsSectie
+  // hierboven, maar dan op sectie.subsecties in plaats van op de secties zelf.
+  const verplaatsSubsectie = (sectieSleutel, subSleutel, richting) => {
+    const volgende = (secties || []).map((s) => {
+      if (s.sleutel !== sectieSleutel) return s;
+      const subVolgende = [...(s.subsecties || [])];
+      const i = subVolgende.findIndex((sub) => sub.sleutel === subSleutel);
+      const j = i + richting;
+      if (i < 0 || j < 0 || j >= subVolgende.length) return s;
+      [subVolgende[i], subVolgende[j]] = [subVolgende[j], subVolgende[i]];
+      return { ...s, subsecties: subVolgende };
+    });
+    bewaar({ secties: volgende });
+  };
+
   const voegSubsectieToe = (sectieSleutel) => {
     const titel = (nieuweSubsectieTitel[sectieSleutel] || "").trim();
     if (!titel) return;
@@ -495,7 +510,7 @@ export default function DossierIndelingBeheer() {
                 </div>
               )}
 
-              {subsecties.map((sub) => {
+              {subsecties.map((sub, subIndex) => {
                 const subVelden = sub.velden || [];
                 const subPad = `${sectie.sleutel}::${sub.sleutel}`;
                 return (
@@ -508,13 +523,31 @@ export default function DossierIndelingBeheer() {
                         style={{ ...invoerStijl, flex: "0 1 260px", fontSize: 12.5 }}
                       />
                       <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>{subVelden.length} veld(en)</span>
-                      <button
-                        onClick={() => verwijderSubsectie(sectie.sleutel, sub.sleutel)}
-                        title="Subrubriek verwijderen"
-                        style={{ marginLeft: "auto", background: "none", border: "none", color: KLEUR.mutedTekst, cursor: "pointer", padding: 4, display: "flex" }}
-                      >
-                        <Trash2 size={13} />
-                      </button>
+                      <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 2 }}>
+                        <button
+                          onClick={() => verplaatsSubsectie(sectie.sleutel, sub.sleutel, -1)}
+                          disabled={subIndex === 0}
+                          title="Subrubriek omhoog"
+                          style={{ background: "none", border: "none", color: subIndex === 0 ? KLEUR.rand : KLEUR.subtekst, cursor: subIndex === 0 ? "default" : "pointer", padding: 2, display: "flex" }}
+                        >
+                          <ChevronUp size={14} />
+                        </button>
+                        <button
+                          onClick={() => verplaatsSubsectie(sectie.sleutel, sub.sleutel, 1)}
+                          disabled={subIndex === subsecties.length - 1}
+                          title="Subrubriek omlaag"
+                          style={{ background: "none", border: "none", color: subIndex === subsecties.length - 1 ? KLEUR.rand : KLEUR.subtekst, cursor: subIndex === subsecties.length - 1 ? "default" : "pointer", padding: 2, display: "flex" }}
+                        >
+                          <ChevronDown size={14} />
+                        </button>
+                        <button
+                          onClick={() => verwijderSubsectie(sectie.sleutel, sub.sleutel)}
+                          title="Subrubriek verwijderen"
+                          style={{ background: "none", border: "none", color: KLEUR.mutedTekst, cursor: "pointer", padding: 4, display: "flex" }}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
                     </div>
                     {subVelden.length === 0 ? (
                       <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, padding: "2px 2px 4px" }}>Nog geen velden in deze subrubriek.</div>
