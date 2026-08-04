@@ -230,10 +230,23 @@
       ]
     },
     {
-      "route": "/api/debug-onderwerp-koppeling",
+      "route": "/api/medewerker-dossier",
       "allowedRoles": [
         "beheerder",
         "medewerker"
+      ]
+    },
+    {
+      "route": "/api/dossier-velden",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
+      "route": "/api/dossier-kolom-aanmaken",
+      "allowedRoles": [
+        "beheerder"
       ]
     },
     {

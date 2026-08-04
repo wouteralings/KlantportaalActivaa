@@ -1,12 +1,15 @@
 const { haalEmailUitPrincipal } = require("../_gedeeld/identiteit");
-const { haalWeergavenVoorEmail, zetWeergavenVoorEmail } = require("../_gedeeld/weergaven");
+const { haalWeergavenVoor, zetWeergavenVoor } = require("../_gedeeld/weergaven");
 
 /**
  * Route is beveiligd via staticwebapp.config.json (rol 'medewerker' of 'beheerder').
- * Persoonlijke opgeslagen weergaven van het klantoverzicht, gekoppeld aan de ingelogde gebruiker.
+ * Persoonlijke opgeslagen weergaven (kolommen/filters/sortering), gekoppeld aan de ingelogde
+ * gebruiker en het scherm waar ze bij horen — bv. "klanten" (klantoverzicht, ook de standaard
+ * als er geen 'scherm' wordt meegegeven, voor de bestaande frontend-aanroepen) of
+ * "dossiers-ib"/"dossiers-vpb" (de fiscale dossieroverzichten).
  *
- * GET → { views: [{ naam, config }] }
- * PUT body { views: [...] } → overschrijft de eigen weergaven.
+ * GET  ?scherm=<naam>          → { views: [{ naam, config }] }
+ * PUT  body { scherm?, views } → overschrijft de eigen weergaven van dát scherm.
  */
 module.exports = async function (context, req) {
   try {
@@ -14,13 +17,15 @@ module.exports = async function (context, req) {
     if (!email) { context.res = { status: 403, body: { error: "Geen ingelogde gebruiker." } }; return; }
 
     if (req.method === "GET") {
-      context.res = { headers: { "Content-Type": "application/json" }, body: { views: await haalWeergavenVoorEmail(email) } };
+      const scherm = (req.query && req.query.scherm) || "klanten";
+      context.res = { headers: { "Content-Type": "application/json" }, body: { views: await haalWeergavenVoor(email, scherm) } };
       return;
     }
     if (req.method === "PUT") {
       const views = (req.body && req.body.views) || [];
+      const scherm = (req.body && req.body.scherm) || "klanten";
       if (!Array.isArray(views)) { context.res = { status: 400, body: { error: "Geef 'views' (array) mee." } }; return; }
-      const opgeslagen = await zetWeergavenVoorEmail(email, views);
+      const opgeslagen = await zetWeergavenVoor(email, scherm, views);
       context.res = { headers: { "Content-Type": "application/json" }, body: { views: opgeslagen } };
       return;
     }

@@ -1683,12 +1683,39 @@ function dossierBoekjaar(d) {
   return String(van || tot || "");
 }
 
+// Kolomdefinities voor de dossieroverzichten (IB/VPB) — zelfde patroon (cel/label/sorteren via
+// klik-op-kop/filteren via kolomkop-menu) als het klantoverzicht (BASIS_KOLOMMEN hierboven),
+// bewust hier apart gedefinieerd i.p.v. gedeeld: dit bestand houdt elk scherm bewust op zichzelf
+// (zie ook ContactpersonenOverzicht/ContractenOverzicht). "periode" is Jaar bij IB en Boekjaar
+// bij VPB — de label/waarde daarvan hangt van "soort" af en wordt dus in de component zelf
+// samengesteld i.p.v. hier statisch, in tegenstelling tot de rest van de kolommen.
+function dossierKolommen(periodeLabel, periode) {
+  return [
+    { key: "klantnaam", label: "Cliënt", cel: (d) => d.klantnaam || "" },
+    { key: "periode", label: periodeLabel, cel: (d) => periode(d) },
+    { key: "statusLabel", label: "Status", cel: (d) => d.statusLabel || "" },
+    { key: "accountant", label: "Accountant", cel: (d) => d.accountant || "" },
+    { key: "assistent", label: "Assistent", cel: (d) => d.assistent || "" },
+    { key: "manager", label: "Manager", cel: (d) => d.manager || "" },
+    { key: "groepsnaam", label: "Groep", cel: (d) => d.groepsnaam || "" },
+  ];
+}
+const DOSSIER_KOLOMMEN_STANDAARD_VERBORGEN = ["manager", "groepsnaam"]; // wel kiesbaar, niet standaard getoond
+
 function MedewerkerDossiers({ soort }) {
   const [dossiers, setDossiers] = useState(null); // null = laden
   const [fout, setFout] = useState(false);
   const [zoek, setZoek] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
+  const [kolomFilters, setKolomFilters] = useState({}); // { kolomKey: waarde | {bevat} }
+  const [sortKey, setSortKey] = useState("klantnaam");
+  const [sortDir, setSortDir] = useState("asc"); // asc | desc
   const [toonAantal, setToonAantal] = useState(25);
+  const [zichtbareKolommen, setZichtbareKolommen] = useState(null); // null = nog standaard bepalen
+  const [weergaven, setWeergaven] = useState([]); // [{ naam, config }]
+  const [actieveWeergave, setActieveWeergave] = useState("");
+  const [menu, setMenu] = useState(null); // { key, x, y } — geopend kolomkop-menu
+  const [menuZoek, setMenuZoek] = useState("");
+  const [kolomKiezerOpen, setKolomKiezerOpen] = useState(false);
   const { mijnNaam, geladen: naamGeladen } = useMijnNaam();
   const [scope, setScope] = useState("mijn"); // "mijn" | "alle"
   const [statusOpties, setStatusOpties] = useState([]);
@@ -1697,12 +1724,20 @@ function MedewerkerDossiers({ soort }) {
   const [detailLaden, setDetailLaden] = useState(false);
   const [detailFout, setDetailFout] = useState("");
 
+  const scherm = "dossiers-" + soort; // eigen namespace voor opgeslagen weergaven (zie api/_gedeeld/weergaven.js)
+
   useEffect(() => {
     setDossiers(null);
     setFout(false);
     setZoek("");
-    setStatusFilter("");
+    setKolomFilters({});
+    setSortKey("klantnaam");
+    setSortDir("asc");
     setToonAantal(25);
+    setZichtbareKolommen(null);
+    setActieveWeergave("");
+    setMenu(null);
+    setKolomKiezerOpen(false);
     setDetailId(null);
     setDetail(null);
     let actief = true;
@@ -1710,11 +1745,23 @@ function MedewerkerDossiers({ soort }) {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => { if (actief) { setDossiers(d.dossiers || []); setStatusOpties(d.statusOpties || []); } })
       .catch(() => { if (actief) { setDossiers([]); setFout(true); } });
+    fetch(`/api/medewerker-weergaven?scherm=${encodeURIComponent("dossiers-" + soort)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => { if (actief) setWeergaven(d.views || []); })
+      .catch(() => { if (actief) setWeergaven([]); });
     return () => { actief = false; };
   }, [soort]);
 
   const periodeLabel = soort === "vpb" ? "Boekjaar" : "Jaar";
   const periode = (d) => (d.jaar != null && d.jaar !== "" ? String(d.jaar) : dossierBoekjaar(d));
+  const KOLOMMEN = dossierKolommen(periodeLabel, periode);
+  const alleKeys = KOLOMMEN.map((c) => c.key);
+  useEffect(() => {
+    setZichtbareKolommen((huidig) => huidig || new Set(alleKeys.filter((key) => !DOSSIER_KOLOMMEN_STANDAARD_VERBORGEN.includes(key))));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [soort]);
+  const zichtbareSet = zichtbareKolommen || new Set(alleKeys.filter((key) => !DOSSIER_KOLOMMEN_STANDAARD_VERBORGEN.includes(key)));
+  const kolomVan = (key) => KOLOMMEN.find((c) => c.key === key);
 
   // Volledig dossier (incl. catalogus/secties/picklistopties) apart ophalen zodra er één wordt
   // geopend — de lijst zelf bevat alleen de basisvelden (Cliënt/Jaar/Status/Accountant/Assistent).
@@ -1779,16 +1826,85 @@ function MedewerkerDossiers({ soort }) {
     );
   }
 
-  const statussen = [...new Set(dossiers.map((d) => d.statusLabel).filter(Boolean))].sort();
   const term = zoek.trim().toLowerCase();
   const mijnLc = mijnNaam.trim().toLowerCase();
   const isDossierVanMij = (d) => !!mijnLc && [d.accountant, d.assistent].some((v) => String(v || "").trim().toLowerCase() === mijnLc);
-  const gefilterd = dossiers.filter((d) =>
-    (scope !== "mijn" || !mijnNaam || isDossierVanMij(d)) &&
-    (!statusFilter || d.statusLabel === statusFilter) &&
-    (!term || [d.klantnaam, periode(d), d.statusLabel, d.accountant, d.assistent].filter(Boolean).some((v) => String(v).toLowerCase().includes(term)))
-  );
-  const zichtbaar = gefilterd.slice(0, toonAantal);
+  const gefilterd = dossiers.filter((d) => {
+    if (scope === "mijn" && mijnNaam && !isDossierVanMij(d)) return false;
+    for (const [key, val] of Object.entries(kolomFilters)) {
+      if (!val) continue;
+      const kol = kolomVan(key);
+      if (!kol) continue;
+      const cel = kol.cel(d);
+      if (typeof val === "object" && val.bevat) {
+        if (!String(cel).toLowerCase().includes(val.bevat.toLowerCase())) return false;
+      } else if (cel !== val) {
+        return false;
+      }
+    }
+    if (term) {
+      const raak = [d.klantnaam, periode(d), d.statusLabel, d.accountant, d.assistent, d.manager, d.groepsnaam]
+        .filter(Boolean)
+        .some((v) => String(v).toLowerCase().includes(term));
+      if (!raak) return false;
+    }
+    return true;
+  });
+  const filterActief = Object.values(kolomFilters).some(Boolean) || !!term;
+
+  const sortKol = kolomVan(sortKey) || kolomVan("klantnaam");
+  const gesorteerd = [...gefilterd].sort((x, y) => {
+    const va = sortKol.cel(x), vb = sortKol.cel(y);
+    const c = String(va).localeCompare(String(vb), "nl", { sensitivity: "base" });
+    return sortDir === "asc" ? c : -c;
+  });
+  const pijl = (key) => (sortKey === key ? (sortDir === "asc" ? " ▲" : " ▼") : "");
+  const zichtbaar = gesorteerd.slice(0, toonAantal);
+  const zichtKols = KOLOMMEN.filter((c) => zichtbareSet.has(c.key));
+
+  const openKopMenu = (e, key) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setMenuZoek("");
+    setMenu((m) => (m && m.key === key ? null : { key, x: r.left, y: r.bottom }));
+  };
+  const wisAllesFilters = () => { setKolomFilters({}); setZoek(""); };
+
+  // Opgeslagen weergaven (persoonlijk, per dossiersoort): kolommen + filters + sortering + aantal regels.
+  const huidigeConfig = () => ({ kolommen: [...zichtbareSet], filters: kolomFilters, sortKey, sortDir, toonAantal });
+  const pasWeergaveToe = (cfg) => {
+    if (!cfg) return;
+    if (Array.isArray(cfg.kolommen)) setZichtbareKolommen(new Set(cfg.kolommen));
+    setKolomFilters(cfg.filters || {});
+    if (cfg.sortKey) setSortKey(cfg.sortKey);
+    if (cfg.sortDir) setSortDir(cfg.sortDir);
+    if (cfg.toonAantal) setToonAantal(cfg.toonAantal);
+  };
+  const bewaarWeergaven = (lijst) => {
+    setWeergaven(lijst);
+    fetch("/api/medewerker-weergaven", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scherm, views: lijst }) }).catch(() => {});
+  };
+  const opslaanAlsWeergave = () => {
+    const naam = (window.prompt("Naam van de weergave:") || "").trim();
+    if (!naam) return;
+    bewaarWeergaven([...weergaven.filter((v) => v.naam !== naam), { naam, config: huidigeConfig() }]);
+    setActieveWeergave(naam);
+  };
+  const kiesWeergave = (naam) => {
+    setActieveWeergave(naam);
+    const v = weergaven.find((w) => w.naam === naam);
+    if (v) pasWeergaveToe(v.config);
+  };
+  const verwijderWeergave = () => {
+    if (!actieveWeergave) return;
+    if (!window.confirm(`Weergave "${actieveWeergave}" verwijderen?`)) return;
+    bewaarWeergaven(weergaven.filter((v) => v.naam !== actieveWeergave));
+    setActieveWeergave("");
+  };
+
+  const selectStijl = { border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, background: "#fff", color: KLEUR.tekst, cursor: "pointer" };
+  const menuItem = { display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: "6px 8px", borderRadius: 6, cursor: "pointer", fontSize: 12.5, color: KLEUR.tekst };
+  const th = { textAlign: "left", fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", padding: "6px 10px", borderBottom: `1px solid ${KLEUR.rand}`, whiteSpace: "nowrap" };
+  const td = { fontSize: 12.5, padding: "8px 10px", borderBottom: `1px solid ${KLEUR.rand}`, whiteSpace: "nowrap" };
 
   return (
     <div>
@@ -1806,11 +1922,55 @@ function MedewerkerDossiers({ soort }) {
             style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 32px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}
           />
         </div>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ padding: "8px 10px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, background: "#fff" }}>
-          <option value="">Alle statussen</option>
-          {statussen.map((s) => <option key={s} value={s}>{s}</option>)}
+        <div style={{ position: "relative" }}>
+          <button onClick={() => setKolomKiezerOpen((o) => !o)} style={selectStijl}>Kolommen ▾</button>
+          {kolomKiezerOpen && (
+            <>
+              <div onClick={() => setKolomKiezerOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+              <div style={{ position: "absolute", top: "110%", right: 0, zIndex: 41, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, boxShadow: "0 6px 24px rgba(0,0,0,0.12)", padding: 10, width: 200, maxHeight: 320, overflowY: "auto" }}>
+                {KOLOMMEN.map((kol) => (
+                  <label key={kol.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 12.5, cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={zichtbareSet.has(kol.key)}
+                      onChange={() => setZichtbareKolommen(() => { const n = new Set(zichtbareSet); if (n.has(kol.key)) n.delete(kol.key); else n.add(kol.key); return n; })}
+                    />
+                    {kol.label}
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+        <select value={actieveWeergave} onChange={(e) => kiesWeergave(e.target.value)} style={selectStijl} title="Opgeslagen weergave">
+          <option value="">Weergave…</option>
+          {weergaven.map((v) => <option key={v.naam} value={v.naam}>{v.naam}</option>)}
         </select>
+        <button onClick={opslaanAlsWeergave} style={selectStijl} title="Huidige indeling opslaan als weergave">Opslaan als…</button>
+        {actieveWeergave && (
+          <button onClick={verwijderWeergave} style={{ ...selectStijl, color: KLEUR.rood }} title="Verwijder deze weergave">Verwijderen</button>
+        )}
+        {filterActief && (
+          <button
+            onClick={wisAllesFilters}
+            style={{ padding: "8px 12px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+          >
+            Filters wissen
+          </button>
+        )}
       </div>
+
+      {Object.entries(kolomFilters).filter(([, v]) => v).length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+          {Object.entries(kolomFilters).filter(([, v]) => v).map(([key, v]) => (
+            <span key={key} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 6px 3px 10px", background: KLEUR.lichtblauw, color: KLEUR.blauw, borderRadius: 999, fontSize: 11.5, fontWeight: 600 }}>
+              {(kolomVan(key)?.label || key)}{typeof v === "object" && v.bevat ? ` bevat "${v.bevat}"` : `: ${v}`}
+              <button onClick={() => setKolomFilters((h) => { const n = { ...h }; delete n[key]; return n; })} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.blauw, fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>
+            </span>
+          ))}
+        </div>
+      )}
+
       {scope === "mijn" && naamGeladen && !mijnNaam && (
         <div style={{ fontSize: 12, color: KLEUR.goud, marginBottom: 8 }}>Je naam kon niet automatisch worden bepaald; gebruik <strong>Kantoorbreed</strong>.</div>
       )}
@@ -1819,23 +1979,53 @@ function MedewerkerDossiers({ soort }) {
         <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, padding: "16px 2px" }}>Nog geen dossiers gevonden.</div>
       ) : (
         <>
-          <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, overflow: "hidden" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "2fr 90px 1.6fr 1.3fr 1.3fr 20px", gap: 0, background: KLEUR.lichtblauw, padding: "9px 14px", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase", letterSpacing: ".03em" }}>
-              <div>Cliënt</div><div>{periodeLabel}</div><div>Status</div><div>Accountant</div><div>Assistent</div><div></div>
-            </div>
-            {zichtbaar.map((d, i) => (
-              <div key={d.id || i} onClick={() => openDossier(d.id)} title="Open dossier" style={{ display: "grid", gridTemplateColumns: "2fr 90px 1.6fr 1.3fr 1.3fr 20px", gap: 0, padding: "9px 14px", borderTop: `1px solid ${KLEUR.rand}`, fontSize: 12.5, alignItems: "center", cursor: "pointer" }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = "#FBFBF9")} onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
-                <div style={{ fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6 }}>
-                  {d.klantnaam || "—"}{d.actief === false && <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 999, background: "#F0F0EC", color: KLEUR.mutedTekst }}>Inactief</span>}
-                </div>
-                <div>{periode(d) || "—"}</div>
-                <div style={{ color: KLEUR.subtekst }}>{d.statusLabel || "—"}</div>
-                <div style={{ color: KLEUR.subtekst }}>{d.accountant || "—"}</div>
-                <div style={{ color: KLEUR.subtekst }}>{d.assistent || "—"}</div>
-                <div style={{ color: KLEUR.mutedTekst, display: "flex", justifyContent: "flex-end" }}><ChevronRight size={15} /></div>
-              </div>
-            ))}
+          <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: Math.max(560, zichtKols.length * 120) }}>
+              <thead>
+                <tr>
+                  {zichtKols.map((kol) => {
+                    const kolActief = sortKey === kol.key || kolomFilters[kol.key];
+                    return (
+                      <th
+                        key={kol.key}
+                        onClick={(e) => openKopMenu(e, kol.key)}
+                        title="Klik om te sorteren of filteren"
+                        style={{ ...th, cursor: "pointer", userSelect: "none", color: kolActief ? KLEUR.blauw : th.color }}
+                      >
+                        {kol.label}{pijl(kol.key)}{kolomFilters[kol.key] ? " •" : ""} <span style={{ color: KLEUR.mutedTekst }}>▾</span>
+                      </th>
+                    );
+                  })}
+                  <th style={{ ...th, width: 1 }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {zichtbaar.map((d) => (
+                  <tr
+                    key={d.id}
+                    onClick={() => openDossier(d.id)}
+                    title="Open dossier"
+                    style={{ cursor: "pointer" }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "#FBFBF9")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                  >
+                    {zichtKols.map((kol) => (
+                      <td key={kol.key} style={td}>
+                        {kol.key === "klantnaam" ? (
+                          <span style={{ fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            {d.klantnaam || "—"}
+                            {d.actief === false && <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 999, background: "#F0F0EC", color: KLEUR.mutedTekst }}>Inactief</span>}
+                          </span>
+                        ) : (
+                          kol.cel(d) || "—"
+                        )}
+                      </td>
+                    ))}
+                    <td style={{ ...td, color: KLEUR.mutedTekst, textAlign: "right" }}><ChevronRight size={15} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
 
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
@@ -1860,6 +2050,46 @@ function MedewerkerDossiers({ soort }) {
           </div>
         </>
       )}
+
+      {menu && (() => {
+        const kol = kolomVan(menu.key);
+        if (!kol) return null;
+        const waarden = [...new Set(dossiers.map(kol.cel).filter(Boolean))]
+          .sort((a, b) => a.localeCompare(b, "nl"))
+          .filter((v) => !menuZoek || v.toLowerCase().includes(menuZoek.toLowerCase()));
+        return (
+          <>
+            <div onClick={() => setMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 50 }} />
+            <div style={{ position: "fixed", left: Math.min(menu.x, (typeof window !== "undefined" ? window.innerWidth : 1000) - 260), top: menu.y + 4, width: 240, maxHeight: 360, overflowY: "auto", background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, boxShadow: "0 6px 24px rgba(0,0,0,0.14)", zIndex: 51, padding: 8 }}>
+              <button onClick={() => { setSortKey(kol.key); setSortDir("asc"); setMenu(null); }} style={menuItem}>↑ Sorteer A→Z</button>
+              <button onClick={() => { setSortKey(kol.key); setSortDir("desc"); setMenu(null); }} style={menuItem}>↓ Sorteer Z→A</button>
+              <div style={{ height: 1, background: KLEUR.rand, margin: "6px 0" }} />
+              <input
+                value={menuZoek}
+                onChange={(e) => setMenuZoek(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && menuZoek.trim()) {
+                    setKolomFilters((h) => ({ ...h, [kol.key]: { bevat: menuZoek.trim() } }));
+                    setMenu(null);
+                  }
+                }}
+                placeholder="Typ en Enter = bevat…"
+                style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "6px 8px", marginBottom: 4, fontSize: 12.5 }}
+              />
+              {menuZoek.trim() && (
+                <button onClick={() => { setKolomFilters((h) => ({ ...h, [kol.key]: { bevat: menuZoek.trim() } })); setMenu(null); }} style={{ ...menuItem, color: KLEUR.blauw, fontWeight: 600 }}>
+                  Filter op: bevat "{menuZoek.trim()}"
+                </button>
+              )}
+              <button onClick={() => { setKolomFilters((h) => { const n = { ...h }; delete n[kol.key]; return n; }); setMenu(null); }} style={{ ...menuItem, fontWeight: kolomFilters[kol.key] ? 400 : 700 }}>Alles tonen</button>
+              {waarden.map((v) => (
+                <button key={v} onClick={() => { setKolomFilters((h) => ({ ...h, [kol.key]: v })); setMenu(null); }} style={{ ...menuItem, color: kolomFilters[kol.key] === v ? KLEUR.blauw : KLEUR.tekst, fontWeight: kolomFilters[kol.key] === v ? 700 : 400 }}>{v}</button>
+              ))}
+              {waarden.length === 0 && <div style={{ fontSize: 12, color: KLEUR.mutedTekst, padding: "4px 8px" }}>Geen waarden</div>}
+            </div>
+          </>
+        );
+      })()}
     </div>
   );
 }
