@@ -6,9 +6,11 @@
  * klant-filter: een medewerker ziet in één lijst per soort wat er open staat en bij wie het ligt.
  * Deelt de query/veldnamen met de klantweergave via api/_gedeeld/dossiers.js. Stuurt ook de
  * status-keuzelijst (statusOpties) mee, zodat het bewerken van een dossier de juiste opties toont.
+ * Elk dossier krijgt hier ook "dossiernaam" mee (de primaire kolom van de entiteit zelf, bv. de
+ * samengestelde "Dossier"-kolom bij IB) — via metDossiernaam(), alleen voor deze hoofdtabel.
  */
 const { haalDynamicsToken } = require("../_gedeeld/identiteit");
-const { SOORTEN, haalDossiersVoorSoort } = require("../_gedeeld/dossiers");
+const { SOORTEN, haalDossiersVoorSoort, metDossiernaam } = require("../_gedeeld/dossiers");
 
 module.exports = async function (context, req) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
@@ -26,8 +28,11 @@ module.exports = async function (context, req) {
 
   try {
     const token = await haalDynamicsToken();
+    // "Dossiernaam" (primaire kolom van de entiteit zelf) erbij — alleen relevant voor de hoofdtabel
+    // hier, niet voor de klant- of detailweergave, dus hier toegepast i.p.v. in SOORTEN zelf.
+    const soortMetDossiernaam = await metDossiernaam(resource, token, soort);
     // Geen accountIds → alle cliënten.
-    const dossiers = await haalDossiersVoorSoort(resource, token, soort, undefined);
+    const dossiers = await haalDossiersVoorSoort(resource, token, soortMetDossiernaam, undefined);
 
     dossiers.sort((a, b) => {
       const sa = a.jaar != null && a.jaar !== "" ? Number(a.jaar) || 0 : (a.begindatum ? new Date(a.begindatum).getTime() || 0 : 0);

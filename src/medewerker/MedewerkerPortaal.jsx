@@ -6,7 +6,6 @@ import ContractenOverzicht from "./ContractenOverzicht";
 import Vragenlijsten from "./Vragenlijsten";
 import VragenlijstDetail from "./VragenlijstDetail";
 import Urenregistratie from "./uren/Urenregistratie";
-import Ontwikkelverzoeken from "./Ontwikkelverzoeken";
 import ScopeToggle, { useMijnNaam, isKlantVanMij } from "./MijnFilter";
 import ContactpersonenOverzicht from "./klanten/ContactpersonenOverzicht";
 import NogInTeRichten from "./klanten/NogInTeRichten";
@@ -1693,6 +1692,7 @@ function dossierBoekjaar(d) {
 function dossierKolommen(periodeLabel, periode) {
   return [
     { key: "klantnaam", label: "Cliënt", cel: (d) => d.klantnaam || "" },
+    { key: "dossiernaam", label: "Dossiernaam", cel: (d) => d.dossiernaam || "" },
     { key: "periode", label: periodeLabel, cel: (d) => periode(d) },
     { key: "statusLabel", label: "Status", cel: (d) => d.statusLabel || "" },
     { key: "accountant", label: "Accountant", cel: (d) => d.accountant || "" },
@@ -1701,7 +1701,11 @@ function dossierKolommen(periodeLabel, periode) {
     { key: "groepsnaam", label: "Groep", cel: (d) => d.groepsnaam || "" },
   ];
 }
-const DOSSIER_KOLOMMEN_STANDAARD_VERBORGEN = ["manager", "groepsnaam"]; // wel kiesbaar, niet standaard getoond
+// "dossiernaam" en "manager" (Wouter, 04-08-2026) staan bewust NIET meer in deze lijst — die wil hij
+// standaard zichtbaar in de hoofdtabel Inkomstenbelasting. "groepsnaam" blijft wel kiesbaar-maar-
+// standaard-verborgen. Voor VPB blijven "dossiernaam"/"manager" gewoon leeg (geen Dynamics-veld voor
+// dat soort, zie api/_gedeeld/dossiers.js) — zelfde bestaande gedrag als "groepsnaam" daar al had.
+const DOSSIER_KOLOMMEN_STANDAARD_VERBORGEN = ["groepsnaam"]; // wel kiesbaar, niet standaard getoond
 
 /**
  * Nieuw dossier aanmaken ("+ Nieuwe Inkomstenbelasting" in de lijst, of "Aangifte kopiëren naar
@@ -3755,7 +3759,6 @@ export default function MedewerkerPortaal() {
     ["reacties", "Log klantreacties", 0],
     ["ondertekeningen", "Ondertekeningen", 0],
     ["reviews", "Reviews", tellingen.nieuweReviews],
-    ["ontwikkelverzoeken", "Ontwikkelverzoeken", 0],
     ...(magOffertes || isBeheerder ? [["offertes", "Offertes", 0]] : []),
     ...(magContracten || isBeheerder ? [["contracten", "Contracten", 0]] : []),
     ...(magAlsKlant || isBeheerder ? [["meekijken", "Meekijken als klant", 0]] : []),
@@ -3822,7 +3825,6 @@ export default function MedewerkerPortaal() {
       {tab === "reacties" && <AkkoordenLog />}
       {tab === "ondertekeningen" && <OndertekeningenLog />}
       {tab === "reviews" && <ReviewBeheer />}
-      {tab === "ontwikkelverzoeken" && <Ontwikkelverzoeken />}
       {tab === "offertes" && (magOffertes || isBeheerder) && <OffertesModule />}
       {tab === "contracten" && (magContracten || isBeheerder) && <ContractenOverzicht />}
       {tab === "meekijken" && <MeekijkenAlsKlant gebruiker={gebruiker} />}

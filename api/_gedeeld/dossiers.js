@@ -111,6 +111,37 @@ function kernNaam(veld) {
   return veld.replace(/^_/, "").replace(/_value$/, "");
 }
 
+// "Dossiernaam" = de primaire kolom van de entiteit zelf (bij IB de samengestelde tekstkolom
+// "Dossier", bv. "Akhiat, L. | | 2025" — zie het projectdoc). De exacte logische naam hangt af van
+// de omgeving en wordt daarom niet hardgecodeerd, maar via metadata opgezocht en gecached, zelfde
+// aanpak als haalEntitySetNaam hierboven (PrimaryNameAttribute staat gewoon op EntityDefinitions).
+const primaireNaamCache = {};
+async function haalPrimaireNaamVeld(resource, logicalName, token) {
+  if (primaireNaamCache[logicalName]) return primaireNaamCache[logicalName];
+  const res = await fetch(`${resource}/api/data/v9.2/EntityDefinitions(LogicalName='${logicalName}')?$select=PrimaryNameAttribute`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+  });
+  if (!res.ok) throw new Error(`Kon primair naamveld niet opzoeken voor ${logicalName} (${res.status}): ${await res.text()}`);
+  const data = await res.json();
+  primaireNaamCache[logicalName] = data.PrimaryNameAttribute;
+  return data.PrimaryNameAttribute;
+}
+
+/** Breidt soort.optioneel uit met "dossiernaam" → het opgezochte primaire naamveld van de entiteit
+ *  (zie hierboven). Best-effort: lukt de opzoeking niet, dan blijft "soort" ongewijzigd (dossiernaam
+ *  ontbreekt dan simpelweg in de output i.p.v. de rest van de lijst te blokkeren) — zelfde
+ *  voorzichtige patroon als metAangepasteVelden hieronder. Gebruikt door de hoofdtabel (lijst) in
+ *  het medewerkersportaal, zie api/medewerker-dossiers. */
+async function metDossiernaam(resource, token, soort) {
+  try {
+    const veld = await haalPrimaireNaamVeld(resource, soort.entiteit, token);
+    if (!veld) return soort;
+    return { ...soort, optioneel: { ...soort.optioneel, dossiernaam: veld } };
+  } catch {
+    return soort;
+  }
+}
+
 /**
  * Haalt de ruwe rijen van één dossiersoort op. accountIds optioneel:
  *  - meegegeven → alleen dossiers van die accounts (klantweergave)
@@ -168,6 +199,9 @@ function naarBuiten(rij, soort) {
     soortLabel: soort.label,
     accountId: rij[CLIENT_VALUE] || null,
     klantnaam: rij[CLIENT_VALUE + FV] || "",
+    // Primaire kolom van het dossier zelf (bv. de samengestelde "Dossier"-kolom bij IB) — alleen
+    // aanwezig als de aanroeper metDossiernaam() heeft toegepast op "soort" (zie hierboven).
+    dossiernaam: o.dossiernaam ? (rij[o.dossiernaam] || "") : "",
     jaar: o.jaar ? (rij[o.jaar] ?? null) : null,
     begindatum: o.begindatum ? (rij[o.begindatum] || null) : null,
     einddatum: o.einddatum ? (rij[o.einddatum] || null) : null,
@@ -426,4 +460,4 @@ async function haalDynamischePicklistOpties(resource, token, soort) {
   return resultaat;
 }
 
-module.exports = { SOORTEN, haalDossiersVoorSoort, haalEenDossier, werkDossierBij, verwijderDossier, maakDossier, bestaatDossierAl, haalDynamischePicklistOpties, metAangepasteVelden };
+module.exports = { SOORTEN, haalDossiersVoorSoort, haalEenDossier, werkDossierBij, verwijderDossier, maakDossier, bestaatDossierAl, haalDynamischePicklistOpties, metAangepasteVelden, metDossiernaam };
