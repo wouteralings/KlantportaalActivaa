@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Car, Plus, Trash2, Pencil, X, Settings, ChevronDown, ChevronLeft, ChevronRight,
-  Clock, Download, Star, MapPin, Repeat, Calendar, List, Bike, Motorbike,
+  Clock, Download, Star, MapPin, Repeat, Calendar, List, Bike, Motorbike, Search,
 } from "lucide-react";
 
 // Voertuigtype (migratie 010) — auto/motor/fiets, zelfde drie waarden als de
@@ -59,6 +59,9 @@ const KLEUR = {
 const kaartStijl = { border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginBottom: 16, background: "#fff" };
 const labelStijl = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 4, marginTop: 10 };
 const inputStijl = { width: "100%", padding: "8px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 13.5, color: KLEUR.tekst, boxSizing: "border-box" };
+// Zelfde sectiekop-stijl als Contracten (ContractenModule.jsx) — voor de Actief/Niet-actief-
+// indeling in de module-root hieronder.
+const sectieKopStijl = { fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, textTransform: "uppercase", letterSpacing: ".03em", margin: "0 0 8px" };
 
 function geld(n) {
   return new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(Number(n) || 0);
@@ -1231,21 +1234,37 @@ function RittenAccountInhoud({ account, alleenLezen }) {
   );
 }
 
+/** Korte intro boven de sectie "Niet actief" bij meerdere klantaccounts — zelfde patroon als
+ *  ContractenUitlegBanner in ContractenModule.jsx. */
+function RittenUitlegBanner() {
+  return (
+    <div style={{
+      display: "flex", alignItems: "flex-start", gap: 10, padding: "14px 16px", marginBottom: 10,
+      background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 10,
+    }}>
+      <Clock size={15} color={KLEUR.mutedTekst} style={{ marginTop: 2, flexShrink: 0 }} />
+      <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>
+        <strong style={{ color: KLEUR.tekst }}>Rittenregistratie is beschikbaar voor deze administraties.</strong>{" "}
+        Klap een administratie open om de module aan te vragen.
+      </div>
+    </div>
+  );
+}
+
 /* ---------------------------------------------------------------------- */
-/* Module-root — per gekoppeld klantaccount, net als FacturatieModule.jsx  */
+/* Module-root — per gekoppeld klantaccount, zelfde zoekveld + Actief/Niet-  */
+/* actief-indeling met inklapbare rijen als de Contracten-tab               */
+/* (ContractenModule.jsx), op verzoek van Wouter (05-08-2026) gelijkgetrokken. */
 /* ---------------------------------------------------------------------- */
 
 export default function RittenModule({ accounts, prijs = 1.5, alleenLezen = false }) {
-  const [openAccountId, setOpenAccountId] = useState(accounts.length === 1 ? accounts[0].accountId : null);
-
-  useEffect(() => {
-    if (accounts.length === 1) setOpenAccountId(accounts[0].accountId);
-    else if (!accounts.some((a) => a.accountId === openAccountId)) setOpenAccountId(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accounts]);
+  const [openAccountId, setOpenAccountId] = useState(accounts.length === 1 ? accounts[0]?.accountId : null);
+  const [zoek, setZoek] = useState("");
 
   if (accounts.length === 0) return <LegeStaat tekst="Geen klantaccount beschikbaar." />;
 
+  // Eén klantaccount: geen lijst/sectie-indeling nodig — direct de volle module of de
+  // aanvraagkaart tonen, zelfde regel als ContractenModule.
   if (accounts.length === 1) {
     const acc = accounts[0];
     return acc.rittenIngeschakeld
@@ -1253,27 +1272,83 @@ export default function RittenModule({ accounts, prijs = 1.5, alleenLezen = fals
       : <RittenNietActief account={acc} prijs={prijs} />;
   }
 
+  const term = zoek.trim().toLowerCase();
+  const lijst = accounts.filter((a) =>
+    !term || [a.klantnaam, String(a.klantnummer ?? "")].filter(Boolean).some((v) => v.toLowerCase().includes(term))
+  );
+
+  const renderAccountRij = (acc, i) => {
+    const open = openAccountId === acc.accountId;
+    return (
+      <div key={acc.accountId} style={{ borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}` }}>
+        <button
+          onClick={() => setOpenAccountId(open ? null : acc.accountId)}
+          style={{
+            width: "100%", display: "flex", alignItems: "center", gap: 12,
+            padding: "12px 16px", background: open ? KLEUR.lichtblauw : "#fff",
+            border: "none", cursor: "pointer", textAlign: "left", color: KLEUR.tekst,
+          }}
+        >
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: KLEUR.blauw, minWidth: 52, flexShrink: 0 }}>
+            {acc.klantnummer || "—"}
+          </span>
+          <span style={{ fontSize: 14, fontWeight: 600, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {acc.klantnaam}
+          </span>
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ flexShrink: 0, transition: "transform .15s", transform: open ? "rotate(180deg)" : "none" }} />
+        </button>
+        {open && (
+          <div style={{ padding: "16px" }}>
+            {acc.rittenIngeschakeld
+              ? <RittenAccountInhoud account={acc} alleenLezen={alleenLezen} />
+              : <RittenNietActief account={acc} prijs={prijs} />}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const actieveAccounts = lijst.filter((a) => a.rittenIngeschakeld);
+  const nietActieveAccounts = lijst.filter((a) => !a.rittenIngeschakeld);
+
   return (
     <div>
-      {accounts.map((acc, i) => {
-        const open = openAccountId === acc.accountId;
-        return (
-          <div key={acc.accountId} style={{ borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}` }}>
-            <button
-              onClick={() => setOpenAccountId(open ? null : acc.accountId)}
-              style={{ width: "100%", textAlign: "left", padding: "14px 4px", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between" }}
-            >
-              <span style={{ fontWeight: 600, fontSize: 14 }}>{acc.klantnaam}{acc.klantnummer ? ` (${acc.klantnummer})` : ""}</span>
-              <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
-            </button>
-            {open && (
-              acc.rittenIngeschakeld
-                ? <RittenAccountInhoud account={acc} alleenLezen={alleenLezen} />
-                : <RittenNietActief account={acc} prijs={prijs} />
-            )}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700, marginBottom: 14 }}>
+        <Car size={17} color={KLEUR.blauw} /> Ritten
+      </div>
+
+      <div style={{ position: "relative", marginBottom: 14, maxWidth: 360 }}>
+        <Search size={16} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
+        <input
+          value={zoek}
+          onChange={(e) => setZoek(e.target.value)}
+          placeholder="Zoek op klantnummer of naam…"
+          style={{ ...inputStijl, padding: "10px 12px 10px 36px" }}
+        />
+      </div>
+
+      {lijst.length === 0 && (
+        <div style={{ padding: "18px 16px", fontSize: 13, color: KLEUR.mutedTekst }}>Geen klanten gevonden voor "{zoek}".</div>
+      )}
+
+      {actieveAccounts.length > 0 && (
+        <div style={{ marginBottom: nietActieveAccounts.length > 0 ? 24 : 0 }}>
+          <div style={sectieKopStijl}>Actief ({actieveAccounts.length})</div>
+          <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, overflow: "hidden", background: "#fff" }}>
+            {actieveAccounts.map(renderAccountRij)}
           </div>
-        );
-      })}
+        </div>
+      )}
+
+      {nietActieveAccounts.length > 0 && (
+        <div>
+          <div style={sectieKopStijl}>Niet actief ({nietActieveAccounts.length})</div>
+          <RittenUitlegBanner />
+          <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, overflow: "hidden", background: "#fff" }}>
+            {nietActieveAccounts.map(renderAccountRij)}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

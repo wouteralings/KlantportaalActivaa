@@ -120,6 +120,11 @@ module.exports = async function (context, req) {
       const zichtbaar = modus === "versturen";
       const token = await haalDynamicsToken();
       const map = lijst.pad ? resolvePad(lijst.pad, { jaar: bJaar, lijst: lijst.naam, onderwerp: lijst.naam }) : [];
+      // Bulk verstuurt altijd rechtstreeks een lijst (geen aparte onderwerp-keuze in dit formulier) —
+      // is die lijst toevallig de standaardlijst van een onderwerp, dan het verzoek daar alsnog aan
+      // koppelen, anders duikt het nooit op in het gekoppelde dossier (zie ook de "uitzetten"-actie
+      // hierboven, waar dezelfde koppeling voor het per-cliënt-formulier gebeurt).
+      const bulkOnderwerp = (await haalOnderwerpen()).find((o) => o.standaardLijstId === bLijstId) || null;
       let aangemaakt = 0;
       const mislukt = [];
       for (const accId of [...new Set(accountIds.filter(Boolean))]) {
@@ -130,7 +135,9 @@ module.exports = async function (context, req) {
           const verzoek = verzoeken.maakVerzoek({
             accountId: accId, klantnaam: acc.klantnaam, klantnummer: acc.klantnummer,
             contactId: acc.contactId, contactNaam: acc.contactNaam,
-            lijstId: bLijstId, lijstNaam: lijst.naam, jaar: bJaar, map, notitie: "",
+            lijstId: bLijstId, lijstNaam: lijst.naam,
+            onderwerpId: bulkOnderwerp ? bulkOnderwerp.id : "", onderwerp: bulkOnderwerp ? bulkOnderwerp.naam : "",
+            jaar: bJaar, map, notitie: "",
             regels: bulkRegels, aangemaaktDoor: email || "onbekend",
             zichtbaar, deadline: bDeadline, bron: "bulk",
           });
@@ -162,6 +169,13 @@ module.exports = async function (context, req) {
         onderwerp = (await haalOnderwerpen()).find((o) => o.id === onderwerpId) || null;
         if (!onderwerp) { context.res = { status: 404, body: { error: "Gekozen onderwerp niet gevonden." } }; return; }
         map = resolvePad(onderwerp.pad, { jaar, onderwerp: onderwerp.naam });
+      } else if (lijstId) {
+        // Geen onderwerp gekozen, maar wél rechtstreeks de lijst die toevallig de standaardlijst van
+        // een onderwerp is (bv. omdat lijst en onderwerp per ongeluk dezelfde naam hebben en de
+        // verkeerde van de twee dropdowns gekozen is) — dan alsnog aan dat onderwerp koppelen, anders
+        // duikt dit verzoek nooit op in het gekoppelde dossier (zie "Gekoppelde uitvraaglijst" in
+        // Beheer → Dossiers / gekoppeldeUitvragenVoorDossier in api/medewerker-dossier).
+        onderwerp = (await haalOnderwerpen()).find((o) => o.standaardLijstId === lijstId) || null;
       }
 
       // Regels: de frontend stuurt de effectieve lijst (voorgevuld + vrije regels). Ontbreekt die,
