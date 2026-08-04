@@ -237,6 +237,13 @@
       ]
     },
     {
+      "route": "/api/medewerker-dossier-aanmaken",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
       "route": "/api/dossier-velden",
       "allowedRoles": [
         "beheerder",

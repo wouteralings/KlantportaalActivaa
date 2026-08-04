@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ArrowLeft, Lock } from "lucide-react";
+import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ArrowLeft, Lock, Copy, X } from "lucide-react";
 import { startMeekijken } from "../meekijken";
 import OffertesModule from "./OffertesModule";
 import ContractenOverzicht from "./ContractenOverzicht";
@@ -1702,6 +1702,161 @@ function dossierKolommen(periodeLabel, periode) {
 }
 const DOSSIER_KOLOMMEN_STANDAARD_VERBORGEN = ["manager", "groepsnaam"]; // wel kiesbaar, niet standaard getoond
 
+/**
+ * Nieuw dossier aanmaken ("+ Nieuwe Inkomstenbelasting" in de lijst, of "Aangifte kopiëren naar
+ * volgend jaar" vanuit een geopend dossier) — via POST /api/medewerker-dossier-aanmaken.
+ *
+ * Twee modi:
+ *  - "kopieren": bestaande aangifte overnemen naar een nieuw jaar (alle gegevens, behalve
+ *    review-/reactienotities en opmerkingen — zie de toelichting in het scherm zelf).
+ *    Bron is ofwel vrij te kiezen (zoeken in `dossiers`), ofwel vast (`vasteBron`, vanuit een
+ *    geopend dossier — dan is dit de ENIGE modus, geen toggle, geen zoeken nodig).
+ *  - "nieuw": lege aangifte voor een zelf te kiezen cliënt, met optioneel een fiscaal partner.
+ * Alleen bereikbaar als `vasteBron` niet gezet is.
+ */
+function NieuwDossierModal({ soort, soortLabel, periodeLabel, dossiers, vasteBron, onKlaar, onAangemaakt }) {
+  const [modus, setModus] = useState("kopieren");
+  const [bron, setBron] = useState(vasteBron || null);
+  const [klanten, setKlanten] = useState(null); // lazy, null = nog niet geladen (niet nodig bij vasteBron)
+  const [client, setClient] = useState(null); // { id, naam }
+  const [heeftPartner, setHeeftPartner] = useState(false);
+  const [partner, setPartner] = useState(null); // { id, naam }
+  const [jaar, setJaar] = useState(() => (vasteBron && vasteBron.jaar != null ? String(Number(vasteBron.jaar) + 1) : ""));
+  const [bezig, setBezig] = useState(false);
+  const [fout, setFout] = useState("");
+
+  useEffect(() => {
+    if (vasteBron) return;
+    let actief = true;
+    fetch("/api/beheer-klanten")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => { if (actief) setKlanten(d.klanten || []); })
+      .catch(() => { if (actief) setKlanten([]); });
+    return () => { actief = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Als de gebruiker naar "Nieuw" wisselt zonder al een jaar te hebben ingevuld: het lopende
+  // jaar als sensibel startpunt voorstellen (i.p.v. leeg, of het "kopieren"-jaar te laten staan).
+  useEffect(() => {
+    if (jaar || vasteBron) return;
+    if (modus === "nieuw") setJaar(String(new Date().getFullYear()));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modus]);
+
+  const zoekBron = (term) => {
+    const t = term.trim().toLowerCase();
+    const lijst = (dossiers || []).filter((d) => !t || `${d.klantnaam} ${d.jaar ?? ""}`.toLowerCase().includes(t));
+    return lijst.slice(0, 20).map((d) => ({ id: d.id, naam: d.klantnaam || "—", sub: `${periodeLabel} ${d.jaar ?? "—"}` }));
+  };
+  const kiesBron = (id) => {
+    const d = (dossiers || []).find((x) => x.id === id);
+    if (!d) return;
+    setBron(d);
+    setJaar(d.jaar != null ? String(Number(d.jaar) + 1) : "");
+  };
+
+  const zoekKlant = (term) => {
+    const t = term.trim().toLowerCase();
+    const lijst = (klanten || []).filter((k) => !t || `${k.klantnaam} ${k.klantnummer ?? ""}`.toLowerCase().includes(t));
+    return lijst.slice(0, 20).map((k) => ({ id: k.accountId, naam: k.klantnaam || "—", sub: k.klantnummer ? `Nr. ${k.klantnummer}` : "" }));
+  };
+  const zoekPartner = (term) => zoekKlant(term).filter((k) => !client || k.id !== client.id);
+
+  const jaarGeldig = jaar.trim() !== "" && Number.isInteger(Number(jaar));
+  const klaarOmAanTeMaken = jaarGeldig && (modus === "kopieren" ? !!bron : !!client);
+
+  const aanmaken = async () => {
+    if (!klaarOmAanTeMaken || bezig) return;
+    setBezig(true);
+    setFout("");
+    try {
+      const body = modus === "kopieren"
+        ? { soort, kopieerVanId: bron.id, jaar: Number(jaar) }
+        : { soort, accountId: client.id, jaar: Number(jaar), fiscaalPartnerschap: heeftPartner, fiscaalPartnerAccountId: heeftPartner && partner ? partner.id : null };
+      const r = await fetch("/api/medewerker-dossier-aanmaken", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      onAangemaakt(d.dossier);
+    } catch (e) {
+      setFout(e.message || "Aanmaken van het dossier is mislukt.");
+    } finally {
+      setBezig(false);
+    }
+  };
+
+  const label = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3, marginTop: 4 };
+  const veld = { width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 9px", fontSize: 13, marginBottom: 8, background: "#fff" };
+  const tabStijl = (actief) => ({ flex: 1, padding: "8px 10px", fontSize: 12.5, fontWeight: 600, border: `1px solid ${KLEUR.rand}`, background: actief ? KLEUR.lichtblauw : "#fff", color: actief ? KLEUR.blauw : KLEUR.subtekst, cursor: "pointer" });
+
+  return (
+    <>
+      <div onClick={onKlaar} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 70 }} />
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 71, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.2)", padding: 22, width: 440, maxWidth: "92vw", maxHeight: "88vh", overflowY: "auto" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: vasteBron ? 4 : 12 }}>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>{vasteBron ? "Aangifte kopiëren naar volgend jaar" : `Nieuwe ${soortLabel.toLowerCase()}`}</div>
+          <button onClick={onKlaar} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.mutedTekst, display: "flex", padding: 0 }}><X size={16} /></button>
+        </div>
+
+        {!vasteBron && (
+          <div style={{ display: "flex", marginBottom: 14, borderRadius: 7, overflow: "hidden" }}>
+            <button onClick={() => setModus("kopieren")} style={{ ...tabStijl(modus === "kopieren"), borderRadius: "7px 0 0 7px" }}>Kopiëren van vorig jaar</button>
+            <button onClick={() => setModus("nieuw")} style={{ ...tabStijl(modus === "nieuw"), borderRadius: "0 7px 7px 0", borderLeft: "none" }}>Nieuwe aangifte</button>
+          </div>
+        )}
+
+        {modus === "kopieren" ? (
+          <>
+            {vasteBron ? (
+              <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 10 }}>
+                Cliënt: <strong>{vasteBron.klantnaam || "—"}</strong> · huidig {periodeLabel.toLowerCase()} {vasteBron.jaar ?? "—"}
+              </div>
+            ) : (
+              <ZoekKiezer
+                label="Aangifte om van te kopiëren"
+                huidigeNaam={bron ? `${bron.klantnaam || "—"} · ${periodeLabel} ${bron.jaar ?? "—"}` : ""}
+                zoek={zoekBron}
+                onKies={(id) => kiesBron(id)}
+                onWis={() => { setBron(null); setJaar(""); }}
+              />
+            )}
+            <div style={label}>Nieuw {periodeLabel.toLowerCase()}</div>
+            <input type="number" value={jaar} onChange={(e) => setJaar(e.target.value)} style={veld} />
+            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: -4 }}>
+              Alle gegevens worden overgenomen, behalve review-/reactienotities en opmerkingen. Toelichtingen blijven staan.
+            </div>
+          </>
+        ) : (
+          <>
+            <ZoekKiezer label="Cliënt" huidigeNaam={client ? client.naam : ""} zoek={zoekKlant} onKies={(id, naam) => setClient({ id, naam })} onWis={() => setClient(null)} />
+            <div style={label}>Fiscaal partnerschap</div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
+              <button onClick={() => setHeeftPartner(true)} style={{ ...tabStijl(heeftPartner), flex: "0 0 80px" }}>Ja</button>
+              <button onClick={() => { setHeeftPartner(false); setPartner(null); }} style={{ ...tabStijl(!heeftPartner), flex: "0 0 80px" }}>Nee</button>
+            </div>
+            {heeftPartner && (
+              <ZoekKiezer label="Fiscaal partner" huidigeNaam={partner ? partner.naam : ""} zoek={zoekPartner} onKies={(id, naam) => setPartner({ id, naam })} onWis={() => setPartner(null)} />
+            )}
+            <div style={label}>{periodeLabel}</div>
+            <input type="number" value={jaar} onChange={(e) => setJaar(e.target.value)} style={{ ...veld, marginBottom: 0 }} />
+          </>
+        )}
+
+        {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginTop: 10 }}>{fout}</div>}
+
+        <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+          <button onClick={aanmaken} disabled={!klaarOmAanTeMaken || bezig} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: klaarOmAanTeMaken ? "#2E7D46" : "#9DB4A5", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: klaarOmAanTeMaken ? "pointer" : "default" }}>
+            {bezig ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Plus size={14} />} {bezig ? "Bezig…" : "Aangifte aanmaken"}
+          </button>
+          <button onClick={onKlaar} style={{ padding: "9px 14px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Annuleren</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 function MedewerkerDossiers({ soort }) {
   const [dossiers, setDossiers] = useState(null); // null = laden
   const [fout, setFout] = useState(false);
@@ -1723,8 +1878,10 @@ function MedewerkerDossiers({ soort }) {
   const [detail, setDetail] = useState(null); // volledige detailrespons ({ dossier, catalogus, secties, picklistOpties })
   const [detailLaden, setDetailLaden] = useState(false);
   const [detailFout, setDetailFout] = useState("");
+  const [nieuwOpen, setNieuwOpen] = useState(false); // "+ Nieuwe ..."-popup
 
   const scherm = "dossiers-" + soort; // eigen namespace voor opgeslagen weergaven (zie api/_gedeeld/weergaven.js)
+  const soortLabelText = soort === "vpb" ? "Vennootschapsbelasting" : "Inkomstenbelasting";
 
   useEffect(() => {
     setDossiers(null);
@@ -1740,6 +1897,7 @@ function MedewerkerDossiers({ soort }) {
     setKolomKiezerOpen(false);
     setDetailId(null);
     setDetail(null);
+    setNieuwOpen(false);
     let actief = true;
     fetch(`/api/medewerker-dossiers?soort=${encodeURIComponent(soort)}`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
@@ -1775,6 +1933,15 @@ function MedewerkerDossiers({ soort }) {
       .then((d) => setDetail(d))
       .catch((e) => setDetailFout(e.message || "Kon het dossier niet openen."))
       .finally(() => setDetailLaden(false));
+  };
+
+  // Na het aanmaken van een dossier (vanuit de lijst óf vanuit een geopend dossier zelf, zie
+  // DossierDetail's "Aangifte kopiëren naar volgend jaar"): bovenaan de lijst zetten en meteen
+  // openen — zelfde eindresultaat als een medewerker die een net aangemaakt dossier aanklikt.
+  const dossierAangemaakt = (nieuw) => {
+    setNieuwOpen(false);
+    setDossiers((h) => [nieuw, ...(h || [])]);
+    openDossier(nieuw.id);
   };
 
   if (detailId) {
@@ -1814,6 +1981,7 @@ function MedewerkerDossiers({ soort }) {
           setDetail((h) => ({ ...h, dossier: bijgewerkt }));
           setDossiers((h) => (h || []).map((x) => (x.id === bijgewerkt.id ? bijgewerkt : x)));
         }}
+        onDossierAangemaakt={dossierAangemaakt}
       />
     );
   }
@@ -1958,7 +2126,26 @@ function MedewerkerDossiers({ soort }) {
             Filters wissen
           </button>
         )}
+        {soort === "ib" && (
+          <button
+            onClick={() => setNieuwOpen(true)}
+            style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "#2E7D46", color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+          >
+            <Plus size={14} /> Nieuwe {soortLabelText}
+          </button>
+        )}
       </div>
+
+      {nieuwOpen && (
+        <NieuwDossierModal
+          soort={soort}
+          soortLabel={soortLabelText}
+          periodeLabel={periodeLabel}
+          dossiers={dossiers || []}
+          onKlaar={() => setNieuwOpen(false)}
+          onAangemaakt={dossierAangemaakt}
+        />
+      )}
 
       {Object.entries(kolomFilters).filter(([, v]) => v).length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
@@ -2228,13 +2415,14 @@ function VeldInvoer({ veldDef, waarde, onChange, picklistOpties, statusOpties, d
    kaart bovenaan (vóór de secties) de gekoppelde uitvraaglijst(en) — de volledige vragenlijst
    (documenten aftekenen/heropenen, vragen van de klant beantwoorden) rechtstreeks ingebouwd via
    VragenlijstDetail, dezelfde functionaliteit als het tabblad Vragenlijsten. */
-function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen, picklistOpties, gekoppeldeUitvragen, onTerug, onOpgeslagen }) {
+function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen, picklistOpties, gekoppeldeUitvragen, onTerug, onOpgeslagen, onDossierAangemaakt }) {
   const [status, setStatus] = useState(dossier.status != null ? String(dossier.status) : "");
   const [urlDossier, setUrlDossier] = useState(dossier.urlDossier || "");
   const [documentUrl, setDocumentUrl] = useState(dossier.documentUrl || "");
   const [veldenState, setVeldenState] = useState(() => waardenUitDossier(dossier, catalogus));
   const [opslaan, setOpslaan] = useState("rust"); // rust | bezig | gelukt | fout
   const [fout, setFout] = useState("");
+  const [kopieOpen, setKopieOpen] = useState(false); // "Aangifte kopiëren naar volgend jaar"-popup
   const bewerkbaar = dossier.actief !== false;
   // Gekoppelde uitvraaglijst(en) — lokale kopie zodat VragenlijstDetail (hieronder ingebed) een
   // wijziging/verwijdering direct in de kaart kan doorvoeren zonder het hele dossier opnieuw te laden.
@@ -2316,9 +2504,28 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
 
   return (
     <div>
-      <button onClick={onTerug} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", color: KLEUR.blauw, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: 0, marginBottom: 14 }}>
-        <ArrowLeft size={15} /> Terug naar {soortLabel}
-      </button>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+        <button onClick={onTerug} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", color: KLEUR.blauw, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: 0 }}>
+          <ArrowLeft size={15} /> Terug naar {soortLabel}
+        </button>
+        {dossier.soort === "ib" && onDossierAangemaakt && (
+          <button onClick={() => setKopieOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#fff", border: `1px solid ${KLEUR.rand}`, color: KLEUR.tekst, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: "6px 12px", borderRadius: 7 }}>
+            <Copy size={14} /> Aangifte kopiëren naar volgend jaar
+          </button>
+        )}
+      </div>
+
+      {kopieOpen && (
+        <NieuwDossierModal
+          soort={dossier.soort}
+          soortLabel={soortLabel}
+          periodeLabel={periodeLabel}
+          dossiers={[]}
+          vasteBron={dossier}
+          onKlaar={() => setKopieOpen(false)}
+          onAangemaakt={(nieuw) => { setKopieOpen(false); onDossierAangemaakt(nieuw); }}
+        />
+      )}
 
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 4 }}>

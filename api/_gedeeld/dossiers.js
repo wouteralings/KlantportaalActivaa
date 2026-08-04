@@ -63,6 +63,9 @@ const SOORTEN = [
       assistent: "_cr283_assistent_value",
       manager: "_cr283_manager_value",
       groepsnaam: "_cr283_groepsnaam_value",
+      // Wie de fiscaal partner van de cliënt is (los van cr283_fiscaalpartnerschap, het ja/nee-veld
+      // uit de vrije catalogus hierboven) — bestaand Dynamics-veld, door Wouter bevestigd 04-08-2026.
+      fiscaalpartner: "_cr283_fiscaalpartner_value",
       reviewnotitie: "cr283_reviewnotitie",
       reactie: "cr283_reactiereviewnotitie",
       urlDossier: "cr283_urldossier",
@@ -178,6 +181,8 @@ function naarBuiten(rij, soort) {
     assistent: o.assistent ? (rij[o.assistent + FV] || "") : "",
     manager: o.manager ? (rij[o.manager + FV] || "") : "",
     groepsnaam: o.groepsnaam ? (rij[o.groepsnaam + FV] || "") : "",
+    fiscaalPartnerAccountId: o.fiscaalpartner ? (rij[o.fiscaalpartner] || null) : null,
+    fiscaalPartnerNaam: o.fiscaalpartner ? (rij[o.fiscaalpartner + FV] || "") : "",
     reviewNotitie: o.reviewnotitie ? (rij[o.reviewnotitie] || "") : "",
     reactie: o.reactie ? (rij[o.reactie] || "") : "",
     urlDossier: o.urlDossier ? (rij[o.urlDossier] || "") : "",
@@ -301,6 +306,77 @@ async function werkDossierBij(resource, token, soort, id, velden) {
   if (!res.ok) throw new Error(`Bijwerken ${soort.key} mislukt (${res.status}): ${await res.text()}`);
 }
 
+/** Bestaat er al een dossier van deze soort voor deze cliënt in dit jaar? Het schema is 1 rij per
+ * cliënt per jaar (zie project-doc) — gebruikt door /api/medewerker-dossier-aanmaken om een
+ * dubbele aangifte voor hetzelfde jaar te voorkomen. Alleen zinvol voor soorten met een jaar-veld
+ * (IB); soorten zonder (VPB, met begindatum/einddatum) geven altijd false — best-effort: een
+ * leesfout blokkeert het aanmaken niet (dan ontdekt een latere blik in Dynamics het eventueel). */
+async function bestaatDossierAl(resource, token, soort, accountId, jaar) {
+  if (!soort.optioneel.jaar) return false;
+  try {
+    const entitySet = await haalEntitySetNaam(resource, soort.entiteit, token);
+    const url = `${resource}/api/data/v9.2/${entitySet}?$select=${soort.idVeld}&$filter=${CLIENT_VALUE} eq ${accountId} and ${soort.optioneel.jaar} eq ${Number(jaar)}&$top=1`;
+    const res = await fetch(url, { headers: HEADERS(token) });
+    if (!res.ok) return false;
+    const data = await res.json();
+    return (data.value || []).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Maakt een nieuw dossier aan in Dynamics (POST). Krijgt altijd status "In bewerking" (601280000,
+ * gelijk voor IB/VPB — zie project-doc). Twee toepassingen, samen te gebruiken via `opties`:
+ *   - accountId          : verplicht — de cliënt (account) van het nieuwe dossier.
+ *   - jaar                : optioneel — alleen gezet als de soort een jaar-veld heeft (IB).
+ *   - fiscaalPartnerAccountId : optioneel — wie de fiscaal partner is (cr283_fiscaalpartner).
+ *   - kopieerVanDossier   : optioneel — een reeds opgehaald dossier (naarBuiten()-vorm, dus met
+ *                           `.velden`) waarvan de catalogusvelden worden overgenomen, BEHALVE de
+ *                           Review-sectie (workflow-/notitievelden — geen cliëntgegevens) en
+ *                           behalve wat expliciet al in `velden` hieronder staat. Is er geen eigen
+ *                           fiscaalPartnerAccountId meegegeven, dan wordt die van dit brondossier
+ *                           overgenomen (partner hoort net zo goed bij "alle gegevens").
+ *   - velden              : optioneel — expliciete { catalogusKey: waarde }-overschrijvingen,
+ *                           bijv. { fiscaalpartnerschap: true } bij een geheel nieuwe aangifte.
+ * Geeft het nieuwe Dynamics-id terug (uit de OData-EntityId-responseheader). Gooit bij een fout.
+ */
+async function maakDossier(resource, token, soort, opties) {
+  const { accountId, jaar, fiscaalPartnerAccountId, kopieerVanDossier, velden } = opties || {};
+  if (!accountId) throw new Error("Geef een cliënt (accountId) mee om een dossier aan te maken.");
+  const entitySet = await haalEntitySetNaam(resource, soort.entiteit, token);
+  const body = { "cr283_client@odata.bind": `/accounts(${accountId})` };
+  body[STATUS_VELD] = 601280000; // "In bewerking" — een nieuw dossier start altijd hier.
+  if (soort.optioneel.jaar && jaar !== undefined && jaar !== null && jaar !== "") {
+    body[soort.optioneel.jaar] = Number(jaar);
+  }
+  const partnerId = fiscaalPartnerAccountId || (kopieerVanDossier ? kopieerVanDossier.fiscaalPartnerAccountId : null);
+  if (soort.optioneel.fiscaalpartner && partnerId) {
+    body[`${kernNaam(soort.optioneel.fiscaalpartner)}@odata.bind`] = `/accounts(${partnerId})`;
+  }
+  if (Array.isArray(soort.catalogus)) {
+    for (const veldDef of soort.catalogus) {
+      if (veldDef.sectie === "review") continue; // review-/reactienotities, opmerkingen — bewust nooit meenemen
+      let waarde;
+      if (velden && Object.prototype.hasOwnProperty.call(velden, veldDef.key)) waarde = velden[veldDef.key];
+      else if (kopieerVanDossier && kopieerVanDossier.velden && kopieerVanDossier.velden[veldDef.key]) waarde = kopieerVanDossier.velden[veldDef.key].waarde;
+      if (waarde === undefined) continue;
+      const dynamicsWaarde = catalogusWaardeNaarDynamics(veldDef, waarde);
+      if (dynamicsWaarde !== undefined && dynamicsWaarde !== null) body[veldDef.veld] = dynamicsWaarde;
+    }
+  }
+  const res = await fetch(`${resource}/api/data/v9.2/${entitySet}`, {
+    method: "POST",
+    headers: { ...HEADERS(token), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Aanmaken ${soort.key}-dossier mislukt (${res.status}): ${await res.text()}`);
+  const locatie = res.headers.get("OData-EntityId") || res.headers.get("odata-entityid") || "";
+  const match = locatie.match(/\(([^)]+)\)/);
+  if (!match) throw new Error("Dossier aangemaakt, maar kon het nieuwe id niet bepalen uit het Dynamics-antwoord.");
+  return match[1];
+}
+
 // Haalt live de opties van een lokale picklist op (voor catalogusvelden waarvan we de
 // optiewaarden niet hardcoded kennen, zoals Gezinssituatie/Bijtelling — in tegenstelling tot
 // cr283_statusaangifte, dat zijn eigen vaste STATUS_OPTIES_* lijst heeft). Gecached per
@@ -337,4 +413,4 @@ async function haalDynamischePicklistOpties(resource, token, soort) {
   return resultaat;
 }
 
-module.exports = { SOORTEN, haalDossiersVoorSoort, haalEenDossier, werkDossierBij, haalDynamischePicklistOpties, metAangepasteVelden };
+module.exports = { SOORTEN, haalDossiersVoorSoort, haalEenDossier, werkDossierBij, maakDossier, bestaatDossierAl, haalDynamischePicklistOpties, metAangepasteVelden };
