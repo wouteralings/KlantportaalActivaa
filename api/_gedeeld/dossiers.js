@@ -306,6 +306,19 @@ async function werkDossierBij(resource, token, soort, id, velden) {
   if (!res.ok) throw new Error(`Bijwerken ${soort.key} mislukt (${res.status}): ${await res.text()}`);
 }
 
+/** Verwijdert een dossier DEFINITIEF uit Dynamics (harde DELETE, geen terugweg — anders dan
+ * contactpersonen, die worden gedeactiveerd). Gebruikt door /api/medewerker-dossier (actie
+ * "verwijderen"), zelf al gate't op het bijbehorende verwijder-recht (zie wijzigrechten.js). 404
+ * (al weg) telt niet als fout. */
+async function verwijderDossier(resource, token, soort, id) {
+  const entitySet = await haalEntitySetNaam(resource, soort.entiteit, token);
+  const res = await fetch(`${resource}/api/data/v9.2/${entitySet}(${id})`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "OData-MaxVersion": "4.0", "OData-Version": "4.0" },
+  });
+  if (!res.ok && res.status !== 404) throw new Error(`Verwijderen ${soort.key} mislukt (${res.status}): ${await res.text()}`);
+}
+
 /** Bestaat er al een dossier van deze soort voor deze cliënt in dit jaar? Het schema is 1 rij per
  * cliënt per jaar (zie project-doc) — gebruikt door /api/medewerker-dossier-aanmaken om een
  * dubbele aangifte voor hetzelfde jaar te voorkomen. Alleen zinvol voor soorten met een jaar-veld
@@ -413,4 +426,4 @@ async function haalDynamischePicklistOpties(resource, token, soort) {
   return resultaat;
 }
 
-module.exports = { SOORTEN, haalDossiersVoorSoort, haalEenDossier, werkDossierBij, maakDossier, bestaatDossierAl, haalDynamischePicklistOpties, metAangepasteVelden };
+module.exports = { SOORTEN, haalDossiersVoorSoort, haalEenDossier, werkDossierBij, verwijderDossier, maakDossier, bestaatDossierAl, haalDynamischePicklistOpties, metAangepasteVelden };

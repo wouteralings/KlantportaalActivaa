@@ -1879,9 +1879,20 @@ function MedewerkerDossiers({ soort }) {
   const [detailLaden, setDetailLaden] = useState(false);
   const [detailFout, setDetailFout] = useState("");
   const [nieuwOpen, setNieuwOpen] = useState(false); // "+ Nieuwe ..."-popup
+  const [magVerwijderen, setMagVerwijderen] = useState(false); // los in te stellen recht (Beheer → Medewerkers) — beheerders mogen dit sowieso altijd
 
   const scherm = "dossiers-" + soort; // eigen namespace voor opgeslagen weergaven (zie api/_gedeeld/weergaven.js)
   const soortLabelText = soort === "vpb" ? "Vennootschapsbelasting" : "Inkomstenbelasting";
+
+  // Verwijder-recht voor déze dossiersoort ophalen (per soort een ander recht — magVerwijderIb/magVerwijderVpb).
+  useEffect(() => {
+    let actief = true;
+    fetch("/api/medewerker-rechten")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => { if (actief) setMagVerwijderen(!!d.beheerder || !!(soort === "vpb" ? d.magVerwijderVpb : d.magVerwijderIb)); })
+      .catch(() => { if (actief) setMagVerwijderen(false); });
+    return () => { actief = false; };
+  }, [soort]);
 
   useEffect(() => {
     setDossiers(null);
@@ -1944,6 +1955,14 @@ function MedewerkerDossiers({ soort }) {
     openDossier(nieuw.id);
   };
 
+  // Na definitief verwijderen (DossierDetail's "Verwijderen"-knop): terug naar de lijst, en het
+  // dossier daar ook meteen weghalen zodat het niet meer aan te klikken is.
+  const dossierVerwijderd = (id) => {
+    setDetailId(null);
+    setDetail(null);
+    setDossiers((h) => (h || []).filter((x) => x.id !== id));
+  };
+
   if (detailId) {
     if (detailLaden) {
       return (
@@ -1976,6 +1995,8 @@ function MedewerkerDossiers({ soort }) {
         alleenLezen={detail.alleenLezen || []}
         picklistOpties={detail.picklistOpties || {}}
         gekoppeldeUitvragen={detail.gekoppeldeUitvragen || []}
+        magVerwijderen={magVerwijderen}
+        onDossierVerwijderd={dossierVerwijderd}
         onTerug={() => { setDetailId(null); setDetail(null); }}
         onOpgeslagen={(bijgewerkt) => {
           setDetail((h) => ({ ...h, dossier: bijgewerkt }));
@@ -2415,7 +2436,7 @@ function VeldInvoer({ veldDef, waarde, onChange, picklistOpties, statusOpties, d
    kaart bovenaan (vóór de secties) de gekoppelde uitvraaglijst(en) — de volledige vragenlijst
    (documenten aftekenen/heropenen, vragen van de klant beantwoorden) rechtstreeks ingebouwd via
    VragenlijstDetail, dezelfde functionaliteit als het tabblad Vragenlijsten. */
-function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen, picklistOpties, gekoppeldeUitvragen, onTerug, onOpgeslagen, onDossierAangemaakt }) {
+function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen, picklistOpties, gekoppeldeUitvragen, magVerwijderen, onDossierVerwijderd, onTerug, onOpgeslagen, onDossierAangemaakt }) {
   const [status, setStatus] = useState(dossier.status != null ? String(dossier.status) : "");
   const [urlDossier, setUrlDossier] = useState(dossier.urlDossier || "");
   const [documentUrl, setDocumentUrl] = useState(dossier.documentUrl || "");
@@ -2423,6 +2444,8 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
   const [opslaan, setOpslaan] = useState("rust"); // rust | bezig | gelukt | fout
   const [fout, setFout] = useState("");
   const [kopieOpen, setKopieOpen] = useState(false); // "Aangifte kopiëren naar volgend jaar"-popup
+  const [verwijderBezig, setVerwijderBezig] = useState(false);
+  const [verwijderFout, setVerwijderFout] = useState("");
   const bewerkbaar = dossier.actief !== false;
   // Gekoppelde uitvraaglijst(en) — lokale kopie zodat VragenlijstDetail (hieronder ingebed) een
   // wijziging/verwijdering direct in de kaart kan doorvoeren zonder het hele dossier opnieuw te laden.
@@ -2450,6 +2473,25 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
       setOpslaan("gelukt");
       if (d.dossier) onOpgeslagen(d.dossier);
     } catch (e) { setFout(e.message || "Opslaan mislukt."); setOpslaan("fout"); }
+  };
+
+  /** Dossier DEFINITIEF uit Dynamics verwijderen — geen terugweg, dus dubbel bevestigen. */
+  const verwijder = async () => {
+    if (!window.confirm(`Dit dossier (${soortLabel}${periode(dossier) ? ` ${periode(dossier)}` : ""}) van ${dossier.klantnaam || "deze cliënt"} definitief verwijderen uit Dynamics?\n\nDit kan niet ongedaan worden gemaakt.`)) return;
+    setVerwijderBezig(true);
+    setVerwijderFout("");
+    try {
+      const r = await fetch("/api/medewerker-dossier", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ soort: dossier.soort, id: dossier.id, actie: "verwijderen" }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      onDossierVerwijderd(dossier.id);
+    } catch (e) {
+      setVerwijderFout(e.message || "Verwijderen mislukt.");
+      setVerwijderBezig(false);
+    }
   };
 
   const label = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3 };
@@ -2512,12 +2554,20 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
         <button onClick={onTerug} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", color: KLEUR.blauw, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: 0 }}>
           <ArrowLeft size={15} /> Terug naar {soortLabel}
         </button>
-        {dossier.soort === "ib" && onDossierAangemaakt && (
-          <button onClick={() => setKopieOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#fff", border: `1px solid ${KLEUR.rand}`, color: KLEUR.tekst, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: "6px 12px", borderRadius: 7 }}>
-            <Copy size={14} /> Aangifte kopiëren naar volgend jaar
-          </button>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {dossier.soort === "ib" && onDossierAangemaakt && (
+            <button onClick={() => setKopieOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#fff", border: `1px solid ${KLEUR.rand}`, color: KLEUR.tekst, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: "6px 12px", borderRadius: 7 }}>
+              <Copy size={14} /> Aangifte kopiëren naar volgend jaar
+            </button>
+          )}
+          {magVerwijderen && (
+            <button onClick={verwijder} disabled={verwijderBezig} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#fff", border: `1px solid ${KLEUR.rand}`, color: KLEUR.rood, fontSize: 12.5, fontWeight: 600, cursor: verwijderBezig ? "default" : "pointer", padding: "6px 12px", borderRadius: 7 }}>
+              <Trash2 size={14} /> {verwijderBezig ? "Verwijderen…" : "Verwijderen"}
+            </button>
+          )}
+        </div>
       </div>
+      {verwijderFout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 10 }}>{verwijderFout}</div>}
 
       {kopieOpen && (
         <NieuwDossierModal

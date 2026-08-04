@@ -85,6 +85,7 @@ export default function ContactpersonenOverzicht() {
   const [detail, setDetail] = useState(null); // gekozen contactpersoon → detailweergave
   const [magWijzigen, setMagWijzigen] = useState(false);
   const [magBulk, setMagBulk] = useState(false);
+  const [magVerwijderen, setMagVerwijderen] = useState(false); // los in te stellen recht (Beheer → Medewerkers) — beheerders mogen dit sowieso altijd
   const [isBeheerder, setIsBeheerder] = useState(false);
   const [selectie, setSelectie] = useState(() => new Set()); // geselecteerde contactId's voor bulk
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -131,12 +132,12 @@ export default function ContactpersonenOverzicht() {
     return () => { actief = false; };
   }, [mijnNaam]);
 
-  // Rechten: mag deze medewerker contactgegevens wijzigen, en is hij beheerder (koppelen)?
+  // Rechten: mag deze medewerker contactgegevens wijzigen, verwijderen, en is hij beheerder (koppelen)?
   useEffect(() => {
     fetch("/api/medewerker-rechten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { setMagWijzigen(!!d.magWijzigen); setMagBulk(!!d.magBulk); })
-      .catch(() => { setMagWijzigen(false); setMagBulk(false); });
+      .then((d) => { setMagWijzigen(!!d.magWijzigen); setMagBulk(!!d.magBulk); setMagVerwijderen(!!d.magVerwijderContactpersonen); })
+      .catch(() => { setMagWijzigen(false); setMagBulk(false); setMagVerwijderen(false); });
     fetch("/.auth/me")
       .then((r) => r.json())
       .then((d) => {
@@ -298,6 +299,7 @@ export default function ContactpersonenOverzicht() {
       <ContactpersoonDetail
         contact={detail}
         magWijzigen={magWijzigen}
+        magVerwijderen={magVerwijderen}
         isBeheerder={isBeheerder}
         onTerug={() => setDetail(null)}
         onBewerkt={naBewerken}
@@ -1005,7 +1007,7 @@ function AanleverVerzoeken({ contact, onGewijzigd }) {
   );
 }
 
-function ContactpersoonDetail({ contact, magWijzigen, isBeheerder, onTerug, onBewerkt, onKoppeld, onOntkoppeld, onVerwijderd }) {
+function ContactpersoonDetail({ contact, magWijzigen, magVerwijderen, isBeheerder, onTerug, onBewerkt, onKoppeld, onOntkoppeld, onVerwijderd }) {
   const [bewerken, setBewerken] = useState(false);
   const [koppelKlant, setKoppelKlant] = useState(null); // gekozen cliënt voor de dubbele bevestiging
   const [ontkoppelBezig, setOntkoppelBezig] = useState(""); // accountId dat bezig is
@@ -1090,7 +1092,7 @@ function ContactpersoonDetail({ contact, magWijzigen, isBeheerder, onTerug, onBe
                 <Pencil size={13} /> Bewerken
               </button>
             )}
-            {isBeheerder && (
+            {(isBeheerder || magVerwijderen) && (
               <button
                 onClick={verwijder}
                 disabled={verwijderBezig}

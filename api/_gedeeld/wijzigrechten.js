@@ -1,7 +1,7 @@
 /**
  * Rechten per medewerker (op e-mailadres) voor het medewerkersportaal.
  *
- * Vijf onafhankelijke instellingen, alle vijf beheerd in het beheerdersportaal
+ * Negen onafhankelijke instellingen, allemaal beheerd in het beheerdersportaal
  * (Beheer → Medewerkers → "Medewerkers — wijzig-rechten"):
  *   1) Wijzig-niveau (klantgegevens per klant wijzigen):
  *        - "medewerker" (standaard, niet opgeslagen) → alleen lezen
@@ -26,15 +26,29 @@
  *      bij offertes — die komt pas met Stap 6, wanneer `ContractenOverzicht.jsx` zijn placeholder
  *      inruilt voor echte inhoud. Dit recht ligt dan al klaar om diezelfde Functions mee af te
  *      schermen (zelfde opzet als api/_gedeeld/offertesRecht.js).
+ *   6) Verwijder-IB-recht: mag Inkomstenbelasting-dossiers definitief uit Dynamics verwijderen
+ *      (knop "Verwijderen" in een geopend IB-dossier). Aparte lijst met e-mailadressen; de
+ *      Azure-rol 'beheerder' mag dit sowieso altijd. Serverkant afgedwongen — zie
+ *      api/medewerker-dossier/index.js (actie "verwijderen").
+ *   7) Verwijder-VPB-recht: hetzelfde, maar voor Vennootschapsbelasting-dossiers.
+ *   8) Verwijder-contactpersonen-recht: mag contactpersonen verwijderen (zet ze op inactief en
+ *      ontkoppelt ze van cliënten — bewust geen harde Dynamics-delete, zie
+ *      api/medewerker-contactpersoon/index.js actie "verwijderen"). Voorheen kon alleen de
+ *      Azure-rol 'beheerder' dit; sinds dit recht bestaat mag ook wie hier is aangevinkt het.
+ *   9) Verwijder-dividendbelasting-recht: alvast klaargezet voor als de tab "Dividendbelasting"
+ *      (nu nog een "nog in te richten"-placeholder in Klantoverzicht) een eigen medewerkerskant
+ *      met verwijderfunctie krijgt — wordt nog nergens afgedwongen.
  *
  * Let op: een lege lijst betekent "niemand", net als bij bulk en als-klant. Bij het invoeren
- * van het offertes- of contracten-recht heeft dus in eerste instantie alleen een beheerder
- * toegang, tot er medewerkers zijn aangevinkt.
+ * van een nieuw recht heeft dus in eerste instantie alleen een beheerder toegang, tot er
+ * medewerkers zijn aangevinkt.
  *
  * Opslag in Azure Blob Storage (container portaalcontent, blob wijzigrechten.json).
  * Structuur: { "niveaus": { "naam@activaa.nl": "manager" }, "bulk": ["naam@activaa.nl"],
  *              "alsKlant": ["naam@activaa.nl"], "offertes": ["naam@activaa.nl"],
- *              "contracten": ["naam@activaa.nl"] }
+ *              "contracten": ["naam@activaa.nl"], "verwijderIb": ["naam@activaa.nl"],
+ *              "verwijderVpb": ["naam@activaa.nl"], "verwijderContactpersonen": ["naam@activaa.nl"],
+ *              "verwijderDividendbelasting": ["naam@activaa.nl"] }
  */
 const { BlobServiceClient } = require("@azure/storage-blob");
 
@@ -69,11 +83,16 @@ function schoonLijst(lijst) {
   )];
 }
 
-const LEEG = { niveaus: {}, bulk: [], alsKlant: [], offertes: [], contracten: [] };
+const LEEG = {
+  niveaus: {}, bulk: [], alsKlant: [], offertes: [], contracten: [],
+  verwijderIb: [], verwijderVpb: [], verwijderContactpersonen: [], verwijderDividendbelasting: [],
+};
 
 /**
  * Leest het volledige rechtendocument:
- * { niveaus: {email:niveau}, bulk: [email], alsKlant: [email], offertes: [email], contracten: [email] }.
+ * { niveaus: {email:niveau}, bulk: [email], alsKlant: [email], offertes: [email], contracten: [email],
+ *   verwijderIb: [email], verwijderVpb: [email], verwijderContactpersonen: [email],
+ *   verwijderDividendbelasting: [email] }.
  * Verwerkt ook de oude structuur { wijzigers: [emails] } (→ die golden als 'manager').
  */
 async function haalRechten() {
@@ -96,6 +115,10 @@ async function haalRechten() {
       alsKlant: schoonLijst(data && data.alsKlant),
       offertes: schoonLijst(data && data.offertes),
       contracten: schoonLijst(data && data.contracten),
+      verwijderIb: schoonLijst(data && data.verwijderIb),
+      verwijderVpb: schoonLijst(data && data.verwijderVpb),
+      verwijderContactpersonen: schoonLijst(data && data.verwijderContactpersonen),
+      verwijderDividendbelasting: schoonLijst(data && data.verwijderDividendbelasting),
     };
   } catch {
     return { ...LEEG };
@@ -127,8 +150,31 @@ async function haalContracten() {
   return (await haalRechten()).contracten;
 }
 
+/** Geeft de verwijder-IB-lijst terug: [ "<email>" ] (kleine letters). */
+async function haalVerwijderIb() {
+  return (await haalRechten()).verwijderIb;
+}
+
+/** Geeft de verwijder-VPB-lijst terug: [ "<email>" ] (kleine letters). */
+async function haalVerwijderVpb() {
+  return (await haalRechten()).verwijderVpb;
+}
+
+/** Geeft de verwijder-contactpersonen-lijst terug: [ "<email>" ] (kleine letters). */
+async function haalVerwijderContactpersonen() {
+  return (await haalRechten()).verwijderContactpersonen;
+}
+
+/** Geeft de verwijder-dividendbelasting-lijst terug: [ "<email>" ] (kleine letters). */
+async function haalVerwijderDividendbelasting() {
+  return (await haalRechten()).verwijderDividendbelasting;
+}
+
 /** Overschrijft het volledige rechtendocument. Normaliseert e-mail; 'medewerker' wordt niet bewaard. */
-async function zetRechten({ niveaus, bulk, alsKlant, offertes, contracten }) {
+async function zetRechten({
+  niveaus, bulk, alsKlant, offertes, contracten,
+  verwijderIb, verwijderVpb, verwijderContactpersonen, verwijderDividendbelasting,
+}) {
   const schoonNiveaus = {};
   for (const [email, niveau] of Object.entries(niveaus || {})) {
     const laag = String(email || "").trim().toLowerCase();
@@ -141,6 +187,10 @@ async function zetRechten({ niveaus, bulk, alsKlant, offertes, contracten }) {
     alsKlant: schoonLijst(alsKlant),
     offertes: schoonLijst(offertes),
     contracten: schoonLijst(contracten),
+    verwijderIb: schoonLijst(verwijderIb),
+    verwijderVpb: schoonLijst(verwijderVpb),
+    verwijderContactpersonen: schoonLijst(verwijderContactpersonen),
+    verwijderDividendbelasting: schoonLijst(verwijderDividendbelasting),
   };
   const containerClient = await haalContainerClient();
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
@@ -149,10 +199,10 @@ async function zetRechten({ niveaus, bulk, alsKlant, offertes, contracten }) {
   return nieuw;
 }
 
-/** Overschrijft alleen de niveaus; behoudt de bestaande bulk-/als-klant-/offertes-/contracten-lijst. */
+/** Overschrijft alleen de niveaus; behoudt de rest van de bestaande rechten. */
 async function zetNiveaus(niveaus) {
-  const { bulk, alsKlant, offertes, contracten } = await haalRechten();
-  return (await zetRechten({ niveaus, bulk, alsKlant, offertes, contracten })).niveaus;
+  const { bulk, alsKlant, offertes, contracten, verwijderIb, verwijderVpb, verwijderContactpersonen, verwijderDividendbelasting } = await haalRechten();
+  return (await zetRechten({ niveaus, bulk, alsKlant, offertes, contracten, verwijderIb, verwijderVpb, verwijderContactpersonen, verwijderDividendbelasting })).niveaus;
 }
 
 /** Bepaalt of deze gebruiker mag wijzigen: beheerder (Azure) mag altijd; anders niveau manager/beheerder. */
@@ -196,7 +246,43 @@ async function magContracten(email, isBeheerder) {
   return (await haalContracten()).includes(laag);
 }
 
+/** Bepaalt of deze gebruiker IB-dossiers mag verwijderen: beheerder (Azure) mag altijd; anders in de verwijderIb-lijst. */
+async function magVerwijderIb(email, isBeheerder) {
+  if (isBeheerder) return true;
+  const laag = String(email || "").trim().toLowerCase();
+  if (!laag) return false;
+  return (await haalVerwijderIb()).includes(laag);
+}
+
+/** Bepaalt of deze gebruiker VPB-dossiers mag verwijderen: beheerder (Azure) mag altijd; anders in de verwijderVpb-lijst. */
+async function magVerwijderVpb(email, isBeheerder) {
+  if (isBeheerder) return true;
+  const laag = String(email || "").trim().toLowerCase();
+  if (!laag) return false;
+  return (await haalVerwijderVpb()).includes(laag);
+}
+
+/** Bepaalt of deze gebruiker contactpersonen mag verwijderen: beheerder (Azure) mag altijd; anders in de verwijderContactpersonen-lijst. */
+async function magVerwijderContactpersonen(email, isBeheerder) {
+  if (isBeheerder) return true;
+  const laag = String(email || "").trim().toLowerCase();
+  if (!laag) return false;
+  return (await haalVerwijderContactpersonen()).includes(laag);
+}
+
+/** Bepaalt of deze gebruiker dividendbelasting-aangiftes mag verwijderen: beheerder (Azure) mag altijd; anders in de verwijderDividendbelasting-lijst. Nog nergens serverkant afgedwongen (tab bestaat nog niet). */
+async function magVerwijderDividendbelasting(email, isBeheerder) {
+  if (isBeheerder) return true;
+  const laag = String(email || "").trim().toLowerCase();
+  if (!laag) return false;
+  return (await haalVerwijderDividendbelasting()).includes(laag);
+}
+
 module.exports = {
-  haalRechten, haalNiveaus, haalBulk, haalAlsKlant, haalOffertes, haalContracten, zetRechten, zetNiveaus,
-  magWijzigen, magBulk, magAlsKlant, magOffertes, magContracten, GELDIGE_NIVEAUS,
+  haalRechten, haalNiveaus, haalBulk, haalAlsKlant, haalOffertes, haalContracten,
+  haalVerwijderIb, haalVerwijderVpb, haalVerwijderContactpersonen, haalVerwijderDividendbelasting,
+  zetRechten, zetNiveaus,
+  magWijzigen, magBulk, magAlsKlant, magOffertes, magContracten,
+  magVerwijderIb, magVerwijderVpb, magVerwijderContactpersonen, magVerwijderDividendbelasting,
+  GELDIGE_NIVEAUS,
 };

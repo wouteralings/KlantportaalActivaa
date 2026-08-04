@@ -274,6 +274,14 @@ export default function BeheerPortaal() {
   // Contracten-recht: lijst met e-mailadressen die de tab "Contracten" in het medewerkersportaal
   // mogen zien (Contractmanagement-plan, Stap 3). Let op: leeg = niemand; beheerders mogen altijd.
   const [contracten, setContracten] = useState([]);
+  // Verwijder-rechten: wie mag Inkomstenbelasting-/Vennootschapsbelasting-dossiers, contactpersonen
+  // resp. dividendbelasting-aangiftes verwijderen. Let op: leeg = niemand; beheerders mogen altijd.
+  // Dividendbelasting heeft nog geen eigen medewerkerskant (placeholder-tab) — dit recht staat alvast
+  // klaar voor als die er komt.
+  const [verwijderIb, setVerwijderIb] = useState([]);
+  const [verwijderVpb, setVerwijderVpb] = useState([]);
+  const [verwijderContactpersonen, setVerwijderContactpersonen] = useState([]);
+  const [verwijderDividendbelasting, setVerwijderDividendbelasting] = useState([]);
   const [wijzigrechtenStatus, setWijzigrechtenStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [medewerkers, setMedewerkers] = useState(null); // null = laden; alle Activaa-medewerkers
   const [medewerkerZoek, setMedewerkerZoek] = useState("");
@@ -433,7 +441,17 @@ export default function BeheerPortaal() {
       .catch(() => setCategorieen([]));
     fetch("/api/beheer-wijzigrechten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { setNiveaus(d.niveaus || {}); setBulk(Array.isArray(d.bulk) ? d.bulk : []); setAlsKlant(Array.isArray(d.alsKlant) ? d.alsKlant : []); setOffertes(Array.isArray(d.offertes) ? d.offertes : []); setContracten(Array.isArray(d.contracten) ? d.contracten : []); })
+      .then((d) => {
+        setNiveaus(d.niveaus || {});
+        setBulk(Array.isArray(d.bulk) ? d.bulk : []);
+        setAlsKlant(Array.isArray(d.alsKlant) ? d.alsKlant : []);
+        setOffertes(Array.isArray(d.offertes) ? d.offertes : []);
+        setContracten(Array.isArray(d.contracten) ? d.contracten : []);
+        setVerwijderIb(Array.isArray(d.verwijderIb) ? d.verwijderIb : []);
+        setVerwijderVpb(Array.isArray(d.verwijderVpb) ? d.verwijderVpb : []);
+        setVerwijderContactpersonen(Array.isArray(d.verwijderContactpersonen) ? d.verwijderContactpersonen : []);
+        setVerwijderDividendbelasting(Array.isArray(d.verwijderDividendbelasting) ? d.verwijderDividendbelasting : []);
+      })
       .catch(() => {});
     fetch("/api/beheer-entra-groepen")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
@@ -1114,13 +1132,40 @@ export default function BeheerPortaal() {
     setWijzigrechtenStatus("idle");
   }, []);
 
+  const zetVerwijderIb = useCallback((email, aan) => {
+    const laag = String(email).toLowerCase();
+    setVerwijderIb((h) => (aan ? [...new Set([...h, laag])] : h.filter((e) => e !== laag)));
+    setWijzigrechtenStatus("idle");
+  }, []);
+
+  const zetVerwijderVpb = useCallback((email, aan) => {
+    const laag = String(email).toLowerCase();
+    setVerwijderVpb((h) => (aan ? [...new Set([...h, laag])] : h.filter((e) => e !== laag)));
+    setWijzigrechtenStatus("idle");
+  }, []);
+
+  const zetVerwijderContactpersonen = useCallback((email, aan) => {
+    const laag = String(email).toLowerCase();
+    setVerwijderContactpersonen((h) => (aan ? [...new Set([...h, laag])] : h.filter((e) => e !== laag)));
+    setWijzigrechtenStatus("idle");
+  }, []);
+
+  const zetVerwijderDividendbelasting = useCallback((email, aan) => {
+    const laag = String(email).toLowerCase();
+    setVerwijderDividendbelasting((h) => (aan ? [...new Set([...h, laag])] : h.filter((e) => e !== laag)));
+    setWijzigrechtenStatus("idle");
+  }, []);
+
   const slaWijzigrechtenOp = useCallback(async () => {
     setWijzigrechtenStatus("bezig");
     try {
       const res = await fetch("/api/beheer-wijzigrechten", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ niveaus, bulk, alsKlant, offertes, contracten }),
+        body: JSON.stringify({
+          niveaus, bulk, alsKlant, offertes, contracten,
+          verwijderIb, verwijderVpb, verwijderContactpersonen, verwijderDividendbelasting,
+        }),
       });
       if (!res.ok) throw new Error(await res.text());
       const d = await res.json();
@@ -1129,11 +1174,15 @@ export default function BeheerPortaal() {
       setAlsKlant(Array.isArray(d.alsKlant) ? d.alsKlant : []);
       setOffertes(Array.isArray(d.offertes) ? d.offertes : []);
       setContracten(Array.isArray(d.contracten) ? d.contracten : []);
+      setVerwijderIb(Array.isArray(d.verwijderIb) ? d.verwijderIb : []);
+      setVerwijderVpb(Array.isArray(d.verwijderVpb) ? d.verwijderVpb : []);
+      setVerwijderContactpersonen(Array.isArray(d.verwijderContactpersonen) ? d.verwijderContactpersonen : []);
+      setVerwijderDividendbelasting(Array.isArray(d.verwijderDividendbelasting) ? d.verwijderDividendbelasting : []);
       setWijzigrechtenStatus("gelukt");
     } catch {
       setWijzigrechtenStatus("fout");
     }
-  }, [niveaus, bulk, alsKlant, offertes, contracten]);
+  }, [niveaus, bulk, alsKlant, offertes, contracten, verwijderIb, verwijderVpb, verwijderContactpersonen, verwijderDividendbelasting]);
 
   const slaEntraGroepOp = useCallback(async () => {
     setEntraStatus("bezig");
@@ -2510,8 +2559,13 @@ export default function BeheerPortaal() {
           {" "}in het medewerkersportaal), vink aan wie <strong>offertes</strong> mag maken (de tab "Offertes":
           {" "}offertes en opdrachtbevestigingen opstellen en versturen), en vink aan wie de tab <strong>Contracten</strong>
           {" "}mag zien (toont vooralsnog alleen de placeholder van de Contractenmodule, die krijgt pas in een
-          {" "}latere stap echte inhoud). Beheerders mogen dit alle vijf sowieso altijd. Wie het offertes-recht
-          {" "}niet heeft, ziet de tab niet en kan de bijbehorende API ook niet aanroepen.
+          {" "}latere stap echte inhoud). Vink onder <strong>Verwijderen</strong> per tab aan wie
+          {" "}<strong>Inkomstenbelasting</strong>- en/of <strong>Vennootschapsbelasting</strong>-dossiers definitief
+          {" "}mag verwijderen, en wie <strong>contactpersonen</strong> mag verwijderen (zet ze op inactief en
+          {" "}ontkoppelt ze van cliënten — omkeerbaar in Dynamics). <strong>Dividendbelasting</strong> staat er
+          {" "}alvast bij voor als die tab later een eigen verwijderfunctie krijgt. Beheerders mogen dit alle
+          {" "}negen sowieso altijd. Wie het offertes-recht niet heeft, ziet de tab niet en kan de bijbehorende
+          {" "}API ook niet aanroepen.
         </div>
 
         {medewerkers === null ? (
@@ -2532,7 +2586,7 @@ export default function BeheerPortaal() {
               />
             </div>
             <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 8 }}>
-              {Object.values(niveaus).filter((n) => n === "manager" || n === "beheerder").length} met wijzig-recht · {bulk.length} met bulk-recht · {alsKlant.length} met als-klant-recht · {offertes.length} met offertes-recht · {contracten.length} met contracten-recht · {medewerkers.length} medewerkers
+              {Object.values(niveaus).filter((n) => n === "manager" || n === "beheerder").length} met wijzig-recht · {bulk.length} met bulk-recht · {alsKlant.length} met als-klant-recht · {offertes.length} met offertes-recht · {contracten.length} met contracten-recht · {new Set([...verwijderIb, ...verwijderVpb, ...verwijderContactpersonen, ...verwijderDividendbelasting]).size} met een verwijder-recht · {medewerkers.length} medewerkers
             </div>
             {(() => {
             const gefilterdeMedewerkers = medewerkers
@@ -2543,7 +2597,7 @@ export default function BeheerPortaal() {
               {gefilterdeMedewerkers
                 .slice(0, medewerkerToonAantal)
                 .map((m, i) => (
-                  <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}` }}>
+                  <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, flexWrap: "wrap" }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 600 }}>{m.naam || m.email}</div>
                       <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{m.functie ? m.functie + " · " : ""}{m.email}</div>
@@ -2590,6 +2644,41 @@ export default function BeheerPortaal() {
                       />
                       Contracten
                     </label>
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: 8, paddingLeft: 8, borderLeft: `1px solid ${KLEUR.rand}` }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".02em", whiteSpace: "nowrap" }}>Verwijderen</span>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: KLEUR.subtekst, cursor: "pointer", whiteSpace: "nowrap" }} title="Mag Inkomstenbelasting-dossiers definitief verwijderen">
+                        <input
+                          type="checkbox"
+                          checked={verwijderIb.includes(String(m.email).toLowerCase())}
+                          onChange={(e) => zetVerwijderIb(m.email, e.target.checked)}
+                        />
+                        IB
+                      </label>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: KLEUR.subtekst, cursor: "pointer", whiteSpace: "nowrap" }} title="Mag Vennootschapsbelasting-dossiers definitief verwijderen">
+                        <input
+                          type="checkbox"
+                          checked={verwijderVpb.includes(String(m.email).toLowerCase())}
+                          onChange={(e) => zetVerwijderVpb(m.email, e.target.checked)}
+                        />
+                        VPB
+                      </label>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: KLEUR.subtekst, cursor: "pointer", whiteSpace: "nowrap" }} title="Mag contactpersonen verwijderen (op inactief zetten en ontkoppelen van cliënten)">
+                        <input
+                          type="checkbox"
+                          checked={verwijderContactpersonen.includes(String(m.email).toLowerCase())}
+                          onChange={(e) => zetVerwijderContactpersonen(m.email, e.target.checked)}
+                        />
+                        Contactp.
+                      </label>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: KLEUR.subtekst, cursor: "pointer", whiteSpace: "nowrap" }} title="Mag dividendbelasting-aangiftes verwijderen (alvast klaargezet — de tab bestaat nog niet)">
+                        <input
+                          type="checkbox"
+                          checked={verwijderDividendbelasting.includes(String(m.email).toLowerCase())}
+                          onChange={(e) => zetVerwijderDividendbelasting(m.email, e.target.checked)}
+                        />
+                        Dividendb.
+                      </label>
+                    </div>
                     <select
                       value={niveaus[m.email] || "medewerker"}
                       onChange={(e) => zetNiveau(m.email, e.target.value)}

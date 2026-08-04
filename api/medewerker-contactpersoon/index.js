@@ -12,15 +12,20 @@
  *   - PATCH { actie: "bewerken", ... }        → contactvelden wijzigen  (gate: magWijzigen)
  *   - PATCH { actie: "koppel",   ... }        → primaire contactpersoon zetten (gate: BEHEERDER)
  *   - PATCH { actie: "ontkoppel",... }        → primaire contactpersoon verwijderen (gate: BEHEERDER)
+ *   - PATCH { actie: "verwijderen", ... }     → contactpersoon deactiveren, zie hieronder
+ *         (gate: BEHEERDER, of het verwijder-contactpersonen-recht — magVerwijderContactpersonen,
+ *         zie api/_gedeeld/wijzigrechten.js, in te stellen via Beheer → Medewerkers)
  *
  * Waarom koppelen beheerder-only is: de portaal-toegang (en dus het delen van het volledige
  * dossier: documenten, NAW, taken, facturen) loopt uitsluitend via 'Primaire contactpersoon' op
  * het Account — zie herleidAccounts in _gedeeld/identiteit.js. Iemand koppelen betekent letterlijk
  * die persoon toegang geven; de vórige primaire contactpersoon verliest daarmee juist zijn toegang.
- * Daarom is dit een bewuste, beveiligde en dubbel te bevestigen handeling.
+ * Daarom is dit een bewuste, beveiligde en dubbel te bevestigen handeling en blijft dit BEHEERDER-only
+ * (geen los in te stellen recht) — anders dan verwijderen, dat sinds 04-08-2026 ook aan losse
+ * medewerkers toegekend kan worden.
  */
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
-const { magWijzigen, magBulk } = require("../_gedeeld/wijzigrechten");
+const { magWijzigen, magBulk, magVerwijderContactpersonen } = require("../_gedeeld/wijzigrechten");
 const { logGebeurtenis, haalLog } = require("../_gedeeld/klantlog");
 const documentrechten = require("../_gedeeld/documentrechten");
 
@@ -457,10 +462,10 @@ module.exports = async function (context, req) {
       return;
     }
 
-    // ── Contactpersoon verwijderen = deactiveren (gate: BEHEERDER) ─────────
+    // ── Contactpersoon verwijderen = deactiveren (gate: BEHEERDER, of het verwijder-recht) ─
     if (actie === "verwijderen") {
-      if (!beheerder) {
-        context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Alleen een beheerder mag contactpersonen verwijderen." } };
+      if (!(await magVerwijderContactpersonen(email, beheerder))) {
+        context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Je hebt geen rechten om contactpersonen te verwijderen. Vraag een beheerder om dit recht toe te kennen via Beheer → Medewerkers." } };
         return;
       }
       if (!contactId) {

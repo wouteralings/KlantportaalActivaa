@@ -25,15 +25,20 @@
  *         inactief). "velden" is de vrije bag met catalogussleutels, bijv. { loon: true }.
  *         Velden die in Beheer → Dossiers op alleen-lezen staan worden hier genegeerd, ook al
  *         staan ze in de request-body (server-side afdwingen, niet alleen in het scherm).
+ *   - POST { soort, id, actie: "verwijderen" }  → dossier DEFINITIEF uit Dynamics verwijderen
+ *         (geen terugweg). Gate: Azure-rol 'beheerder', of het verwijder-recht voor deze soort
+ *         (magVerwijderIb/magVerwijderVpb, zie api/_gedeeld/wijzigrechten.js — in te stellen via
+ *         Beheer → Medewerkers). Werkt ongeacht of het dossier inactief staat.
  *
  * Route beveiligd via staticwebapp.config.json (rol 'medewerker'/'beheerder'); extra rolcheck hier.
  */
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
-const { SOORTEN, haalEenDossier, werkDossierBij, haalDynamischePicklistOpties, metAangepasteVelden } = require("../_gedeeld/dossiers");
+const { SOORTEN, haalEenDossier, werkDossierBij, verwijderDossier, haalDynamischePicklistOpties, metAangepasteVelden } = require("../_gedeeld/dossiers");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
 const { standaardIndelingIB, standaardIndelingOverig, vasteVeldenVoorSoort, metLabels } = require("../_gedeeld/dossierVelden");
 const { haalVoorAccounts, haalLaatstGezien, verrijkVerzoek } = require("../_gedeeld/aanleververzoeken");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
+const { magVerwijderIb, magVerwijderVpb } = require("../_gedeeld/wijzigrechten");
 
 /** Haalt de (door Beheer → Dossiers ingestelde) indeling van een soort op — secties (met
  * eventuele subrubrieken), verborgen velden, tonen-alleen-als-voorwaarden, alleen-lezen velden,
@@ -124,9 +129,28 @@ module.exports = async function (context, req) {
     }
 
     if (methode === "POST" || methode === "PATCH") {
-      const { soort: soortKey, id, status, urlDossier, documentUrl, velden: veldenBag } = req.body || {};
+      const { soort: soortKey, id, actie, status, urlDossier, documentUrl, velden: veldenBag } = req.body || {};
       const soort = soortVan(soortKey);
       if (!soort || !id) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'soort' (ib/vpb) en 'id' mee." } }; return; }
+
+      // ── Dossier definitief verwijderen (gate: beheerder, of het verwijder-recht voor deze soort) ──
+      if (actie === "verwijderen") {
+        const rechthebbendeFunctie = soort.key === "vpb" ? magVerwijderVpb : magVerwijderIb;
+        if (!(await rechthebbendeFunctie(email, rollen.includes("beheerder")))) {
+          context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: `Je hebt geen rechten om ${soort.label.toLowerCase()}-dossiers te verwijderen. Vraag een beheerder om dit recht toe te kennen via Beheer → Medewerkers.` } };
+          return;
+        }
+        const huidig = await haalEenDossier(resource, token, soort, id);
+        if (!huidig) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Dossier niet gevonden." } }; return; }
+        await verwijderDossier(resource, token, soort, id);
+        await logGebeurtenis({
+          door: email || "onbekend", actie: "dossier", accountId: huidig.accountId, accountIds: [huidig.accountId],
+          klantnaam: huidig.klantnaam,
+          tekst: `Dossier ${soort.label}${huidig.jaar ? ` ${huidig.jaar}` : ""} van ${huidig.klantnaam || "de cliënt"} definitief verwijderd.`,
+        });
+        context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true } };
+        return;
+      }
 
       // Indeling (incl. alleen-lezen én zelf aangemaakte extra velden) eerst ophalen — nodig
       // vóór het lezen/schrijven van het dossier zelf, zodat aangepaste velden ook echt
