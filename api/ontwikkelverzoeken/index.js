@@ -22,6 +22,7 @@ function naarBuiten(v, email) {
   return {
     id: v.id, type: v.type, titel: v.titel, omschrijving: v.omschrijving,
     prioriteit: v.prioriteit, status: v.status,
+    verwachteOpleverdatum: v.verwachteOpleverdatum || null,
     indienerEmail: v.indienerEmail, indienerNaam: v.indienerNaam,
     aangemaaktOp: v.aangemaaktOp, gewijzigdOp: v.gewijzigdOp, afgehandeldDoor: v.afgehandeldDoor || "",
     stemmen: stemmen.length,
@@ -97,6 +98,7 @@ module.exports = async function (context, req) {
       const velden = {};
       if (b.status) velden.status = b.status;
       if (b.prioriteit) velden.prioriteit = b.prioriteit;
+      if (b.verwachteOpleverdatum !== undefined) velden.verwachteOpleverdatum = b.verwachteOpleverdatum;
       if (b.type) velden.type = b.type;
       if (typeof b.titel === "string") velden.titel = b.titel;
       if (typeof b.omschrijving === "string") velden.omschrijving = b.omschrijving;

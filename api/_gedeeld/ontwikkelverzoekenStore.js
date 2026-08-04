@@ -106,6 +106,7 @@ async function voegToe({ type, titel, omschrijving, prioriteit, indienerEmail, i
     omschrijving: String(omschrijving || "").trim().slice(0, 5000),
     prioriteit: normPrioriteit(prioriteit),
     status: "nieuw",
+    verwachteOpleverdatum: null,
     indienerEmail: String(indienerEmail || "").toLowerCase(),
     indienerNaam: indienerNaam || indienerEmail || "",
     aangemaaktOp: nu,
@@ -127,6 +128,10 @@ async function werkBij(id, velden, door) {
   const v = lijst[i];
   if (velden.status && STATUSSEN.includes(velden.status)) { v.status = velden.status; v.afgehandeldDoor = door || v.afgehandeldDoor; }
   if (velden.prioriteit) v.prioriteit = normPrioriteit(velden.prioriteit);
+  if (velden.verwachteOpleverdatum !== undefined) {
+    const d = String(velden.verwachteOpleverdatum || "");
+    v.verwachteOpleverdatum = /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null; // leeg = wissen
+  }
   if (velden.type) v.type = normType(velden.type);
   if (typeof velden.titel === "string") v.titel = velden.titel.trim().slice(0, 200);
   if (typeof velden.omschrijving === "string") v.omschrijving = velden.omschrijving.trim().slice(0, 5000);

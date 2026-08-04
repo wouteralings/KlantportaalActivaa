@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bug, Lightbulb, ThumbsUp, Plus, Loader2, Trash2, Image as ImageIcon, X, MessageSquare, Send, Paperclip, RefreshCw } from "lucide-react";
+import { Bug, Lightbulb, ThumbsUp, Plus, Loader2, Trash2, Image as ImageIcon, X, MessageSquare, Send, Paperclip, RefreshCw, CalendarClock } from "lucide-react";
 
 /**
  * Ontwikkelverzoeken — intern bord in het medewerkersportaal. Medewerkers melden bugs of stellen
@@ -219,6 +219,7 @@ export default function Ontwikkelverzoeken() {
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: t.kleur + "1A", color: t.kleur }}><t.icoon size={11} /> {t.label}</span>
                     <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: p[2] + "1A", color: p[2] }}>Prioriteit {p[1].toLowerCase()}</span>
                     <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: s[2] + "1A", color: s[2] }}>{s[1]}</span>
+                    {v.verwachteOpleverdatum && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: KLEUR.groen + "1A", color: KLEUR.groen }}><CalendarClock size={11} /> Verwacht {datumNL(v.verwachteOpleverdatum)}</span>}
                   </div>
                   <div style={{ fontSize: 14.5, fontWeight: 700, marginBottom: 2 }}>{v.titel}</div>
                   <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 8 }}>{v.indienerNaam || v.indienerEmail} · {datumNL(v.aangemaaktOp)}</div>
@@ -253,6 +254,11 @@ export default function Ontwikkelverzoeken() {
                         <select value={v.prioriteit} onChange={(e) => zet(v, { prioriteit: e.target.value })} style={{ ...veld, padding: "6px 8px", fontSize: 12 }}>
                           {PRIORITEITEN.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
                         </select>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                        <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>Verwacht op</span>
+                        <input type="date" value={v.verwachteOpleverdatum || ""} onChange={(e) => zet(v, { verwachteOpleverdatum: e.target.value })} title="Verwachte opleverdatum" style={{ ...veld, padding: "6px 8px", fontSize: 12 }} />
+                        {v.verwachteOpleverdatum && <button onClick={() => zet(v, { verwachteOpleverdatum: "" })} title="Datum wissen" style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.mutedTekst, display: "inline-flex" }}><X size={13} /></button>}
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 5, flex: "1 1 240px", minWidth: 200 }}>
                         <MessageSquare size={13} color={KLEUR.mutedTekst} />
