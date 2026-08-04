@@ -44,10 +44,15 @@ async function haalGraphToken() {
 /**
  * Verstuurt een platte-tekst e-mail naar één of meer ontvangers.
  * Dubbele/lege adressen worden er automatisch uitgefilterd.
+ *
+ * `afzender` is optioneel en overschrijft, indien meegegeven, het standaard postvak
+ * (Application Setting GRAPH_MAIL_SENDER) — bijv. het per-module instelbare afzenderadres van de
+ * Contracten-verloopherinnering (zie ContractenMailInstellingen.jsx/contractenReminders.js). Moet,
+ * net als de standaard afzender, een bestaand gelicentieerd postvak in de tenant zijn.
  */
-async function verstuurMail({ ontvangers, onderwerp, tekst }) {
-  const afzender = process.env.GRAPH_MAIL_SENDER;
-  if (!afzender) throw new Error("MISSING_MAIL_SENDER");
+async function verstuurMail({ ontvangers, onderwerp, tekst, afzender }) {
+  const vanAdres = (afzender || "").trim() || process.env.GRAPH_MAIL_SENDER;
+  if (!vanAdres) throw new Error("MISSING_MAIL_SENDER");
 
   // Normaliseer, filter lege waarden en ontdubbel op (kleine letters) e-mailadres.
   const gezien = new Set();
@@ -75,7 +80,7 @@ async function verstuurMail({ ontvangers, onderwerp, tekst }) {
   };
 
   const res = await fetch(
-    `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(afzender)}/sendMail`,
+    `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(vanAdres)}/sendMail`,
     {
       method: "POST",
       headers: {
@@ -90,7 +95,7 @@ async function verstuurMail({ ontvangers, onderwerp, tekst }) {
     throw new Error(`Versturen e-mail mislukt (${res.status}): ${await res.text()}`);
   }
 
-  return { ontvangers: lijst };
+  return { ontvangers: lijst, van: vanAdres };
 }
 
 /**

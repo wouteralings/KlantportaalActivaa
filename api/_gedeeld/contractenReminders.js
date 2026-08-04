@@ -31,6 +31,7 @@ const { haalDynamicsToken } = require("./identiteit");
 const { verstuurMail } = require("./mail");
 const { isIngeschakeld } = require("./contractenInstellingen");
 const { haalTeControlererenVoorReminders, markeerReminderVerzonden } = require("./contractenKlanten");
+const { haalInstellingen } = require("./instellingen");
 
 const VASTE_DAGEN = [90, 30];
 const OPZEG_MARGE_DAGEN = 14;
@@ -105,10 +106,24 @@ function formatteerDatum(waarde) {
   return d.toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" });
 }
 
-function maakOnderwerpEnTekst(contract, dagenVoorEinddatum, klant) {
+/** Vervangt {sleutel}-variabelen in een door de beheerder ingevoerde onderwerp-/tekst-sjabloon —
+ *  zie de PLACEHOLDERS-lijst in ContractenMailInstellingen.jsx voor welke variabelen beschikbaar
+ *  zijn. Een onbekende {sleutel} blijft ongewijzigd staan i.p.v. te verdwijnen. */
+function vulPlaceholdersIn(tekst, waarden) {
+  return String(tekst || "").replace(/\{(\w+)\}/g, (heel, sleutel) => (waarden[sleutel] != null && waarden[sleutel] !== "" ? String(waarden[sleutel]) : heel));
+}
+
+/**
+ * Stelt onderwerp + tekst van de verloopherinnering samen. `instellingen.contractenReminder
+ * Onderwerp`/`contractenReminderTekst` (Beheer → Facturatie → Betaalde functionaliteiten →
+ * "Verloopherinnering per e-mail", zie ContractenMailInstellingen.jsx) overschrijven, indien
+ * ingevuld, de ingebouwde standaardtekst hieronder — met {klant}/{contract}/{leverancier}/
+ * {einddatum}/{dagen}/{opzegtermijn} als variabelen.
+ */
+function maakOnderwerpEnTekst(contract, dagenVoorEinddatum, klant, instellingen = {}) {
   const naamRegel = klant.contactNaam ? `Beste ${klant.contactNaam.split(" ")[0]},` : "Beste,";
   const einddatumTekst = formatteerDatum(contract.einddatum);
-  const onderwerp = `Uw contract "${contract.naam}" verloopt op ${einddatumTekst}`;
+  const standaardOnderwerp = `Uw contract "${contract.naam}" verloopt op ${einddatumTekst}`;
   const regels = [
     naamRegel,
     "",
@@ -130,7 +145,26 @@ function maakOnderwerpEnTekst(contract, dagenVoorEinddatum, klant) {
     "Met vriendelijke groet,",
     "Activaa"
   );
-  return { onderwerp, tekst: regels.join("\n") };
+  const standaardTekst = regels.join("\n");
+
+  const eigenOnderwerp = (instellingen.contractenReminderOnderwerp || "").trim();
+  const eigenTekst = (instellingen.contractenReminderTekst || "").trim();
+  if (!eigenOnderwerp && !eigenTekst) {
+    return { onderwerp: standaardOnderwerp, tekst: standaardTekst };
+  }
+
+  const waarden = {
+    klant: klant.contactNaam ? klant.contactNaam.split(" ")[0] : "",
+    contract: contract.naam,
+    leverancier: contract.leverancier || "",
+    einddatum: einddatumTekst,
+    dagen: dagenVoorEinddatum,
+    opzegtermijn: contract.opzegtermijnDagen != null ? contract.opzegtermijnDagen : "",
+  };
+  return {
+    onderwerp: eigenOnderwerp ? vulPlaceholdersIn(eigenOnderwerp, waarden) : standaardOnderwerp,
+    tekst: eigenTekst ? vulPlaceholdersIn(eigenTekst, waarden) : standaardTekst,
+  };
 }
 
 /**
@@ -140,6 +174,9 @@ function maakOnderwerpEnTekst(contract, dagenVoorEinddatum, klant) {
 async function verwerkReminders() {
   const vandaag = new Date(new Date().toISOString().slice(0, 10)); // middernacht UTC, datum-only
   const contracten = await haalTeControlererenVoorReminders();
+  // Best effort: als de instellingen-opslag (nog) niet beschikbaar is, gewoon de ingebouwde
+  // standaardtekst + het standaard afzenderadres gebruiken i.p.v. de hele run te laten mislukken.
+  const instellingen = await haalInstellingen().catch(() => ({}));
   const resultaten = [];
 
   // Cache per accountId, zodat we niet voor elk contract van dezelfde klant opnieuw de
@@ -169,8 +206,8 @@ async function verwerkReminders() {
         continue;
       }
 
-      const { onderwerp, tekst } = maakOnderwerpEnTekst(contract, dagenVoorEinddatum, klant);
-      await verstuurMail({ ontvangers: [klant.email], onderwerp, tekst });
+      const { onderwerp, tekst } = maakOnderwerpEnTekst(contract, dagenVoorEinddatum, klant, instellingen);
+      await verstuurMail({ ontvangers: [klant.email], onderwerp, tekst, afzender: instellingen.contractenReminderAfzender });
       await markeerReminderVerzonden(contract.id, dagenVoorEinddatum);
 
       resultaten.push({ contractId: contract.id, klantAccountId: contract.klantAccountId, dagenVoorEinddatum, verzonden: true, naarEmail: klant.email });

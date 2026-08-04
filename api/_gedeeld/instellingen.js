@@ -41,7 +41,7 @@ async function haalInstellingen() {
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
 
   const bestaat = await blobClient.exists();
-  if (!bestaat) return { medewerkersGroepId: "", medewerkersGroepNaam: "", googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "", reviewWebhookUrl: "", facturatiemodulePrijs: 5, urenmodulePrijs: 2.5, rapportagesmodulePrijs: 7.5, bezittingenmodulePrijs: 5, rittenmodulePrijs: 1.5, contractenmodulePrijs: 2.5, contractenSharepointOpslag: false, contractenSharepointMap: "Contracten", klantoverzicht: { extraKolommen: [], standaardVerborgen: [] }, dossierIndeling: { ib: standaardIndelingIB() }, aangifteBestandsnaamTemplate: "Aangifte inkomstenbelasting {jaar} - {klant}.pdf", aangifteMailOnderwerpTemplate: STANDAARD_AANGIFTE_MAIL_ONDERWERP, aangifteMailTekstTemplate: STANDAARD_AANGIFTE_MAIL_TEKST, dossierExtraKolommen: { ib: [], vpb: [] }, contactpersonenExtraKolommen: [] };
+  if (!bestaat) return { medewerkersGroepId: "", medewerkersGroepNaam: "", googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "", reviewWebhookUrl: "", facturatiemodulePrijs: 5, urenmodulePrijs: 2.5, rapportagesmodulePrijs: 7.5, bezittingenmodulePrijs: 5, rittenmodulePrijs: 1.5, contractenmodulePrijs: 2.5, contractenSharepointOpslag: false, contractenSharepointMap: "Contracten", contractenReminderAfzender: "", contractenReminderOnderwerp: "", contractenReminderTekst: "", klantoverzicht: { extraKolommen: [], standaardVerborgen: [] }, dossierIndeling: { ib: standaardIndelingIB() }, aangifteBestandsnaamTemplate: "Aangifte inkomstenbelasting {jaar} - {klant}.pdf", aangifteMailOnderwerpTemplate: STANDAARD_AANGIFTE_MAIL_ONDERWERP, aangifteMailTekstTemplate: STANDAARD_AANGIFTE_MAIL_TEKST, dossierExtraKolommen: { ib: [], vpb: [] }, contactpersonenExtraKolommen: [] };
 
   const downloadResponse = await blobClient.download();
   const tekst = await streamNaarTekst(downloadResponse.readableStreamBody);
@@ -101,6 +101,15 @@ async function haalInstellingen() {
     // Directie/Administratie/Aanleveren-submappen in api/_gedeeld/documentmappen.js, maar hier via
     // Beheer instelbaar i.p.v. een App Setting, zoals Wouter vroeg ("Dit willen we kunnen instellen").
     contractenSharepointMap: "Contracten",
+    // Aanpasbare verloopherinnering per e-mail (Contractenmodule) — op verzoek van Wouter
+    // (05-08-2026: "Ik zou graag contracten mail willen kunnen aanpassen en mailadres waarvan
+    // wordt gemaild."), instelbaar in Beheer → Facturatie → Betaalde functionaliteiten. Alle drie
+    // leeg = ingebouwde standaardtekst + het standaard afzenderadres (Application Setting
+    // GRAPH_MAIL_SENDER) gebruiken — zie maakOnderwerpEnTekst()/verwerkReminders() in
+    // contractenReminders.js en verstuurMail() in mail.js.
+    contractenReminderAfzender: "",
+    contractenReminderOnderwerp: "",
+    contractenReminderTekst: "",
     // Kolom-configuratie voor het klantoverzicht in het medewerkersportaal.
     // extraKolommen: [{ veld, label, type: "tekst"|"keuze"|"lookup" }]; standaardVerborgen: [kolom-keys].
     klantoverzicht: { extraKolommen: [], standaardVerborgen: [] },

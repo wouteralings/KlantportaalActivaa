@@ -4,6 +4,7 @@ import UitvraagBeheer from "./UitvraagBeheer";
 import UrenTarievenBeheer from "./UrenTarievenBeheer";
 import ContractenTypesBeheer from "./ContractenTypesBeheer";
 import ContractenDossierInstellingen from "./ContractenDossierInstellingen";
+import ContractenMailInstellingen from "./ContractenMailInstellingen";
 import VerlofBeheer from "./VerlofBeheer";
 import DossierIndelingBeheer from "./DossierIndelingBeheer";
 import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Search, ArrowUp, ArrowDown, HelpCircle, ChevronDown, Plus, Pencil, Check, X, Clock } from "lucide-react";
@@ -3006,6 +3007,7 @@ export default function BeheerPortaal() {
           </div>
 
           <ContractenDossierInstellingen />
+          <ContractenMailInstellingen />
         </div>
 
         <div style={{ marginBottom: 18, padding: 14, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>

@@ -89,6 +89,7 @@ export default function ContactpersonenOverzicht() {
   const [extraKolommenConfig, setExtraKolommenConfig] = useState([]); // door Beheer → Kolommen toegevoegde extra velden
   const [weergaven, setWeergaven] = useState([]); // [{ naam, config }] — opgeslagen weergaven (zie api/medewerker-weergaven)
   const [actieveWeergave, setActieveWeergave] = useState("");
+  const [weergaveFout, setWeergaveFout] = useState(false); // true = laatste opslagpoging is mislukt (zie bewaarWeergaven)
   const [detail, setDetail] = useState(null); // gekozen contactpersoon → detailweergave
   const [magWijzigen, setMagWijzigen] = useState(false);
   const [magBulk, setMagBulk] = useState(false);
@@ -281,7 +282,13 @@ export default function ContactpersonenOverzicht() {
   };
   const bewaarWeergaven = (lijst) => {
     setWeergaven(lijst);
-    fetch("/api/medewerker-weergaven", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scherm: "contactpersonen", views: lijst }) }).catch(() => {});
+    setWeergaveFout(false);
+    // Optimistisch: de UI toont de wijziging meteen. Faalt het opslaan zelf (netwerk- of
+    // serverfout) dan verdwijnt de wijziging bij een volgend bezoek weer stilletjes — vandaar
+    // hier expliciet r.ok controleren en een foutmelding tonen i.p.v. de fout te negeren.
+    fetch("/api/medewerker-weergaven", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scherm: "contactpersonen", views: lijst }) })
+      .then((r) => { if (!r.ok) throw new Error(); })
+      .catch(() => setWeergaveFout(true));
   };
   const opslaanAlsWeergave = () => {
     const naam = (window.prompt("Naam van de weergave:") || "").trim();
@@ -483,6 +490,9 @@ export default function ContactpersonenOverzicht() {
         <button onClick={opslaanAlsWeergave} style={selectStijl} title="Huidige indeling opslaan als weergave">Opslaan als…</button>
         {actieveWeergave && (
           <button onClick={verwijderWeergave} style={{ ...selectStijl, color: KLEUR.rood }} title="Verwijder deze weergave">Verwijderen</button>
+        )}
+        {weergaveFout && (
+          <span style={{ fontSize: 12, color: KLEUR.rood }}>Opslaan van de weergave is mislukt — probeer het nog eens.</span>
         )}
 
         <button onClick={() => setFilterRegel((o) => !o)} style={{ ...selectStijl, color: filterRegel ? KLEUR.blauw : KLEUR.tekst, fontWeight: filterRegel ? 700 : 400 }}>

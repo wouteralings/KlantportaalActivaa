@@ -1884,6 +1884,7 @@ function MedewerkerDossiers({ soort }) {
   const [kolomVolgorde, setKolomVolgorde] = useState(null); // null = standaard KOLOMMEN-volgorde; anders array van keys
   const [weergaven, setWeergaven] = useState([]); // [{ naam, config }]
   const [actieveWeergave, setActieveWeergave] = useState("");
+  const [weergaveFout, setWeergaveFout] = useState(false); // true = laatste opslagpoging is mislukt (zie bewaarWeergaven)
   const [menu, setMenu] = useState(null); // { key, x, y } — geopend kolomkop-menu
   const [menuZoek, setMenuZoek] = useState("");
   const [kolomKiezerOpen, setKolomKiezerOpen] = useState(false);
@@ -2118,7 +2119,13 @@ function MedewerkerDossiers({ soort }) {
   };
   const bewaarWeergaven = (lijst) => {
     setWeergaven(lijst);
-    fetch("/api/medewerker-weergaven", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scherm, views: lijst }) }).catch(() => {});
+    setWeergaveFout(false);
+    // Optimistisch: de UI toont de wijziging meteen. Faalt het opslaan zelf (netwerk- of
+    // serverfout) dan verdwijnt de wijziging bij een volgend bezoek weer stilletjes — vandaar
+    // hier expliciet r.ok controleren en een foutmelding tonen i.p.v. de fout te negeren.
+    fetch("/api/medewerker-weergaven", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scherm, views: lijst }) })
+      .then((r) => { if (!r.ok) throw new Error(); })
+      .catch(() => setWeergaveFout(true));
   };
   const opslaanAlsWeergave = () => {
     const naam = (window.prompt("Naam van de weergave:") || "").trim();
@@ -2208,6 +2215,9 @@ function MedewerkerDossiers({ soort }) {
         <button onClick={opslaanAlsWeergave} style={selectStijl} title="Huidige indeling opslaan als weergave">Opslaan als…</button>
         {actieveWeergave && (
           <button onClick={verwijderWeergave} style={{ ...selectStijl, color: KLEUR.rood }} title="Verwijder deze weergave">Verwijderen</button>
+        )}
+        {weergaveFout && (
+          <span style={{ fontSize: 12, color: KLEUR.rood }}>Opslaan van de weergave is mislukt — probeer het nog eens.</span>
         )}
         {filterActief && (
           <button
@@ -3018,6 +3028,7 @@ function KlantOverzicht() {
   const [kolomVolgorde, setKolomVolgorde] = useState(null); // null = standaard KOLOMMEN-volgorde; anders array van keys
   const [weergaven, setWeergaven] = useState([]); // [{ naam, config }]
   const [actieveWeergave, setActieveWeergave] = useState("");
+  const [weergaveFout, setWeergaveFout] = useState(false); // true = laatste opslagpoging is mislukt (zie bewaarWeergaven)
   const [keuzes, setKeuzes] = useState({ clienttype: [], status: [], team: [], kantoor: [] });
   const [medewerkers, setMedewerkers] = useState([]); // voor de team-zoekvelden
   const [menu, setMenu] = useState(null); // { key, x, y } — geopend kolomkop-menu
@@ -3235,7 +3246,13 @@ function KlantOverzicht() {
   };
   const bewaarWeergaven = (lijst) => {
     setWeergaven(lijst);
-    fetch("/api/medewerker-weergaven", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ views: lijst }) }).catch(() => {});
+    setWeergaveFout(false);
+    // Optimistisch: de UI toont de wijziging meteen. Faalt het opslaan zelf (netwerk- of
+    // serverfout) dan verdwijnt de wijziging bij een volgend bezoek weer stilletjes — vandaar
+    // hier expliciet r.ok controleren en een foutmelding tonen i.p.v. de fout te negeren.
+    fetch("/api/medewerker-weergaven", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ views: lijst }) })
+      .then((r) => { if (!r.ok) throw new Error(); })
+      .catch(() => setWeergaveFout(true));
   };
   const opslaanAlsWeergave = () => {
     const naam = (window.prompt("Naam van de weergave:") || "").trim();
@@ -3341,6 +3358,9 @@ function KlantOverzicht() {
         <button onClick={opslaanAlsWeergave} style={selectStijl} title="Huidige indeling opslaan als weergave">Opslaan als…</button>
         {actieveWeergave && (
           <button onClick={verwijderWeergave} style={{ ...selectStijl, color: KLEUR.rood }} title="Verwijder deze weergave">Verwijderen</button>
+        )}
+        {weergaveFout && (
+          <span style={{ fontSize: 12, color: KLEUR.rood }}>Opslaan van de weergave is mislukt — probeer het nog eens.</span>
         )}
         {filterActief && (
           <button
