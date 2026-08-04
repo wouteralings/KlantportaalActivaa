@@ -6,6 +6,7 @@ import ContractenOverzicht from "./ContractenOverzicht";
 import Vragenlijsten from "./Vragenlijsten";
 import VragenlijstDetail from "./VragenlijstDetail";
 import Urenregistratie from "./uren/Urenregistratie";
+import Ontwikkelverzoeken from "./Ontwikkelverzoeken";
 import ScopeToggle, { useMijnNaam, isKlantVanMij } from "./MijnFilter";
 import ContactpersonenOverzicht from "./klanten/ContactpersonenOverzicht";
 import NogInTeRichten from "./klanten/NogInTeRichten";
@@ -2293,6 +2294,13 @@ function MedewerkerDossiers({ soort }) {
                             {d.klantnaam || "—"}
                             {d.actief === false && <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 999, background: "#F0F0EC", color: KLEUR.mutedTekst }}>Inactief</span>}
                           </span>
+                        ) : kol.key === "dossiernaam" ? (
+                          // Dynamics' samengestelde "Dossier"-kolom kan lang zijn (bv. "Akhiat, L. | | 2025")
+                          // — begrensd + afgekapt met "…", zelfde lettergrootte/-gewicht als de andere
+                          // kolommen, zodat 'ie de rij niet groter/breder laat ogen dan de rest.
+                          <span title={d.dossiernaam || ""} style={{ display: "inline-block", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "bottom", fontSize: "inherit", fontWeight: 400 }}>
+                            {d.dossiernaam || "—"}
+                          </span>
                         ) : (
                           kol.cel(d) || "—"
                         )}
@@ -3871,6 +3879,7 @@ export default function MedewerkerPortaal() {
     ["reacties", "Log klantreacties", 0],
     ["ondertekeningen", "Ondertekeningen", 0],
     ["reviews", "Reviews", tellingen.nieuweReviews],
+    ["ontwikkelverzoeken", "Ontwikkelverzoeken", 0],
     ...(magOffertes || isBeheerder ? [["offertes", "Offertes", 0]] : []),
     ...(magContracten || isBeheerder ? [["contracten", "Contracten", 0]] : []),
     ...(magAlsKlant || isBeheerder ? [["meekijken", "Meekijken als klant", 0]] : []),
@@ -3937,6 +3946,7 @@ export default function MedewerkerPortaal() {
       {tab === "reacties" && <AkkoordenLog />}
       {tab === "ondertekeningen" && <OndertekeningenLog />}
       {tab === "reviews" && <ReviewBeheer />}
+      {tab === "ontwikkelverzoeken" && <Ontwikkelverzoeken />}
       {tab === "offertes" && (magOffertes || isBeheerder) && <OffertesModule />}
       {tab === "contracten" && (magContracten || isBeheerder) && <ContractenOverzicht />}
       {tab === "meekijken" && <MeekijkenAlsKlant gebruiker={gebruiker} />}
