@@ -2427,6 +2427,10 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
   // Gekoppelde uitvraaglijst(en) — lokale kopie zodat VragenlijstDetail (hieronder ingebed) een
   // wijziging/verwijdering direct in de kaart kan doorvoeren zonder het hele dossier opnieuw te laden.
   const [uitvragen, setUitvragen] = useState(gekoppeldeUitvragen || []);
+  // Per uitvraaglijst in-/uitgeklapt (id -> bool); zonder eigen keuze staat een afgeronde lijst
+  // standaard dichtgeklapt (makkelijk nalezen zonder de pagina vol te zetten) en een open lijst
+  // standaard opengeklapt (die vraagt nog aandacht).
+  const [uitvraagOpen, setUitvraagOpen] = useState({});
 
   const oorspronkelijkeVelden = waardenUitDossier(dossier, catalogus);
   const veldenGewijzigd = JSON.stringify(veldenState) !== JSON.stringify(oorspronkelijkeVelden);
@@ -2550,34 +2554,43 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
         </div>
       )}
 
-      {uitvragen.length > 0 && uitvragen.map((u) => (
-        <div key={u.id} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
-            <FileText size={16} color={KLEUR.blauw} />
-            <span style={{ fontSize: 15, fontWeight: 700 }}>{u.lijstNaam || "Uitvraaglijst"}</span>
-            <span
-              style={{
-                fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, textTransform: "uppercase", letterSpacing: ".02em",
-                background: u.status === "afgerond" ? "#EAF6EE" : "#FCEFE0",
-                color: u.status === "afgerond" ? KLEUR.groen : "#B98237",
-              }}
+      {uitvragen.length > 0 && uitvragen.map((u) => {
+        const opengeklapt = uitvraagOpen[u.id] ?? (u.status !== "afgerond");
+        return (
+          <div key={u.id} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
+            <div
+              onClick={() => setUitvraagOpen((h) => ({ ...h, [u.id]: !opengeklapt }))}
+              style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: opengeklapt ? 14 : 0, cursor: "pointer" }}
             >
-              {u.status === "afgerond" ? "Afgerond" : "Open"}
-            </span>
-            {!u.zichtbaar && <span style={{ fontSize: 10.5, color: KLEUR.mutedTekst }}>(concept — nog niet zichtbaar voor de klant)</span>}
-            {u.openVragen > 0 && (
-              <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "#F6E4E4", color: KLEUR.rood }}>
-                {u.openVragen} open vraag/vragen
+              <ChevronRight size={15} color={KLEUR.mutedTekst} style={{ flexShrink: 0, transform: opengeklapt ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
+              <FileText size={16} color={KLEUR.blauw} />
+              <span style={{ fontSize: 15, fontWeight: 700 }}>{u.lijstNaam || "Uitvraaglijst"}</span>
+              <span
+                style={{
+                  fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, textTransform: "uppercase", letterSpacing: ".02em",
+                  background: u.status === "afgerond" ? "#EAF6EE" : "#FCEFE0",
+                  color: u.status === "afgerond" ? KLEUR.groen : "#B98237",
+                }}
+              >
+                {u.status === "afgerond" ? "Afgerond" : "Open"}
               </span>
+              {!u.zichtbaar && <span style={{ fontSize: 10.5, color: KLEUR.mutedTekst }}>(concept — nog niet zichtbaar voor de klant)</span>}
+              {u.openVragen > 0 && (
+                <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "#F6E4E4", color: KLEUR.rood }}>
+                  {u.openVragen} open vraag/vragen
+                </span>
+              )}
+            </div>
+            {opengeklapt && (
+              <VragenlijstDetail
+                verzoek={u}
+                onGewijzigd={(bijgewerkt) => setUitvragen((h) => h.map((x) => (x.id === bijgewerkt.id ? bijgewerkt : x)))}
+                onVerwijderd={() => setUitvragen((h) => h.filter((x) => x.id !== u.id))}
+              />
             )}
           </div>
-          <VragenlijstDetail
-            verzoek={u}
-            onGewijzigd={(bijgewerkt) => setUitvragen((h) => h.map((x) => (x.id === bijgewerkt.id ? bijgewerkt : x)))}
-            onVerwijderd={() => setUitvragen((h) => h.filter((x) => x.id !== u.id))}
-          />
-        </div>
-      ))}
+        );
+      })}
 
       {zichtbareSecties.map((sectie) => (
         <div key={sectie.sleutel} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>

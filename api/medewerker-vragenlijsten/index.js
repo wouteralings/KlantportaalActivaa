@@ -3,11 +3,13 @@
  * verzoeken) die nog aandacht nodig hebben — open, of afgerond maar nog niet gecontroleerd — met
  * voortgang en de vraag-/berichtenreeks per lijst, plus het beantwoorden van vragen van klanten.
  *
- *   - GET  → { rijen: [...], mijnNaam }
- *            Een verzoek verdwijnt pas uit dit overzicht als het 'afgerond' is (klant klaar) ÉN een
- *            medewerker het heeft geaccepteerd — zo mist niemand de controle op een net binnengekomen
- *            complete vragenlijst (het rode bolletje/badge blijft ook gewoon werken via de bestaande
- *            'gezien'-tracking).
+ *   - GET  → { rijen: [...], afgerond: [...], mijnNaam }
+ *            Een verzoek verdwijnt pas uit 'rijen' (het werkoverzicht dat aandacht vraagt) als het
+ *            'afgerond' is (klant klaar) ÉN een medewerker het heeft geaccepteerd — zo mist niemand de
+ *            controle op een net binnengekomen complete vragenlijst (het rode bolletje/badge blijft ook
+ *            gewoon werken via de bestaande 'gezien'-tracking). Zo'n geaccepteerd verzoek verdwijnt
+ *            daarmee niet helemaal: het staat voortaan in 'afgerond' (nieuwste acceptatie eerst), zodat
+ *            het scherm ze in een aparte, dichtgeklapte sectie kan laten naslaan (zie Vragenlijsten.jsx).
  *   - POST { actie:"antwoord", verzoekId, tekst }    → medewerker beantwoordt een vraag (klant ziet dit)
  *   - POST { actie:"accepteren", verzoekId }         → medewerker keurt een afgeronde vragenlijst goed;
  *                                                       verdwijnt daarna uit dit overzicht
@@ -336,6 +338,13 @@ module.exports = async function (context, req) {
       String(a.deadline || "9999").localeCompare(String(b.deadline || "9999")) ||
       String(b.startdatum).localeCompare(String(a.startdatum))
     );
+    // Afgerond én geaccepteerd — blijft (los, in een dichtgeklapte sectie) zichtbaar in het scherm
+    // zodat een medewerker een eerder gecontroleerde vragenlijst makkelijk kan naslaan; nieuwste
+    // acceptatie eerst.
+    const afgerond = alle
+      .filter((v) => v.status === "afgerond" && v.medewerkerGeaccepteerd)
+      .map((v) => verrijk(v, laatstGezien))
+      .sort((a, b) => String(b.geaccepteerdOp || "").localeCompare(String(a.geaccepteerdOp || "")));
 
     // Betrouwbare naam voor het 'mijn cliënten'-filter: uit Dynamics (systemuser fullname) op basis
     // van het e-mailadres; val terug op de token-naam als dat niet lukt.
@@ -349,7 +358,7 @@ module.exports = async function (context, req) {
       } catch { /* val terug op token-naam */ }
     }
 
-    context.res = { headers: { "Content-Type": "application/json" }, body: { rijen, mijnNaam } };
+    context.res = { headers: { "Content-Type": "application/json" }, body: { rijen, afgerond, mijnNaam } };
   } catch (err) {
     if (err.message === "MISSING_CONFIG") { context.res = { status: 501, body: { error: "Opslag is nog niet geconfigureerd." } }; return; }
     context.log.error(err);

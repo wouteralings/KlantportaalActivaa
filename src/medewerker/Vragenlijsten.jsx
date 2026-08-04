@@ -43,6 +43,9 @@ const td = { fontSize: 12.5, color: KLEUR.tekst, padding: "9px 10px", borderTop:
  */
 export default function Vragenlijsten() {
   const [rijen, setRijen] = useState(null); // null = laden
+  const [afgerond, setAfgerond] = useState([]); // afgerond én door een medewerker geaccepteerd — apart, dichtgeklapt na te slaan
+  const [afgerondOpen, setAfgerondOpen] = useState(false); // de dichtgeklapte sectie zelf
+  const [toonAantalAfgerond, setToonAantalAfgerond] = useState(25);
   const [mijnNaam, setMijnNaam] = useState("");
   const [klantNamen, setKlantNamen] = useState(null); // Map accountId -> Set(namen) | null = (nog) niet geladen
   const [fout, setFout] = useState("");
@@ -69,8 +72,25 @@ export default function Vragenlijsten() {
     setRijen(null); setFout("");
     fetch("/api/medewerker-vragenlijsten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { setRijen(d.rijen || []); setMijnNaam(d.mijnNaam || ""); if (!d.mijnNaam) setScope("alle"); })
+      .then((d) => { setRijen(d.rijen || []); setAfgerond(d.afgerond || []); setMijnNaam(d.mijnNaam || ""); if (!d.mijnNaam) setScope("alle"); })
       .catch(() => { setRijen([]); setFout("Kon de vragenlijsten niet laden."); });
+  };
+
+  // Zet een bijgewerkt verzoek in de juiste lijst — 'rijen' (vraagt nog aandacht) of 'afgerond'
+  // (afgerond én geaccepteerd) — ongeacht uit welke van de twee de actie kwam. Zo verplaatst een
+  // vragenlijst zich vanzelf: "Accepteren" stuurt 'm naar 'afgerond', en bijvoorbeeld een document
+  // heropenen of een nieuwe vraag toevoegen (die de acceptatie server-side laat vervallen) stuurt
+  // 'm vanzelf weer terug naar 'rijen'.
+  const plaatsVerzoek = (v) => {
+    if (!v) return;
+    const plaatsIn = (lijst) => ((lijst || []).some((x) => x.id === v.id) ? lijst.map((x) => (x.id === v.id ? v : x)) : [v, ...(lijst || [])]);
+    if (v.status === "afgerond" && v.medewerkerGeaccepteerd) {
+      setRijen((h) => (h || []).filter((x) => x.id !== v.id));
+      setAfgerond((h) => plaatsIn(h));
+    } else {
+      setAfgerond((h) => (h || []).filter((x) => x.id !== v.id));
+      setRijen((h) => plaatsIn(h));
+    }
   };
   useEffect(() => { laad(); }, []);
 
@@ -88,23 +108,32 @@ export default function Vragenlijsten() {
     return !!(set && set.has(mijnNaam.trim().toLowerCase()));
   };
 
-  const soorten = useMemo(() => [...new Set((rijen || []).map((r) => r.lijstNaam).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [rijen]);
+  const soorten = useMemo(
+    () => [...new Set([...(rijen || []), ...(afgerond || [])].map((r) => r.lijstNaam).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [rijen, afgerond]
+  );
 
-  const gefilterd = useMemo(() => {
+  // Zelfde filters (scope/soort/zoeken) voor beide lijsten — 'rijen' (vraagt aandacht) én 'afgerond'
+  // (dichtgeklapte sectie, zie hieronder), zodat zoeken/filteren overal hetzelfde werkt.
+  const voldoetAanFilter = (r) => {
+    if (scope === "mijn" && !isVanMij(r.accountId)) return false;
+    if (soort && r.lijstNaam !== soort) return false;
     const q = zoek.trim().toLowerCase();
-    return (rijen || []).filter((r) => {
-      if (scope === "mijn" && !isVanMij(r.accountId)) return false;
-      if (soort && r.lijstNaam !== soort) return false;
-      if (q) {
-        const hooi = `${r.klantnaam} ${r.klantnummer} ${r.lijstNaam} ${r.contactNaam}`.toLowerCase();
-        if (!hooi.includes(q)) return false;
-      }
-      return true;
-    });
+    if (q) {
+      const hooi = `${r.klantnaam} ${r.klantnummer} ${r.lijstNaam} ${r.contactNaam}`.toLowerCase();
+      if (!hooi.includes(q)) return false;
+    }
+    return true;
+  };
+  const gefilterd = useMemo(() => (rijen || []).filter(voldoetAanFilter),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rijen, zoek, soort, scope, mijnNaam, klantNamen]);
+    [rijen, zoek, soort, scope, mijnNaam, klantNamen]);
+  const gefilterdAfgerond = useMemo(() => (afgerond || []).filter(voldoetAanFilter),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [afgerond, zoek, soort, scope, mijnNaam, klantNamen]);
 
   const zichtbaar = toonAantal === Infinity ? gefilterd : gefilterd.slice(0, toonAantal);
+  const zichtbaarAfgerond = toonAantalAfgerond === Infinity ? gefilterdAfgerond : gefilterdAfgerond.slice(0, toonAantalAfgerond);
   const openVragenTotaal = (rijen || []).reduce((s, r) => s + (r.openVragen || 0), 0);
 
   const beantwoorden = async (r) => {
@@ -115,26 +144,28 @@ export default function Vragenlijsten() {
       const res = await fetch("/api/medewerker-vragenlijsten", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "antwoord", verzoekId: r.id, tekst }) });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
-      setRijen((h) => (h || []).map((x) => (x.id === r.id ? d.verzoek : x)));
+      plaatsVerzoek(d.verzoek);
       setAntwoord((h) => ({ ...h, [r.id]: "" }));
     } catch { setFout("Antwoord versturen mislukt."); }
     finally { setBezig(""); }
   };
 
-  /** Medewerker keurt een afgeronde vragenlijst goed — verdwijnt daarna uit dit overzicht. */
+  /** Medewerker keurt een afgeronde vragenlijst goed — verplaatst 'm daarna naar de dichtgeklapte
+   * "Afgeronde vragenlijsten"-sectie (zie plaatsVerzoek), zo blijft hij makkelijk na te slaan. */
   const accepteren = async (r) => {
     setBezigActie(r.id);
     try {
       const res = await fetch("/api/medewerker-vragenlijsten", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "accepteren", verzoekId: r.id }) });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
-      setRijen((h) => (h || []).filter((x) => x.id !== r.id));
+      plaatsVerzoek(d.verzoek);
       setOpenId((h) => (h === r.id ? "" : h));
     } catch (e) { setFout("Accepteren mislukt: " + (e.message || e)); }
     finally { setBezigActie(""); }
   };
 
-  /** Eén document weer open zetten zodat de klant het opnieuw kan aanleveren. */
+  /** Eén document weer open zetten zodat de klant het opnieuw kan aanleveren — maakt (server-side)
+   * ook een eerdere acceptatie ongedaan, dus plaatsVerzoek stuurt 'm dan vanzelf terug naar 'rijen'. */
   const heropenen = async (r, d) => {
     if (!window.confirm(`"${d.naam}" heropenen? De klant moet dit document dan opnieuw aanleveren.`)) return;
     const sleutel = `${r.id}:${d.id}`;
@@ -143,12 +174,13 @@ export default function Vragenlijsten() {
       const res = await fetch("/api/medewerker-vragenlijsten", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "heropenen", verzoekId: r.id, regelId: d.id }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      setRijen((h) => (h || []).map((x) => (x.id === r.id ? data.verzoek : x)));
+      plaatsVerzoek(data.verzoek);
     } catch (e) { setFout("Heropenen mislukt: " + (e.message || e)); }
     finally { setBezigActie(""); }
   };
 
-  /** Hele vragenlijst verwijderen (loopt via het bestaande beheer-endpoint, zelfde als elders). */
+  /** Hele vragenlijst verwijderen (loopt via het bestaande beheer-endpoint, zelfde als elders) —
+   * kan zowel vanuit 'rijen' als vanuit de afgeronde sectie, dus uit allebei verwijderen. */
   const verwijderen = async (r) => {
     if (!window.confirm(`Vragenlijst "${r.lijstNaam}" van ${r.klantnaam || r.accountId} helemaal verwijderen? Dit kan niet ongedaan worden gemaakt.`)) return;
     setBezigActie(r.id);
@@ -157,6 +189,7 @@ export default function Vragenlijsten() {
       const d = await res.json().catch(() => ({}));
       if (!res.ok || d.ok === false) throw new Error(d.error || `HTTP ${res.status}`);
       setRijen((h) => (h || []).filter((x) => x.id !== r.id));
+      setAfgerond((h) => (h || []).filter((x) => x.id !== r.id));
       setOpenId((h) => (h === r.id ? "" : h));
     } catch (e) { setFout("Verwijderen mislukt: " + (e.message || e)); }
     finally { setBezigActie(""); }
@@ -170,7 +203,7 @@ export default function Vragenlijsten() {
       const res = await fetch("/api/medewerker-vragenlijsten", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "deadline-zetten", verzoekId: r.id, deadline }) });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
-      setRijen((h) => (h || []).map((x) => (x.id === r.id ? d.verzoek : x)));
+      plaatsVerzoek(d.verzoek);
     } catch (e) { setFout("Deadline aanpassen mislukt: " + (e.message || e)); }
     finally { setBezigDeadline(""); }
   };
@@ -185,7 +218,7 @@ export default function Vragenlijsten() {
       const res = await fetch("/api/medewerker-vragenlijsten", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "titel-zetten", verzoekId: r.id, lijstNaam, jaar }) });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
-      setRijen((h) => (h || []).map((x) => (x.id === r.id ? d.verzoek : x)));
+      plaatsVerzoek(d.verzoek);
     } catch (e) { setFout("Naam/jaar aanpassen mislukt: " + (e.message || e)); }
     finally { setBezigTitel(""); }
   };
@@ -208,7 +241,7 @@ export default function Vragenlijsten() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      setRijen((h) => (h || []).map((x) => (x.id === r.id ? data.verzoek : x)));
+      plaatsVerzoek(data.verzoek);
       setBewerkRegelId("");
     } catch (e) { setFout("Vraag aanpassen mislukt: " + (e.message || e)); }
     finally { setBezigRegelWijzigen(""); }
@@ -229,7 +262,7 @@ export default function Vragenlijsten() {
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
-      setRijen((h) => (h || []).map((x) => (x.id === r.id ? d.verzoek : x)));
+      plaatsVerzoek(d.verzoek);
       setNieuweVraag((h) => ({ ...h, [r.id]: { naam: "", toelichting: "", verplicht: true, tonen: false } }));
     } catch (e) { setFout("Vraag toevoegen mislukt: " + (e.message || e)); }
     finally { setBezigVraagToevoegen(""); }
@@ -248,68 +281,9 @@ export default function Vragenlijsten() {
     );
   };
 
-  if (rijen === null) return <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Vragenlijsten ophalen…</div>;
-
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700 }}>
-            <ClipboardList size={17} color={KLEUR.blauw} /> Vragenlijsten
-          </div>
-          <div style={{ fontSize: 13, color: KLEUR.subtekst, marginTop: 4, maxWidth: 760 }}>
-            Open vragenlijsten én afgeronde die nog wachten op jouw controle. Klantvragen staan bovenaan;
-            beantwoord ze direct, de klant ziet je antwoord bij zijn vragenlijst. Een afgeronde lijst
-            verdwijnt pas hier vandaan zodra je hem geaccepteerd hebt.
-          </div>
-        </div>
-        <button onClick={laad} style={{ display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0, padding: "8px 12px", background: "#fff", color: KLEUR.blauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
-          <RefreshCw size={13} /> Vernieuwen
-        </button>
-      </div>
-
-      {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 8 }}>{fout}</div>}
-
-      {/* Scope-schakelaar + zoeken */}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
-        <div style={{ display: "inline-flex", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, overflow: "hidden" }}>
-          <button onClick={() => setScope("mijn")} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 600, background: scope === "mijn" ? KLEUR.blauw : "#fff", color: scope === "mijn" ? "#fff" : KLEUR.subtekst }}><User size={13} /> Mijn cliënten</button>
-          <button onClick={() => setScope("alle")} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", border: "none", borderLeft: `1px solid ${KLEUR.rand}`, cursor: "pointer", fontSize: 12.5, fontWeight: 600, background: scope === "alle" ? KLEUR.blauw : "#fff", color: scope === "alle" ? "#fff" : KLEUR.subtekst }}><Users size={13} /> Kantoorbreed</button>
-        </div>
-        <select value={soort} onChange={(e) => setSoort(e.target.value)} title="Filter op soort vragenlijst" style={{ boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 9px", fontSize: 12.5, background: "#fff", maxWidth: 240 }}>
-          <option value="">Alle soorten vragenlijst</option>
-          {soorten.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
-        <div style={{ position: "relative", flex: "1 1 220px", minWidth: 180 }}>
-          <Search size={13} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)" }} />
-          <input value={zoek} onChange={(e) => setZoek(e.target.value)} placeholder="Zoek op cliënt, nummer, lijst of contactpersoon…" style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 9px 8px 28px", fontSize: 12.5, outline: "none" }} />
-        </div>
-        {openVragenTotaal > 0 && <span style={{ fontSize: 12, fontWeight: 700, color: KLEUR.rood, display: "inline-flex", alignItems: "center", gap: 5 }}><MessageCircle size={13} /> {openVragenTotaal} open vraag/vragen</span>}
-      </div>
-
-      {scope === "mijn" && klantNamen === null && <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 6 }}>Cliëntkoppeling laden…</div>}
-      {scope === "mijn" && klantNamen !== null && !mijnNaam && <div style={{ fontSize: 12, color: KLEUR.goud, marginBottom: 6 }}>Je naam kon niet automatisch worden bepaald, dus we kunnen niet zien welke cliënten van jou zijn. Gebruik <strong>Kantoorbreed</strong>.</div>}
-      <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 6 }}>{gefilterd.length} vragenlijst{gefilterd.length === 1 ? "" : "en"}{gefilterd.length !== zichtbaar.length ? ` · ${zichtbaar.length} getoond` : ""}</div>
-
-      <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 880 }}>
-          <thead>
-            <tr style={{ background: "#FBFBF9" }}>
-              <th style={th}>Vragenlijst</th>
-              <th style={th}>Startdatum</th>
-              <th style={th}>Einddatum</th>
-              <th style={th}>Documenten</th>
-              <th style={th}>Voortgang</th>
-              <th style={th}>Vragen</th>
-              <th style={{ ...th, width: 1 }}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {zichtbaar.length === 0 ? (
-              <tr><td style={{ ...td, color: KLEUR.mutedTekst }} colSpan={7}>Geen vragenlijsten die aandacht nodig hebben{scope === "mijn" ? " voor jouw cliënten" : ""}.</td></tr>
-            ) : zichtbaar.map((r) => {
-              const open = openId === r.id;
-              return (
+  const renderRij = (r) => {
+    const open = openId === r.id;
+    return (
                 <Fragment key={r.id}>
                   <tr style={{ cursor: "pointer", background: open ? KLEUR.lichtblauw : "transparent" }} onClick={() => setOpenId(open ? "" : r.id)}>
                     <td style={td}>
@@ -570,8 +544,69 @@ export default function Vragenlijsten() {
                     </tr>
                   )}
                 </Fragment>
-              );
-            })}
+    );
+  };
+
+  if (rijen === null) return <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Vragenlijsten ophalen…</div>;
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700 }}>
+            <ClipboardList size={17} color={KLEUR.blauw} /> Vragenlijsten
+          </div>
+          <div style={{ fontSize: 13, color: KLEUR.subtekst, marginTop: 4, maxWidth: 760 }}>
+            Open vragenlijsten én afgeronde die nog wachten op jouw controle. Klantvragen staan bovenaan;
+            beantwoord ze direct, de klant ziet je antwoord bij zijn vragenlijst. Een afgeronde lijst
+            verdwijnt pas hier vandaan zodra je hem geaccepteerd hebt.
+          </div>
+        </div>
+        <button onClick={laad} style={{ display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0, padding: "8px 12px", background: "#fff", color: KLEUR.blauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+          <RefreshCw size={13} /> Vernieuwen
+        </button>
+      </div>
+
+      {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 8 }}>{fout}</div>}
+
+      {/* Scope-schakelaar + zoeken */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+        <div style={{ display: "inline-flex", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, overflow: "hidden" }}>
+          <button onClick={() => setScope("mijn")} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 600, background: scope === "mijn" ? KLEUR.blauw : "#fff", color: scope === "mijn" ? "#fff" : KLEUR.subtekst }}><User size={13} /> Mijn cliënten</button>
+          <button onClick={() => setScope("alle")} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", border: "none", borderLeft: `1px solid ${KLEUR.rand}`, cursor: "pointer", fontSize: 12.5, fontWeight: 600, background: scope === "alle" ? KLEUR.blauw : "#fff", color: scope === "alle" ? "#fff" : KLEUR.subtekst }}><Users size={13} /> Kantoorbreed</button>
+        </div>
+        <select value={soort} onChange={(e) => setSoort(e.target.value)} title="Filter op soort vragenlijst" style={{ boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 9px", fontSize: 12.5, background: "#fff", maxWidth: 240 }}>
+          <option value="">Alle soorten vragenlijst</option>
+          {soorten.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <div style={{ position: "relative", flex: "1 1 220px", minWidth: 180 }}>
+          <Search size={13} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)" }} />
+          <input value={zoek} onChange={(e) => setZoek(e.target.value)} placeholder="Zoek op cliënt, nummer, lijst of contactpersoon…" style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 9px 8px 28px", fontSize: 12.5, outline: "none" }} />
+        </div>
+        {openVragenTotaal > 0 && <span style={{ fontSize: 12, fontWeight: 700, color: KLEUR.rood, display: "inline-flex", alignItems: "center", gap: 5 }}><MessageCircle size={13} /> {openVragenTotaal} open vraag/vragen</span>}
+      </div>
+
+      {scope === "mijn" && klantNamen === null && <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 6 }}>Cliëntkoppeling laden…</div>}
+      {scope === "mijn" && klantNamen !== null && !mijnNaam && <div style={{ fontSize: 12, color: KLEUR.goud, marginBottom: 6 }}>Je naam kon niet automatisch worden bepaald, dus we kunnen niet zien welke cliënten van jou zijn. Gebruik <strong>Kantoorbreed</strong>.</div>}
+      <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 6 }}>{gefilterd.length} vragenlijst{gefilterd.length === 1 ? "" : "en"}{gefilterd.length !== zichtbaar.length ? ` · ${zichtbaar.length} getoond` : ""}</div>
+
+      <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 880 }}>
+          <thead>
+            <tr style={{ background: "#FBFBF9" }}>
+              <th style={th}>Vragenlijst</th>
+              <th style={th}>Startdatum</th>
+              <th style={th}>Einddatum</th>
+              <th style={th}>Documenten</th>
+              <th style={th}>Voortgang</th>
+              <th style={th}>Vragen</th>
+              <th style={{ ...th, width: 1 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {zichtbaar.length === 0 ? (
+              <tr><td style={{ ...td, color: KLEUR.mutedTekst }} colSpan={7}>Geen vragenlijsten die aandacht nodig hebben{scope === "mijn" ? " voor jouw cliënten" : ""}.</td></tr>
+            ) : zichtbaar.map(renderRij)}
           </tbody>
         </table>
       </div>
@@ -581,6 +616,49 @@ export default function Vragenlijsten() {
         {AANTALLEN.map(([n, lbl]) => (
           <button key={lbl} onClick={() => setToonAantal(n)} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", border: `1px solid ${toonAantal === n ? KLEUR.blauw : KLEUR.rand}`, background: toonAantal === n ? KLEUR.blauw : "#fff", color: toonAantal === n ? "#fff" : KLEUR.subtekst }}>{lbl}</button>
         ))}
+      </div>
+
+      <div style={{ marginTop: 18 }}>
+        <button
+          onClick={() => setAfgerondOpen((h) => !h)}
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 4px", background: "transparent", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 700, color: KLEUR.tekst }}
+        >
+          <ChevronDown size={15} color={KLEUR.mutedTekst} style={{ transform: afgerondOpen ? "none" : "rotate(-90deg)", transition: "transform .15s" }} />
+          Afgeronde vragenlijsten
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: KLEUR.mutedTekst, marginLeft: 2 }}>({gefilterdAfgerond.length})</span>
+        </button>
+
+        {afgerondOpen && (
+          <>
+            <div style={{ fontSize: 12, color: KLEUR.mutedTekst, margin: "6px 0" }}>{gefilterdAfgerond.length} vragenlijst{gefilterdAfgerond.length === 1 ? "" : "en"}{gefilterdAfgerond.length !== zichtbaarAfgerond.length ? ` · ${zichtbaarAfgerond.length} getoond` : ""}</div>
+            <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 880 }}>
+                <thead>
+                  <tr style={{ background: "#FBFBF9" }}>
+                    <th style={th}>Vragenlijst</th>
+                    <th style={th}>Startdatum</th>
+                    <th style={th}>Einddatum</th>
+                    <th style={th}>Documenten</th>
+                    <th style={th}>Voortgang</th>
+                    <th style={th}>Vragen</th>
+                    <th style={{ ...th, width: 1 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {zichtbaarAfgerond.length === 0 ? (
+                    <tr><td style={{ ...td, color: KLEUR.mutedTekst }} colSpan={7}>Geen afgeronde vragenlijsten{scope === "mijn" ? " voor jouw cliënten" : ""}.</td></tr>
+                  ) : zichtbaarAfgerond.map(renderRij)}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, marginTop: 10, fontSize: 12, flexWrap: "wrap" }}>
+              <span style={{ color: KLEUR.mutedTekst }}>Toon:</span>
+              {AANTALLEN.map(([n, lbl]) => (
+                <button key={lbl} onClick={() => setToonAantalAfgerond(n)} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", border: `1px solid ${toonAantalAfgerond === n ? KLEUR.blauw : KLEUR.rand}`, background: toonAantalAfgerond === n ? KLEUR.blauw : "#fff", color: toonAantalAfgerond === n ? "#fff" : KLEUR.subtekst }}>{lbl}</button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
