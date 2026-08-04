@@ -6,6 +6,7 @@ import ContractenOverzicht from "./ContractenOverzicht";
 import Vragenlijsten from "./Vragenlijsten";
 import VragenlijstDetail from "./VragenlijstDetail";
 import Urenregistratie from "./uren/Urenregistratie";
+import Ontwikkelverzoeken from "./Ontwikkelverzoeken";
 import ScopeToggle, { useMijnNaam, isKlantVanMij } from "./MijnFilter";
 import ContactpersonenOverzicht from "./klanten/ContactpersonenOverzicht";
 import NogInTeRichten from "./klanten/NogInTeRichten";
@@ -3754,6 +3755,7 @@ export default function MedewerkerPortaal() {
     ["reacties", "Log klantreacties", 0],
     ["ondertekeningen", "Ondertekeningen", 0],
     ["reviews", "Reviews", tellingen.nieuweReviews],
+    ["ontwikkelverzoeken", "Ontwikkelverzoeken", 0],
     ...(magOffertes || isBeheerder ? [["offertes", "Offertes", 0]] : []),
     ...(magContracten || isBeheerder ? [["contracten", "Contracten", 0]] : []),
     ...(magAlsKlant || isBeheerder ? [["meekijken", "Meekijken als klant", 0]] : []),
@@ -3820,6 +3822,7 @@ export default function MedewerkerPortaal() {
       {tab === "reacties" && <AkkoordenLog />}
       {tab === "ondertekeningen" && <OndertekeningenLog />}
       {tab === "reviews" && <ReviewBeheer />}
+      {tab === "ontwikkelverzoeken" && <Ontwikkelverzoeken />}
       {tab === "offertes" && (magOffertes || isBeheerder) && <OffertesModule />}
       {tab === "contracten" && (magContracten || isBeheerder) && <ContractenOverzicht />}
       {tab === "meekijken" && <MeekijkenAlsKlant gebruiker={gebruiker} />}
