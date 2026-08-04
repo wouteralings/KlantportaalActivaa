@@ -2507,10 +2507,13 @@ function AangifteDropzone({ label, doelgroep, disabled, onGekozen }) {
  * heeft geen fiscaal-partner-concept en dit is specifiek voor de aangifte inkomstenbelasting. */
 function AangifteVersturenKaart({ dossier, disabled }) {
   const [modal, setModal] = useState(null); // { doelgroep, bestand, laden, ontvanger, bestandsnaam, mailOnderwerp, mailTekst }
-  const [melding, setMelding] = useState(null); // { doelgroep, tekst } — korte fout onder de dropzones
+  // Per doelgroep (client/partner) een eigen melding/resultaat bijhouden — anders verdwijnt de
+  // bevestiging "verstuurd naar cliënt" zodra je daarna ook nog iets voor de partner verstuurt
+  // (het zijn twee onafhankelijke acties/mails, dus ook twee onafhankelijke terugkoppelingen).
+  const [meldingen, setMeldingen] = useState({}); // { client?: tekst, partner?: tekst }
   const [versturenStatus, setVersturenStatus] = useState("rust"); // rust | bezig | klaar | fout
   const [versturenFout, setVersturenFout] = useState("");
-  const [resultaat, setResultaat] = useState(null);
+  const [resultaten, setResultaten] = useState({}); // { client?: {...respons, naam}, partner?: {...respons, naam} }
 
   const label = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3 };
   const veldStijl = { width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 10px", fontSize: 13, fontFamily: "inherit" };
@@ -2520,16 +2523,16 @@ function AangifteVersturenKaart({ dossier, disabled }) {
     `Beste ${naam || "klant"},\n\nUw aangifte inkomstenbelasting${jaar ? ` over ${jaar}` : ""} staat klaar ter beoordeling in het klantportaal.\n\nU kunt de aangifte inzien via het portaal, onder "Taken". Zodra u akkoord geeft, ronden wij de aangifte verder voor u af.\n\nHeeft u vragen? Neem gerust contact met ons op.\n\nMet vriendelijke groet,\nActivaa Accountants en Adviseurs`;
 
   const gekozen = async (doelgroep, bestand, fout) => {
-    setMelding(null);
-    setResultaat(null);
-    if (fout) { setMelding({ doelgroep, tekst: fout }); return; }
+    setMeldingen((h) => ({ ...h, [doelgroep]: null }));
+    setResultaten((h) => ({ ...h, [doelgroep]: null }));
+    if (fout) { setMeldingen((h) => ({ ...h, [doelgroep]: fout })); return; }
     if (!bestand) return;
     setModal({ doelgroep, bestand, laden: true });
     try {
       const r = await fetch(`/api/medewerker-aangifte-ontvanger?soort=ib&id=${encodeURIComponent(dossier.id)}&doelgroep=${doelgroep}`);
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
-      if (!d.klaar) { setModal(null); setMelding({ doelgroep, tekst: d.reden || "Versturen is nu niet mogelijk." }); return; }
+      if (!d.klaar) { setModal(null); setMeldingen((h) => ({ ...h, [doelgroep]: d.reden || "Versturen is nu niet mogelijk." })); return; }
       setModal({
         doelgroep, bestand, laden: false,
         ontvanger: d.ontvanger,
@@ -2539,7 +2542,7 @@ function AangifteVersturenKaart({ dossier, disabled }) {
       });
     } catch (e) {
       setModal(null);
-      setMelding({ doelgroep, tekst: e.message || "Voorbereiden is mislukt." });
+      setMeldingen((h) => ({ ...h, [doelgroep]: e.message || "Voorbereiden is mislukt." }));
     }
   };
 
@@ -2566,7 +2569,7 @@ function AangifteVersturenKaart({ dossier, disabled }) {
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
       setVersturenStatus("klaar");
-      setResultaat(d);
+      setResultaten((h) => ({ ...h, [modal.doelgroep]: { ...d, naam: modal.ontvanger?.naam || "" } }));
       setModal(null);
     } catch (e) {
       setVersturenFout(e.message || "Versturen is mislukt.");
@@ -2591,16 +2594,26 @@ function AangifteVersturenKaart({ dossier, disabled }) {
           </div>
         )}
       </div>
-      {melding && <div style={{ marginTop: 10, fontSize: 12, color: KLEUR.rood }}>{melding.tekst}</div>}
-      {versturenStatus === "klaar" && resultaat && (
-        <div style={{ marginTop: 10, fontSize: 12.5, color: resultaat.mailVerzonden ? KLEUR.groen : KLEUR.goud, display: "flex", alignItems: "center", gap: 6 }}>
-          <CheckCircle2 size={14} />
-          {resultaat.mailVerzonden
-            ? "Verstuurd — het document staat in Correspondentie, en de taak en mail zijn aangemaakt."
-            : "Document opgeslagen en taak aangemaakt, maar de mail versturen is mislukt — controleer dit handmatig."}
-        </div>
-      )}
-      {resultaat?.waarschuwing && <div style={{ marginTop: 6, fontSize: 11.5, color: KLEUR.goud }}>{resultaat.waarschuwing}</div>}
+      {["client", "partner"].map((dg) => {
+        const doelgroepLabel = dg === "partner" ? "fiscaal partner" : "cliënt";
+        const fout = meldingen[dg];
+        const res = resultaten[dg];
+        if (!fout && !res) return null;
+        return (
+          <div key={dg} style={{ marginTop: 10 }}>
+            {fout && <div style={{ fontSize: 12, color: KLEUR.rood }}>{fout}</div>}
+            {res && (
+              <div style={{ fontSize: 12.5, color: res.mailVerzonden ? KLEUR.groen : KLEUR.goud, display: "flex", alignItems: "center", gap: 6 }}>
+                <CheckCircle2 size={14} />
+                {res.mailVerzonden
+                  ? `Verstuurd naar ${doelgroepLabel}${res.naam ? ` (${res.naam})` : ""} — het document staat in Correspondentie, en de taak en mail zijn aangemaakt.`
+                  : `Document voor ${doelgroepLabel}${res.naam ? ` (${res.naam})` : ""} opgeslagen en taak aangemaakt, maar de mail versturen is mislukt — controleer dit handmatig.`}
+              </div>
+            )}
+            {res?.waarschuwing && <div style={{ marginTop: 4, fontSize: 11.5, color: KLEUR.goud }}>{res.waarschuwing}</div>}
+          </div>
+        );
+      })}
 
       {modal && (
         <div

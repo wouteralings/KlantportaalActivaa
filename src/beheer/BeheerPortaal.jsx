@@ -1235,10 +1235,13 @@ export default function BeheerPortaal() {
       const key = String(waarde);
       const bestaand = huidig[key] || {};
       const nieuw = { ...bestaand, [veld]: aan, label: label ?? bestaand.label };
-      // Goedkeuren én ondertekenen kunnen alleen bij een zichtbare soort.
-      if (veld === "zichtbaar" && !aan) { nieuw.magGoedkeuren = false; nieuw.vereistHandtekening = false; }
+      // Goedkeuren én ondertekenen kunnen alleen bij een zichtbare soort. Een vervolgtaak bij
+      // akkoord heeft alleen zin als de soort ook echt goedgekeurd kán worden.
+      if (veld === "zichtbaar" && !aan) { nieuw.magGoedkeuren = false; nieuw.vereistHandtekening = false; nieuw.vervolgtaakBackoffice = false; }
       if (veld === "magGoedkeuren" && aan) nieuw.zichtbaar = true;
+      if (veld === "magGoedkeuren" && !aan) nieuw.vervolgtaakBackoffice = false;
       if (veld === "vereistHandtekening" && aan) nieuw.zichtbaar = true;
+      if (veld === "vervolgtaakBackoffice" && aan) { nieuw.zichtbaar = true; nieuw.magGoedkeuren = true; }
       return { ...huidig, [key]: nieuw };
     });
     setTaaksoortenOpslaanStatus("idle");
@@ -3186,6 +3189,8 @@ export default function BeheerPortaal() {
             Bepaal per soort taak of klanten hem in het portaal zien, en of ze hem zelf mogen
             goedkeuren. Bij goedkeuren wordt de taak in Dynamics afgerond, met een notitie dat de
             klant akkoord gaf. Soorten die niet zijn aangevinkt blijven voor de klant verborgen.
+            Met "Vervolgtaak backoffice" maak je bij akkoord automatisch een nieuwe interne taak
+            aan (bijv. voor verwerking door backoffice).
           </div>
 
           {taaksoortenOpties === null ? (
@@ -3212,19 +3217,20 @@ export default function BeheerPortaal() {
                   style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px 8px 32px", fontSize: 13 }}
                 />
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: "0 18px", alignItems: "center" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto", gap: "0 18px", alignItems: "center" }}>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}` }}>Soort</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Zichtbaar</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Mag goedkeuren</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Vereist handtekening</div>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Vervolgtaak backoffice</div>
                 {filterTaaksoorten(taaksoortenOpties, taaksoortenZoek)
                   .slice(0, taaksoortToonAantal)
                   .map((optie) => {
                   const cfg = taaksoortenConfig[String(optie.waarde)] || {};
                   return (
                     <React.Fragment key={optie.waarde}>
-                      <div style={{ fontSize: 13, padding: "10px 0", borderBottom: `1px solid ${KLEUR.rand}` }}>{optie.label}</div>
-                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: `1px solid ${KLEUR.rand}` }}>
+                      <div style={{ fontSize: 13, padding: "10px 0", borderBottom: cfg.vervolgtaakBackoffice ? "none" : `1px solid ${KLEUR.rand}` }}>{optie.label}</div>
+                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: cfg.vervolgtaakBackoffice ? "none" : `1px solid ${KLEUR.rand}` }}>
                         <input
                           type="checkbox"
                           checked={!!cfg.zichtbaar}
@@ -3232,7 +3238,7 @@ export default function BeheerPortaal() {
                           style={{ width: 16, height: 16, cursor: "pointer" }}
                         />
                       </div>
-                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: `1px solid ${KLEUR.rand}` }}>
+                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: cfg.vervolgtaakBackoffice ? "none" : `1px solid ${KLEUR.rand}` }}>
                         <input
                           type="checkbox"
                           checked={!!cfg.magGoedkeuren}
@@ -3240,7 +3246,7 @@ export default function BeheerPortaal() {
                           style={{ width: 16, height: 16, cursor: "pointer" }}
                         />
                       </div>
-                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: `1px solid ${KLEUR.rand}` }}>
+                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: cfg.vervolgtaakBackoffice ? "none" : `1px solid ${KLEUR.rand}` }}>
                         <input
                           type="checkbox"
                           checked={!!cfg.vereistHandtekening}
@@ -3248,6 +3254,49 @@ export default function BeheerPortaal() {
                           style={{ width: 16, height: 16, cursor: "pointer" }}
                         />
                       </div>
+                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: cfg.vervolgtaakBackoffice ? "none" : `1px solid ${KLEUR.rand}` }}>
+                        <input
+                          type="checkbox"
+                          checked={!!cfg.vervolgtaakBackoffice}
+                          onChange={(e) => wijzigTaaksoort(optie.waarde, "vervolgtaakBackoffice", e.target.checked, optie.label)}
+                          title="Maakt automatisch een interne vervolgtaak aan zodra de klant akkoord geeft"
+                          style={{ width: 16, height: 16, cursor: "pointer" }}
+                        />
+                      </div>
+                      {cfg.vervolgtaakBackoffice && (
+                        <div style={{ gridColumn: "1 / -1", padding: "0 0 14px", borderBottom: `1px solid ${KLEUR.rand}` }}>
+                          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", background: "#FAFBF9", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 12 }}>
+                            <div style={{ flex: "1 1 260px" }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 4 }}>Onderwerp van de vervolgtaak</div>
+                              <input
+                                type="text"
+                                value={cfg.vervolgtaakOnderwerp || ""}
+                                onChange={(e) => wijzigTaaksoort(optie.waarde, "vervolgtaakOnderwerp", e.target.value, optie.label)}
+                                placeholder="Bijv. Akkoord verwerkt — {klant} ({titel})"
+                                style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 12.5 }}
+                              />
+                              <div style={{ fontSize: 10.5, color: KLEUR.mutedTekst, marginTop: 3 }}>Plaatshouders: {"{klant}"} en {"{titel}"} (onderwerp van de oorspronkelijke taak).</div>
+                            </div>
+                            <div style={{ flex: "1 1 220px" }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 4 }}>Soort van de vervolgtaak</div>
+                              <select
+                                value={cfg.vervolgtaakSoort ?? ""}
+                                onChange={(e) => wijzigTaaksoort(optie.waarde, "vervolgtaakSoort", e.target.value, optie.label)}
+                                style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 12.5, background: "#fff" }}
+                              >
+                                <option value="">— geen soort —</option>
+                                {taaksoortenOpties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
+                              </select>
+                              <div style={{ fontSize: 10.5, color: KLEUR.mutedTekst, marginTop: 3 }}>
+                                Zet bij voorkeur een soort die hierboven niet op "Zichtbaar" staat, zodat dit een interne taak blijft.
+                              </div>
+                            </div>
+                            <div style={{ flex: "1 1 100%", fontSize: 10.5, color: KLEUR.mutedTekst }}>
+                              Eigenaar wordt automatisch de Manager/relatiebeheerder van de cliënt (zoals bij Beheer → Klanten), indien bekend — anders blijft de standaardeigenaar staan.
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </React.Fragment>
                   );
                 })}
