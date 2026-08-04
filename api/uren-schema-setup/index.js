@@ -78,11 +78,14 @@ async function maakAttribuut(token, resource, entity, attr, metadata, bestaandeS
   bestaandeSet.add(attr);
   return { actie: "aangemaakt", attribuut: attr };
 }
-/** Eén opvraging van alle bestaande relaties met onze prefix (i.p.v. per relatie een losse check). */
+/** Eén opvraging van alle bestaande relaties met onze prefix (i.p.v. per relatie een losse check).
+ *  Metadata-entiteiten zoals RelationshipDefinitions ondersteunen geen OData-functies (startswith,
+ *  contains, …) in $filter — alleen simpele "eq" — dus alles ophalen (alleen SchemaName, licht) en
+ *  in-memory op prefix filteren, in plaats van te filteren met startswith() in de query zelf. */
 async function haalBestaandeRelaties(token, resource, prefix) {
-  const res = await dv(token, resource, `/RelationshipDefinitions?$select=SchemaName&$filter=startswith(SchemaName,'${prefix}')`);
+  const res = await dv(token, resource, `/RelationshipDefinitions?$select=SchemaName`);
   if (!res.ok) throw verwerkFout(res, await res.text());
-  return new Set(((await res.json()).value || []).map((r) => r.SchemaName));
+  return new Set(((await res.json()).value || []).filter((r) => r.SchemaName && r.SchemaName.startsWith(prefix)).map((r) => r.SchemaName));
 }
 async function maakLookupRelatie(token, resource, { schemaName, referencedEntity, referencingEntity, lookupSchemaName, weergavenaam, beschrijving }, bestaandeSet) {
   if (bestaandeSet.has(schemaName)) return { actie: "bestond al", relatie: schemaName };
