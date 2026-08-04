@@ -26,7 +26,10 @@ const invoerStijl = { boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`
  * door — geen backend-wijziging nodig, alleen het array vóór het opslaan omwisselen.
  */
 export default function ContractenTypesBeheer() {
-  const [open, setOpen] = useState(false);
+  // Standaard open (05-08-2026): stond bij het inklapbaar maken per ongeluk standaard dicht,
+  // waardoor de instellingen bij het openen van de pagina onzichtbaar leken — dit was vóór het
+  // inklapbaar maken altijd meteen zichtbaar, dus dat gedrag houden we aan.
+  const [open, setOpen] = useState(true);
   const [types, setTypes] = useState(null); // null = laden
   const [nieuweLabel, setNieuweLabel] = useState("");
   const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
