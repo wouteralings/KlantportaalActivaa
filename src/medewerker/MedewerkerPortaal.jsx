@@ -2518,6 +2518,9 @@ function AangifteVersturenKaart({ dossier, disabled }) {
   const label = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3 };
   const veldStijl = { width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 10px", fontSize: 13, fontFamily: "inherit" };
 
+  // Terugval als /api/medewerker-aangifte-ontvanger onverhoopt geen mailOnderwerpStandaard/
+  // mailTekstStandaard teruggeeft (bijv. instellingen.json nog niet bereikbaar) — normaal komt de
+  // standaardtekst gewoon uit Beheer → Dossiers ("Mail — aangifte versturen").
   const standaardOnderwerp = (jaar) => `Uw aangifte inkomstenbelasting${jaar ? ` ${jaar}` : ""} staat klaar in het portaal`;
   const standaardTekst = (naam, jaar) =>
     `Beste ${naam || "klant"},\n\nUw aangifte inkomstenbelasting${jaar ? ` over ${jaar}` : ""} staat klaar ter beoordeling in het klantportaal.\n\nU kunt de aangifte inzien via het portaal, onder "Taken". Zodra u akkoord geeft, ronden wij de aangifte verder voor u af.\n\nHeeft u vragen? Neem gerust contact met ons op.\n\nMet vriendelijke groet,\nActivaa Accountants en Adviseurs`;
@@ -2537,8 +2540,8 @@ function AangifteVersturenKaart({ dossier, disabled }) {
         doelgroep, bestand, laden: false,
         ontvanger: d.ontvanger,
         bestandsnaam: d.bestandsnaamStandaard,
-        mailOnderwerp: standaardOnderwerp(d.jaar),
-        mailTekst: standaardTekst(d.ontvanger?.naam, d.jaar),
+        mailOnderwerp: d.mailOnderwerpStandaard || standaardOnderwerp(d.jaar),
+        mailTekst: d.mailTekstStandaard || standaardTekst(d.ontvanger?.naam, d.jaar),
       });
     } catch (e) {
       setModal(null);

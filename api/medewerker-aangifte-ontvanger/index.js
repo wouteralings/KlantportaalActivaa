@@ -3,12 +3,14 @@
  * dropzones in het IB-dossier, zie AangifteVersturenModal in MedewerkerPortaal.jsx): haalt op wie
  * de ontvanger is (cliënt zelf of diens fiscaal partner — allebei een eigen Dynamics-account),
  * met naam + e-mailadres (van de primaire contactpersoon van dat account) en de standaard
- * bestandsnaam (uit Beheer → Dossiers, plaatshouders {klant}/{jaar}), zodat het medewerkersportaal
- * vóór het daadwerkelijk versturen (POST /api/medewerker-aangifte-versturen) een voorbeeldscherm
- * kan tonen — zelfde opzet als het mail-conceptscherm bij Offertes.
+ * bestandsnaam + mail-onderwerp/-tekst (allemaal uit Beheer → Dossiers, plaatshouders {klant}/
+ * {jaar}), zodat het medewerkersportaal vóór het daadwerkelijk versturen (POST
+ * /api/medewerker-aangifte-versturen) een voorbeeldscherm kan tonen — zelfde opzet als het
+ * mail-conceptscherm bij Offertes. De medewerker kan dit voorstel per verzending nog aanpassen.
  *
  *   GET ?soort=ib&id=<dossier-guid>&doelgroep=client|partner
- *     → { ontvanger: { accountId, naam, email }, bestandsnaamStandaard, jaar, klaar, reden }
+ *     → { ontvanger: { accountId, naam, email }, bestandsnaamStandaard, mailOnderwerpStandaard,
+ *         mailTekstStandaard, jaar, klaar, reden }
  *       klaar=false (met reden) als er geen SharePoint-map en/of geen e-mailadres bekend is bij
  *       de doelgroep — het versturen zelf (POST) controleert dit nogmaals server-side.
  *
@@ -28,6 +30,12 @@ function vulSjabloonIn(sjabloon, { klant, jaar }) {
   let naam = basis.replaceAll("{klant}", veiligeKlant).replaceAll("{jaar}", jaar != null ? String(jaar) : "");
   if (!/\.pdf$/i.test(naam)) naam += ".pdf";
   return naam;
+}
+
+// Zelfde plaatshouders als vulSjabloonIn hierboven, maar dan voor de mail-onderwerp/tekst-sjablonen
+// (Beheer → Dossiers) — geen bestandsnaam-opmaak nodig, dus een eigen (simpelere) functie.
+function vulMailSjabloonIn(sjabloon, { klant, jaar }) {
+  return String(sjabloon || "").replaceAll("{klant}", klant || "cliënt").replaceAll("{jaar}", jaar != null ? String(jaar) : "");
 }
 
 module.exports = async function (context, req) {
@@ -80,12 +88,16 @@ module.exports = async function (context, req) {
 
     const instellingen = await haalInstellingen().catch(() => ({}));
     const bestandsnaamStandaard = vulSjabloonIn(instellingen.aangifteBestandsnaamTemplate, { klant: naam, jaar: dossier.jaar });
+    const mailOnderwerpStandaard = vulMailSjabloonIn(instellingen.aangifteMailOnderwerpTemplate, { klant: naam, jaar: dossier.jaar });
+    const mailTekstStandaard = vulMailSjabloonIn(instellingen.aangifteMailTekstTemplate, { klant: naam, jaar: dossier.jaar });
 
     context.res = {
       headers: { "Content-Type": "application/json" },
       body: {
         ontvanger: { accountId, naam, email },
         bestandsnaamStandaard,
+        mailOnderwerpStandaard,
+        mailTekstStandaard,
         jaar: dossier.jaar,
         klantnaamCliënt: dossier.klantnaam || "",
         klaar: heeftSharepoint && !!email,

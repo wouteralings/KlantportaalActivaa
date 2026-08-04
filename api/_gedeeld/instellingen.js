@@ -5,6 +5,16 @@ const CONTAINER_NAAM = "portaalcontent";
 const BLOB_NAAM = "instellingen.json";
 let cachedContainerClient = null;
 
+// Standaard onderwerp/tekst van de mail bij "Aangifte versturen" (IB-dossier) — zelfde plaatshouders
+// als aangifteBestandsnaamTemplate hieronder: {klant} (naam van de ontvanger) en {jaar} (dossierjaar).
+// Was tot 04-08-2026 hardcoded in de frontend (AangifteVersturenKaart in MedewerkerPortaal.jsx);
+// nu instelbaar via Beheer → Dossiers (DossierIndelingBeheer.jsx), zie api/medewerker-aangifte-ontvanger.
+const STANDAARD_AANGIFTE_MAIL_ONDERWERP = "Uw aangifte inkomstenbelasting {jaar} staat klaar in het portaal";
+const STANDAARD_AANGIFTE_MAIL_TEKST =
+  "Beste {klant},\n\nUw aangifte inkomstenbelasting over {jaar} staat klaar ter beoordeling in het klantportaal.\n\n" +
+  "U kunt de aangifte inzien via het portaal, onder \"Taken\". Zodra u akkoord geeft, ronden wij de aangifte verder voor u af.\n\n" +
+  "Heeft u vragen? Neem gerust contact met ons op.\n\nMet vriendelijke groet,\nActivaa Accountants en Adviseurs";
+
 async function haalContainerClient() {
   if (cachedContainerClient) return cachedContainerClient;
   const connectionString = process.env.STORAGE_CONNECTION_STRING;
@@ -31,7 +41,7 @@ async function haalInstellingen() {
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
 
   const bestaat = await blobClient.exists();
-  if (!bestaat) return { medewerkersGroepId: "", medewerkersGroepNaam: "", googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "", reviewWebhookUrl: "", facturatiemodulePrijs: 5, urenmodulePrijs: 2.5, rapportagesmodulePrijs: 7.5, bezittingenmodulePrijs: 5, rittenmodulePrijs: 1.5, contractenmodulePrijs: 2.5, contractenSharepointOpslag: false, contractenSharepointMap: "Contracten", klantoverzicht: { extraKolommen: [], standaardVerborgen: [] }, dossierIndeling: { ib: standaardIndelingIB() }, aangifteBestandsnaamTemplate: "Aangifte inkomstenbelasting {jaar} - {klant}.pdf" };
+  if (!bestaat) return { medewerkersGroepId: "", medewerkersGroepNaam: "", googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "", reviewWebhookUrl: "", facturatiemodulePrijs: 5, urenmodulePrijs: 2.5, rapportagesmodulePrijs: 7.5, bezittingenmodulePrijs: 5, rittenmodulePrijs: 1.5, contractenmodulePrijs: 2.5, contractenSharepointOpslag: false, contractenSharepointMap: "Contracten", klantoverzicht: { extraKolommen: [], standaardVerborgen: [] }, dossierIndeling: { ib: standaardIndelingIB() }, aangifteBestandsnaamTemplate: "Aangifte inkomstenbelasting {jaar} - {klant}.pdf", aangifteMailOnderwerpTemplate: STANDAARD_AANGIFTE_MAIL_ONDERWERP, aangifteMailTekstTemplate: STANDAARD_AANGIFTE_MAIL_TEKST };
 
   const downloadResponse = await blobClient.download();
   const tekst = await streamNaarTekst(downloadResponse.readableStreamBody);
@@ -103,6 +113,13 @@ async function haalInstellingen() {
     // Beheer → Dossiers (DossierIndelingBeheer.jsx). Plaatshouders: {klant} (naam van de
     // ontvanger — cliënt of partner) en {jaar} (dossierjaar). Zie api/medewerker-aangifte-versturen.
     aangifteBestandsnaamTemplate: "Aangifte inkomstenbelasting {jaar} - {klant}.pdf",
+    // Standaard onderwerp/tekst van de mail bij "Aangifte versturen" — zie STANDAARD_AANGIFTE_MAIL_*
+    // hierboven. Ook instelbaar via Beheer → Dossiers, zelfde blok als de bestandsnaam hierboven.
+    // De medewerker ziet dit als voorstel in het voorbeeldscherm en kan het per verzending nog
+    // aanpassen (mailOnderwerp/mailTekst in api/medewerker-aangifte-versturen) — deze instelling
+    // bepaalt alleen wat daar standaard al is ingevuld.
+    aangifteMailOnderwerpTemplate: STANDAARD_AANGIFTE_MAIL_ONDERWERP,
+    aangifteMailTekstTemplate: STANDAARD_AANGIFTE_MAIL_TEKST,
     ...JSON.parse(tekst),
   };
 }

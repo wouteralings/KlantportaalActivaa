@@ -114,6 +114,12 @@ export default function DossierIndelingBeheer() {
   // dus met een eigen laad-/opslaanstatus i.p.v. via bewaar() hieronder.
   const [bestandsnaamTemplate, setBestandsnaamTemplate] = useState("");
   const [bestandsnaamStatus, setBestandsnaamStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
+  // Mail-sjabloon (onderwerp + tekst) voor diezelfde dropzones — los van bewaar() hieronder en met
+  // een eigen "Opslaan"-knop (i.p.v. onBlur zoals de bestandsnaam) omdat het hier 2 samenhangende
+  // velden zijn die je meestal samen aanpast.
+  const [mailOnderwerpTemplate, setMailOnderwerpTemplate] = useState("");
+  const [mailTekstTemplate, setMailTekstTemplate] = useState("");
+  const [mailStatus, setMailStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
   const [fout, setFout] = useState("");
   const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
   const [nieuweSectieTitel, setNieuweSectieTitel] = useState("");
@@ -148,6 +154,8 @@ export default function DossierIndelingBeheer() {
         setOnderwerpId((huidigeIndeling.ib && huidigeIndeling.ib.onderwerpId) || "");
         setOnderwerpen(onderwerpenData.onderwerpen || []);
         setBestandsnaamTemplate(instellingenData.aangifteBestandsnaamTemplate || "");
+        setMailOnderwerpTemplate(instellingenData.aangifteMailOnderwerpTemplate || "");
+        setMailTekstTemplate(instellingenData.aangifteMailTekstTemplate || "");
       })
       .catch(() => { setCatalogus([]); setSecties([]); setFout("Kon de dossierindeling niet laden."); });
   }, []);
@@ -214,6 +222,23 @@ export default function DossierIndelingBeheer() {
       setBestandsnaamStatus("opgeslagen");
     } catch {
       setBestandsnaamStatus("fout");
+    }
+  };
+
+  /** Mail-onderwerp + -tekst samen opslaan — zelfde generieke /api/beheer-instellingen als
+   *  hierboven, gewoon 2 extra top-level velden. */
+  const bewaarMailTemplate = async () => {
+    setMailStatus("bezig");
+    try {
+      const r = await fetch("/api/beheer-instellingen", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ aangifteMailOnderwerpTemplate: mailOnderwerpTemplate, aangifteMailTekstTemplate: mailTekstTemplate }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      setMailStatus("opgeslagen");
+    } catch {
+      setMailStatus("fout");
     }
   };
 
@@ -514,6 +539,46 @@ export default function DossierIndelingBeheer() {
           {bestandsnaamStatus === "bezig" && <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>Opslaan…</span>}
           {bestandsnaamStatus === "opgeslagen" && <span style={{ fontSize: 11.5, color: KLEUR.groen }}>Opgeslagen</span>}
           {bestandsnaamStatus === "fout" && <span style={{ fontSize: 11.5, color: KLEUR.rood }}>Opslaan mislukt</span>}
+        </div>
+      </div>
+
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14, marginBottom: 18, background: KLEUR.lichtblauw }}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Mail — aangifte versturen</div>
+        <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 10, maxWidth: 640 }}>
+          Standaard onderwerp en tekst van de mail die de ontvanger (cliënt of fiscaal partner) krijgt zodra een medewerker een
+          aangifte via het IB-dossier verstuurt. De medewerker ziet dit als voorstel in het voorbeeldscherm vlak vóór het
+          versturen en kan het per keer nog aanpassen — hier stel je alleen in wat daar standaard al staat. Plaatshouders:{" "}
+          <code>{"{klant}"}</code> (naam van de ontvanger) en <code>{"{jaar}"}</code> (dossierjaar).
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 10 }}>
+          <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>Onderwerp</span>
+          <input
+            value={mailOnderwerpTemplate}
+            onChange={(e) => { setMailOnderwerpTemplate(e.target.value); setMailStatus("rust"); }}
+            placeholder="Uw aangifte inkomstenbelasting {jaar} staat klaar in het portaal"
+            style={{ ...invoerStijl, width: "100%", maxWidth: 560, background: "#fff" }}
+          />
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 10 }}>
+          <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>Tekst</span>
+          <textarea
+            value={mailTekstTemplate}
+            onChange={(e) => { setMailTekstTemplate(e.target.value); setMailStatus("rust"); }}
+            rows={8}
+            placeholder={"Beste {klant},\n\nUw aangifte inkomstenbelasting over {jaar} staat klaar ter beoordeling…"}
+            style={{ ...invoerStijl, width: "100%", maxWidth: 560, background: "#fff", resize: "vertical", fontFamily: "inherit" }}
+          />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button
+            onClick={bewaarMailTemplate}
+            disabled={mailStatus === "bezig"}
+            style={{ padding: "7px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: mailStatus === "bezig" ? "default" : "pointer" }}
+          >
+            {mailStatus === "bezig" ? "Opslaan…" : "Opslaan"}
+          </button>
+          {mailStatus === "opgeslagen" && <span style={{ fontSize: 11.5, color: KLEUR.groen }}>Opgeslagen</span>}
+          {mailStatus === "fout" && <span style={{ fontSize: 11.5, color: KLEUR.rood }}>Opslaan mislukt</span>}
         </div>
       </div>
 
