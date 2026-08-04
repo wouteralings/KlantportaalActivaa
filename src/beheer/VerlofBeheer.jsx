@@ -38,7 +38,6 @@ function RubriekKop({ open, setOpen, icoon: Icoon, children }) {
  */
 export default function VerlofBeheer() {
   const [openInstellingen, setOpenInstellingen] = useState(false);
-  const [openBeginbalans, setOpenBeginbalans] = useState(false);
   const [openSaldo, setOpenSaldo] = useState(false);
   const [instellingen, setInstellingen] = useState(null);
   const [fout, setFout] = useState("");
@@ -59,8 +58,8 @@ export default function VerlofBeheer() {
       <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 16, maxWidth: 760 }}>
         Stel het landelijke aantal fulltime verlofuren per jaar in en beheer de verloftypen. Het werkelijke
         tegoed per medewerker wordt automatisch pro rata berekend op basis van hun werkrooster (Werkrooster &amp;
-        parttime hierboven) — daar hoef je dus niets extra's voor in te voeren. Correcties op het saldo van een
-        individuele medewerker doe je hieronder bij het saldo-overzicht.
+        parttime hierboven) — daar hoef je dus niets extra's voor in te voeren. Een beginbalans (bijv. vanuit een
+        vorig systeem) of een losse correctie voer je hieronder in, per medewerker, bij het saldo-overzicht.
       </div>
 
       {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 10 }}>{fout}</div>}
@@ -71,132 +70,10 @@ export default function VerlofBeheer() {
         {openInstellingen && !instellingen && <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginTop: 10 }}>Instellingen ophalen…</div>}
       </div>
 
-      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 16, marginBottom: 24 }}>
-        <RubriekKop open={openBeginbalans} setOpen={setOpenBeginbalans} icoon={Plus}>Beginbalans invoeren</RubriekKop>
-        {openBeginbalans && <BeginbalansInvoeren onFout={setFout} />}
-      </div>
-
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 16 }}>
         <RubriekKop open={openSaldo} setOpen={setOpenSaldo} icoon={History}>Verlofsaldo per medewerker &amp; correcties</RubriekKop>
-        {openSaldo && <SaldoOverzicht onFout={setFout} />}
+        {openSaldo && <VerlofsaldoOverzicht onFout={setFout} />}
       </div>
-    </div>
-  );
-}
-
-/**
- * Bulklijst om voor elke medewerker in één keer een beginbalans in te voeren (bijv. saldo dat is
- * meegenomen vanuit een vorig systeem, vóórdat deze module bestond). Hergebruikt gewoon de bestaande
- * correctie-API (GET/POST /api/beheer-verlof-saldo) — er komt géén apart opslagmechanisme bij: elke
- * ingevoerde beginbalans wordt een normale, gelogde correctie (Wouter, 03-08-2026: "Bulklijst bovenop
- * bestaande correcties"). De toelichting is voor alle rijen gelijk (standaard "Beginbalans", aan te
- * passen) zodat je in het logboek later precies ziet welke correcties bij deze bulkactie hoorden.
- */
-function BeginbalansInvoeren({ onFout }) {
-  const [medewerkers, setMedewerkers] = useState(null);
-  const [waarden, setWaarden] = useState({});
-  const [toelichting, setToelichting] = useState("Beginbalans");
-  const [zoek, setZoek] = useState("");
-  const [bezig, setBezig] = useState(false);
-  const [voortgang, setVoortgang] = useState(null);
-  const [klaarMelding, setKlaarMelding] = useState("");
-
-  const laad = () => {
-    setMedewerkers(null);
-    fetch("/api/beheer-verlof-saldo")
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => setMedewerkers(d.medewerkers || []))
-      .catch(() => { setMedewerkers([]); onFout("Kon de medewerkerslijst niet laden."); });
-  };
-  useEffect(() => { laad(); }, []);
-
-  const gefilterd = (medewerkers || []).filter((m) => { const q = zoek.trim().toLowerCase(); return !q || `${m.naam} ${m.email}`.toLowerCase().includes(q); });
-
-  const teVerwerken = () => gefilterd.filter((m) => {
-    const v = waarden[m.email];
-    if (v == null || v === "") return false;
-    const n = Number(String(v).replace(",", "."));
-    return !isNaN(n) && n !== 0;
-  });
-
-  const allesOpslaan = async () => {
-    if (!toelichting.trim()) { onFout('Geef een toelichting mee voor de beginbalans (bijv. "Beginbalans 2026").'); return; }
-    const rijen = teVerwerken();
-    if (!rijen.length) { onFout("Vul bij minstens één medewerker een aantal uren in."); return; }
-    setBezig(true); onFout(""); setKlaarMelding(""); setVoortgang({ gedaan: 0, totaal: rijen.length });
-    let fouten = 0;
-    for (const m of rijen) {
-      try {
-        const aantal = Number(String(waarden[m.email]).replace(",", "."));
-        const res = await fetch("/api/beheer-verlof-saldo", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: m.email, uren: aantal, toelichting: toelichting.trim() }),
-        });
-        if (!res.ok) fouten++;
-        else setWaarden((w) => { const n = { ...w }; delete n[m.email]; return n; });
-      } catch { fouten++; }
-      setVoortgang((v) => ({ ...v, gedaan: v.gedaan + 1 }));
-    }
-    setBezig(false);
-    setKlaarMelding(fouten ? `Klaar, met ${fouten} fout(en) — controleer en probeer die opnieuw.` : `Beginbalans voor ${rijen.length} medewerker(s) opgeslagen.`);
-    laad();
-  };
-
-  const aantalTeVerwerken = teVerwerken().length;
-
-  return (
-    <div style={{ marginTop: 12 }}>
-      <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 12, display: "flex", gap: 6, alignItems: "flex-start", maxWidth: 720 }}>
-        <Info size={12} style={{ marginTop: 1, flexShrink: 0 }} /> Vul per medewerker het aantal beginbalans-uren in (leeg of 0 = overslaan) en klik onderaan op "Alles opslaan".
-        Elke ingevulde rij wordt een normale, gelogde correctie met de onderstaande toelichting — je kunt dit dus ook later nog een keer doen (bijv. per jaar).
-      </div>
-
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 12 }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: "1 1 260px", maxWidth: 340 }}>
-          <span style={lbl}>Toelichting (voor alle rijen)</span>
-          <input value={toelichting} onChange={(e) => setToelichting(e.target.value)} placeholder="bijv. Beginbalans 2026" style={{ ...veld, width: "100%" }} />
-        </div>
-        <div style={{ position: "relative", flex: "1 1 240px", maxWidth: 320 }}>
-          <Search size={13} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)" }} />
-          <input value={zoek} onChange={(e) => setZoek(e.target.value)} placeholder="Zoek medewerker…" style={{ ...veld, width: "100%", padding: "8px 9px 8px 28px" }} />
-        </div>
-      </div>
-
-      {medewerkers === null ? (
-        <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Medewerkers ophalen…</div>
-      ) : gefilterd.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Geen medewerkers gevonden.</div>
-      ) : (
-        <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, marginBottom: 12 }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 480 }}>
-            <thead><tr style={{ background: "#FBFBF9" }}><th style={th}>Medewerker</th><th style={th}>Huidig saldo</th><th style={th}>Beginbalans (uren)</th></tr></thead>
-            <tbody>
-              {gefilterd.map((m) => (
-                <tr key={m.email}>
-                  <td style={td}>
-                    <div style={{ fontWeight: 600 }}>{m.naam}</div>
-                    <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>{m.email}</div>
-                  </td>
-                  <td style={{ ...td, color: KLEUR.blauw, fontWeight: 700 }}>{uur(m.saldo.resterend)} u</td>
-                  <td style={td}>
-                    <input
-                      value={waarden[m.email] ?? ""}
-                      onChange={(e) => setWaarden((w) => ({ ...w, [m.email]: e.target.value }))}
-                      inputMode="decimal" placeholder="0" style={{ ...veld, width: 100 }}
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      <button onClick={allesOpslaan} disabled={bezig || !aantalTeVerwerken} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: bezig || !aantalTeVerwerken ? "default" : "pointer", opacity: bezig || !aantalTeVerwerken ? 0.6 : 1 }}>
-        {bezig ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Save size={14} />}
-        {bezig && voortgang ? `Opslaan… (${voortgang.gedaan}/${voortgang.totaal})` : `Alles opslaan${aantalTeVerwerken ? ` (${aantalTeVerwerken})` : ""}`}
-      </button>
-      {klaarMelding && <div style={{ fontSize: 12, color: KLEUR.groen, marginTop: 8, display: "flex", alignItems: "center", gap: 5 }}><CheckCircle2 size={13} /> {klaarMelding}</div>}
     </div>
   );
 }
@@ -288,11 +165,26 @@ function Instellingen({ begin, onOpgeslagen, onFout }) {
   );
 }
 
-function SaldoOverzicht({ onFout }) {
+/**
+ * Verlofsaldo per medewerker + correcties/beginbalans — samengevoegd uit de eerdere aparte
+ * "Beginbalans invoeren"-bulklijst en het "Verlofsaldo & correcties"-overzicht (Wouter, 04-08-2026:
+ * "Misschien gelijk in 1 overzicht combineren?"). Elke rij toont meteen het huidige saldo mét een
+ * invoerveld voor een correctie — geen inklappen nodig voor een snelle, individuele correctie. Een
+ * gedeelde "standaard toelichting" bovenaan geldt voor rijen waar je zelf niets hebt ingevuld, zodat
+ * je in één keer voor meerdere medewerkers een beginbalans kunt invoeren (net als voorheen) via
+ * "Alles opslaan"; per rij kun je ook direct op het plusje klikken voor één losse correctie met een
+ * eigen toelichting. Het volledige, niet-aan-te-passen logboek staat (in te klappen) onder elke rij.
+ */
+function VerlofsaldoOverzicht({ onFout }) {
   const [medewerkers, setMedewerkers] = useState(null);
   const [zoek, setZoek] = useState("");
   const [toonAantal, setToonAantal] = useState(50);
   const [open, setOpen] = useState("");
+  const [standaardToelichting, setStandaardToelichting] = useState("Beginbalans");
+  const [waarden, setWaarden] = useState({});           // { email: { uren, toelichting } }
+  const [bezigAlles, setBezigAlles] = useState(false);
+  const [voortgang, setVoortgang] = useState(null);
+  const [klaarMelding, setKlaarMelding] = useState("");
 
   const laad = () => {
     setMedewerkers(null);
@@ -303,81 +195,137 @@ function SaldoOverzicht({ onFout }) {
   };
   useEffect(() => { laad(); }, []);
 
+  const zetWaarde = (email, veld, val) => setWaarden((w) => ({ ...w, [email]: { ...(w[email] || {}), [veld]: val } }));
+
+  // Slaat één rij op; geeft true/false terug (geen eigen foutmelding-state per rij — die loopt via onFout).
+  const opslaanRij = async (email) => {
+    const v = waarden[email] || {};
+    const aantal = Number(String(v.uren ?? "").replace(",", "."));
+    if (!v.uren || isNaN(aantal) || aantal === 0) { onFout("Geef een aantal uren ongelijk aan 0 (positief = erbij, negatief = eraf)."); return false; }
+    const toelichting = (v.toelichting || "").trim() || standaardToelichting.trim();
+    if (!toelichting) { onFout("Geef een toelichting mee voor de correctie."); return false; }
+    try {
+      const res = await fetch("/api/beheer-verlof-saldo", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, uren: aantal, toelichting }) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { onFout(d.error || "Correctie opslaan mislukt."); return false; }
+      setWaarden((w) => { const n = { ...w }; delete n[email]; return n; });
+      return true;
+    } catch (e) { onFout(String(e.message || e)); return false; }
+  };
+
+  const opslaanEenRij = async (email) => {
+    onFout("");
+    const ok = await opslaanRij(email);
+    if (ok) laad();
+  };
+
   const gefilterd = (medewerkers || []).filter((m) => { const q = zoek.trim().toLowerCase(); return !q || `${m.naam} ${m.email}`.toLowerCase().includes(q); });
   const zichtbaar = toonAantal === Infinity ? gefilterd : gefilterd.slice(0, toonAantal);
 
+  const teVerwerken = () => gefilterd.filter((m) => {
+    const v = waarden[m.email];
+    if (!v || v.uren == null || v.uren === "") return false;
+    const n = Number(String(v.uren).replace(",", "."));
+    return !isNaN(n) && n !== 0;
+  });
+
+  const allesOpslaan = async () => {
+    const rijen = teVerwerken();
+    if (!rijen.length) { onFout("Vul bij minstens één medewerker een aantal uren in."); return; }
+    setBezigAlles(true); onFout(""); setKlaarMelding(""); setVoortgang({ gedaan: 0, totaal: rijen.length });
+    let fouten = 0;
+    for (const m of rijen) {
+      const ok = await opslaanRij(m.email);
+      if (!ok) fouten++;
+      setVoortgang((v) => ({ ...v, gedaan: v.gedaan + 1 }));
+    }
+    setBezigAlles(false);
+    setKlaarMelding(fouten ? `Klaar, met ${fouten} fout(en) — controleer en probeer die opnieuw.` : `Correctie voor ${rijen.length} medewerker(s) opgeslagen.`);
+    laad();
+  };
+
+  const aantalTeVerwerken = teVerwerken().length;
+
   return (
     <div style={{ marginTop: 12 }}>
-      <div style={{ position: "relative", maxWidth: 320, marginBottom: 10 }}>
-        <Search size={13} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)" }} />
-        <input value={zoek} onChange={(e) => setZoek(e.target.value)} placeholder="Zoek medewerker…" style={{ ...veld, width: "100%", padding: "8px 9px 8px 28px" }} />
+      <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 12, display: "flex", gap: 6, alignItems: "flex-start", maxWidth: 760 }}>
+        <Info size={12} style={{ marginTop: 1, flexShrink: 0 }} /> Vul per medewerker een correctie in uren in (bijv. een beginbalans, of een losse aanpassing — positief = erbij,
+        negatief = eraf) en klik op het plusje voor die ene medewerker, of vul meerdere rijen in en klik onderaan op "Alles opslaan". Laat de toelichting van een rij leeg om de
+        standaard toelichting hieronder te gebruiken. Elke correctie wordt gelogd met wie hem invoerde — zie de historie onder elke rij.
       </div>
+
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 12 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: "1 1 260px", maxWidth: 340 }}>
+          <span style={lbl}>Standaard toelichting (voor rijen zonder eigen toelichting)</span>
+          <input value={standaardToelichting} onChange={(e) => setStandaardToelichting(e.target.value)} placeholder="bijv. Beginbalans 2026" style={{ ...veld, width: "100%" }} />
+        </div>
+        <div style={{ position: "relative", flex: "1 1 240px", maxWidth: 320 }}>
+          <Search size={13} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)" }} />
+          <input value={zoek} onChange={(e) => setZoek(e.target.value)} placeholder="Zoek medewerker…" style={{ ...veld, width: "100%", padding: "8px 9px 8px 28px" }} />
+        </div>
+      </div>
+
       {medewerkers === null ? (
         <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Saldo's ophalen…</div>
       ) : gefilterd.length === 0 ? (
         <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Geen medewerkers gevonden.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {zichtbaar.map((m) => <MedewerkerSaldoRij key={m.email} m={m} open={open === m.email} onToggle={() => setOpen(open === m.email ? "" : m.email)} onGewijzigd={laad} onFout={onFout} />)}
+          {zichtbaar.map((m) => (
+            <MedewerkerSaldoRij
+              key={m.email} m={m} open={open === m.email} onToggle={() => setOpen(open === m.email ? "" : m.email)}
+              waarde={waarden[m.email] || {}} standaardToelichting={standaardToelichting}
+              onWaarde={(veld, val) => zetWaarde(m.email, veld, val)}
+              onOpslaan={() => opslaanEenRij(m.email)}
+            />
+          ))}
         </div>
       )}
       {medewerkers && gefilterd.length > 0 && <Paginatie totaal={gefilterd.length} getoond={zichtbaar.length} toonAantal={toonAantal} setToonAantal={setToonAantal} />}
+
+      <button onClick={allesOpslaan} disabled={bezigAlles || !aantalTeVerwerken} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 14px", marginTop: 14, background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: bezigAlles || !aantalTeVerwerken ? "default" : "pointer", opacity: bezigAlles || !aantalTeVerwerken ? 0.6 : 1 }}>
+        {bezigAlles ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Save size={14} />}
+        {bezigAlles && voortgang ? `Opslaan… (${voortgang.gedaan}/${voortgang.totaal})` : `Alles opslaan${aantalTeVerwerken ? ` (${aantalTeVerwerken})` : ""}`}
+      </button>
+      {klaarMelding && <div style={{ fontSize: 12, color: KLEUR.groen, marginTop: 8, display: "flex", alignItems: "center", gap: 5 }}><CheckCircle2 size={13} /> {klaarMelding}</div>}
     </div>
   );
 }
 
-function MedewerkerSaldoRij({ m, open, onToggle, onGewijzigd, onFout }) {
+function MedewerkerSaldoRij({ m, open, onToggle, waarde, standaardToelichting, onWaarde, onOpslaan }) {
   const s = m.saldo;
-  const [correctieUren, setCorrectieUren] = useState("");
-  const [toelichting, setToelichting] = useState("");
   const [bezig, setBezig] = useState(false);
 
-  const voegCorrectieToe = async () => {
-    const aantal = Number(String(correctieUren).replace(",", "."));
-    if (!aantal) { onFout("Geef een aantal uren ongelijk aan 0 (positief = erbij, negatief = eraf)."); return; }
-    if (!toelichting.trim()) { onFout("Een toelichting is verplicht bij een correctie."); return; }
-    setBezig(true); onFout("");
-    try {
-      const res = await fetch("/api/beheer-verlof-saldo", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: m.email, uren: aantal, toelichting: toelichting.trim() }) });
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
-      setCorrectieUren(""); setToelichting("");
-      if (onGewijzigd) onGewijzigd();
-    } catch (e) { onFout(String(e.message || e)); }
-    finally { setBezig(false); }
+  const toevoegen = async () => {
+    setBezig(true);
+    await onOpslaan();
+    setBezig(false);
   };
 
   return (
     <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
-      <div onClick={onToggle} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "10px 12px", background: "#FBFBF9", cursor: "pointer", flexWrap: "wrap" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "10px 12px", background: "#FBFBF9", flexWrap: "wrap" }}>
+        <div onClick={onToggle} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", minWidth: 150 }}>
           <ChevronDown size={15} color={KLEUR.mutedTekst} style={{ transform: open ? "none" : "rotate(-90deg)" }} />
           <div style={{ fontWeight: 600, fontSize: 13 }}>{m.naam}</div>
         </div>
-        <div style={{ display: "flex", gap: 14, fontSize: 12 }}>
+        <div style={{ display: "flex", gap: 14, fontSize: 12, flexWrap: "wrap" }}>
           <span>Basis <strong>{uur(s.basis)} u</strong></span>
           {s.instroomFactor != null && s.instroomFactor < 1 && <span style={{ color: KLEUR.goud }} title="Pro rata i.v.m. datum in dienst dit jaar">Instroom <strong>{Math.round(s.instroomFactor * 100)}%</strong></span>}
           {s.correcties !== 0 && <span style={{ color: s.correcties > 0 ? KLEUR.groen : KLEUR.rood }}>Correcties <strong>{s.correcties > 0 ? "+" : ""}{uur(s.correcties)} u</strong></span>}
           <span>Opgenomen <strong>{uur(s.opgenomen)} u</strong></span>
           <span style={{ color: KLEUR.blauw }}>Resterend <strong>{uur(s.resterend)} u</strong></span>
         </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <input value={waarde.uren ?? ""} onChange={(e) => onWaarde("uren", e.target.value)} placeholder="bijv. -8 of 16" inputMode="decimal" title="Correctie in uren (+/-)" style={{ ...veld, width: 90 }} />
+          <input value={waarde.toelichting ?? ""} onChange={(e) => onWaarde("toelichting", e.target.value)} placeholder={standaardToelichting || "Toelichting"} title="Toelichting (leeg = standaard toelichting hierboven)" style={{ ...veld, width: 150 }} />
+          <button onClick={toevoegen} disabled={bezig} title="Correctie toevoegen" style={{ display: "inline-flex", padding: "7px 9px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, cursor: "pointer" }}>
+            {bezig ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : <Plus size={13} />}
+          </button>
+        </div>
       </div>
       {open && (
         <div style={{ padding: "12px 14px" }}>
-          <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 12 }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-              <span style={lbl}>Correctie (uren, +/-)</span>
-              <input value={correctieUren} onChange={(e) => setCorrectieUren(e.target.value)} placeholder="bijv. -8 of 16" inputMode="decimal" style={{ ...veld, width: 110 }} />
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: "1 1 260px" }}>
-              <span style={lbl}>Toelichting (verplicht)</span>
-              <input value={toelichting} onChange={(e) => setToelichting(e.target.value)} placeholder="Waarom deze correctie?" style={{ ...veld, width: "100%" }} />
-            </div>
-            <button onClick={voegCorrectieToe} disabled={bezig} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
-              {bezig ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : <Plus size={13} />} Correctie toevoegen
-            </button>
-          </div>
-
           <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 6 }}>Logboek — eerdere correcties (niet aan te passen)</div>
           {(!s.correctieHistorie || s.correctieHistorie.length === 0) ? (
             <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Nog geen correcties voor deze medewerker.</div>
