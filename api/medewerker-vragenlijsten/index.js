@@ -60,58 +60,10 @@ async function haalMijnNaam(resource, token, email) {
   }
 }
 
-/** Aantal onbeantwoorde klantvragen: klantberichten ná het laatste medewerker-/ai-antwoord. */
-function openVragen(vragen) {
-  if (!Array.isArray(vragen) || !vragen.length) return 0;
-  let laatsteAntwoord = -1;
-  vragen.forEach((m, i) => { if (m.rol === "medewerker" || m.rol === "ai") laatsteAntwoord = i; });
-  return vragen.filter((m, i) => m.rol === "klant" && i > laatsteAntwoord).length;
-}
-
-function verrijk(v, laatstGezien) {
-  const regels = Array.isArray(v.regels) ? v.regels : [];
-  // 'afgemeld' (opmerking zonder bestand) telt hier ook mee als afgehandeld, zelfde als 'aangeleverd'.
-  const aangeleverd = regels.filter((r) => r.status !== "open").length;
-  const vragen = Array.isArray(v.vragen) ? v.vragen : [];
-  return {
-    id: v.id,
-    accountId: v.accountId,
-    klantnaam: v.klantnaam || "",
-    klantnummer: v.klantnummer || "",
-    contactNaam: v.contactNaam || "",
-    lijstNaam: v.lijstNaam || v.onderwerp || "Aanlever-verzoek",
-    jaar: v.jaar || "",
-    startdatum: (v.aangemaaktOp || "").slice(0, 10),
-    deadline: v.deadline || "",
-    aantalDocumenten: regels.length,
-    aangeleverd,
-    notitie: v.notitie || "",
-    documenten: regels.map((r) => ({
-      id: r.id,
-      naam: r.naam || "",
-      verplicht: r.verplicht !== false,
-      toelichting: r.toelichting || "",
-      status: r.status || "open",
-      opmerking: r.opmerking || "",
-      bestandNaam: (r.bestand && r.bestand.naam) || "",
-      aangeleverdOp: r.aangeleverdOp || null,
-    })),
-    status: v.status || "open",
-    zichtbaar: v.zichtbaar !== false,
-    vragen,
-    openVragen: openVragen(vragen),
-    heeftVragen: vragen.some((m) => m.rol === "klant"),
-    // Heeft de klant hier iets aangeleverd/afgemeld of gevraagd sinds medewerkers dit voor het laatst
-    // bekeken (tab "Vragenlijsten" geopend)? Voor het rode bolletje op de rij én op de tab zelf.
-    heeftNieuweActiviteit: verzoeken.heeftKlantActiviteitSinds(v, laatstGezien),
-    // Afgerond (klant klaar) maar nog niet door een medewerker gecontroleerd/geaccepteerd — dan blijft
-    // de rij zichtbaar met een "wacht op controle"-status i.p.v. stilletjes te verdwijnen.
-    wachtOpControle: v.status === "afgerond" && !v.medewerkerGeaccepteerd,
-    medewerkerGeaccepteerd: !!v.medewerkerGeaccepteerd,
-    geaccepteerdOp: v.geaccepteerdOp || null,
-    geaccepteerdDoor: v.geaccepteerdDoor || "",
-  };
-}
+// 'openVragen'/'verrijk' zijn verplaatst naar api/_gedeeld/aanleververzoeken.js (als openVragen/
+// verrijkVerzoek) zodat api/medewerker-dossier dezelfde verrijking kan hergebruiken voor de
+// "Gekoppelde uitvraaglijst"-kaart in een fiscaal dossier — zelfde vorm, één plek onderhouden.
+const verrijk = verzoeken.verrijkVerzoek;
 
 module.exports = async function (context, req) {
   const email = haalEmailUitPrincipal(req);

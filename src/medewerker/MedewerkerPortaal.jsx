@@ -4,6 +4,7 @@ import { startMeekijken } from "../meekijken";
 import OffertesModule from "./OffertesModule";
 import ContractenOverzicht from "./ContractenOverzicht";
 import Vragenlijsten from "./Vragenlijsten";
+import VragenlijstDetail from "./VragenlijstDetail";
 import Urenregistratie from "./uren/Urenregistratie";
 import ScopeToggle, { useMijnNaam, isKlantVanMij } from "./MijnFilter";
 import ContactpersonenOverzicht from "./klanten/ContactpersonenOverzicht";
@@ -1760,6 +1761,7 @@ function MedewerkerDossiers({ soort }) {
         voorwaarden={detail.voorwaarden || {}}
         alleenLezen={detail.alleenLezen || []}
         picklistOpties={detail.picklistOpties || {}}
+        gekoppeldeUitvragen={detail.gekoppeldeUitvragen || []}
         onTerug={() => { setDetailId(null); setDetail(null); }}
         onOpgeslagen={(bijgewerkt) => {
           setDetail((h) => ({ ...h, dossier: bijgewerkt }));
@@ -1960,6 +1962,21 @@ function VeldInvoer({ veldDef, waarde, onChange, picklistOpties, statusOpties, d
       </div>
     );
   }
+  if (veldDef.type === "decimal") {
+    return (
+      <div>
+        {labelMetSlot}
+        <input
+          type="number"
+          step="any"
+          disabled={uitgeschakeld}
+          value={waarde ?? ""}
+          onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
+          style={veldStijl}
+        />
+      </div>
+    );
+  }
   // string
   return (
     <div>
@@ -1976,8 +1993,12 @@ function VeldInvoer({ veldDef, waarde, onChange, picklistOpties, statusOpties, d
    elk ander veld zelf een plek krijgen. Dezelfde inhoud als het Dynamics-formulier (tabbladen
    Algemeen/Box I/II/III/Review), maar als één doorlopende, overzichtelijke pagina i.p.v. zes
    aparte tabbladen. Alleen-lezen als het dossier in Dynamics op inactief (statecode) staat, of
-   per veld als dat veld in Beheer → Dossiers op alleen-lezen is gezet. */
-function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen, picklistOpties, onTerug, onOpgeslagen }) {
+   per veld als dat veld in Beheer → Dossiers op alleen-lezen is gezet. Als Beheer → Dossiers een
+   onderwerp aan deze dossiersoort heeft gekoppeld (zie DossierIndelingBeheer.jsx), toont een aparte
+   kaart bovenaan (vóór de secties) de gekoppelde uitvraaglijst(en) — de volledige vragenlijst
+   (documenten aftekenen/heropenen, vragen van de klant beantwoorden) rechtstreeks ingebouwd via
+   VragenlijstDetail, dezelfde functionaliteit als het tabblad Vragenlijsten. */
+function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen, picklistOpties, gekoppeldeUitvragen, onTerug, onOpgeslagen }) {
   const [status, setStatus] = useState(dossier.status != null ? String(dossier.status) : "");
   const [urlDossier, setUrlDossier] = useState(dossier.urlDossier || "");
   const [documentUrl, setDocumentUrl] = useState(dossier.documentUrl || "");
@@ -1985,6 +2006,9 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
   const [opslaan, setOpslaan] = useState("rust"); // rust | bezig | gelukt | fout
   const [fout, setFout] = useState("");
   const bewerkbaar = dossier.actief !== false;
+  // Gekoppelde uitvraaglijst(en) — lokale kopie zodat VragenlijstDetail (hieronder ingebed) een
+  // wijziging/verwijdering direct in de kaart kan doorvoeren zonder het hele dossier opnieuw te laden.
+  const [uitvragen, setUitvragen] = useState(gekoppeldeUitvragen || []);
 
   const oorspronkelijkeVelden = waardenUitDossier(dossier, catalogus);
   const veldenGewijzigd = JSON.stringify(veldenState) !== JSON.stringify(oorspronkelijkeVelden);
@@ -2088,6 +2112,35 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
           Dit dossier staat in Dynamics op <strong>inactief</strong> en is daarom hieronder alleen-lezen.
         </div>
       )}
+
+      {uitvragen.length > 0 && uitvragen.map((u) => (
+        <div key={u.id} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
+            <FileText size={16} color={KLEUR.blauw} />
+            <span style={{ fontSize: 15, fontWeight: 700 }}>{u.lijstNaam || "Uitvraaglijst"}</span>
+            <span
+              style={{
+                fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, textTransform: "uppercase", letterSpacing: ".02em",
+                background: u.status === "afgerond" ? "#EAF6EE" : "#FCEFE0",
+                color: u.status === "afgerond" ? KLEUR.groen : "#B98237",
+              }}
+            >
+              {u.status === "afgerond" ? "Afgerond" : "Open"}
+            </span>
+            {!u.zichtbaar && <span style={{ fontSize: 10.5, color: KLEUR.mutedTekst }}>(concept — nog niet zichtbaar voor de klant)</span>}
+            {u.openVragen > 0 && (
+              <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "#F6E4E4", color: KLEUR.rood }}>
+                {u.openVragen} open vraag/vragen
+              </span>
+            )}
+          </div>
+          <VragenlijstDetail
+            verzoek={u}
+            onGewijzigd={(bijgewerkt) => setUitvragen((h) => h.map((x) => (x.id === bijgewerkt.id ? bijgewerkt : x)))}
+            onVerwijderd={() => setUitvragen((h) => h.filter((x) => x.id !== u.id))}
+          />
+        </div>
+      ))}
 
       {zichtbareSecties.map((sectie) => (
         <div key={sectie.sleutel} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>

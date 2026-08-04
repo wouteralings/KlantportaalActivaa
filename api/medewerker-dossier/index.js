@@ -16,8 +16,11 @@
  *         ("uitvraaglijsten", zie api/_gedeeld/aanleververzoeken.js) van deze cliënt die bij het aan
  *         deze dossiersoort gekoppelde onderwerp (dossierIndeling.<soort>.onderwerpId, door Wouter
  *         ingesteld via Beheer → Dossiers) en, indien het dossier een jaar heeft, hetzelfde jaar
- *         horen — leeg als er geen onderwerp gekoppeld is. Zie gekoppeldeUitvragenVoorDossier()
- *         hieronder.)
+ *         horen — leeg als er geen onderwerp gekoppeld is. Elk item is het volledige, verrijkte
+ *         verzoek (zelfde vorm/verrijkVerzoek() als het Vragenlijsten-werkoverzicht — documenten,
+ *         vragen, voortgang), zodat het medewerkersportaal de vragenlijst rechtstreeks in het
+ *         dossier kan tonen én laten beantwoorden (VragenlijstDetail-component). Zie
+ *         gekoppeldeUitvragenVoorDossier() hieronder.)
  *   - POST { soort, id, status?, urlDossier?, documentUrl?, velden? }  → bijwerken (weigert bij
  *         inactief). "velden" is de vrije bag met catalogussleutels, bijv. { loon: true }.
  *         Velden die in Beheer → Dossiers op alleen-lezen staan worden hier genegeerd, ook al
@@ -29,7 +32,7 @@ const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = req
 const { SOORTEN, haalEenDossier, werkDossierBij, haalDynamischePicklistOpties, metAangepasteVelden } = require("../_gedeeld/dossiers");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
 const { standaardIndelingIB, standaardIndelingOverig, vasteVeldenVoorSoort, metLabels } = require("../_gedeeld/dossierVelden");
-const { haalVoorAccounts } = require("../_gedeeld/aanleververzoeken");
+const { haalVoorAccounts, haalLaatstGezien, verrijkVerzoek } = require("../_gedeeld/aanleververzoeken");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
 
 /** Haalt de (door Beheer → Dossiers ingestelde) indeling van een soort op — secties (met
@@ -58,29 +61,24 @@ async function haalIndeling(soort) {
 
 /** Zoekt de aanleververzoeken ("uitvraaglijsten") die bij dit dossier horen — zelfde cliënt
  * (accountId), gekoppeld onderwerp (Beheer → Dossiers stelt per dossiersoort in welk onderwerp uit
- * Beheer → Onderwerpen erbij hoort) en, als het dossier een jaar heeft, ook hetzelfde jaar. Geeft
- * een compacte samenvatting terug (geen volledige regels/vragen — dat blijft in Vragenlijsten).
+ * Beheer → Onderwerpen erbij hoort) en, als het dossier een jaar heeft, ook hetzelfde jaar. Geeft de
+ * volledige, verrijkte verzoeken terug (zelfde vorm als het Vragenlijsten-werkoverzicht: documenten,
+ * vragen, voortgang, activiteit — via de gedeelde verrijkVerzoek()) zodat een medewerker de
+ * vragenlijst rechtstreeks vanuit het dossier kan doorlopen en beantwoorden (VragenlijstDetail-
+ * component, ook gebruikt door Vragenlijsten.jsx) zonder naar het tabblad Vragenlijsten te hoeven.
  * Best-effort: als de aanleververzoeken-opslag niet gelezen kan worden, blokkeert dat het dossier
  * niet (lege lijst). Zonder gekoppeld onderwerp (onderwerpId leeg) meteen een lege lijst terug. */
 async function gekoppeldeUitvragenVoorDossier(dossier, onderwerpId) {
   if (!onderwerpId || !dossier || !dossier.accountId) return [];
   try {
-    const alle = await haalVoorAccounts([dossier.accountId]);
+    const [alle, laatstGezien] = await Promise.all([
+      haalVoorAccounts([dossier.accountId]),
+      haalLaatstGezien().catch(() => null),
+    ]);
     const jaarDossier = dossier.jaar != null && dossier.jaar !== "" ? String(dossier.jaar) : "";
-    return alle
-      .filter((v) => v.onderwerpId === onderwerpId && (!jaarDossier || !v.jaar || v.jaar === jaarDossier))
-      .map((v) => ({
-        id: v.id,
-        lijstNaam: v.lijstNaam,
-        onderwerp: v.onderwerp,
-        jaar: v.jaar,
-        status: v.status,
-        zichtbaar: v.zichtbaar,
-        deadline: v.deadline,
-        aangemaaktOp: v.aangemaaktOp,
-        voortgang: { totaal: (v.regels || []).length, afgerond: (v.regels || []).filter((r) => r.status !== "open").length },
-      }))
-      .sort((a, b) => String(b.aangemaaktOp || "").localeCompare(String(a.aangemaaktOp || "")));
+    const gefilterd = alle.filter((v) => v.onderwerpId === onderwerpId && (!jaarDossier || !v.jaar || v.jaar === jaarDossier));
+    gefilterd.sort((a, b) => String(b.aangemaaktOp || "").localeCompare(String(a.aangemaaktOp || "")));
+    return gefilterd.map((v) => verrijkVerzoek(v, laatstGezien));
   } catch {
     return [];
   }

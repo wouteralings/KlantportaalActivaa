@@ -253,8 +253,64 @@ function heeftMedewerkerActiviteitSinds(verzoek, sindsIso) {
   return sinds ? momenten.some((t) => t && new Date(t) > sinds) : momenten.length > 0;
 }
 
+/** Aantal onbeantwoorde klantvragen: klantberichten ná het laatste medewerker-/ai-antwoord. Gedeeld
+ * tussen api/medewerker-vragenlijsten (het werkoverzicht) en api/medewerker-dossier (de gekoppelde
+ * uitvraaglijst-kaart in een fiscaal dossier) zodat beide exact dezelfde badge/telling tonen. */
+function openVragen(vragen) {
+  if (!Array.isArray(vragen) || !vragen.length) return 0;
+  let laatsteAntwoord = -1;
+  vragen.forEach((m, i) => { if (m.rol === "medewerker" || m.rol === "ai") laatsteAntwoord = i; });
+  return vragen.filter((m, i) => m.rol === "klant" && i > laatsteAntwoord).length;
+}
+
+/** Verrijkt een ruw opgeslagen verzoek tot de vorm die de medewerkers-UI gebruikt: voortgang,
+ * documentenlijst, vraag-/berichtenreeks en activiteitsindicatoren afgeleid van de rauwe regels/
+ * vragen. Gedeeld tussen het Vragenlijsten-werkoverzicht en de "Gekoppelde uitvraaglijst"-kaart in
+ * een dossier (via VragenlijstDetail — zelfde vorm, dus dezelfde component kan hem overal tonen). */
+function verrijkVerzoek(v, laatstGezien) {
+  const regels = Array.isArray(v.regels) ? v.regels : [];
+  // 'afgemeld' (opmerking zonder bestand) telt hier ook mee als afgehandeld, zelfde als 'aangeleverd'.
+  const aangeleverd = regels.filter((r) => r.status !== "open").length;
+  const vragen = Array.isArray(v.vragen) ? v.vragen : [];
+  return {
+    id: v.id,
+    accountId: v.accountId,
+    klantnaam: v.klantnaam || "",
+    klantnummer: v.klantnummer || "",
+    contactNaam: v.contactNaam || "",
+    lijstNaam: v.lijstNaam || v.onderwerp || "Aanlever-verzoek",
+    jaar: v.jaar || "",
+    startdatum: (v.aangemaaktOp || "").slice(0, 10),
+    deadline: v.deadline || "",
+    aantalDocumenten: regels.length,
+    aangeleverd,
+    notitie: v.notitie || "",
+    documenten: regels.map((r) => ({
+      id: r.id,
+      naam: r.naam || "",
+      verplicht: r.verplicht !== false,
+      toelichting: r.toelichting || "",
+      status: r.status || "open",
+      opmerking: r.opmerking || "",
+      bestandNaam: (r.bestand && r.bestand.naam) || "",
+      aangeleverdOp: r.aangeleverdOp || null,
+    })),
+    status: v.status || "open",
+    zichtbaar: v.zichtbaar !== false,
+    vragen,
+    openVragen: openVragen(vragen),
+    heeftVragen: vragen.some((m) => m.rol === "klant"),
+    heeftNieuweActiviteit: heeftKlantActiviteitSinds(v, laatstGezien),
+    wachtOpControle: v.status === "afgerond" && !v.medewerkerGeaccepteerd,
+    medewerkerGeaccepteerd: !!v.medewerkerGeaccepteerd,
+    geaccepteerdOp: v.geaccepteerdOp || null,
+    geaccepteerdDoor: v.geaccepteerdDoor || "",
+  };
+}
+
 module.exports = {
   haalAlle, maakVerzoek, maakRegel, maakBericht, voegToe, werkBij, verwijder, haalVoorAccounts, herberekenStatus,
   haalLaatstGezien, zetLaatstGezien, heeftKlantActiviteitSinds,
   haalKlantLaatstGezien, zetKlantLaatstGezien, heeftMedewerkerActiviteitSinds,
+  openVragen, verrijkVerzoek,
 };
