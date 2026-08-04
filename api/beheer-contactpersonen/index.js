@@ -1,9 +1,12 @@
 const { haalDynamicsToken } = require("../_gedeeld/identiteit");
+const { haalInstellingen } = require("../_gedeeld/instellingen");
 
 /**
  * Contactpersonen-overzicht voor het medewerkersportaal — de tegenhanger van
  * /api/beheer-klanten, maar op de Dataverse-tabel `contacts` in plaats van `accounts`.
- * Route is beveiligd via staticwebapp.config.json (rol 'medewerker' of 'beheerder').
+ * Route is beveiligd via staticwebapp.config.json (rol 'medewerker' of 'beheerder'). Door
+ * Beheer → Kolommen zelf toegevoegde extra Dynamics-velden (instellingen.contactpersonenExtraKolommen)
+ * komen per contactpersoon terecht onder "extra" — zelfde idee als bij /api/beheer-klanten.
  *
  * GET → { contactpersonen: [ ... ], afgekapt: bool }
  *
@@ -70,17 +73,35 @@ async function haalPaginas(startUrl, headers, max) {
   return { rijen: alles.slice(0, max), afgekapt: alles.length >= max && !!url };
 }
 
-/** Haalt alle actieve contactpersonen op, met terugval als een optioneel veld niet bestaat. */
-async function haalContactpersonen(resource, token) {
+// Zelfde leeshelpers als api/beheer-klanten/index.js — hier apart herhaald, dit bestand houdt
+// bewust geen gedeelde afhankelijkheid met dat andere overzicht.
+function leesVeld(rij, veld) {
+  if (!veld) return "";
+  if (rij[veld + FV] != null) return rij[veld + FV];
+  return rij[veld] != null ? rij[veld] : "";
+}
+function leesLookup(rij, veld) {
+  if (!veld) return "";
+  return rij[`_${veld}_value${FV}`] || "";
+}
+function leesExtra(rij, def) {
+  return def.type === "lookup" ? leesLookup(rij, def.veld) : leesVeld(rij, def.veld);
+}
+
+/** Haalt alle actieve contactpersonen op, met terugval als een optioneel of extra veld niet
+ *  bestaat. `extraKolommen` = door Beheer → Kolommen zelf toegevoegde velden (zie hierboven). */
+async function haalContactpersonen(resource, token, extraKolommen) {
   const headers = maakHeaders(token);
+  const extraDefs = Array.isArray(extraKolommen) ? extraKolommen.filter((c) => c && c.veld) : [];
+  const extraSelect = extraDefs.map((c) => (c.type === "lookup" ? `_${c.veld}_value` : c.veld));
   const maakUrl = (optioneel) =>
     `${resource}/api/data/v9.2/contacts` +
     `?$select=${[...VASTE_CONTACTVELDEN, ...optioneel].join(",")}` +
     `&$filter=statecode eq 0` +
     `&$orderby=fullname asc`;
 
-  let actief = [...OPTIONELE_CONTACTVELDEN];
-  for (let poging = 0; poging <= OPTIONELE_CONTACTVELDEN.length; poging++) {
+  let actief = [...OPTIONELE_CONTACTVELDEN, ...extraSelect];
+  for (let poging = 0; poging <= actief.length; poging++) {
     try {
       return await haalPaginas(maakUrl(actief), headers, MAX_CONTACTPERSONEN);
     } catch (err) {
@@ -144,8 +165,10 @@ module.exports = async function (context, req) {
 
   try {
     const token = await haalDynamicsToken();
+    const instellingen = await haalInstellingen().catch(() => ({}));
+    const extraKolommen = (instellingen.contactpersonenExtraKolommen || []).filter((c) => c && c.veld);
     const [{ rijen, afgekapt }, perContact] = await Promise.all([
-      haalContactpersonen(resource, token),
+      haalContactpersonen(resource, token, extraKolommen),
       haalKlantKoppelingen(resource, token).catch((err) => {
         context.log.warn ? context.log.warn(`Cliëntkoppelingen ophalen mislukt: ${err}`) : context.log(`Cliëntkoppelingen ophalen mislukt: ${err}`);
         return new Map();
@@ -162,8 +185,11 @@ module.exports = async function (context, req) {
       const klantnamen = klanten.map((k) => k.klantnaam).filter(Boolean).join(", ");
       const klantnummers = klanten.map((k) => k.klantnummer).filter(Boolean).join(", ");
       const rollen = [...new Set(klanten.map((k) => k.rol))].join(", ");
+      const extra = {};
+      for (const def of extraKolommen) extra[def.veld] = leesExtra(c, def);
       return {
         contactId: c.contactid,
+        extra,
         naam: c.fullname || "",
         voornaam: c.firstname || "",
         tussenvoegsel: c.middlename || "",

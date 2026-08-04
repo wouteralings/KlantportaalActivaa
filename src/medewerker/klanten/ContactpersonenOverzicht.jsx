@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Search, ArrowLeft, Pencil, Link2, Unlink, AlertTriangle, CheckCircle2, X, Plus, Trash2, ClipboardList, Send, ShieldCheck, ChevronUp, ChevronDown } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Search, ArrowLeft, Pencil, Link2, Unlink, AlertTriangle, CheckCircle2, X, Plus, Trash2, ClipboardList, Send, ShieldCheck, ChevronUp, ChevronDown, Star } from "lucide-react";
 import Logboek from "./Logboek";
 import ScopeToggle, { useMijnNaam, isKlantVanMij } from "../MijnFilter";
 
@@ -14,13 +14,16 @@ const KLEUR = {
   lichtblauw: "#EAF2F8",
   rood: "#B23B3B",
   groen: "#2E7D46",
+  goud: "#B98237",
 };
 
 /**
- * Alle kolommen van het contactpersonen-overzicht. `standaard: false` betekent: bestaat wel,
+ * Basiskolommen van het contactpersonen-overzicht. `standaard: false` betekent: bestaat wel,
  * maar staat standaard uit — aan te zetten via "Kolommen". `num: true` sorteert numeriek.
+ * Door Beheer → Kolommen zelf toegevoegde extra Dynamics-velden (instellingen.contactpersonenExtraKolommen)
+ * komen er in de component zelf achteraan bij — zie de opbouw van KOLOMMEN in ContactpersonenOverzicht().
  */
-const KOLOMMEN = [
+const BASIS_KOLOMMEN = [
   { key: "naam", label: "Naam", waarde: (c) => c.naam, standaard: true },
   { key: "voornaam", label: "Voornaam", waarde: (c) => c.voornaam },
   { key: "tussenvoegsel", label: "Tussenvoegsel", waarde: (c) => c.tussenvoegsel },
@@ -81,8 +84,9 @@ export default function ContactpersonenOverzicht() {
   const [sortDir, setSortDir] = useState("asc");
   const [toonAantal, setToonAantal] = useState(25);
   const [kolomKiezerOpen, setKolomKiezerOpen] = useState(false);
-  const [zichtbaar, setZichtbaar] = useState(() => new Set(KOLOMMEN.filter((k) => k.standaard).map((k) => k.key)));
+  const [zichtbaar, setZichtbaar] = useState(() => new Set(BASIS_KOLOMMEN.filter((k) => k.standaard).map((k) => k.key)));
   const [kolomVolgorde, setKolomVolgorde] = useState(null); // null = standaard KOLOMMEN-volgorde; anders array van keys
+  const [extraKolommenConfig, setExtraKolommenConfig] = useState([]); // door Beheer → Kolommen toegevoegde extra velden
   const [weergaven, setWeergaven] = useState([]); // [{ naam, config }] — opgeslagen weergaven (zie api/medewerker-weergaven)
   const [actieveWeergave, setActieveWeergave] = useState("");
   const [detail, setDetail] = useState(null); // gekozen contactpersoon → detailweergave
@@ -125,8 +129,26 @@ export default function ContactpersonenOverzicht() {
     let actief = true;
     fetch("/api/medewerker-weergaven?scherm=" + encodeURIComponent("contactpersonen"))
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { if (actief) setWeergaven(d.views || []); })
+      .then((d) => {
+        if (!actief) return;
+        const views = d.views || [];
+        setWeergaven(views);
+        // Eén weergave kan met de ster als "mijn standaard" gemarkeerd zijn (config.standaard) —
+        // die laadt dan automatisch, i.p.v. steeds zelf een weergave te moeten kiezen.
+        const standaard = views.find((v) => v.config && v.config.standaard);
+        if (standaard) { setActieveWeergave(standaard.naam); pasWeergaveToe(standaard.config); }
+      })
       .catch(() => { if (actief) setWeergaven([]); });
+    return () => { actief = false; };
+  }, []);
+
+  // Door Beheer → Kolommen zelf toegevoegde extra Dynamics-velden (zie ExtraKolommenBeheer in BeheerPortaal.jsx).
+  useEffect(() => {
+    let actief = true;
+    fetch("/api/instellingen")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => { if (actief) setExtraKolommenConfig(d.contactpersonenExtraKolommen || []); })
+      .catch(() => { if (actief) setExtraKolommenConfig([]); });
     return () => { actief = false; };
   }, []);
 
@@ -213,16 +235,28 @@ export default function ContactpersonenOverzicht() {
     setDetail(null);
   };
 
-  const kolomVan = (key) => KOLOMMEN.find((k) => k.key === key);
+  // Kolommen = basis + door Beheer → Kolommen toegevoegde extra velden (zie hierboven). Gememoized
+  // (i.p.v. elke render een nieuwe array/functie) zodat gefilterd/gesorteerd hieronder er stabiel
+  // naar kunnen verwijzen zonder bij elke render opnieuw te hoeven berekenen.
+  const KOLOMMEN = useMemo(() => [
+    ...BASIS_KOLOMMEN,
+    ...extraKolommenConfig.filter((c) => c && c.veld).map((c) => ({
+      key: "extra_" + c.veld,
+      label: c.label || c.veld,
+      waarde: (contact) => (contact.extra && contact.extra[c.veld]) || "",
+    })),
+  ], [extraKolommenConfig]);
+  const kolomVan = useCallback((key) => KOLOMMEN.find((k) => k.key === key), [KOLOMMEN]);
   // Volgorde waarin kolommen getoond worden (kolomkiezer + tabel): eigen volgorde (indien gezet) +
   // eventuele nieuwe/onbekende kolommen erachter, zodat een oude opgeslagen weergave of een net
-  // toegevoegde kolom nooit verdwijnt — alleen de plek in de rij is dan nog niet gekozen.
-  const alleKeys = KOLOMMEN.map((k) => k.key);
-  const geordendeKolommen = (() => {
+  // toegevoegde kolom nooit verdwijnt — alleen de plek in de rij is dan nog niet gekozen. Ook
+  // gememoized, zodat gefilterd/gesorteerd hieronder er als stabiele dependency naar kunnen wijzen.
+  const geordendeKolommen = useMemo(() => {
+    const alleKeys = KOLOMMEN.map((k) => k.key);
     const basis = (kolomVolgorde || []).filter((k) => alleKeys.includes(k));
     const missend = alleKeys.filter((k) => !basis.includes(k));
     return [...basis, ...missend].map((k) => kolomVan(k)).filter(Boolean);
-  })();
+  }, [KOLOMMEN, kolomVolgorde, kolomVan]);
   const verplaatsKolom = (key, richting) => {
     const basis = geordendeKolommen.map((k) => k.key);
     const i = basis.indexOf(key);
@@ -232,7 +266,7 @@ export default function ContactpersonenOverzicht() {
     [nieuw[i], nieuw[j]] = [nieuw[j], nieuw[i]];
     setKolomVolgorde(nieuw);
   };
-  const zichtKols = geordendeKolommen.filter((k) => zichtbaar.has(k.key));
+  const zichtKols = useMemo(() => geordendeKolommen.filter((k) => zichtbaar.has(k.key)), [geordendeKolommen, zichtbaar]);
 
   // Opgeslagen weergaven (persoonlijk): kolommen + volgorde + filters + sortering + aantal regels.
   const huidigeConfig = () => ({ kolommen: [...zichtbaar], volgorde: geordendeKolommen.map((k) => k.key), filters: kolomFilters, sortKey, sortDir, toonAantal });
@@ -266,6 +300,15 @@ export default function ContactpersonenOverzicht() {
     bewaarWeergaven(weergaven.filter((v) => v.naam !== actieveWeergave));
     setActieveWeergave("");
   };
+  // Markeert de gekozen weergave als "mijn standaard" (laadt automatisch bij het openen van dit
+  // scherm) — nogmaals klikken zet 'm weer uit. Zit in config zelf (niet als los veld op de
+  // weergave), want zetWeergavenVoor() bewaart per weergave alleen { naam, config }.
+  const huidigeIsStandaard = !!weergaven.find((v) => v.naam === actieveWeergave)?.config?.standaard;
+  const zetStandaardWeergave = () => {
+    if (!actieveWeergave) return;
+    const nieuw = weergaven.map((v) => ({ ...v, config: { ...(v.config || {}), standaard: v.naam === actieveWeergave ? !huidigeIsStandaard : false } }));
+    bewaarWeergaven(nieuw);
+  };
 
   const gefilterd = useMemo(() => {
     const lijst = contactpersonen || [];
@@ -287,7 +330,7 @@ export default function ContactpersonenOverzicht() {
       }
       return true;
     });
-  }, [contactpersonen, zoek, kolomFilters, zichtbaar, scope, mijnNaam, mijnAccountIds]);
+  }, [contactpersonen, zoek, kolomFilters, zichtbaar, zichtKols, kolomVan, scope, mijnNaam, mijnAccountIds]);
 
   const gesorteerd = useMemo(() => {
     const kol = kolomVan(sortKey) || KOLOMMEN[0];
@@ -299,7 +342,7 @@ export default function ContactpersonenOverzicht() {
       if (wa && !wb) return -1;
       return wa.localeCompare(wb, "nl", { numeric: true, sensitivity: "base" }) * richting;
     });
-  }, [gefilterd, sortKey, sortDir]);
+  }, [gefilterd, sortKey, sortDir, kolomVan, KOLOMMEN]);
 
   const zichtbareRijen = gesorteerd.slice(0, toonAantal === Infinity ? undefined : toonAantal);
   const actieveFilters = Object.entries(kolomFilters).filter(([, v]) => v);
@@ -428,6 +471,15 @@ export default function ContactpersonenOverzicht() {
           <option value="">Weergave…</option>
           {weergaven.map((v) => <option key={v.naam} value={v.naam}>{v.naam}</option>)}
         </select>
+        {actieveWeergave && (
+          <button
+            onClick={zetStandaardWeergave}
+            title={huidigeIsStandaard ? "Dit is je standaardweergave — klik om uit te zetten" : "Als mijn standaardweergave instellen (laadt automatisch)"}
+            style={{ background: "none", border: "none", cursor: "pointer", color: huidigeIsStandaard ? KLEUR.goud : KLEUR.mutedTekst, padding: 4, display: "flex" }}
+          >
+            <Star size={16} fill={huidigeIsStandaard ? "currentColor" : "none"} />
+          </button>
+        )}
         <button onClick={opslaanAlsWeergave} style={selectStijl} title="Huidige indeling opslaan als weergave">Opslaan als…</button>
         {actieveWeergave && (
           <button onClick={verwijderWeergave} style={{ ...selectStijl, color: KLEUR.rood }} title="Verwijder deze weergave">Verwijderen</button>

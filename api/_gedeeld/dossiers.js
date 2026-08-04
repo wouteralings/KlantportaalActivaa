@@ -127,6 +127,34 @@ async function haalPrimaireNaamVeld(resource, logicalName, token) {
   return data.PrimaryNameAttribute;
 }
 
+// Zelfde leeshelpers als api/beheer-klanten/index.js (leesVeld/leesLookup) — hier apart herhaald,
+// dit bestand houdt bewust geen gedeelde afhankelijkheid met dat andere overzicht.
+function leesVeld(rij, veld) {
+  if (!veld) return "";
+  if (rij[veld + FV] != null) return rij[veld + FV];
+  return rij[veld] != null ? rij[veld] : "";
+}
+function leesLookup(rij, veld) {
+  if (!veld) return "";
+  return rij[`_${veld}_value${FV}`] || "";
+}
+
+/** Breidt soort.optioneel uit met door Beheer → Kolommen zelf toegevoegde extra Dynamics-velden
+ *  voor de hoofdtabel (lijst) van deze dossiersoort — zelfde idee als klantoverzicht.extraKolommen
+ *  (zie api/beheer-klanten), maar dan voor de dossierlijst. Elke extra kolom komt in de output
+ *  terecht onder extra.<veld> (zie naarBuiten hieronder), los van de vaste basisvelden, zodat een
+ *  kolom toevoegen/verwijderen nooit de vaste velden kan raken. Best-effort per veld gebeurt al via
+ *  de bestaande terugval in haalRuweRijen/haalEenDossier (die de hele optioneel-lijst gebruikt). */
+function metExtraKolommen(soort, extraKolommen) {
+  const extra = Array.isArray(extraKolommen) ? extraKolommen.filter((c) => c && c.veld) : [];
+  if (!extra.length) return soort;
+  const optioneel = { ...soort.optioneel };
+  for (const c of extra) {
+    optioneel[`extra_${c.veld}`] = c.type === "lookup" ? `_${c.veld}_value` : c.veld;
+  }
+  return { ...soort, optioneel, extraKolommenDefs: extra };
+}
+
 /** Breidt soort.optioneel uit met "dossiernaam" → het opgezochte primaire naamveld van de entiteit
  *  (zie hierboven). Best-effort: lukt de opzoeking niet, dan blijft "soort" ongewijzigd (dossiernaam
  *  ontbreekt dan simpelweg in de output i.p.v. de rest van de lijst te blokkeren) — zelfde
@@ -226,6 +254,14 @@ function naarBuiten(rij, soort) {
     basis.velden = {};
     for (const veldDef of soort.catalogus) {
       basis.velden[veldDef.key] = catalogusVeldNaarBuiten(rij, veldDef);
+    }
+  }
+  // Extra (door Beheer zelf toegevoegde) kolommen voor de hoofdtabel — alleen aanwezig als de
+  // aanroeper metExtraKolommen() heeft toegepast op "soort" (zie hierboven).
+  if (Array.isArray(soort.extraKolommenDefs) && soort.extraKolommenDefs.length) {
+    basis.extra = {};
+    for (const c of soort.extraKolommenDefs) {
+      basis.extra[c.veld] = c.type === "lookup" ? leesLookup(rij, c.veld) : leesVeld(rij, c.veld);
     }
   }
   return basis;
@@ -460,4 +496,4 @@ async function haalDynamischePicklistOpties(resource, token, soort) {
   return resultaat;
 }
 
-module.exports = { SOORTEN, haalDossiersVoorSoort, haalEenDossier, werkDossierBij, verwijderDossier, maakDossier, bestaatDossierAl, haalDynamischePicklistOpties, metAangepasteVelden, metDossiernaam };
+module.exports = { SOORTEN, haalDossiersVoorSoort, haalEenDossier, werkDossierBij, verwijderDossier, maakDossier, bestaatDossierAl, haalDynamischePicklistOpties, metAangepasteVelden, metDossiernaam, metExtraKolommen };

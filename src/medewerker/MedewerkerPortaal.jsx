@@ -1689,8 +1689,11 @@ function dossierBoekjaar(d) {
 // (zie ook ContactpersonenOverzicht/ContractenOverzicht). "periode" is Jaar bij IB en Boekjaar
 // bij VPB — de label/waarde daarvan hangt van "soort" af en wordt dus in de component zelf
 // samengesteld i.p.v. hier statisch, in tegenstelling tot de rest van de kolommen.
-function dossierKolommen(periodeLabel, periode) {
-  return [
+// `extraKolommen` = door Beheer → Kolommen zelf toegevoegde Dynamics-velden voor déze dossiersoort
+// (instellingen.dossierExtraKolommen[soort], zie api/medewerker-dossiers) — zelfde idee als
+// config.extraKolommen bij KlantOverzicht hierboven.
+function dossierKolommen(periodeLabel, periode, extraKolommen) {
+  const basis = [
     { key: "klantnaam", label: "Cliënt", cel: (d) => d.klantnaam || "" },
     { key: "dossiernaam", label: "Dossiernaam", cel: (d) => d.dossiernaam || "" },
     { key: "periode", label: periodeLabel, cel: (d) => periode(d) },
@@ -1700,6 +1703,12 @@ function dossierKolommen(periodeLabel, periode) {
     { key: "manager", label: "Manager", cel: (d) => d.manager || "" },
     { key: "groepsnaam", label: "Groep", cel: (d) => d.groepsnaam || "" },
   ];
+  const extra = (extraKolommen || []).filter((c) => c && c.veld).map((c) => ({
+    key: "extra_" + c.veld,
+    label: c.label || c.veld,
+    cel: (d) => (d.extra && d.extra[c.veld]) || "",
+  }));
+  return [...basis, ...extra];
 }
 // "dossiernaam" en "manager" (Wouter, 04-08-2026) staan bewust NIET meer in deze lijst — die wil hij
 // standaard zichtbaar in de hoofdtabel Inkomstenbelasting. "groepsnaam" blijft wel kiesbaar-maar-
@@ -1886,6 +1895,7 @@ function MedewerkerDossiers({ soort }) {
   const [detailFout, setDetailFout] = useState("");
   const [nieuwOpen, setNieuwOpen] = useState(false); // "+ Nieuwe ..."-popup
   const [magVerwijderen, setMagVerwijderen] = useState(false); // los in te stellen recht (Beheer → Medewerkers) — beheerders mogen dit sowieso altijd
+  const [extraKolommen, setExtraKolommen] = useState([]); // door Beheer → Kolommen toegevoegde extra velden voor déze soort
 
   const scherm = "dossiers-" + soort; // eigen namespace voor opgeslagen weergaven (zie api/_gedeeld/weergaven.js)
   const soortLabelText = soort === "vpb" ? "Vennootschapsbelasting" : "Inkomstenbelasting";
@@ -1923,14 +1933,26 @@ function MedewerkerDossiers({ soort }) {
       .catch(() => { if (actief) { setDossiers([]); setFout(true); } });
     fetch(`/api/medewerker-weergaven?scherm=${encodeURIComponent("dossiers-" + soort)}`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { if (actief) setWeergaven(d.views || []); })
+      .then((d) => {
+        if (!actief) return;
+        const views = d.views || [];
+        setWeergaven(views);
+        // Eén weergave kan met de ster als "mijn standaard" gemarkeerd zijn (config.standaard) —
+        // die laadt dan automatisch, i.p.v. steeds zelf een weergave te moeten kiezen.
+        const standaard = views.find((v) => v.config && v.config.standaard);
+        if (standaard) { setActieveWeergave(standaard.naam); pasWeergaveToe(standaard.config); }
+      })
       .catch(() => { if (actief) setWeergaven([]); });
+    fetch("/api/instellingen")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => { if (actief) setExtraKolommen((d.dossierExtraKolommen && d.dossierExtraKolommen[soort]) || []); })
+      .catch(() => { if (actief) setExtraKolommen([]); });
     return () => { actief = false; };
   }, [soort]);
 
   const periodeLabel = soort === "vpb" ? "Boekjaar" : "Jaar";
   const periode = (d) => (d.jaar != null && d.jaar !== "" ? String(d.jaar) : dossierBoekjaar(d));
-  const KOLOMMEN = dossierKolommen(periodeLabel, periode);
+  const KOLOMMEN = dossierKolommen(periodeLabel, periode, extraKolommen);
   const alleKeys = KOLOMMEN.map((c) => c.key);
   useEffect(() => {
     setZichtbareKolommen((huidig) => huidig || new Set(alleKeys.filter((key) => !DOSSIER_KOLOMMEN_STANDAARD_VERBORGEN.includes(key))));
@@ -2114,6 +2136,15 @@ function MedewerkerDossiers({ soort }) {
     bewaarWeergaven(weergaven.filter((v) => v.naam !== actieveWeergave));
     setActieveWeergave("");
   };
+  // Markeert de gekozen weergave als "mijn standaard" (laadt automatisch bij het openen van dit
+  // scherm) — nogmaals klikken zet 'm weer uit. Zit in config zelf (niet als los veld op de
+  // weergave), want zetWeergavenVoor() bewaart per weergave alleen { naam, config }.
+  const huidigeIsStandaard = !!weergaven.find((v) => v.naam === actieveWeergave)?.config?.standaard;
+  const zetStandaardWeergave = () => {
+    if (!actieveWeergave) return;
+    const nieuw = weergaven.map((v) => ({ ...v, config: { ...(v.config || {}), standaard: v.naam === actieveWeergave ? !huidigeIsStandaard : false } }));
+    bewaarWeergaven(nieuw);
+  };
 
   const selectStijl = { border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, background: "#fff", color: KLEUR.tekst, cursor: "pointer" };
   const menuItem = { display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: "6px 8px", borderRadius: 6, cursor: "pointer", fontSize: 12.5, color: KLEUR.tekst };
@@ -2164,6 +2195,15 @@ function MedewerkerDossiers({ soort }) {
           <option value="">Weergave…</option>
           {weergaven.map((v) => <option key={v.naam} value={v.naam}>{v.naam}</option>)}
         </select>
+        {actieveWeergave && (
+          <button
+            onClick={zetStandaardWeergave}
+            title={huidigeIsStandaard ? "Dit is je standaardweergave — klik om uit te zetten" : "Als mijn standaardweergave instellen (laadt automatisch)"}
+            style={{ background: "none", border: "none", cursor: "pointer", color: huidigeIsStandaard ? KLEUR.goud : KLEUR.mutedTekst, padding: 4, display: "flex" }}
+          >
+            <Star size={16} fill={huidigeIsStandaard ? "currentColor" : "none"} />
+          </button>
+        )}
         <button onClick={opslaanAlsWeergave} style={selectStijl} title="Huidige indeling opslaan als weergave">Opslaan als…</button>
         {actieveWeergave && (
           <button onClick={verwijderWeergave} style={{ ...selectStijl, color: KLEUR.rood }} title="Verwijder deze weergave">Verwijderen</button>
@@ -3008,7 +3048,14 @@ function KlantOverzicht() {
       .catch(() => {});
     fetch("/api/medewerker-weergaven")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => setWeergaven(d.views || []))
+      .then((d) => {
+        const views = d.views || [];
+        setWeergaven(views);
+        // Eén weergave kan met de ster als "mijn standaard" gemarkeerd zijn (config.standaard) —
+        // die laadt dan automatisch, i.p.v. steeds zelf een weergave te moeten kiezen.
+        const standaard = views.find((v) => v.config && v.config.standaard);
+        if (standaard) { setActieveWeergave(standaard.naam); pasWeergaveToe(standaard.config); }
+      })
       .catch(() => {});
     fetch("/api/klant-keuzelijsten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
@@ -3199,6 +3246,15 @@ function KlantOverzicht() {
     bewaarWeergaven(weergaven.filter((v) => v.naam !== actieveWeergave));
     setActieveWeergave("");
   };
+  // Markeert de gekozen weergave als "mijn standaard" (laadt automatisch bij het openen van dit
+  // scherm) — nogmaals klikken zet 'm weer uit. Zit in config zelf (niet als los veld op de
+  // weergave), want zetWeergavenVoor() bewaart per weergave alleen { naam, config }.
+  const huidigeIsStandaard = !!weergaven.find((v) => v.naam === actieveWeergave)?.config?.standaard;
+  const zetStandaardWeergave = () => {
+    if (!actieveWeergave) return;
+    const nieuw = weergaven.map((v) => ({ ...v, config: { ...(v.config || {}), standaard: v.naam === actieveWeergave ? !huidigeIsStandaard : false } }));
+    bewaarWeergaven(nieuw);
+  };
 
   const selectStijl = { border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, background: "#fff", color: KLEUR.tekst, cursor: "pointer" };
   const menuItem = { display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: "6px 8px", borderRadius: 6, cursor: "pointer", fontSize: 12.5, color: KLEUR.tekst };
@@ -3265,6 +3321,15 @@ function KlantOverzicht() {
           <option value="">Weergave…</option>
           {weergaven.map((v) => <option key={v.naam} value={v.naam}>{v.naam}</option>)}
         </select>
+        {actieveWeergave && (
+          <button
+            onClick={zetStandaardWeergave}
+            title={huidigeIsStandaard ? "Dit is je standaardweergave — klik om uit te zetten" : "Als mijn standaardweergave instellen (laadt automatisch)"}
+            style={{ background: "none", border: "none", cursor: "pointer", color: huidigeIsStandaard ? KLEUR.goud : KLEUR.mutedTekst, padding: 4, display: "flex" }}
+          >
+            <Star size={16} fill={huidigeIsStandaard ? "currentColor" : "none"} />
+          </button>
+        )}
         <button onClick={opslaanAlsWeergave} style={selectStijl} title="Huidige indeling opslaan als weergave">Opslaan als…</button>
         {actieveWeergave && (
           <button onClick={verwijderWeergave} style={{ ...selectStijl, color: KLEUR.rood }} title="Verwijder deze weergave">Verwijderen</button>

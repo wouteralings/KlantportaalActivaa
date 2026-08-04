@@ -7,10 +7,13 @@
  * Deelt de query/veldnamen met de klantweergave via api/_gedeeld/dossiers.js. Stuurt ook de
  * status-keuzelijst (statusOpties) mee, zodat het bewerken van een dossier de juiste opties toont.
  * Elk dossier krijgt hier ook "dossiernaam" mee (de primaire kolom van de entiteit zelf, bv. de
- * samengestelde "Dossier"-kolom bij IB) — via metDossiernaam(), alleen voor deze hoofdtabel.
+ * samengestelde "Dossier"-kolom bij IB) — via metDossiernaam(), alleen voor deze hoofdtabel. Ook
+ * door Beheer → Kolommen zelf toegevoegde extra Dynamics-velden (instellingen.dossierExtraKolommen,
+ * per soort) worden hier meegenomen — via metExtraKolommen(), zie api/_gedeeld/dossiers.js.
  */
 const { haalDynamicsToken } = require("../_gedeeld/identiteit");
-const { SOORTEN, haalDossiersVoorSoort, metDossiernaam } = require("../_gedeeld/dossiers");
+const { SOORTEN, haalDossiersVoorSoort, metDossiernaam, metExtraKolommen } = require("../_gedeeld/dossiers");
+const { haalInstellingen } = require("../_gedeeld/instellingen");
 
 module.exports = async function (context, req) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
@@ -31,8 +34,13 @@ module.exports = async function (context, req) {
     // "Dossiernaam" (primaire kolom van de entiteit zelf) erbij — alleen relevant voor de hoofdtabel
     // hier, niet voor de klant- of detailweergave, dus hier toegepast i.p.v. in SOORTEN zelf.
     const soortMetDossiernaam = await metDossiernaam(resource, token, soort);
+    // Door Beheer → Kolommen zelf toegevoegde extra velden voor déze dossiersoort erbij — zelfde
+    // idee als hierboven, ook alleen relevant voor de hoofdtabel.
+    const instellingen = await haalInstellingen().catch(() => ({}));
+    const extraKolommen = (instellingen.dossierExtraKolommen && instellingen.dossierExtraKolommen[soort.key]) || [];
+    const soortMetExtra = metExtraKolommen(soortMetDossiernaam, extraKolommen);
     // Geen accountIds → alle cliënten.
-    const dossiers = await haalDossiersVoorSoort(resource, token, soortMetDossiernaam, undefined);
+    const dossiers = await haalDossiersVoorSoort(resource, token, soortMetExtra, undefined);
 
     dossiers.sort((a, b) => {
       const sa = a.jaar != null && a.jaar !== "" ? Number(a.jaar) || 0 : (a.begindatum ? new Date(a.begindatum).getTime() || 0 : 0);

@@ -197,6 +197,75 @@ function StandaardartikelFormulierRij({ form, setForm, bezig, onOpslaan, onAnnul
   );
 }
 
+/** Herbruikbaar rubriek-blok "extra kolommen (Dynamics-velden)" — zelfde opzet als de bestaande
+ *  Klantoverzicht-kolommen hierboven (koExtra/voegExtraKolomToe/slaKlantoverzichtOp), maar dan
+ *  generiek gemaakt zodat dezelfde UI voor Inkomstenbelasting, Vennootschapsbelasting én
+ *  Contactpersonen gebruikt kan worden zonder de logica driemaal te herhalen. `extra` en
+ *  `onWijzig` houden de lijst bij in de state van de aanroeper (nog niet opgeslagen); `onOpslaan`
+ *  schrijft die pas echt weg naar /api/beheer-instellingen wanneer op "Opslaan" wordt geklikt. */
+function ExtraKolommenBeheer({ titel, uitleg, extra, onWijzig, onOpslaan, status }) {
+  const [nieuwVeld, setNieuwVeld] = useState("");
+  const [nieuwLabel, setNieuwLabel] = useState("");
+  const [nieuwType, setNieuwType] = useState("tekst"); // tekst | keuze | lookup
+
+  const voegToe = () => {
+    const veld = nieuwVeld.trim();
+    if (!veld) return;
+    if (extra.some((c) => c.veld === veld)) return;
+    onWijzig([...extra, { veld, label: nieuwLabel.trim() || veld, type: nieuwType }]);
+    setNieuwVeld(""); setNieuwLabel(""); setNieuwType("tekst");
+  };
+
+  return (
+    <div>
+      {titel && <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{titel}</div>}
+      <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 14px" }}>{uitleg}</div>
+
+      {extra.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+          {extra.map((c) => (
+            <div key={c.veld} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12.5 }}>
+              <span style={{ fontWeight: 600 }}>{c.label || c.veld}</span>
+              <code style={{ color: KLEUR.subtekst }}>{c.veld}</code>
+              <span style={{ color: KLEUR.mutedTekst }}>({c.type})</span>
+              <button onClick={() => onWijzig(extra.filter((x) => x.veld !== c.veld))} title="Verwijderen" style={{ marginLeft: "auto", display: "flex", alignItems: "center", justifyContent: "center", width: 26, height: 26, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: KLEUR.rood, cursor: "pointer" }}>
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 16 }}>
+        <input value={nieuwVeld} onChange={(e) => setNieuwVeld(e.target.value)} placeholder="logische veldnaam (bijv. cr283_iban)" style={{ flex: "1 1 220px", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5 }} />
+        <input value={nieuwLabel} onChange={(e) => setNieuwLabel(e.target.value)} placeholder="kolomtitel (bijv. IBAN)" style={{ flex: "1 1 180px", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5 }} />
+        <select value={nieuwType} onChange={(e) => setNieuwType(e.target.value)} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, background: "#fff" }}>
+          <option value="tekst">Tekst/getal</option>
+          <option value="keuze">Keuzelijst</option>
+          <option value="lookup">Lookup (verwijzing)</option>
+        </select>
+        <button onClick={voegToe} style={{ padding: "8px 14px", background: "#fff", color: KLEUR.blauw, border: `1px solid ${KLEUR.blauw}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Toevoegen</button>
+      </div>
+
+      <button
+        onClick={onOpslaan}
+        disabled={status === "bezig"}
+        style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+      >
+        {status === "bezig" ? "Opslaan..." : "Opslaan"}
+      </button>
+      {status === "gelukt" && (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 12, fontSize: 12.5, color: KLEUR.blauw }}>
+          <CheckCircle2 size={14} /> Opgeslagen.
+        </span>
+      )}
+      {status === "fout" && (
+        <span style={{ marginLeft: 12, fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
+      )}
+    </div>
+  );
+}
+
 export default function BeheerPortaal() {
   const [status, setStatus] = useState("laden"); // laden | nietIngelogd | geenRol | klaar
   const [gebruiker, setGebruiker] = useState(null);
@@ -312,6 +381,15 @@ export default function BeheerPortaal() {
   const [koNieuwLabel, setKoNieuwLabel] = useState("");
   const [koNieuwType, setKoNieuwType] = useState("tekst"); // tekst | keuze | lookup
   const [koStatus, setKoStatus] = useState("idle"); // idle | bezig | gelukt | fout
+
+  // Extra kolommen (Dynamics-velden) voor de hoofdtabellen Inkomstenbelasting/Vennootschapsbelasting
+  // en Contactpersonen — zelfde idee als koExtra hierboven, zie ExtraKolommenBeheer.
+  const [dossierExtraIb, setDossierExtraIb] = useState([]);
+  const [dossierExtraVpb, setDossierExtraVpb] = useState([]);
+  const [dossierExtraIbStatus, setDossierExtraIbStatus] = useState("idle");
+  const [dossierExtraVpbStatus, setDossierExtraVpbStatus] = useState("idle");
+  const [contactExtra, setContactExtra] = useState([]);
+  const [contactExtraStatus, setContactExtraStatus] = useState("idle");
 
   // Taaksoorten: welke soorten klanten zien én mogen goedkeuren.
   const [taaksoortenOpties, setTaaksoortenOpties] = useState(null); // null = laden
@@ -433,6 +511,9 @@ export default function BeheerPortaal() {
         setContractenmodulePrijs(d.contractenmodulePrijs != null ? String(d.contractenmodulePrijs) : "2.5");
         setKoExtra((d.klantoverzicht && d.klantoverzicht.extraKolommen) || []);
         setKoVerborgen((d.klantoverzicht && d.klantoverzicht.standaardVerborgen) || []);
+        setDossierExtraIb((d.dossierExtraKolommen && d.dossierExtraKolommen.ib) || []);
+        setDossierExtraVpb((d.dossierExtraKolommen && d.dossierExtraKolommen.vpb) || []);
+        setContactExtra(d.contactpersonenExtraKolommen || []);
       })
       .catch(() => {});
     fetch("/api/beheer-klantcategorieen")
@@ -1229,6 +1310,42 @@ export default function BeheerPortaal() {
     setKoExtra((h) => (h.some((c) => c.veld === veld) ? h : [...h, { veld, label: koNieuwLabel.trim() || veld, type: koNieuwType }]));
     setKoNieuwVeld(""); setKoNieuwLabel(""); setKoNieuwType("tekst");
   }, [koNieuwVeld, koNieuwLabel, koNieuwType]);
+
+  // Extra kolommen IB/VPB: allebei de soorten staan samen onder ÉÉN instelling
+  // (dossierExtraKolommen: { ib, vpb }) — bij het opslaan dus altijd beide meesturen, anders
+  // overschrijft het opslaan van de ene soort de andere (zie werkInstellingenBij: shallow merge).
+  const slaDossierExtraOp = useCallback(async (soort) => {
+    const setStatus = soort === "ib" ? setDossierExtraIbStatus : setDossierExtraVpbStatus;
+    setStatus("bezig");
+    try {
+      const schoon = (lijst) => lijst.filter((c) => c && c.veld).map((c) => ({ veld: c.veld.trim(), label: (c.label || c.veld).trim(), type: c.type || "tekst" }));
+      const res = await fetch("/api/beheer-instellingen", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dossierExtraKolommen: { ib: schoon(dossierExtraIb), vpb: schoon(dossierExtraVpb) } }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setStatus("gelukt");
+    } catch {
+      setStatus("fout");
+    }
+  }, [dossierExtraIb, dossierExtraVpb]);
+
+  const slaContactExtraOp = useCallback(async () => {
+    setContactExtraStatus("bezig");
+    try {
+      const schoon = contactExtra.filter((c) => c && c.veld).map((c) => ({ veld: c.veld.trim(), label: (c.label || c.veld).trim(), type: c.type || "tekst" }));
+      const res = await fetch("/api/beheer-instellingen", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contactpersonenExtraKolommen: schoon }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setContactExtraStatus("gelukt");
+    } catch {
+      setContactExtraStatus("fout");
+    }
+  }, [contactExtra]);
 
   const wijzigTaaksoort = useCallback((waarde, veld, aan, label) => {
     setTaaksoortenConfig((huidig) => {
@@ -2471,6 +2588,69 @@ export default function BeheerPortaal() {
           <span style={{ marginLeft: 12, fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
         )}
         </>)}
+      </div>
+
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+        <button
+          onClick={() => toggleRubriek("dossierKolommenIb")}
+          aria-expanded={rubriekIsOpen("dossierKolommenIb")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("dossierKolommenIb") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Inkomstenbelasting — extra kolommen (medewerkersportaal)</span>
+        </button>
+        {rubriekIsOpen("dossierKolommenIb") && (
+          <ExtraKolommenBeheer
+            titel=""
+            uitleg="Voeg extra Dynamics-velden (van cr283_inkomstenbelasting) toe als kolom in de hoofdtabel Inkomstenbelasting. Medewerkers zetten ze zelf aan via 'Kolommen'."
+            extra={dossierExtraIb}
+            onWijzig={setDossierExtraIb}
+            onOpslaan={() => slaDossierExtraOp("ib")}
+            status={dossierExtraIbStatus}
+          />
+        )}
+      </div>
+
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+        <button
+          onClick={() => toggleRubriek("dossierKolommenVpb")}
+          aria-expanded={rubriekIsOpen("dossierKolommenVpb")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("dossierKolommenVpb") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Vennootschapsbelasting — extra kolommen (medewerkersportaal)</span>
+        </button>
+        {rubriekIsOpen("dossierKolommenVpb") && (
+          <ExtraKolommenBeheer
+            titel=""
+            uitleg="Voeg extra Dynamics-velden (van cr283_vennootschapsbelasting) toe als kolom in de hoofdtabel Vennootschapsbelasting. Medewerkers zetten ze zelf aan via 'Kolommen'."
+            extra={dossierExtraVpb}
+            onWijzig={setDossierExtraVpb}
+            onOpslaan={() => slaDossierExtraOp("vpb")}
+            status={dossierExtraVpbStatus}
+          />
+        )}
+      </div>
+
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+        <button
+          onClick={() => toggleRubriek("contactpersonenKolommen")}
+          aria-expanded={rubriekIsOpen("contactpersonenKolommen")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("contactpersonenKolommen") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Contactpersonen — extra kolommen (medewerkersportaal)</span>
+        </button>
+        {rubriekIsOpen("contactpersonenKolommen") && (
+          <ExtraKolommenBeheer
+            titel=""
+            uitleg="Voeg extra Dynamics-velden (van contacts) toe als kolom in het contactpersonen-overzicht. Medewerkers zetten ze zelf aan via 'Kolommen'."
+            extra={contactExtra}
+            onWijzig={setContactExtra}
+            onOpslaan={slaContactExtraOp}
+            status={contactExtraStatus}
+          />
+        )}
       </div>
 
       </>)}
