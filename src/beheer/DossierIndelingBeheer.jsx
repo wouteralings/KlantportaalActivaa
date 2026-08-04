@@ -109,6 +109,11 @@ export default function DossierIndelingBeheer() {
   const [aangepasteVelden, setAangepasteVelden] = useState([]); // zelf aangemaakte extra catalogusvelden (incl. Dynamics-kolom)
   const [onderwerpen, setOnderwerpen] = useState([]); // catalogus uit Beheer → Onderwerpen (Uitvraag dynamisch), voor de koppel-dropdown
   const [onderwerpId, setOnderwerpId] = useState(""); // gekoppeld onderwerp voor deze dossiersoort — leeg = geen koppeling
+  // Bestandsnaam-sjabloon voor de "Aangifte versturen"-dropzones in het IB-dossier (zie
+  // DossierDetail/AangifteVersturenModal in MedewerkerPortaal.jsx) — los van dossierIndeling,
+  // dus met een eigen laad-/opslaanstatus i.p.v. via bewaar() hieronder.
+  const [bestandsnaamTemplate, setBestandsnaamTemplate] = useState("");
+  const [bestandsnaamStatus, setBestandsnaamStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
   const [fout, setFout] = useState("");
   const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
   const [nieuweSectieTitel, setNieuweSectieTitel] = useState("");
@@ -142,6 +147,7 @@ export default function DossierIndelingBeheer() {
         setAangepasteVelden((huidigeIndeling.ib && huidigeIndeling.ib.aangepasteVelden) || []);
         setOnderwerpId((huidigeIndeling.ib && huidigeIndeling.ib.onderwerpId) || "");
         setOnderwerpen(onderwerpenData.onderwerpen || []);
+        setBestandsnaamTemplate(instellingenData.aangifteBestandsnaamTemplate || "");
       })
       .catch(() => { setCatalogus([]); setSecties([]); setFout("Kon de dossierindeling niet laden."); });
   }, []);
@@ -191,6 +197,23 @@ export default function DossierIndelingBeheer() {
     } catch (e) {
       setFout(e.message || "Opslaan mislukt.");
       setStatus("fout");
+    }
+  };
+
+  /** Los van bewaar() hierboven (die alleen dossierIndeling opslaat) — de bestandsnaam-sjabloon
+   * is een simpele top-level instelling, direct opgeslagen bij het verlaten van het invoerveld. */
+  const bewaarBestandsnaamTemplate = async () => {
+    setBestandsnaamStatus("bezig");
+    try {
+      const r = await fetch("/api/beheer-instellingen", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ aangifteBestandsnaamTemplate: bestandsnaamTemplate }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      setBestandsnaamStatus("opgeslagen");
+    } catch {
+      setBestandsnaamStatus("fout");
     }
   };
 
@@ -471,6 +494,27 @@ export default function DossierIndelingBeheer() {
             {onderwerpen.map((o) => <option key={o.id} value={o.id}>{o.naam}</option>)}
           </select>
         )}
+      </div>
+
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14, marginBottom: 18, background: KLEUR.lichtblauw }}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Bestandsnaam — aangifte versturen</div>
+        <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 10, maxWidth: 640 }}>
+          Naam waaronder een via het IB-dossier gedropte aangifte (cliënt of fiscaal partner) wordt
+          opgeslagen in de map "Correspondentie" van het SharePoint-dossier. Plaatshouders:{" "}
+          <code>{"{klant}"}</code> (naam van de ontvanger) en <code>{"{jaar}"}</code> (dossierjaar).
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <input
+            value={bestandsnaamTemplate}
+            onChange={(e) => { setBestandsnaamTemplate(e.target.value); setBestandsnaamStatus("rust"); }}
+            onBlur={bewaarBestandsnaamTemplate}
+            placeholder="Aangifte inkomstenbelasting {jaar} - {klant}.pdf"
+            style={{ ...invoerStijl, flex: "0 1 420px", background: "#fff" }}
+          />
+          {bestandsnaamStatus === "bezig" && <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>Opslaan…</span>}
+          {bestandsnaamStatus === "opgeslagen" && <span style={{ fontSize: 11.5, color: KLEUR.groen }}>Opgeslagen</span>}
+          {bestandsnaamStatus === "fout" && <span style={{ fontSize: 11.5, color: KLEUR.rood }}>Opslaan mislukt</span>}
+        </div>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 18 }}>

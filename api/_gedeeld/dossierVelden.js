@@ -18,8 +18,9 @@
  *   key    — korte sleutel, gebruikt in de Beheer-indeling (instellingen.json → dossierIndeling)
  *            en in de "velden"-bag die het medewerkersscherm heen-en-weer stuurt.
  *   veld   — echte Dynamics-kolomnaam (logical name).
- *   type   — "boolean" | "picklist" | "string" | "memo" | "datetime"
- *            (bepaalt het besturingselement + hoe de waarde naar Dynamics wordt teruggeschreven).
+ *   type   — "boolean" | "picklist" | "string" | "memo" | "datetime" | "vast-url"
+ *            (bepaalt het besturingselement + hoe de waarde naar Dynamics wordt teruggeschreven;
+ *            "vast-url" is een tekstveld dat bovendien een klikbaar linkje toont zodra het gevuld is).
  *   label  — schermtekst, zoals die (ongeveer) ook op het Dynamics-formulier staat.
  *   sectie — voorgestelde standaardgroep (zelfde indeling als de Dynamics-tabbladen); alleen
  *            gebruikt om de Beheer-indeling de EERSTE keer mee te vullen. Wouter kan dit daarna
@@ -38,7 +39,9 @@ const IB_VELDEN = [
   // Let op: "URL uitgaande documenten" (cr283_urluitgaandedocumenten) zit BEWUST niet in deze
   // catalogus — dat veld is al de bestaande, vaste "Documentlink"-kop van het dossier (zie
   // SOORTEN.ib.optioneel.documentUrl hieronder in dossiers.js) en zou hier dubbel staan.
-  { key: "urlpermanentdossier", veld: "cr283_urlpermanentdossier", type: "string", label: "URL permanent dossier", sectie: "algemeen" },
+  // type "vast-url" (i.p.v. "string") zodat dit veld — net als URL dossier/Documentlink hierboven
+  // — een klikbaar linkje toont zodra het gevuld is (zie VeldInvoer in MedewerkerPortaal.jsx).
+  { key: "urlpermanentdossier", veld: "cr283_urlpermanentdossier", type: "vast-url", label: "URL permanent dossier", sectie: "algemeen" },
   { key: "thuiswonendkind", veld: "cr283_thuiswonendkind", type: "boolean", label: "Thuiswonend kind(eren)", sectie: "algemeen" },
   { key: "naamjongstekind", veld: "cr283_naamjongstekind", type: "string", label: "Naam jongste kind", sectie: "algemeen" },
   { key: "bsnjongstekind", veld: "cr283_bsnjongstekind", type: "string", label: "BSN jongste kind", sectie: "algemeen" },

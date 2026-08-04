@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ArrowLeft, Lock, Copy, X } from "lucide-react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ArrowLeft, Lock, Copy, X, ExternalLink, Upload } from "lucide-react";
 import { startMeekijken } from "../meekijken";
 import OffertesModule from "./OffertesModule";
 import ContractenOverzicht from "./ContractenOverzicht";
@@ -2342,10 +2342,29 @@ function VeldInvoer({ veldDef, waarde, onChange, picklistOpties, statusOpties, d
     );
   }
   if (veldDef.type === "vast-url") {
+    const heeftWaarde = !!(waarde && String(waarde).trim());
+    const href = heeftWaarde ? (/^https?:\/\//i.test(waarde.trim()) ? waarde.trim() : `https://${waarde.trim()}`) : null;
     return (
       <div>
         {labelMetSlot}
-        <input disabled={uitgeschakeld} value={waarde || ""} onChange={(e) => onChange(e.target.value)} placeholder="https://…" style={veldStijl} />
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <input disabled={uitgeschakeld} value={waarde || ""} onChange={(e) => onChange(e.target.value)} placeholder="https://…" style={{ ...veldStijl, flex: 1 }} />
+          {heeftWaarde && (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Openen in nieuw tabblad"
+              style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                width: 34, height: 34, borderRadius: 7, border: `1px solid ${KLEUR.rand}`,
+                background: "#F2F3F0", color: KLEUR.tekst,
+              }}
+            >
+              <ExternalLink size={14} />
+            </a>
+          )}
+        </div>
       </div>
     );
   }
@@ -2420,6 +2439,220 @@ function VeldInvoer({ veldDef, waarde, onChange, picklistOpties, statusOpties, d
     <div>
       {labelMetSlot}
       <input disabled={uitgeschakeld} value={waarde || ""} onChange={(e) => onChange(e.target.value)} style={veldStijl} />
+    </div>
+  );
+}
+
+/** Eén dropzone (cliënt óf fiscaal partner) voor "Aangifte versturen" — zie AangifteVersturenKaart
+ * hieronder. Puur presentatie/bestandskeuze (drag & drop of klikken); de daadwerkelijke verwerking
+ * (voorbereiden/versturen) gebeurt in de kaart zelf, zodat het voorbeeldscherm daar één plek heeft. */
+function AangifteDropzone({ label, doelgroep, disabled, onGekozen }) {
+  const [sleep, setSleep] = useState(false);
+  const inputRef = useRef(null);
+
+  const kies = (file) => {
+    if (!file) return;
+    if (file.type !== "application/pdf" && !/\.pdf$/i.test(file.name || "")) {
+      onGekozen(doelgroep, null, "Alleen PDF-bestanden zijn toegestaan.");
+      return;
+    }
+    onGekozen(doelgroep, file, "");
+  };
+
+  return (
+    <div
+      onDragOver={(e) => { if (disabled) return; e.preventDefault(); setSleep(true); }}
+      onDragLeave={() => setSleep(false)}
+      onDrop={(e) => { e.preventDefault(); setSleep(false); if (disabled) return; kies(e.dataTransfer.files && e.dataTransfer.files[0]); }}
+      onClick={() => !disabled && inputRef.current && inputRef.current.click()}
+      style={{
+        border: `1.5px dashed ${sleep ? KLEUR.blauw : KLEUR.rand}`,
+        borderRadius: 10,
+        padding: "20px 14px",
+        textAlign: "center",
+        cursor: disabled ? "default" : "pointer",
+        background: sleep ? KLEUR.lichtblauw : "#FAFBF9",
+        opacity: disabled ? 0.55 : 1,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: 8,
+        flex: "1 1 220px",
+        minWidth: 200,
+      }}
+    >
+      <Upload size={18} color={KLEUR.mutedTekst} />
+      <div style={{ fontSize: 12.5, fontWeight: 600, color: KLEUR.tekst }}>{label}</div>
+      <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>Sleep hier de PDF naartoe, of klik om te kiezen</div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="application/pdf"
+        disabled={disabled}
+        onChange={(e) => { kies(e.target.files && e.target.files[0]); e.target.value = ""; }}
+        style={{ display: "none" }}
+      />
+    </div>
+  );
+}
+
+/** "Aangifte versturen" — twee dropzones (cliënt zelf en, indien ingevuld, diens fiscaal partner —
+ * elk een eigen Dynamics-account met eigen SharePoint-dossier). Dropt de medewerker een PDF, dan
+ * wordt eerst (GET /api/medewerker-aangifte-ontvanger) opgehaald wie de ontvanger is en of
+ * versturen mogelijk is (SharePoint-map + e-mailadres bekend); is dat zo, dan volgt een
+ * voorbeeldscherm — zelfde opzet als het mail-conceptscherm bij Offertes — waar de medewerker de
+ * bestandsnaam en de mailtekst nog kan aanpassen vóórdat er daadwerkelijk iets de deur uitgaat
+ * (POST /api/medewerker-aangifte-versturen: upload naar SharePoint "Correspondentie", Dynamics-taak
+ * "In afwachting reactie client", mail vanaf correspondentie@activaa.nl). Alleen voor IB — VPB
+ * heeft geen fiscaal-partner-concept en dit is specifiek voor de aangifte inkomstenbelasting. */
+function AangifteVersturenKaart({ dossier, disabled }) {
+  const [modal, setModal] = useState(null); // { doelgroep, bestand, laden, ontvanger, bestandsnaam, mailOnderwerp, mailTekst }
+  const [melding, setMelding] = useState(null); // { doelgroep, tekst } — korte fout onder de dropzones
+  const [versturenStatus, setVersturenStatus] = useState("rust"); // rust | bezig | klaar | fout
+  const [versturenFout, setVersturenFout] = useState("");
+  const [resultaat, setResultaat] = useState(null);
+
+  const label = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3 };
+  const veldStijl = { width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 10px", fontSize: 13, fontFamily: "inherit" };
+
+  const standaardOnderwerp = (jaar) => `Uw aangifte inkomstenbelasting${jaar ? ` ${jaar}` : ""} staat klaar in het portaal`;
+  const standaardTekst = (naam, jaar) =>
+    `Beste ${naam || "klant"},\n\nUw aangifte inkomstenbelasting${jaar ? ` over ${jaar}` : ""} staat klaar ter beoordeling in het klantportaal.\n\nU kunt de aangifte inzien via het portaal, onder "Taken". Zodra u akkoord geeft, ronden wij de aangifte verder voor u af.\n\nHeeft u vragen? Neem gerust contact met ons op.\n\nMet vriendelijke groet,\nActivaa Accountants en Adviseurs`;
+
+  const gekozen = async (doelgroep, bestand, fout) => {
+    setMelding(null);
+    setResultaat(null);
+    if (fout) { setMelding({ doelgroep, tekst: fout }); return; }
+    if (!bestand) return;
+    setModal({ doelgroep, bestand, laden: true });
+    try {
+      const r = await fetch(`/api/medewerker-aangifte-ontvanger?soort=ib&id=${encodeURIComponent(dossier.id)}&doelgroep=${doelgroep}`);
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      if (!d.klaar) { setModal(null); setMelding({ doelgroep, tekst: d.reden || "Versturen is nu niet mogelijk." }); return; }
+      setModal({
+        doelgroep, bestand, laden: false,
+        ontvanger: d.ontvanger,
+        bestandsnaam: d.bestandsnaamStandaard,
+        mailOnderwerp: standaardOnderwerp(d.jaar),
+        mailTekst: standaardTekst(d.ontvanger?.naam, d.jaar),
+      });
+    } catch (e) {
+      setModal(null);
+      setMelding({ doelgroep, tekst: e.message || "Voorbereiden is mislukt." });
+    }
+  };
+
+  const leesAlsBase64 = (file) => new Promise((resolve, reject) => {
+    const lezer = new FileReader();
+    lezer.onload = () => resolve(String(lezer.result).replace(/^data:.*;base64,/, ""));
+    lezer.onerror = reject;
+    lezer.readAsDataURL(file);
+  });
+
+  const versturen = async () => {
+    if (!modal) return;
+    setVersturenStatus("bezig"); setVersturenFout("");
+    try {
+      const bestandBase64 = await leesAlsBase64(modal.bestand);
+      const r = await fetch("/api/medewerker-aangifte-versturen", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          soort: "ib", id: dossier.id, doelgroep: modal.doelgroep,
+          bestandsnaam: modal.bestandsnaam, bestandBase64,
+          mailOnderwerp: modal.mailOnderwerp, mailTekst: modal.mailTekst,
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      setVersturenStatus("klaar");
+      setResultaat(d);
+      setModal(null);
+    } catch (e) {
+      setVersturenFout(e.message || "Versturen is mislukt.");
+      setVersturenStatus("fout");
+    }
+  };
+
+  return (
+    <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
+      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Aangifte versturen</div>
+      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 14, maxWidth: 640 }}>
+        Sleep de aangifte inkomstenbelasting (PDF) hierheen — de ontvanger krijgt een mail en een
+        taak "In afwachting reactie client" in het portaal, en kan het document daar inzien.
+      </div>
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+        <AangifteDropzone label={`Cliënt — ${dossier.klantnaam || "—"}`} doelgroep="client" disabled={disabled} onGekozen={gekozen} />
+        {dossier.fiscaalPartnerAccountId ? (
+          <AangifteDropzone label={`Fiscaal partner — ${dossier.fiscaalPartnerNaam || "—"}`} doelgroep="partner" disabled={disabled} onGekozen={gekozen} />
+        ) : (
+          <div style={{ flex: "1 1 220px", minWidth: 200, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "20px 14px", fontSize: 11.5, color: KLEUR.mutedTekst }}>
+            Geen fiscaal partner bij dit dossier ingevuld.
+          </div>
+        )}
+      </div>
+      {melding && <div style={{ marginTop: 10, fontSize: 12, color: KLEUR.rood }}>{melding.tekst}</div>}
+      {versturenStatus === "klaar" && resultaat && (
+        <div style={{ marginTop: 10, fontSize: 12.5, color: resultaat.mailVerzonden ? KLEUR.groen : KLEUR.goud, display: "flex", alignItems: "center", gap: 6 }}>
+          <CheckCircle2 size={14} />
+          {resultaat.mailVerzonden
+            ? "Verstuurd — het document staat in Correspondentie, en de taak en mail zijn aangemaakt."
+            : "Document opgeslagen en taak aangemaakt, maar de mail versturen is mislukt — controleer dit handmatig."}
+        </div>
+      )}
+      {resultaat?.waarschuwing && <div style={{ marginTop: 6, fontSize: 11.5, color: KLEUR.goud }}>{resultaat.waarschuwing}</div>}
+
+      {modal && (
+        <div
+          onClick={() => versturenStatus !== "bezig" && setModal(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(28,35,33,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 20 }}
+        >
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 14, padding: 24, width: "100%", maxWidth: 560, maxHeight: "85vh", overflowY: "auto" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Aangifte versturen</div>
+            {modal.laden ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: KLEUR.mutedTekst, padding: "20px 0" }}>
+                <Loader2 size={15} style={{ animation: "spin 1s linear infinite" }} /> Gegevens ophalen…
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 16 }}>
+                  Aan: <strong>{modal.ontvanger?.naam || "—"}</strong> ({modal.ontvanger?.email || "onbekend"}) · {modal.bestand?.name}
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <div style={label}>Bestandsnaam in SharePoint</div>
+                  <input value={modal.bestandsnaam} onChange={(e) => setModal((h) => ({ ...h, bestandsnaam: e.target.value }))} style={veldStijl} />
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <div style={label}>Onderwerp van de mail</div>
+                  <input value={modal.mailOnderwerp} onChange={(e) => setModal((h) => ({ ...h, mailOnderwerp: e.target.value }))} style={veldStijl} />
+                </div>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={label}>Tekst van de mail</div>
+                  <textarea value={modal.mailTekst} onChange={(e) => setModal((h) => ({ ...h, mailTekst: e.target.value }))} rows={9} style={{ ...veldStijl, resize: "vertical" }} />
+                </div>
+                {versturenFout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 10 }}>{versturenFout}</div>}
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                  <button
+                    onClick={() => setModal(null)}
+                    disabled={versturenStatus === "bezig"}
+                    style={{ padding: "9px 16px", background: "none", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: versturenStatus === "bezig" ? "default" : "pointer" }}
+                  >
+                    Annuleren
+                  </button>
+                  <button
+                    onClick={versturen}
+                    disabled={versturenStatus === "bezig" || !modal.bestandsnaam.trim() || !modal.mailOnderwerp.trim() || !modal.mailTekst.trim()}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                  >
+                    {versturenStatus === "bezig" ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Mail size={14} />}
+                    {versturenStatus === "bezig" ? "Versturen…" : "Versturen"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2603,6 +2836,8 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
           Dit dossier staat in Dynamics op <strong>inactief</strong> en is daarom hieronder alleen-lezen.
         </div>
       )}
+
+      {dossier.soort === "ib" && <AangifteVersturenKaart dossier={dossier} disabled={!bewerkbaar} />}
 
       {uitvragen.length > 0 && uitvragen.map((u) => {
         const opengeklapt = uitvraagOpen[u.id] ?? (u.status !== "afgerond");

@@ -244,6 +244,20 @@
       ]
     },
     {
+      "route": "/api/medewerker-aangifte-ontvanger",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
+      "route": "/api/medewerker-aangifte-versturen",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
       "route": "/api/dossier-velden",
       "allowedRoles": [
         "beheerder",

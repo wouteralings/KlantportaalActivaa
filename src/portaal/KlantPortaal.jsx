@@ -1618,6 +1618,61 @@ function DocumentViewer({ url, driveId, itemId, formaat, titel }) {
   );
 }
 
+// Zelfde idee als DocumentViewer hierboven, maar dan voor het document van een taak — dat wordt
+// NOOIT als rechtstreekse SharePoint-url aan de klant gegeven (zie api/taken/index.js —
+// heeftDocument i.p.v. documentUrl), want bijv. bij "Aangifte versturen" staat het bestand in een
+// map waar de klant zelf geen SharePoint-toegang toe heeft. In plaats daarvan haalt het portaal de
+// inhoud op via de eigen, met taak-eigendom gecontroleerde proxy /api/taken-document — die route
+// leest de SWA-sessie (zelfde cookie-gebaseerde auth als elke andere /api/*-aanroep), dus zonder
+// apart MSAL-token nodig (in tegenstelling tot DocumentViewer/document-inhoud, dat écht de eigen
+// SharePoint-rechten van de klant gebruikt).
+function TaakDocumentViewer({ taakId, titel }) {
+  const [status, setStatus] = useState("laden"); // laden | klaar | fout
+  const [blobUrl, setBlobUrl] = useState("");
+
+  useEffect(() => {
+    let actief = true;
+    let gemaakteUrl = "";
+    setStatus("laden");
+    setBlobUrl("");
+    (async () => {
+      try {
+        const res = await fetch(`/api/taken-document?taakId=${encodeURIComponent(taakId)}`);
+        if (!res.ok) throw new Error(await res.text().catch(() => ""));
+        const blob = await res.blob();
+        if (!actief) return;
+        gemaakteUrl = URL.createObjectURL(blob);
+        setBlobUrl(gemaakteUrl);
+        setStatus("klaar");
+      } catch {
+        if (actief) setStatus("fout");
+      }
+    })();
+    return () => {
+      actief = false;
+      if (gemaakteUrl) URL.revokeObjectURL(gemaakteUrl);
+    };
+  }, [taakId]);
+
+  if (status === "laden") {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst, padding: "16px 4px" }}>
+        <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Document ophalen…
+      </div>
+    );
+  }
+  if (status === "fout") {
+    return (
+      <div style={{ fontSize: 12.5, color: KLEUR.rood, padding: "8px 0" }}>
+        Het document kon niet worden geladen. Gebruik de knop “Openen” hierboven om het in een nieuw tabblad te bekijken.
+      </div>
+    );
+  }
+  return (
+    <iframe title={titel} src={blobUrl} style={{ width: "100%", height: 460, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, background: "#fff" }} />
+  );
+}
+
 function tijd(iso) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -2370,15 +2425,15 @@ function TabTaken({ data, gebruiker, onAkkoord, onNietAkkoord, onOndertekenen, o
                     </div>
                   )}
 
-                  {taak.documentUrl && open && (
+                  {taak.heeftDocument && open && (
                     <div style={{ marginTop: 12 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: KLEUR.subtekst }}>Document</div>
-                        <a href={taak.documentUrl} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: KLEUR.blauw, textDecoration: "none" }}>
+                        <a href={`/api/taken-document?taakId=${encodeURIComponent(taak.id)}`} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: KLEUR.blauw, textDecoration: "none" }}>
                           <ExternalLink size={12} /> Openen
                         </a>
                       </div>
-                      <DocumentViewer url={taak.documentUrl} titel={taak.titel} />
+                      <TaakDocumentViewer taakId={taak.id} titel={taak.titel} />
                     </div>
                   )}
 

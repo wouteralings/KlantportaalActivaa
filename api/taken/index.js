@@ -118,7 +118,12 @@ async function haalZichtbareTaken(resource, token, accounts, soortConfig) {
       vereistHandtekening: soortConfig.vereistHandtekening.has(String(soortWaarde)),
       uploadLink: UPLOADLINK_VELD ? rij[UPLOADLINK_VELD] || null : null,
       uploadVerloopt: VERLOOPDATUM_VELD ? rij[VERLOOPDATUM_VELD] || null : null,
-      documentUrl: DOCUMENT_VELD ? rij[DOCUMENT_VELD] || null : null,
+      // De ruwe SharePoint-url wordt bewust NIET meer meegegeven aan de klant (die kan naar een
+      // map wijzen waar de klant zelf geen toegang toe heeft, bijv. de "Correspondentie"-map van
+      // Aangifte versturen) — het portaal haalt de inhoud altijd op via de eigen, met taak-
+      // eigendom gecontroleerde proxy /api/taken-document?taakId=<activityid>. Zie DocumentViewer/
+      // TabTaken in KlantPortaal.jsx.
+      heeftDocument: DOCUMENT_VELD ? !!rij[DOCUMENT_VELD] : false,
     });
   }
 
