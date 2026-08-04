@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ArrowLeft, Lock, Copy, X, ExternalLink, Upload } from "lucide-react";
+import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload } from "lucide-react";
 import { startMeekijken } from "../meekijken";
 import OffertesModule from "./OffertesModule";
 import ContractenOverzicht from "./ContractenOverzicht";
@@ -1871,6 +1871,7 @@ function MedewerkerDossiers({ soort }) {
   const [sortDir, setSortDir] = useState("asc"); // asc | desc
   const [toonAantal, setToonAantal] = useState(25);
   const [zichtbareKolommen, setZichtbareKolommen] = useState(null); // null = nog standaard bepalen
+  const [kolomVolgorde, setKolomVolgorde] = useState(null); // null = standaard KOLOMMEN-volgorde; anders array van keys
   const [weergaven, setWeergaven] = useState([]); // [{ naam, config }]
   const [actieveWeergave, setActieveWeergave] = useState("");
   const [menu, setMenu] = useState(null); // { key, x, y } — geopend kolomkop-menu
@@ -1908,6 +1909,7 @@ function MedewerkerDossiers({ soort }) {
     setSortDir("asc");
     setToonAantal(25);
     setZichtbareKolommen(null);
+    setKolomVolgorde(null);
     setActieveWeergave("");
     setMenu(null);
     setKolomKiezerOpen(false);
@@ -1936,6 +1938,23 @@ function MedewerkerDossiers({ soort }) {
   }, [soort]);
   const zichtbareSet = zichtbareKolommen || new Set(alleKeys.filter((key) => !DOSSIER_KOLOMMEN_STANDAARD_VERBORGEN.includes(key)));
   const kolomVan = (key) => KOLOMMEN.find((c) => c.key === key);
+  // Volgorde waarin kolommen getoond worden (kolomkiezer + tabel): eigen volgorde (indien gezet) +
+  // eventuele nieuwe/onbekende kolommen erachter, zodat een oude opgeslagen weergave of een net
+  // toegevoegde kolom nooit verdwijnt — alleen de plek in de rij is dan nog niet gekozen.
+  const geordendeKolommen = (() => {
+    const basis = (kolomVolgorde || []).filter((k) => alleKeys.includes(k));
+    const missend = alleKeys.filter((k) => !basis.includes(k));
+    return [...basis, ...missend].map((k) => kolomVan(k)).filter(Boolean);
+  })();
+  const verplaatsKolom = (key, richting) => {
+    const basis = geordendeKolommen.map((k) => k.key);
+    const i = basis.indexOf(key);
+    const j = i + richting;
+    if (i === -1 || j < 0 || j >= basis.length) return;
+    const nieuw = [...basis];
+    [nieuw[i], nieuw[j]] = [nieuw[j], nieuw[i]];
+    setKolomVolgorde(nieuw);
+  };
 
   // Volledig dossier (incl. catalogus/secties/picklistopties) apart ophalen zodra er één wordt
   // geopend — de lijst zelf bevat alleen de basisvelden (Cliënt/Jaar/Status/Accountant/Assistent).
@@ -2054,7 +2073,7 @@ function MedewerkerDossiers({ soort }) {
   });
   const pijl = (key) => (sortKey === key ? (sortDir === "asc" ? " ▲" : " ▼") : "");
   const zichtbaar = gesorteerd.slice(0, toonAantal);
-  const zichtKols = KOLOMMEN.filter((c) => zichtbareSet.has(c.key));
+  const zichtKols = geordendeKolommen.filter((c) => zichtbareSet.has(c.key));
 
   const openKopMenu = (e, key) => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -2063,11 +2082,12 @@ function MedewerkerDossiers({ soort }) {
   };
   const wisAllesFilters = () => { setKolomFilters({}); setZoek(""); };
 
-  // Opgeslagen weergaven (persoonlijk, per dossiersoort): kolommen + filters + sortering + aantal regels.
-  const huidigeConfig = () => ({ kolommen: [...zichtbareSet], filters: kolomFilters, sortKey, sortDir, toonAantal });
+  // Opgeslagen weergaven (persoonlijk, per dossiersoort): kolommen + volgorde + filters + sortering + aantal regels.
+  const huidigeConfig = () => ({ kolommen: [...zichtbareSet], volgorde: geordendeKolommen.map((k) => k.key), filters: kolomFilters, sortKey, sortDir, toonAantal });
   const pasWeergaveToe = (cfg) => {
     if (!cfg) return;
     if (Array.isArray(cfg.kolommen)) setZichtbareKolommen(new Set(cfg.kolommen));
+    if (Array.isArray(cfg.volgorde)) setKolomVolgorde(cfg.volgorde);
     setKolomFilters(cfg.filters || {});
     if (cfg.sortKey) setSortKey(cfg.sortKey);
     if (cfg.sortDir) setSortDir(cfg.sortDir);
@@ -2121,16 +2141,20 @@ function MedewerkerDossiers({ soort }) {
           {kolomKiezerOpen && (
             <>
               <div onClick={() => setKolomKiezerOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
-              <div style={{ position: "absolute", top: "110%", right: 0, zIndex: 41, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, boxShadow: "0 6px 24px rgba(0,0,0,0.12)", padding: 10, width: 200, maxHeight: 320, overflowY: "auto" }}>
-                {KOLOMMEN.map((kol) => (
-                  <label key={kol.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 12.5, cursor: "pointer" }}>
-                    <input
-                      type="checkbox"
-                      checked={zichtbareSet.has(kol.key)}
-                      onChange={() => setZichtbareKolommen(() => { const n = new Set(zichtbareSet); if (n.has(kol.key)) n.delete(kol.key); else n.add(kol.key); return n; })}
-                    />
-                    {kol.label}
-                  </label>
+              <div style={{ position: "absolute", top: "110%", right: 0, zIndex: 41, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, boxShadow: "0 6px 24px rgba(0,0,0,0.12)", padding: 10, width: 250, maxHeight: 320, overflowY: "auto" }}>
+                {geordendeKolommen.map((kol, i) => (
+                  <div key={kol.key} style={{ display: "flex", alignItems: "center", gap: 2, padding: "2px 0" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 12.5, cursor: "pointer", flex: 1, minWidth: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={zichtbareSet.has(kol.key)}
+                        onChange={() => setZichtbareKolommen(() => { const n = new Set(zichtbareSet); if (n.has(kol.key)) n.delete(kol.key); else n.add(kol.key); return n; })}
+                      />
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{kol.label}</span>
+                    </label>
+                    <button onClick={() => verplaatsKolom(kol.key, -1)} disabled={i === 0} title="Kolom naar links" style={{ background: "none", border: "none", color: i === 0 ? KLEUR.rand : KLEUR.subtekst, cursor: i === 0 ? "default" : "pointer", padding: 2, display: "flex" }}><ChevronUp size={14} /></button>
+                    <button onClick={() => verplaatsKolom(kol.key, 1)} disabled={i === geordendeKolommen.length - 1} title="Kolom naar rechts" style={{ background: "none", border: "none", color: i === geordendeKolommen.length - 1 ? KLEUR.rand : KLEUR.subtekst, cursor: i === geordendeKolommen.length - 1 ? "default" : "pointer", padding: 2, display: "flex" }}><ChevronDown size={14} /></button>
+                  </div>
                 ))}
               </div>
             </>
@@ -2943,6 +2967,7 @@ function KlantOverzicht() {
   const [toonAantal, setToonAantal] = useState(25); // aantal getoonde regels
   const [config, setConfig] = useState({ extraKolommen: [], standaardVerborgen: [] });
   const [zichtbareKolommen, setZichtbareKolommen] = useState(null); // null = nog standaard bepalen
+  const [kolomVolgorde, setKolomVolgorde] = useState(null); // null = standaard KOLOMMEN-volgorde; anders array van keys
   const [weergaven, setWeergaven] = useState([]); // [{ naam, config }]
   const [actieveWeergave, setActieveWeergave] = useState("");
   const [keuzes, setKeuzes] = useState({ clienttype: [], status: [], team: [], kantoor: [] });
@@ -3057,6 +3082,23 @@ function KlantOverzicht() {
   }
 
   const kolomVan = (key) => KOLOMMEN.find((c) => c.key === key);
+  // Volgorde waarin kolommen getoond worden (kolomkiezer + tabel): eigen volgorde (indien gezet) +
+  // eventuele nieuwe/onbekende kolommen erachter, zodat een oude opgeslagen weergave of een net
+  // toegevoegde kolom nooit verdwijnt — alleen de plek in de rij is dan nog niet gekozen.
+  const geordendeKolommen = (() => {
+    const basis = (kolomVolgorde || []).filter((k) => alleKeys.includes(k));
+    const missend = alleKeys.filter((k) => !basis.includes(k));
+    return [...basis, ...missend].map((k) => kolomVan(k)).filter(Boolean);
+  })();
+  const verplaatsKolom = (key, richting) => {
+    const basis = geordendeKolommen.map((k) => k.key);
+    const i = basis.indexOf(key);
+    const j = i + richting;
+    if (i === -1 || j < 0 || j >= basis.length) return;
+    const nieuw = [...basis];
+    [nieuw[i], nieuw[j]] = [nieuw[j], nieuw[i]];
+    setKolomVolgorde(nieuw);
+  };
   const term = zoek.trim().toLowerCase();
   const gefilterd = klanten.filter((k) => {
     if (scope === "mijn" && mijnNaam && !isKlantVanMij(k, mijnNaam)) return false;
@@ -3092,7 +3134,7 @@ function KlantOverzicht() {
   const pijl = (key) => (sortKey === key ? (sortDir === "asc" ? " ▲" : " ▼") : "");
 
   const zichtbaar = gesorteerd.slice(0, toonAantal);
-  const zichtKols = KOLOMMEN.filter((c) => zichtbareSet.has(c.key));
+  const zichtKols = geordendeKolommen.filter((c) => zichtbareSet.has(c.key));
 
   const openKopMenu = (e, key) => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -3125,11 +3167,12 @@ function KlantOverzicht() {
     return d;
   };
 
-  // Opgeslagen weergaven (persoonlijk): kolommen + filters + sortering + aantal regels.
-  const huidigeConfig = () => ({ kolommen: [...zichtbareSet], filters: kolomFilters, sortKey, sortDir, toonAantal });
+  // Opgeslagen weergaven (persoonlijk): kolommen + volgorde + filters + sortering + aantal regels.
+  const huidigeConfig = () => ({ kolommen: [...zichtbareSet], volgorde: geordendeKolommen.map((k) => k.key), filters: kolomFilters, sortKey, sortDir, toonAantal });
   const pasWeergaveToe = (cfg) => {
     if (!cfg) return;
     if (Array.isArray(cfg.kolommen)) setZichtbareKolommen(new Set(cfg.kolommen));
+    if (Array.isArray(cfg.volgorde)) setKolomVolgorde(cfg.volgorde);
     setKolomFilters(cfg.filters || {});
     if (cfg.sortKey) setSortKey(cfg.sortKey);
     if (cfg.sortDir) setSortDir(cfg.sortDir);
@@ -3199,16 +3242,20 @@ function KlantOverzicht() {
           {kolomKiezerOpen && (
             <>
               <div onClick={() => setKolomKiezerOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
-              <div style={{ position: "absolute", top: "110%", right: 0, zIndex: 41, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, boxShadow: "0 6px 24px rgba(0,0,0,0.12)", padding: 10, width: 220, maxHeight: 320, overflowY: "auto" }}>
-                {KOLOMMEN.map((kol) => (
-                  <label key={kol.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 12.5, cursor: "pointer" }}>
-                    <input
-                      type="checkbox"
-                      checked={zichtbareSet.has(kol.key)}
-                      onChange={() => setZichtbareKolommen(() => { const n = new Set(zichtbareSet); if (n.has(kol.key)) n.delete(kol.key); else n.add(kol.key); return n; })}
-                    />
-                    {kol.label}
-                  </label>
+              <div style={{ position: "absolute", top: "110%", right: 0, zIndex: 41, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, boxShadow: "0 6px 24px rgba(0,0,0,0.12)", padding: 10, width: 250, maxHeight: 320, overflowY: "auto" }}>
+                {geordendeKolommen.map((kol, i) => (
+                  <div key={kol.key} style={{ display: "flex", alignItems: "center", gap: 2, padding: "2px 0" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 12.5, cursor: "pointer", flex: 1, minWidth: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={zichtbareSet.has(kol.key)}
+                        onChange={() => setZichtbareKolommen(() => { const n = new Set(zichtbareSet); if (n.has(kol.key)) n.delete(kol.key); else n.add(kol.key); return n; })}
+                      />
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{kol.label}</span>
+                    </label>
+                    <button onClick={() => verplaatsKolom(kol.key, -1)} disabled={i === 0} title="Kolom naar links" style={{ background: "none", border: "none", color: i === 0 ? KLEUR.rand : KLEUR.subtekst, cursor: i === 0 ? "default" : "pointer", padding: 2, display: "flex" }}><ChevronUp size={14} /></button>
+                    <button onClick={() => verplaatsKolom(kol.key, 1)} disabled={i === geordendeKolommen.length - 1} title="Kolom naar rechts" style={{ background: "none", border: "none", color: i === geordendeKolommen.length - 1 ? KLEUR.rand : KLEUR.subtekst, cursor: i === geordendeKolommen.length - 1 ? "default" : "pointer", padding: 2, display: "flex" }}><ChevronDown size={14} /></button>
+                  </div>
                 ))}
               </div>
             </>

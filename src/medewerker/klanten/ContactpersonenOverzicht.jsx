@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Search, ArrowLeft, Pencil, Link2, Unlink, AlertTriangle, CheckCircle2, X, Plus, Trash2, ClipboardList, Send, ShieldCheck, ChevronDown } from "lucide-react";
+import { Search, ArrowLeft, Pencil, Link2, Unlink, AlertTriangle, CheckCircle2, X, Plus, Trash2, ClipboardList, Send, ShieldCheck, ChevronUp, ChevronDown } from "lucide-react";
 import Logboek from "./Logboek";
 import ScopeToggle, { useMijnNaam, isKlantVanMij } from "../MijnFilter";
 
@@ -82,6 +82,9 @@ export default function ContactpersonenOverzicht() {
   const [toonAantal, setToonAantal] = useState(25);
   const [kolomKiezerOpen, setKolomKiezerOpen] = useState(false);
   const [zichtbaar, setZichtbaar] = useState(() => new Set(KOLOMMEN.filter((k) => k.standaard).map((k) => k.key)));
+  const [kolomVolgorde, setKolomVolgorde] = useState(null); // null = standaard KOLOMMEN-volgorde; anders array van keys
+  const [weergaven, setWeergaven] = useState([]); // [{ naam, config }] — opgeslagen weergaven (zie api/medewerker-weergaven)
+  const [actieveWeergave, setActieveWeergave] = useState("");
   const [detail, setDetail] = useState(null); // gekozen contactpersoon → detailweergave
   const [magWijzigen, setMagWijzigen] = useState(false);
   const [magBulk, setMagBulk] = useState(false);
@@ -115,6 +118,16 @@ export default function ContactpersonenOverzicht() {
     return () => {
       actief = false;
     };
+  }, []);
+
+  // Opgeslagen weergaven (persoonlijk, eigen namespace "contactpersonen" — zie api/_gedeeld/weergaven.js).
+  useEffect(() => {
+    let actief = true;
+    fetch("/api/medewerker-weergaven?scherm=" + encodeURIComponent("contactpersonen"))
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => { if (actief) setWeergaven(d.views || []); })
+      .catch(() => { if (actief) setWeergaven([]); });
+    return () => { actief = false; };
   }, []);
 
   // Voor het 'mijn cliënten'-filter: bepaal bij welke klanten ik behandelaar ben (via de klantenlijst).
@@ -200,8 +213,59 @@ export default function ContactpersonenOverzicht() {
     setDetail(null);
   };
 
-  const zichtKols = KOLOMMEN.filter((k) => zichtbaar.has(k.key));
   const kolomVan = (key) => KOLOMMEN.find((k) => k.key === key);
+  // Volgorde waarin kolommen getoond worden (kolomkiezer + tabel): eigen volgorde (indien gezet) +
+  // eventuele nieuwe/onbekende kolommen erachter, zodat een oude opgeslagen weergave of een net
+  // toegevoegde kolom nooit verdwijnt — alleen de plek in de rij is dan nog niet gekozen.
+  const alleKeys = KOLOMMEN.map((k) => k.key);
+  const geordendeKolommen = (() => {
+    const basis = (kolomVolgorde || []).filter((k) => alleKeys.includes(k));
+    const missend = alleKeys.filter((k) => !basis.includes(k));
+    return [...basis, ...missend].map((k) => kolomVan(k)).filter(Boolean);
+  })();
+  const verplaatsKolom = (key, richting) => {
+    const basis = geordendeKolommen.map((k) => k.key);
+    const i = basis.indexOf(key);
+    const j = i + richting;
+    if (i === -1 || j < 0 || j >= basis.length) return;
+    const nieuw = [...basis];
+    [nieuw[i], nieuw[j]] = [nieuw[j], nieuw[i]];
+    setKolomVolgorde(nieuw);
+  };
+  const zichtKols = geordendeKolommen.filter((k) => zichtbaar.has(k.key));
+
+  // Opgeslagen weergaven (persoonlijk): kolommen + volgorde + filters + sortering + aantal regels.
+  const huidigeConfig = () => ({ kolommen: [...zichtbaar], volgorde: geordendeKolommen.map((k) => k.key), filters: kolomFilters, sortKey, sortDir, toonAantal });
+  const pasWeergaveToe = (cfg) => {
+    if (!cfg) return;
+    if (Array.isArray(cfg.kolommen)) setZichtbaar(new Set(cfg.kolommen));
+    if (Array.isArray(cfg.volgorde)) setKolomVolgorde(cfg.volgorde);
+    setKolomFilters(cfg.filters || {});
+    if (cfg.sortKey) setSortKey(cfg.sortKey);
+    if (cfg.sortDir) setSortDir(cfg.sortDir);
+    if (cfg.toonAantal) setToonAantal(cfg.toonAantal);
+  };
+  const bewaarWeergaven = (lijst) => {
+    setWeergaven(lijst);
+    fetch("/api/medewerker-weergaven", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scherm: "contactpersonen", views: lijst }) }).catch(() => {});
+  };
+  const opslaanAlsWeergave = () => {
+    const naam = (window.prompt("Naam van de weergave:") || "").trim();
+    if (!naam) return;
+    bewaarWeergaven([...weergaven.filter((v) => v.naam !== naam), { naam, config: huidigeConfig() }]);
+    setActieveWeergave(naam);
+  };
+  const kiesWeergave = (naam) => {
+    setActieveWeergave(naam);
+    const v = weergaven.find((w) => w.naam === naam);
+    if (v) pasWeergaveToe(v.config);
+  };
+  const verwijderWeergave = () => {
+    if (!actieveWeergave) return;
+    if (!window.confirm(`Weergave "${actieveWeergave}" verwijderen?`)) return;
+    bewaarWeergaven(weergaven.filter((v) => v.naam !== actieveWeergave));
+    setActieveWeergave("");
+  };
 
   const gefilterd = useMemo(() => {
     const lijst = contactpersonen || [];
@@ -340,21 +404,34 @@ export default function ContactpersonenOverzicht() {
           {kolomKiezerOpen && (
             <>
               <div onClick={() => setKolomKiezerOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
-              <div style={{ position: "absolute", top: "110%", right: 0, zIndex: 41, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, boxShadow: "0 6px 24px rgba(0,0,0,0.12)", padding: 10, width: 220, maxHeight: 320, overflowY: "auto" }}>
-                {KOLOMMEN.map((kol) => (
-                  <label key={kol.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 12.5, cursor: "pointer" }}>
-                    <input
-                      type="checkbox"
-                      checked={zichtbaar.has(kol.key)}
-                      onChange={() => setZichtbaar((h) => { const n = new Set(h); if (n.has(kol.key)) n.delete(kol.key); else n.add(kol.key); return n; })}
-                    />
-                    {kol.label}
-                  </label>
+              <div style={{ position: "absolute", top: "110%", right: 0, zIndex: 41, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, boxShadow: "0 6px 24px rgba(0,0,0,0.12)", padding: 10, width: 250, maxHeight: 320, overflowY: "auto" }}>
+                {geordendeKolommen.map((kol, i) => (
+                  <div key={kol.key} style={{ display: "flex", alignItems: "center", gap: 2, padding: "2px 0" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px", fontSize: 12.5, cursor: "pointer", flex: 1, minWidth: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={zichtbaar.has(kol.key)}
+                        onChange={() => setZichtbaar((h) => { const n = new Set(h); if (n.has(kol.key)) n.delete(kol.key); else n.add(kol.key); return n; })}
+                      />
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{kol.label}</span>
+                    </label>
+                    <button onClick={() => verplaatsKolom(kol.key, -1)} disabled={i === 0} title="Kolom naar links" style={{ background: "none", border: "none", color: i === 0 ? KLEUR.rand : KLEUR.subtekst, cursor: i === 0 ? "default" : "pointer", padding: 2, display: "flex" }}><ChevronUp size={14} /></button>
+                    <button onClick={() => verplaatsKolom(kol.key, 1)} disabled={i === geordendeKolommen.length - 1} title="Kolom naar rechts" style={{ background: "none", border: "none", color: i === geordendeKolommen.length - 1 ? KLEUR.rand : KLEUR.subtekst, cursor: i === geordendeKolommen.length - 1 ? "default" : "pointer", padding: 2, display: "flex" }}><ChevronDown size={14} /></button>
+                  </div>
                 ))}
               </div>
             </>
           )}
         </div>
+
+        <select value={actieveWeergave} onChange={(e) => kiesWeergave(e.target.value)} style={selectStijl} title="Opgeslagen weergave">
+          <option value="">Weergave…</option>
+          {weergaven.map((v) => <option key={v.naam} value={v.naam}>{v.naam}</option>)}
+        </select>
+        <button onClick={opslaanAlsWeergave} style={selectStijl} title="Huidige indeling opslaan als weergave">Opslaan als…</button>
+        {actieveWeergave && (
+          <button onClick={verwijderWeergave} style={{ ...selectStijl, color: KLEUR.rood }} title="Verwijder deze weergave">Verwijderen</button>
+        )}
 
         <button onClick={() => setFilterRegel((o) => !o)} style={{ ...selectStijl, color: filterRegel ? KLEUR.blauw : KLEUR.tekst, fontWeight: filterRegel ? 700 : 400 }}>
           Filters {filterRegel ? "▴" : "▾"}
