@@ -5,7 +5,7 @@
  *
  *   - GET  ?soort=ib|vpb&id=<guid>
  *       → { dossier, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen,
- *           picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId }
+ *           picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId, defaultContact }
  *         (catalogus bevat naast de vrije catalogus ook de "vaste" velden __status/__urlDossier/
  *         __documentUrl (zie vasteVeldenVoorSoort() in dossierVelden.js) en eventuele door Wouter
  *         zelf via Beheer → Dossiers aangemaakte extra velden (dossierIndeling.<soort>.
@@ -24,7 +24,10 @@
  *         van datzelfde gekoppelde onderwerp (onderwerp.standaardLijstId) — gebruikt om de ingebedde
  *         "Vaste uitvragen" (klantkaart) in het dossier op voor te sorteren (die lijst bovenaan en
  *         opengeklapt); leeg zonder gekoppeld onderwerp of standaardlijst. Zie
- *         gekoppeldeLijstIdVoorDossier() hieronder.)
+ *         gekoppeldeLijstIdVoorDossier() hieronder. defaultContact = { id, naam } van de primaire
+ *         contactpersoon van de cliënt (Dynamics account.primarycontactid), of null — vult de
+ *         contactpersoon in de ingebedde "Vaste uitvragen" voor, net als op de klantkaart zelf. Zie
+ *         haalPrimairContactVoorDossier() hieronder.)
  *   - POST { soort, id, status?, urlDossier?, documentUrl?, velden? }  → bijwerken (weigert bij
  *         inactief). "velden" is de vrije bag met catalogussleutels, bijv. { loon: true }.
  *         Velden die in Beheer → Dossiers op alleen-lezen staan worden hier genegeerd, ook al
@@ -111,6 +114,26 @@ async function gekoppeldeLijstIdVoorDossier(onderwerpId) {
   }
 }
 
+/** Haalt de primaire contactpersoon van de cliënt van dit dossier op (Dynamics account.
+ *  primarycontactid) — gebruikt om de ingebedde "Vaste uitvragen" (zie KlantVasteUitvragen) in het
+ *  dossier meteen op die contactpersoon voor te vullen, net als op de klantkaart zelf (daar komt
+ *  hij uit dezelfde primarycontactid via /api/beheer-klanten). Eén lichte losse aanroep i.p.v. de
+ *  hele klantenlijst erbij ophalen. Best-effort: zonder (leesbare) primaire contactpersoon null. */
+async function haalPrimairContactVoorDossier(resource, token, accountId) {
+  if (!accountId) return null;
+  try {
+    const url = `${resource}/api/data/v9.2/accounts(${accountId})?$select=accountid&$expand=primarycontactid($select=contactid,fullname)`;
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "OData-MaxVersion": "4.0", "OData-Version": "4.0" } });
+    if (!r.ok) return null;
+    const d = await r.json();
+    const c = d.primarycontactid;
+    if (!c || !c.contactid) return null;
+    return { id: c.contactid, naam: c.fullname || "" };
+  } catch {
+    return null;
+  }
+}
+
 module.exports = async function (context, req) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   if (!resource) { context.res = { status: 501, headers: { "Content-Type": "application/json" }, body: { error: "Dynamics-koppeling is nog niet geconfigureerd." } }; return; }
@@ -144,10 +167,14 @@ module.exports = async function (context, req) {
       const catalogusRuw = [...vasteVeldenVoorSoort(soort), ...(soortEffectief.catalogus || [])];
       const catalogus = metLabels(catalogusRuw, indeling.labels);
       // Gekoppelde uitvraaglijst(en) (aanleververzoeken) — alleen als Wouter in Beheer → Dossiers
-      // een onderwerp aan deze dossiersoort heeft gekoppeld (indeling.onderwerpId).
-      const gekoppeldeUitvragen = await gekoppeldeUitvragenVoorDossier(dossier, indeling.onderwerpId);
-      const gekoppeldeLijstId = await gekoppeldeLijstIdVoorDossier(indeling.onderwerpId);
-      context.res = { headers: { "Content-Type": "application/json" }, body: { dossier, statusOpties: soort.statusOpties, catalogus, secties: indeling.secties, verborgen: indeling.verborgen, voorwaarden: indeling.voorwaarden, alleenLezen: indeling.alleenLezen, picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId } };
+      // een onderwerp aan deze dossiersoort heeft gekoppeld (indeling.onderwerpId). Primaire
+      // contactpersoon van de cliënt — voor het voorinvullen van de ingebedde "Vaste uitvragen".
+      const [gekoppeldeUitvragen, gekoppeldeLijstId, defaultContact] = await Promise.all([
+        gekoppeldeUitvragenVoorDossier(dossier, indeling.onderwerpId),
+        gekoppeldeLijstIdVoorDossier(indeling.onderwerpId),
+        haalPrimairContactVoorDossier(resource, token, dossier.accountId),
+      ]);
+      context.res = { headers: { "Content-Type": "application/json" }, body: { dossier, statusOpties: soort.statusOpties, catalogus, secties: indeling.secties, verborgen: indeling.verborgen, voorwaarden: indeling.voorwaarden, alleenLezen: indeling.alleenLezen, picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId, defaultContact } };
       return;
     }
 
