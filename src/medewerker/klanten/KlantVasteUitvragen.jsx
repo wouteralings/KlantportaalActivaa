@@ -55,8 +55,17 @@ const datum = (iso) => {
  * standaardlijst van een onderwerp is). `onUitgezet` (optioneel): callback die na een geslaagde
  * uitzetten-actie wordt aangeroepen, zodat de aanroepende dossierweergave zichzelf kan verversen en
  * de net uitgezette vragenlijst meteen toont zonder dat de medewerker handmatig hoeft te vernieuwen.
+ *
+ * `standaardJaar` (optioneel, ook alleen ingebed in een dossier — sinds 05-08-2026): het jaar van
+ * het dossier zelf (dossier.jaar); vult het Jaar-veld bij het laden automatisch voor (nog steeds
+ * handmatig aan te passen). Reden: gekoppeldeUitvragenVoorDossier (api/medewerker-dossier) toont een
+ * uitgezet verzoek in het dossier alleen als het jaar leeg is óf EXACT overeenkomt met het jaar van
+ * het dossier — een handmatig getypt, vergeten of net iets anders geformatteerd jaar zorgde er
+ * stilzwijgend voor dat het verzoek nérgens verscheen (gemeld door Wouter, 05-08-2026: "ik zie het
+ * hele uitvraagformulier niet"), ook al was het verzoek prima aangemaakt. Automatisch voorinvullen
+ * met het echte dossierjaar voorkomt die mismatch.
  */
-export default function KlantVasteUitvragen({ accountId, klantnaam, defaultContact, magWijzigen, prioriteitLijstId, alleenGekoppeld, onderwerpId, onUitgezet }) {
+export default function KlantVasteUitvragen({ accountId, klantnaam, defaultContact, magWijzigen, prioriteitLijstId, alleenGekoppeld, onderwerpId, onUitgezet, standaardJaar }) {
   const [data, setData] = useState(null); // { lijsten, vaste } | null = laden
   const [werk, setWerk] = useState({}); // lijstId -> item (bewerkbaar)
   const [status, setStatus] = useState({}); // lijstId -> 'rust'|'bezig'|'opgeslagen'|'fout'
@@ -76,8 +85,25 @@ export default function KlantVasteUitvragen({ accountId, klantnaam, defaultConta
         setData({ lijsten: d.lijsten || [], vaste: d.vaste || {} });
         setWerk({ ...(d.vaste || {}) });
         // De gekoppelde lijst (indien meegegeven) meteen opengeklapt tonen — alleen bij het laden,
-        // zodat een handmatig dichtgeklikte lijst daarna niet steeds weer vanzelf openspringt.
-        if (prioriteitLijstId) setOpen((o) => new Set(o).add(prioriteitLijstId));
+        // zodat een handmatig dichtgeklikte lijst daarna niet steeds weer vanzelf openspringt. Niet
+        // ingebed in een dossier (alleenGekoppeld): daar staat de echte vragenlijst (met wat de klant
+        // heeft aangeleverd) nu al zichtbaar bovenaan — dit instel-blok mag dan dichtgeklapt starten
+        // (gemeld door Wouter, 05-08-2026: "Dan instellen dichtklappen"), en alsnog met één klik open.
+        if (prioriteitLijstId && !alleenGekoppeld) setOpen((o) => new Set(o).add(prioriteitLijstId));
+        // Jaar-veld voorinvullen met het jaar van het dossier zelf (alleen ingebed in een dossier,
+        // zie standaardJaar hieronder). Root cause (05-08-2026): gekoppeldeUitvragenVoorDossier
+        // (api/medewerker-dossier) toont een verzoek alleen als het jaar leeg is óf EXACT overeenkomt
+        // met het jaar van het dossier — een handmatig getypt (of vergeten) jaar dat niet exact
+        // matcht, zorgde er stilzwijgend voor dat het net uitgezette verzoek nérgens verscheen, ook al
+        // was het prima aangemaakt. Door hier automatisch te vullen met het echte dossierjaar kan dat
+        // niet meer misgaan; nog steeds handmatig aan te passen indien nodig.
+        if (standaardJaar) {
+          setJaar((j) => {
+            const n = { ...j };
+            (d.lijsten || []).forEach((l) => { if (!n[l.id]) n[l.id] = standaardJaar; });
+            return n;
+          });
+        }
       })
       .catch(() => setData({ lijsten: [], vaste: {} }));
 

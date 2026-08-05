@@ -3122,6 +3122,7 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
           alleenGekoppeld
           onderwerpId={gekoppeldOnderwerpId}
           onUitgezet={ververGekoppeldeUitvragen}
+          standaardJaar={dossier.jaar != null && dossier.jaar !== "" ? String(dossier.jaar) : ""}
         />
       </div>
 
