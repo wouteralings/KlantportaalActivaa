@@ -127,6 +127,26 @@ async function haalPrimaireNaamVeld(resource, logicalName, token) {
   return data.PrimaryNameAttribute;
 }
 
+// De NAVIGATIE-eigenschap van een lookup-kolom (nodig voor @odata.bind en /$ref) is in Dataverse
+// niet per se gelijk aan de logische kolomnaam — het is de "ReferencingEntityNavigationPropertyName"
+// van de relatie (vaak de schema-naam mét hoofdletters, bv. cr283_Client i.p.v. cr283_client).
+// Gebruik je de verkeerde, dan geeft Dataverse 0x80048d19 ("undeclared property"). Daarom uit de
+// metadata halen en cachen, zelfde aanpak als haalEntitySetNaam/haalPrimaireNaamVeld hierboven.
+// Terugval op de logische naam als het opzoeken onverhoopt niet lukt.
+const navNaamCache = {};
+async function haalNavigatieNaam(resource, entiteitLogicalName, lookupAttribuut, token) {
+  const cacheKey = `${entiteitLogicalName}.${lookupAttribuut}`;
+  if (navNaamCache[cacheKey]) return navNaamCache[cacheKey];
+  const url = `${resource}/api/data/v9.2/EntityDefinitions(LogicalName='${entiteitLogicalName}')?$select=LogicalName&$expand=ManyToOneRelationships($select=ReferencingAttribute,ReferencingEntityNavigationPropertyName)`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } });
+  if (!res.ok) return lookupAttribuut;
+  const data = await res.json();
+  const rel = (data.ManyToOneRelationships || []).find((r) => r.ReferencingAttribute === lookupAttribuut);
+  const nav = (rel && rel.ReferencingEntityNavigationPropertyName) || lookupAttribuut;
+  navNaamCache[cacheKey] = nav;
+  return nav;
+}
+
 // Zelfde leeshelpers als api/beheer-klanten/index.js (leesVeld/leesLookup) — hier apart herhaald,
 // dit bestand houdt bewust geen gedeelde afhankelijkheid met dat andere overzicht.
 function leesVeld(rij, veld) {
@@ -369,10 +389,12 @@ async function werkDossierBij(resource, token, soort, id, velden) {
   }
   // Fiscaal partner (single-valued lookup): KOPPELEN kan mee in de PATCH via @odata.bind; het
   // LOSKOPPELEN moet via een aparte DELETE op de navigatie-eigenschap ($ref) — dat kan niet in een
-  // PATCH-body. partnerNav = de logische navigatienaam (bv. "cr283_fiscaalpartner").
-  const partnerNav = soort.optioneel.fiscaalpartner ? kernNaam(soort.optioneel.fiscaalpartner) : null;
+  // PATCH-body. De navigatienaam is niet per se de logische kolomnaam (zie haalNavigatieNaam).
+  const partnerAttr = soort.optioneel.fiscaalpartner ? kernNaam(soort.optioneel.fiscaalpartner) : null;
   let partnerLoskoppelen = false;
-  if (partnerNav && velden.fiscaalPartnerAccountId !== undefined) {
+  let partnerNav = null;
+  if (partnerAttr && velden.fiscaalPartnerAccountId !== undefined) {
+    partnerNav = await haalNavigatieNaam(resource, soort.entiteit, partnerAttr, token);
     if (velden.fiscaalPartnerAccountId) {
       body[`${partnerNav}@odata.bind`] = `/accounts(${velden.fiscaalPartnerAccountId})`;
     } else {
@@ -389,7 +411,7 @@ async function werkDossierBij(resource, token, soort, id, velden) {
     if (!res.ok) throw new Error(`Bijwerken ${soort.key} mislukt (${res.status}): ${await res.text()}`);
   }
 
-  if (partnerLoskoppelen) {
+  if (partnerLoskoppelen && partnerNav) {
     const res = await fetch(`${resource}/api/data/v9.2/${entitySet}(${id})/${partnerNav}/$ref`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "OData-MaxVersion": "4.0", "OData-Version": "4.0" },
@@ -450,14 +472,18 @@ async function maakDossier(resource, token, soort, opties) {
   const { accountId, jaar, fiscaalPartnerAccountId, kopieerVanDossier, velden } = opties || {};
   if (!accountId) throw new Error("Geef een cliënt (accountId) mee om een dossier aan te maken.");
   const entitySet = await haalEntitySetNaam(resource, soort.entiteit, token);
-  const body = { "cr283_client@odata.bind": `/accounts(${accountId})` };
+  // @odata.bind vereist de NAVIGATIE-eigenschapsnaam van de cliënt-lookup (niet per se de logische
+  // kolomnaam cr283_client) — uit de metadata halen, anders 0x80048d19 "undeclared property".
+  const clientNav = await haalNavigatieNaam(resource, soort.entiteit, "cr283_client", token);
+  const body = { [`${clientNav}@odata.bind`]: `/accounts(${accountId})` };
   body[STATUS_VELD] = 601280000; // "In bewerking" — een nieuw dossier start altijd hier.
   if (soort.optioneel.jaar && jaar !== undefined && jaar !== null && jaar !== "") {
     body[soort.optioneel.jaar] = Number(jaar);
   }
   const partnerId = fiscaalPartnerAccountId || (kopieerVanDossier ? kopieerVanDossier.fiscaalPartnerAccountId : null);
   if (soort.optioneel.fiscaalpartner && partnerId) {
-    body[`${kernNaam(soort.optioneel.fiscaalpartner)}@odata.bind`] = `/accounts(${partnerId})`;
+    const partnerNav = await haalNavigatieNaam(resource, soort.entiteit, kernNaam(soort.optioneel.fiscaalpartner), token);
+    body[`${partnerNav}@odata.bind`] = `/accounts(${partnerId})`;
   }
   if (Array.isArray(soort.catalogus)) {
     for (const veldDef of soort.catalogus) {
