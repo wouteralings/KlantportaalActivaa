@@ -33,6 +33,7 @@ const documentrechten = require("../_gedeeld/documentrechten");
 const DOCRECHT_LABEL = {
   aanleveren: "Aanleveren", inzien: "Inzien", akkorderen: "Akkorderen",
   inzienDirectie: "Inzien directie", inzienAdministratie: "Inzien administratie",
+  bewerkenAdministratie: "Bewerken administratie",
 };
 
 const CLIENTNUMMER_VELD = process.env.DYNAMICS_KLANT_NUMMER_VELD || "sk_clientnrauto";

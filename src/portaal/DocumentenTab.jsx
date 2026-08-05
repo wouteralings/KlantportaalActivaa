@@ -50,8 +50,11 @@ export default function DocumentenTab({ toonAanleververzoeken = true } = {}) {
   const [bezigOpm, setBezigOpm] = useState("");
   const [vraagDraft, setVraagDraft] = useState({}); // verzoekId -> tekst
   const [bezigVraag, setBezigVraag] = useState("");
+  const [bezigUpload, setBezigUpload] = useState(false); // upload in Administratie-map (recht bewerkenAdministratie)
+  const [openRelaties, setOpenRelaties] = useState(() => new Set()); // welke relatie-blokken open staan (standaard alles dichtgeklapt)
 
   const toggleRegel = (id) => setOpenRegels((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggleRelatie = (accountId) => setOpenRelaties((s) => { const n = new Set(s); if (n.has(accountId)) n.delete(accountId); else n.add(accountId); return n; });
 
   const laadDocumenten = useCallback(() => {
     setDocStatus("laden");
@@ -76,9 +79,9 @@ export default function DocumentenTab({ toonAanleververzoeken = true } = {}) {
   useEffect(() => { laadDocumenten(); if (toonAanleververzoeken) laadVerzoeken(); }, [laadDocumenten, laadVerzoeken, toonAanleververzoeken]);
 
   // ── Navigatie in mappen ──
-  const laadMap = useCallback((accountId, crumbs) => {
+  const laadMap = useCallback((accountId, crumbs, sectieKey) => {
     const laatste = crumbs[crumbs.length - 1];
-    setNav({ accountId, crumbs, items: null, laden: true, fout: "" });
+    setNav({ accountId, crumbs, sectieKey, items: null, laden: true, fout: "" });
     fetch(`/api/mijn-documenten?accountId=${encodeURIComponent(accountId)}&driveId=${encodeURIComponent(laatste.driveId)}&itemId=${encodeURIComponent(laatste.itemId)}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => setNav((n) => (n && n.accountId === accountId ? { ...n, items: d.items || [], laden: false } : n)))
@@ -86,9 +89,9 @@ export default function DocumentenTab({ toonAanleververzoeken = true } = {}) {
   }, []);
 
   const openSectieMap = (accountId, sectie, item) =>
-    laadMap(accountId, [{ naam: sectie.label, driveId: sectie.driveId, itemId: sectie.itemId }, { naam: item.naam, driveId: item.driveId, itemId: item.itemId }]);
-  const openSubMap = (item) => nav && laadMap(nav.accountId, [...nav.crumbs, { naam: item.naam, driveId: item.driveId, itemId: item.itemId }]);
-  const gaNaarCrumb = (i) => nav && laadMap(nav.accountId, nav.crumbs.slice(0, i + 1));
+    laadMap(accountId, [{ naam: sectie.label, driveId: sectie.driveId, itemId: sectie.itemId }, { naam: item.naam, driveId: item.driveId, itemId: item.itemId }], sectie.key);
+  const openSubMap = (item) => nav && laadMap(nav.accountId, [...nav.crumbs, { naam: item.naam, driveId: item.driveId, itemId: item.itemId }], nav.sectieKey);
+  const gaNaarCrumb = (i) => nav && laadMap(nav.accountId, nav.crumbs.slice(0, i + 1), nav.sectieKey);
 
   // ── Document openen (blob via app-only) ──
   const openBestand = async (accountId, item) => {
@@ -105,6 +108,35 @@ export default function DocumentenTab({ toonAanleververzoeken = true } = {}) {
     }
   };
   const sluitViewer = () => { setViewer((v) => { if (v && v.blobUrl) URL.revokeObjectURL(v.blobUrl); return null; }); };
+
+  // ── Uploaden in de Administratie-map (recht bewerkenAdministratie). Het endpoint dwingt server-side
+  // af dat de doelmap binnen Administratie van déze cliënt valt. ──
+  const uploadNaarAdmin = async (accountId, driveId, itemId, file) => {
+    if (!file) return;
+    setBezigUpload(true);
+    try {
+      const contentBase64 = await leesBase64(file);
+      const r = await fetch("/api/mijn-document-upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId, driveId, itemId, origineleNaam: file.name, contentType: file.type, contentBase64 }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      // Ververs de huidige weergave zodat het nieuwe bestand meteen zichtbaar is.
+      if (nav) laadMap(nav.accountId, nav.crumbs, nav.sectieKey); else laadDocumenten();
+    } catch (e) {
+      alert("Uploaden mislukt: " + (e.message || e));
+    } finally {
+      setBezigUpload(false);
+    }
+  };
+  const uploadKnop = (accountId, driveId, itemId) => (
+    <label style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 11px", background: KLEUR.blauw, color: "#fff", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: bezigUpload ? "default" : "pointer", opacity: bezigUpload ? 0.6 : 1, flexShrink: 0 }}>
+      {bezigUpload ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : <Upload size={13} />}
+      {bezigUpload ? "Uploaden…" : "Bestand uploaden"}
+      <input type="file" style={{ display: "none" }} disabled={bezigUpload} onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; uploadNaarAdmin(accountId, driveId, itemId, f); }} />
+    </label>
+  );
 
   // ── Aanleveren (upload per regel) ──
   const uploadRegel = async (verzoek, regel, file) => {
@@ -308,31 +340,50 @@ export default function DocumentenTab({ toonAanleververzoeken = true } = {}) {
         <div style={{ ...kaart, color: KLEUR.subtekst, fontSize: 13 }}>Er zijn (nog) geen documenten voor je vrijgegeven.</div>
       )}
 
-      {/* Topniveau: per cliënt de secties */}
-      {docStatus === "klaar" && !nav && accounts.map((acc) => (
-        <div key={acc.accountId}>
-          {accounts.length > 1 && <div style={{ fontSize: 14, fontWeight: 700, margin: "10px 0 6px" }}>{acc.klantnaam}</div>}
-          {(acc.secties || []).length === 0 && <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, marginBottom: 10 }}>Geen documenten beschikbaar.</div>}
-          {(acc.secties || []).map((sectie) => (
-            <div key={sectie.key} style={kaart}>
-              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>{sectie.label}</div>
-              {sectie.items.length === 0 ? (
-                <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Deze map is leeg.</div>
-              ) : (
-                sectie.items.map((item) =>
-                  item.type === "map" ? (
-                    <button key={item.id} onClick={() => openSectieMap(acc.accountId, sectie, item)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "9px 12px", cursor: "pointer", marginBottom: 6 }}>
-                      <Folder size={16} color={KLEUR.goud} />
-                      <span style={{ flex: 1, fontSize: 13.5 }}>{item.naam}</span>
-                      <ChevronRight size={15} color={KLEUR.mutedTekst} />
-                    </button>
-                  ) : itemRij(acc.accountId, item)
-                )
-              )}
-            </div>
-          ))}
-        </div>
-      ))}
+      {/* Topniveau: per relatie (cliënt/account) een inklapbaar blok — standaard dichtgeklapt. */}
+      {docStatus === "klaar" && !nav && accounts.map((acc) => {
+        const relOpen = openRelaties.has(acc.accountId);
+        const aantalSecties = (acc.secties || []).length;
+        return (
+          <div key={acc.accountId} style={{ ...kaart, padding: 0, overflow: "hidden" }}>
+            <button
+              onClick={() => toggleRelatie(acc.accountId)}
+              aria-expanded={relOpen}
+              style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", background: "#fff", border: "none", padding: "13px 15px", cursor: "pointer" }}
+            >
+              <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: relOpen ? "none" : "rotate(-90deg)", transition: "transform .15s", flexShrink: 0 }} />
+              <span style={{ flex: 1, fontSize: 14.5, fontWeight: 700 }}>{acc.klantnaam || "Relatie"}</span>
+              <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst, flexShrink: 0 }}>{aantalSecties === 0 ? "geen documenten" : `${aantalSecties} onderdeel${aantalSecties === 1 ? "" : "en"}`}</span>
+            </button>
+            {relOpen && (
+              <div style={{ padding: "0 15px 14px" }}>
+                {aantalSecties === 0 && <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, marginBottom: 10 }}>Geen documenten beschikbaar.</div>}
+                {(acc.secties || []).map((sectie) => (
+                  <div key={sectie.key} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14, marginTop: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700 }}>{sectie.label}</div>
+                      {sectie.key === "administratie" && acc.rechten && acc.rechten.bewerkenAdministratie && uploadKnop(acc.accountId, sectie.driveId, sectie.itemId)}
+                    </div>
+                    {sectie.items.length === 0 ? (
+                      <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Deze map is leeg.</div>
+                    ) : (
+                      sectie.items.map((item) =>
+                        item.type === "map" ? (
+                          <button key={item.id} onClick={() => openSectieMap(acc.accountId, sectie, item)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "9px 12px", cursor: "pointer", marginBottom: 6 }}>
+                            <Folder size={16} color={KLEUR.goud} />
+                            <span style={{ flex: 1, fontSize: 13.5 }}>{item.naam}</span>
+                            <ChevronRight size={15} color={KLEUR.mutedTekst} />
+                          </button>
+                        ) : itemRij(acc.accountId, item)
+                      )
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
 
       {/* Navigatie in een map */}
       {nav && (
@@ -348,6 +399,14 @@ export default function DocumentenTab({ toonAanleververzoeken = true } = {}) {
               </span>
             ))}
           </div>
+          {(() => {
+            const navAcc = accounts.find((a) => a.accountId === nav.accountId);
+            const huidige = nav.crumbs[nav.crumbs.length - 1];
+            if (nav.sectieKey === "administratie" && navAcc && navAcc.rechten && navAcc.rechten.bewerkenAdministratie && huidige) {
+              return <div style={{ marginBottom: 12 }}>{uploadKnop(nav.accountId, huidige.driveId, huidige.itemId)}</div>;
+            }
+            return null;
+          })()}
           {nav.laden ? (
             <div style={{ display: "flex", alignItems: "center", gap: 8, color: KLEUR.mutedTekst, fontSize: 13 }}><Loader2 size={15} style={{ animation: "spin 1s linear infinite" }} /> Openen…</div>
           ) : nav.fout ? (

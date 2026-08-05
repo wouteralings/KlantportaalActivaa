@@ -14,8 +14,9 @@ const dm = require("../_gedeeld/documentmappen");
 
 function magSectie(sectie, rechten) {
   if (sectie === "directie") return !!rechten.inzienDirectie;
-  if (sectie === "administratie") return !!rechten.inzienAdministratie;
-  return !!rechten.inzien;
+  if (sectie === "administratie") return !!(rechten.inzienAdministratie || rechten.bewerkenAdministratie);
+  if (sectie === "documenten") return !!rechten.inzien;
+  return false; // onbekende/niet-toegestane sectie → geen toegang (fail-closed)
 }
 
 async function haalSharePointUrl(resource, dynToken, accountId) {

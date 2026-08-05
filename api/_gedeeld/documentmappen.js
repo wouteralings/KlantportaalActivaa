@@ -15,6 +15,10 @@ const SELECT = "$select=id,name,size,lastModifiedDateTime,webUrl,file,folder,par
 const DIRECTIE_MAP = process.env.DOCUMENTEN_DIRECTIE_MAP || "Directie";
 const ADMINISTRATIE_MAP = process.env.DOCUMENTEN_ADMINISTRATIE_MAP || "Administratie";
 const AANLEVEREN_MAP = process.env.DOCUMENTEN_AANLEVEREN_MAP || "Aanleveren";
+// Submap die onder het recht "inzien" als enige zichtbaar/toegankelijk is voor de klant: zo ziet de
+// klant onder "inzien" alléén de correspondentie, niet de hele basismap. Instelbaar via App Setting,
+// standaard "Correspondentie" (zelfde map waar o.a. de verstuurde aangiftes in belanden).
+const INZIEN_MAP = process.env.DOCUMENTEN_INZIEN_MAP || "Correspondentie";
 
 function graphHeaders(token) {
   return { Authorization: `Bearer ${token}`, Accept: "application/json" };
@@ -76,6 +80,7 @@ async function haalDocumentContext(appToken, sharepointUrl) {
     baseKinderen,
     directie: vindSubmap(baseKinderen, DIRECTIE_MAP),
     administratie: vindSubmap(baseKinderen, ADMINISTRATIE_MAP),
+    correspondentie: vindSubmap(baseKinderen, INZIEN_MAP),
   };
 }
 
@@ -84,10 +89,13 @@ function sectieVanItem(itemWebUrl, context) {
   const url = String(itemWebUrl || "");
   if (context.directie && context.directie.webUrl && url.startsWith(context.directie.webUrl)) return "directie";
   if (context.administratie && context.administratie.webUrl && url.startsWith(context.administratie.webUrl)) return "administratie";
-  return "documenten";
+  // Onder het recht "inzien" is alléén de Correspondentie-submap (INZIEN_MAP) toegankelijk. Al het
+  // overige direct in de basismap valt buiten elke sectie en is dus niet toegankelijk (fail-closed).
+  if (context.correspondentie && context.correspondentie.webUrl && url.startsWith(context.correspondentie.webUrl)) return "documenten";
+  return "";
 }
 
 module.exports = {
-  GRAPH, DIRECTIE_MAP, ADMINISTRATIE_MAP, AANLEVEREN_MAP,
+  GRAPH, DIRECTIE_MAP, ADMINISTRATIE_MAP, AANLEVEREN_MAP, INZIEN_MAP,
   mapItem, haalKinderen, haalItem, vindSubmap, haalDocumentContext, sectieVanItem, graphHeaders,
 };

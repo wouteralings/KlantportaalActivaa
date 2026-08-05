@@ -2,16 +2,18 @@
  * Documentrechten per contactpersoon voor het klantportaal (SharePoint via app-only, bestuurd
  * vanuit het portaal — zie het projectdoc "Documenten & rechten — SharePoint via app-only").
  *
- * Vijf rechten per contactpersoon (contactId):
+ * Zes rechten per contactpersoon (contactId):
  *   - aanleveren            → mag bestanden uploaden op een openstaand aanlever-verzoek
  *   - inzien                → mag de (algemene) documenten van de klant zien
  *   - akkorderen            → mag akkoord/ondertekening geven
  *   - inzienDirectie        → mag de vaste 'Directie'-submap van de klant zien
  *   - inzienAdministratie   → mag de vaste 'Administratie'-submap van de klant zien
+ *   - bewerkenAdministratie → mag zelf bestanden uploaden in de 'Administratie'-submap (omvat ook
+ *                             inzien+downloaden van die map — je moet 'm immers kunnen zien)
  *
  * Opslag in Azure Blob Storage, dezelfde container (portaalcontent), blob documentrechten.json.
  * Structuur: { "<contactId>": { aanleveren:bool, inzien:bool, akkorderen:bool,
- *              inzienDirectie:bool, inzienAdministratie:bool } }
+ *              inzienDirectie:bool, inzienAdministratie:bool, bewerkenAdministratie:bool } }
  *
  * Fail-closed: een contactpersoon zonder record heeft overal 'false' (geen toegang), en de rechten
  * worden server-side afgedwongen in de document-endpoints. De rechten worden door beheerders gezet
@@ -21,7 +23,7 @@ const { BlobServiceClient } = require("@azure/storage-blob");
 
 const CONTAINER_NAAM = "portaalcontent";
 const BLOB_NAAM = "documentrechten.json";
-const RECHT_KEYS = ["aanleveren", "inzien", "akkorderen", "inzienDirectie", "inzienAdministratie"];
+const RECHT_KEYS = ["aanleveren", "inzien", "akkorderen", "inzienDirectie", "inzienAdministratie", "bewerkenAdministratie"];
 let cachedContainerClient = null;
 
 function leegRecht() {

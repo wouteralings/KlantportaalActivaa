@@ -867,6 +867,7 @@ const DOC_RECHTEN = [
   { key: "akkorderen", label: "Akkorderen", uitleg: "Mag akkoord/ondertekening geven op stukken." },
   { key: "inzienDirectie", label: "Inzien directie", uitleg: "Mag de map 'Directie' bekijken." },
   { key: "inzienAdministratie", label: "Inzien administratie", uitleg: "Mag de map 'Administratie' bekijken." },
+  { key: "bewerkenAdministratie", label: "Bewerken administratie", uitleg: "Mag zelf bestanden uploaden in de map 'Administratie' (kan die map dan ook bekijken)." },
 ];
 
 function Documentrechten({ contactId, onGewijzigd }) {

@@ -21,8 +21,9 @@ const dm = require("../_gedeeld/documentmappen");
 
 function magSectie(sectie, rechten) {
   if (sectie === "directie") return !!rechten.inzienDirectie;
-  if (sectie === "administratie") return !!rechten.inzienAdministratie;
-  return !!rechten.inzien;
+  if (sectie === "administratie") return !!(rechten.inzienAdministratie || rechten.bewerkenAdministratie);
+  if (sectie === "documenten") return !!rechten.inzien;
+  return false; // onbekende/niet-toegestane sectie → geen toegang (fail-closed)
 }
 
 async function haalSharePointUrl(resource, dynToken, accountId) {
@@ -96,15 +97,20 @@ module.exports = async function (context, req) {
 
       const secties = [];
       if (rechten.inzien) {
-        const uitsluiten = new Set([ctx.directie && ctx.directie.itemId, ctx.administratie && ctx.administratie.itemId].filter(Boolean));
-        const items = ctx.baseKinderen.filter((c) => !uitsluiten.has(c.id)).map(dm.mapItem);
-        secties.push({ key: "documenten", label: "Documenten", driveId: ctx.driveId, itemId: ctx.base.itemId, items });
+        // Onder "inzien" tonen we alléén de Correspondentie-submap — de inhoud daarvan direct
+        // (zelfde patroon als Directie/Administratie hieronder), niet meer de hele basismap.
+        if (ctx.correspondentie) {
+          const kinderen = await dm.haalKinderen(appToken, ctx.driveId, ctx.correspondentie.itemId).catch(() => []);
+          secties.push({ key: "documenten", label: "Correspondentie", driveId: ctx.driveId, itemId: ctx.correspondentie.itemId, items: kinderen.map(dm.mapItem) });
+        } else {
+          secties.push({ key: "documenten", label: "Correspondentie", driveId: ctx.driveId, itemId: ctx.base.itemId, items: [] });
+        }
       }
       if (rechten.inzienDirectie && ctx.directie) {
         const kinderen = await dm.haalKinderen(appToken, ctx.driveId, ctx.directie.itemId).catch(() => []);
         secties.push({ key: "directie", label: "Directie", driveId: ctx.driveId, itemId: ctx.directie.itemId, items: kinderen.map(dm.mapItem) });
       }
-      if (rechten.inzienAdministratie && ctx.administratie) {
+      if ((rechten.inzienAdministratie || rechten.bewerkenAdministratie) && ctx.administratie) {
         const kinderen = await dm.haalKinderen(appToken, ctx.driveId, ctx.administratie.itemId).catch(() => []);
         secties.push({ key: "administratie", label: "Administratie", driveId: ctx.driveId, itemId: ctx.administratie.itemId, items: kinderen.map(dm.mapItem) });
       }

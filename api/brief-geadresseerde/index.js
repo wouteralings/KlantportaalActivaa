@@ -8,11 +8,16 @@
  * Robuuste aanpak (geen navigatienaam nodig): we lezen op de klant het lookup-veld
  * (standaard `cr283_belastingkantoor`), volgen de `lookuplogicalname`-annotatie naar de doeltabel,
  * halen daarvan de collectienaam op via de metadata, lezen het record volledig en pikken de
- * adresvelden er heuristisch uit (standaard address1_*-velden óf afwijkende/custom veldnamen).
+ * adresvelden er heuristisch uit. Omdat de belastingkantoren-tabel een eigen tabel is met mogelijk
+ * afwijkende kolomnamen, matchen we niet alleen op de technische veldnaam maar ook op het
+ * NL-schermlabel (bv. "Straat", "Adres") dat we uit de attribuut-metadata ophalen.
  *
  *   GET ?accountId=<guid>
  *     → { gekoppeld: true, naam, adres: { straat, huisnummer, toevoeging, postcode, plaats } }
  *       of { gekoppeld: false }
+ *   GET ?accountId=<guid>&debug=1
+ *     → als boven, plus `_debug` met alle scalaire velden + labels van het kantoorrecord (om een
+ *       afwijkende veldnaam op te sporen).
  *
  * App Setting: DYNAMICS_KLANT_BELASTINGKANTOOR_VELD (default `cr283_belastingkantoor`).
  */
@@ -34,24 +39,86 @@ function baseHeaders(token, annotaties) {
   return h;
 }
 
-/** Pikt adresvelden uit een record: eerst de standaard address1_*-velden, anders heuristisch. */
-function leesAdres(rec) {
-  const keys = Object.keys(rec).filter((k) => !k.includes("@") && !k.startsWith("_") && !/_value$/.test(k) && typeof rec[k] !== "object");
-  const vind = (exacte, patronen, uitsluit = []) => {
-    for (const e of exacte) if (rec[e] != null && String(rec[e]).trim() !== "") return String(rec[e]).trim();
-    for (const k of keys) {
-      const lk = k.toLowerCase();
-      if (uitsluit.some((u) => lk.includes(u))) continue;
-      if (patronen.some((p) => lk.includes(p)) && rec[k] != null && String(rec[k]).trim() !== "") return String(rec[k]).trim();
+/** Haalt per attribuut het (kleine-letter) NL-schermlabel op voor de doeltabel. Best-effort: bij
+ *  een fout een lege map, dan matchen we alleen op technische veldnaam. */
+async function haalVeldLabels(resource, token, logicalName) {
+  if (!logicalName) return {};
+  try {
+    const url = `${resource}/api/data/v9.2/EntityDefinitions(LogicalName='${logicalName}')/Attributes?$select=LogicalName,DisplayName`;
+    const res = await fetch(url, { headers: baseHeaders(token, false) });
+    if (!res.ok) return {};
+    const data = await res.json();
+    const map = {};
+    for (const a of data.value || []) {
+      const lbl = a && a.DisplayName && a.DisplayName.UserLocalizedLabel && a.DisplayName.UserLocalizedLabel.Label;
+      if (a && a.LogicalName) map[a.LogicalName] = String(lbl || "").trim().toLowerCase();
+    }
+    return map;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Pikt de adresvelden uit een kantoorrecord. Per adresdeel proberen we een reeks matchers op
+ * volgorde (eerst de standaard address1_*-velden, dan technische naam- én labelvarianten). We kijken
+ * alleen naar gevulde, scalaire (tekst)velden en slaan e-mail/telefoon/land e.d. over.
+ */
+function leesAdres(rec, labels) {
+  labels = labels || {};
+  const velden = Object.keys(rec).filter(
+    (k) =>
+      !k.includes("@") &&
+      !k.startsWith("_") &&
+      !/_value$/.test(k) &&
+      rec[k] != null &&
+      typeof rec[k] !== "object" &&
+      String(rec[k]).trim() !== ""
+  );
+  const waarde = (k) => String(rec[k]).trim();
+  const labelVan = (k) => labels[k] || "";
+
+  // Kies het eerste veld waarvoor één van de matchers waar is; sla velden met een verboden term
+  // (in naam óf label) over. Matchers krijgen (technischeNaam, label), beide in kleine letters.
+  const kies = (matchers, verboden = []) => {
+    for (const match of matchers) {
+      for (const k of velden) {
+        const lk = k.toLowerCase();
+        const lb = labelVan(k);
+        if (verboden.some((v) => lk.includes(v) || lb.includes(v))) continue;
+        if (match(lk, lb)) return waarde(k);
+      }
     }
     return "";
   };
+  const isVeld = (naam) => (lk) => lk === naam; // exacte technische veldnaam
+  const labelIs = (s) => (_lk, lb) => lb === s; // exact schermlabel
+  const bevat = (s) => (lk, lb) => lk.includes(s) || lb.includes(s); // in naam of label
+
+  const nietStraat = ["postcode", "postal", "zip", "email", "e-mail", "mail", "web", "url", "land", "country", "telefoon", "phone", "kvk"];
+  const nietPlaats = ["postcode", "postal", "zip"];
+
   return {
-    straat: vind(["address1_line1"], ["straat", "street", "line1", "adresregel"], ["email", "web"]),
-    huisnummer: vind(["cr283_huisnummer"], ["huisnummer", "housenumber", "huisnr"]),
-    toevoeging: vind(["cr283_huisnummertoevoeging"], ["toevoeging"]),
-    postcode: vind(["address1_postalcode"], ["postcode", "postalcode", "postal", "zip"]),
-    plaats: vind(["address1_city"], ["city", "plaats", "woonplaats", "stad"], ["postal"]),
+    straat: kies(
+      [
+        isVeld("address1_line1"),
+        bevat("straat"),
+        bevat("street"),
+        labelIs("adres"),
+        bevat("adresregel"),
+        bevat("line1"),
+        labelIs("bezoekadres"),
+        labelIs("vestigingsadres"),
+      ],
+      nietStraat
+    ),
+    huisnummer: kies(
+      [isVeld("cr283_huisnummer"), bevat("huisnummer"), bevat("huisnr"), bevat("housenumber")],
+      ["toevoeging", "postcode", "postal"]
+    ),
+    toevoeging: kies([isVeld("cr283_huisnummertoevoeging"), bevat("toevoeging")]),
+    postcode: kies([isVeld("address1_postalcode"), bevat("postcode"), bevat("postalcode"), bevat("postal"), bevat("zip")]),
+    plaats: kies([isVeld("address1_city"), bevat("city"), bevat("plaats"), labelIs("stad"), bevat("gemeente")], nietPlaats),
   };
 }
 
@@ -70,6 +137,7 @@ module.exports = async function (context, req) {
     context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef een geldige accountId mee." } };
     return;
   }
+  const debug = String((req.query && req.query.debug) || "") === "1";
 
   try {
     const token = await haalDynamicsToken();
@@ -86,7 +154,7 @@ module.exports = async function (context, req) {
     const doelEntiteit = acc[`_${ATTR}_value${LLN}`] || "";
     const naamFallback = acc[`_${ATTR}_value${FV}`] || "";
 
-    // 2) Collectienaam + primaire naam van de doeltabel opzoeken.
+    // 2) Collectienaam + primaire naam van de doeltabel opzoeken, plus de veld-labels (best-effort).
     let entitySet = "", primaryName = "name";
     if (doelEntiteit) {
       const resM = await fetch(`${resource}/api/data/v9.2/EntityDefinitions(LogicalName='${doelEntiteit}')?$select=EntitySetName,PrimaryNameAttribute`, { headers: baseHeaders(token, false) });
@@ -97,15 +165,26 @@ module.exports = async function (context, req) {
       context.res = { headers: { "Content-Type": "application/json" }, body: { gekoppeld: true, naam: naamFallback, adres: { straat: "", huisnummer: "", toevoeging: "", postcode: "", plaats: "" } } };
       return;
     }
+    const labels = await haalVeldLabels(resource, token, doelEntiteit);
 
     // 3) Het belastingkantoor-record volledig ophalen en adres eruit lezen.
     const resR = await fetch(`${resource}/api/data/v9.2/${entitySet}(${kantoorId})`, { headers: baseHeaders(token, false) });
     if (!resR.ok) throw new Error(`Ophalen belastingkantoor mislukt (${resR.status}): ${await resR.text()}`);
     const rec = await resR.json();
     const naam = (primaryName && rec[primaryName]) || rec.name || naamFallback || "";
-    const adres = leesAdres(rec);
+    const adres = leesAdres(rec, labels);
 
-    context.res = { headers: { "Content-Type": "application/json" }, body: { gekoppeld: true, naam, adres } };
+    const body = { gekoppeld: true, naam, adres };
+    if (debug) {
+      const scalair = {};
+      for (const k of Object.keys(rec)) {
+        if (!k.includes("@") && !/_value$/.test(k) && rec[k] != null && typeof rec[k] !== "object" && String(rec[k]).trim() !== "") {
+          scalair[k] = { waarde: rec[k], label: labels[k] || "" };
+        }
+      }
+      body._debug = { entiteit: doelEntiteit, entitySet, velden: scalair };
+    }
+    context.res = { headers: { "Content-Type": "application/json" }, body };
   } catch (err) {
     context.log.error(err);
     context.res = {
