@@ -2101,7 +2101,6 @@ function MedewerkerDossiers({ soort }) {
           setDossiers((h) => (h || []).map((x) => (x.id === bijgewerkt.id ? bijgewerkt : x)));
         }}
         onDossierAangemaakt={dossierAangemaakt}
-        onVerversen={() => openDossier(detail.dossier.id)}
       />
     );
   }
@@ -2823,7 +2822,7 @@ function AangifteVersturenKaart({ dossier, disabled }) {
    kaart bovenaan (vóór de secties) de gekoppelde uitvraaglijst(en) — de volledige vragenlijst
    (documenten aftekenen/heropenen, vragen van de klant beantwoorden) rechtstreeks ingebouwd via
    VragenlijstDetail, dezelfde functionaliteit als het tabblad Vragenlijsten. */
-function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen, picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId, gekoppeldOnderwerpId, defaultContact, magVerwijderen, magWijzigen, onDossierVerwijderd, onTerug, onOpgeslagen, onDossierAangemaakt, onVerversen }) {
+function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen, picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId, gekoppeldOnderwerpId, defaultContact, magVerwijderen, magWijzigen, onDossierVerwijderd, onTerug, onOpgeslagen, onDossierAangemaakt }) {
   const [status, setStatus] = useState(dossier.status != null ? String(dossier.status) : "");
   const [urlDossier, setUrlDossier] = useState(dossier.urlDossier || "");
   const [documentUrl, setDocumentUrl] = useState(dossier.documentUrl || "");
@@ -2837,6 +2836,21 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
   // Gekoppelde uitvraaglijst(en) — lokale kopie zodat VragenlijstDetail (hieronder ingebed) een
   // wijziging/verwijdering direct in de kaart kan doorvoeren zonder het hele dossier opnieuw te laden.
   const [uitvragen, setUitvragen] = useState(gekoppeldeUitvragen || []);
+  // Lichte refresh van ALLEEN de gekoppelde uitvraaglijst(en), na een geslaagde "uitzetten" vanuit de
+  // ingebedde Vaste uitvragen hieronder (zie onUitgezet op <KlantVasteUitvragen>). Bewust NIET het hele
+  // dossier herladen (dat was de eerste opzet, via onVerversen/openDossier) — dat unmount/remount de
+  // hele DossierDetail-boom, waardoor KlantVasteUitvragen's eigen tijdelijke staat (het Jaar-invoerveld
+  // vóór "Uitzetten", en de groene "Uitgezet naar ..."-bevestiging erna) meteen weer gewist werd, nog
+  // vóórdat de medewerker die kon lezen. Dat oogde als "het ingevulde jaar is weg" (gemeld door Wouter,
+  // 05-08-2026) terwijl het jaar wél gewoon werd opgeslagen op het nieuwe verzoek — alleen het beeld
+  // ervan verdween meteen weer. Alleen déze lijst verversen lost dat op: KlantVasteUitvragen blijft
+  // gewoon staan (zelfde component-instantie), alleen de kaart(en) hierboven komen erbij.
+  const ververGekoppeldeUitvragen = () => {
+    fetch(`/api/medewerker-dossier?soort=${encodeURIComponent(dossier.soort)}&id=${encodeURIComponent(dossier.id)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setUitvragen(d.gekoppeldeUitvragen || []))
+      .catch(() => {});
+  };
   // Per uitvraaglijst in-/uitgeklapt (id -> bool); zonder eigen keuze staat een afgeronde lijst
   // standaard dichtgeklapt (makkelijk nalezen zonder de pagina vol te zetten) en een open lijst
   // standaard opengeklapt (die vraagt nog aandacht).
@@ -3107,7 +3121,7 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
           prioriteitLijstId={gekoppeldeLijstId}
           alleenGekoppeld
           onderwerpId={gekoppeldOnderwerpId}
-          onUitgezet={onVerversen}
+          onUitgezet={ververGekoppeldeUitvragen}
         />
       </div>
 
