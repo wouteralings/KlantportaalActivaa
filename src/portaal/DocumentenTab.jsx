@@ -38,7 +38,7 @@ function tijd(iso) {
  * is (Documenten / Directie / Administratie). Onderaan staan de openstaande aanlever-verzoeken, waar
  * de klant per regel een bestand kan aanleveren (/api/mijn-aanleververzoeken).
  */
-export default function DocumentenTab() {
+export default function DocumentenTab({ toonAanleververzoeken = true } = {}) {
   const [docStatus, setDocStatus] = useState("laden"); // laden | klaar | nogNietActief | fout | geenRecht
   const [accounts, setAccounts] = useState([]);
   const [nav, setNav] = useState(null); // { accountId, crumbs:[{naam,driveId,itemId}], items, laden, fout }
@@ -73,7 +73,7 @@ export default function DocumentenTab() {
       .catch(() => setVerzoeken([]));
   }, []);
 
-  useEffect(() => { laadDocumenten(); laadVerzoeken(); }, [laadDocumenten, laadVerzoeken]);
+  useEffect(() => { laadDocumenten(); if (toonAanleververzoeken) laadVerzoeken(); }, [laadDocumenten, laadVerzoeken, toonAanleververzoeken]);
 
   // ── Navigatie in mappen ──
   const laadMap = useCallback((accountId, crumbs) => {
@@ -187,15 +187,15 @@ export default function DocumentenTab() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 18, fontWeight: 700 }}>Documenten</div>
-          <div style={{ fontSize: 13, color: KLEUR.subtekst }}>Je documenten en aanlever-verzoeken. Je hoeft niet apart in te loggen bij SharePoint.</div>
+          <div style={{ fontSize: 13, color: KLEUR.subtekst }}>{toonAanleververzoeken ? "Je documenten en aanlever-verzoeken. Je hoeft niet apart in te loggen bij SharePoint." : "Je documenten. Je hoeft niet apart in te loggen bij SharePoint."}</div>
         </div>
-        <button onClick={() => { laadDocumenten(); laadVerzoeken(); setNav(null); }} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, color: KLEUR.subtekst, cursor: "pointer" }}>
+        <button onClick={() => { laadDocumenten(); if (toonAanleververzoeken) laadVerzoeken(); setNav(null); }} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, color: KLEUR.subtekst, cursor: "pointer" }}>
           <RefreshCw size={14} /> Vernieuwen
         </button>
       </div>
 
       {/* ── Aanlever-verzoeken ── */}
-      {verzoeken.length > 0 && (
+      {toonAanleververzoeken && verzoeken.length > 0 && (
         <div style={{ ...kaart, background: KLEUR.lichtblauw, borderColor: "#CFE0EF" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
             <ClipboardList size={17} color={KLEUR.blauw} />

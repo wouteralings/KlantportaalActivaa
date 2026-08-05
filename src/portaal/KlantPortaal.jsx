@@ -40,6 +40,7 @@ import RittenModule from "./RittenModule";
 import RapportagesModule from "./RapportagesModule";
 import BezittingenModule from "./BezittingenModule";
 import ContractenModule from "./ContractenModule";
+import DocumentenTab from "./DocumentenTab";
 import { haalMeekijkSessie, activeerMeekijkFetch, deactiveerMeekijkFetch, stopMeekijken } from "../meekijken";
 
 const KLEUR = {
@@ -675,17 +676,10 @@ export default function KlantPortaal() {
           focusVerzoekId={focusVerzoekId}
           onFocusHandled={() => setFocusVerzoekId("")}
         />
-        <TabDocumenten
-          status={documentenStatus}
-          data={documenten}
-          foutmelding={documentenFoutmelding}
-          pad={documentenPad}
-          onOphalen={haalDocumentenOp}
-          onOpenMap={openMap}
-          onNavigeer={gaNaarPad}
-          onLabelWijzigen={wijzigLabel}
-          onEntiteitWijzigen={wijzigEntiteit}
-        />
+        {/* App-only documentweergave (via /api/mijn-documenten) — de klant hoeft niet apart bij
+            SharePoint in te loggen. De aanlever-verzoeken tonen we hierboven al via
+            TabAanleverVerzoeken, dus die sectie van DocumentenTab staat hier uit. */}
+        <DocumentenTab toonAanleververzoeken={false} />
         </>
       )}
       {tab === "dossiers" && <TabDossiers />}
