@@ -76,4 +76,8 @@ const slaKlantLogoOp = (dataUrl, klantAccountId) => slaAfbeeldingOp(dataUrl, `kl
 // geserveerd via /api/media/brieflogo en geëmbed in de PDF/Word van een brief.
 const slaBrieflogoOp = (dataUrl) => slaAfbeeldingOp(dataUrl, "brieflogo");
 
-module.exports = { slaLogoOp, slaFaviconOp, slaKlantLogoOp, slaBrieflogoOp, haalAfbeelding };
+// Achtergrond (volledig briefpapier) van de Brieven-module. Eén blob "briefachtergrond",
+// geserveerd via /api/media/briefachtergrond en als volledige-pagina-afbeelding in de PDF/Word gezet.
+const slaBriefachtergrondOp = (dataUrl) => slaAfbeeldingOp(dataUrl, "briefachtergrond");
+
+module.exports = { slaLogoOp, slaFaviconOp, slaKlantLogoOp, slaBrieflogoOp, slaBriefachtergrondOp, haalAfbeelding };

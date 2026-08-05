@@ -182,6 +182,19 @@
       ]
     },
     {
+      "route": "/api/beheer-briefachtergrond",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
+      "route": "/api/brief-geadresseerde",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
       "route": "/api/brief-dynamics-velden",
       "allowedRoles": [
         "beheerder"

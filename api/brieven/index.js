@@ -60,12 +60,20 @@ function basisnaamUitMediaUrl(url) {
  * brief nooit laten mislukken — dan wordt gewoon zonder logo gerenderd.
  */
 async function verrijkMetLogo(brief) {
-  const basisnaam = basisnaamUitMediaUrl(brief && brief.logoUrl);
-  if (!basisnaam) return brief;
-  try {
-    const afb = await haalAfbeelding(basisnaam);
-    if (afb && afb.buffer) brief.logo = { buffer: afb.buffer, contentType: afb.contentType };
-  } catch { /* zonder logo verder */ }
+  const logoNaam = basisnaamUitMediaUrl(brief && brief.logoUrl);
+  if (logoNaam) {
+    try {
+      const afb = await haalAfbeelding(logoNaam);
+      if (afb && afb.buffer) brief.logo = { buffer: afb.buffer, contentType: afb.contentType };
+    } catch { /* zonder logo verder */ }
+  }
+  const achtergrondNaam = basisnaamUitMediaUrl(brief && brief.achtergrondUrl);
+  if (achtergrondNaam) {
+    try {
+      const afb = await haalAfbeelding(achtergrondNaam);
+      if (afb && afb.buffer) brief.achtergrond = { buffer: afb.buffer, contentType: afb.contentType };
+    } catch { /* zonder achtergrond verder */ }
+  }
   return brief;
 }
 

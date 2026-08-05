@@ -47,6 +47,8 @@ const STANDAARD_AFZENDER = {
   logoUrl: "",
   logoUitlijning: "links", // "links" | "midden" | "rechts"
   logoGrootte: "normaal",  // "klein" | "normaal" | "groot"
+  // Achtergrond (volledig briefpapier als afbeelding), wijst naar /api/media/briefachtergrond.
+  achtergrondUrl: "",
 };
 
 const STANDAARD_SHAREPOINT_MAP = "Brieven";
@@ -89,6 +91,30 @@ const STANDAARD_SJABLONEN = [
       "Wij verzoeken u deze vóór [datum] aan te leveren. Alvast hartelijk dank voor uw medewerking.",
     actief: true,
   },
+  {
+    id: "wijziging-aangiftetijdvak",
+    naam: "Belastingdienst — wijziging aangiftetijdvak",
+    onderwerp: "Wijziging aangiftetijdvak",
+    tekst:
+      "Namens onze cliënt {{klantnaam}} verzoeken wij om het aangiftetijdvak van de {{soortbelasting}} om te zetten naar {{periode}}.\n\n" +
+      "Wij verzoeken u dit per de eerstvolgende mogelijke periode te wijzigen en ontvangen graag een schriftelijke bevestiging.",
+    actief: true,
+    velden: ["soortbelasting", "periode"],
+  },
+];
+
+// Beheerbare, vaste set invulvelden. Een standaardbrief kiest hieruit welke velden erbij horen
+// (sjabloon.velden = lijst van sleutels); de medewerker vult/kiest ze, en ze vullen {{sleutel}} in
+// onderwerp/tekst. Bewust los van Dynamics — de medewerker vult ze zelf in.
+const STANDAARD_BRIEFVELDEN = [
+  { sleutel: "periode", label: "Periode", type: "keuze", opties: [
+    { sleutel: "maand", label: "maand" }, { sleutel: "kwartaal", label: "kwartaal" }, { sleutel: "jaar", label: "jaar" },
+  ] },
+  { sleutel: "soortbelasting", label: "Soort belasting", type: "keuze", opties: [
+    { sleutel: "omzetbelasting", label: "omzetbelasting" }, { sleutel: "loonheffing", label: "loonheffing" },
+    { sleutel: "vennootschapsbelasting", label: "vennootschapsbelasting" }, { sleutel: "inkomstenbelasting", label: "inkomstenbelasting" },
+  ] },
+  { sleutel: "aanslagnummer", label: "Aanslagnummer", type: "tekst", opties: [] },
 ];
 
 async function haalContainerClient() {
@@ -136,6 +162,8 @@ function normaliseerAfzender(a) {
   // Alleen een eigen media-route toestaan als logoUrl (geen externe URL's) — defensief.
   const logoUrlRuw = tekst(bron.logoUrl, 300);
   const logoUrl = /^\/api\/media\/[a-z0-9_-]+(\?.*)?$/i.test(logoUrlRuw) ? logoUrlRuw : "";
+  const achtergrondRuw = tekst(bron.achtergrondUrl, 300);
+  const achtergrondUrl = /^\/api\/media\/[a-z0-9_-]+(\?.*)?$/i.test(achtergrondRuw) ? achtergrondRuw : "";
   return {
     bedrijfsnaam: tekst(bron.bedrijfsnaam, 120) || STANDAARD_AFZENDER.bedrijfsnaam,
     adres: tekst(bron.adres, 160),
@@ -152,6 +180,7 @@ function normaliseerAfzender(a) {
     logoUrl,
     logoUitlijning,
     logoGrootte,
+    achtergrondUrl,
   };
 }
 
@@ -168,94 +197,82 @@ function normaliseerSjablonen(sjablonen) {
     let n = 2;
     while (gezien.has(uniek)) uniek = `${id}-${n++}`;
     gezien.add(uniek);
+    const velden = (Array.isArray(s && s.velden) ? s.velden : [])
+      .map((x) => String(x || "").toLowerCase().replace(/[^a-z0-9-]/g, ""))
+      .filter(Boolean)
+      .slice(0, 50);
     uit.push({
       id: uniek,
       naam,
       onderwerp: tekst(s && s.onderwerp, 300),
       tekst: langeTekst(s && s.tekst),
       actief: s && s.actief === false ? false : true,
+      velden,
     });
   }
   return uit;
 }
 
-const OPERATOREN = ["is", "isNiet", "ingevuld", "leeg"];
-
-/**
- * Standaardparagrafen (regels-engine): elke paragraaf heeft een tekst en een voorwaarde op een veld
- * van de Dynamics-tabel Brieven (cr283_brief). De medewerker kiest een brief-record; de engine
- * (client-side) neemt de paragrafen mee waarvan de voorwaarde klopt, in deze volgorde.
- *
- *   voorwaarde = { modus: "altijd" | "veld", veld, operator: is|isNiet|ingevuld|leeg, waarde }
- *     - ja/nee-veld  → waarde = true/false
- *     - optielijst   → waarde = optie-waarde (getal) of tekst
- */
-function normaliseerVoorwaarde(v) {
-  const bron = v && typeof v === "object" ? v : {};
-  const modus = bron.modus === "veld" ? "veld" : "altijd";
-  if (modus === "altijd") return { modus: "altijd" };
-  const veld = String(bron.veld || "").trim().toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 100);
-  const operator = OPERATOREN.includes(bron.operator) ? bron.operator : "is";
-  let waarde = bron.waarde;
-  if (typeof waarde === "string") waarde = waarde.slice(0, 200);
-  else if (typeof waarde !== "number" && typeof waarde !== "boolean") waarde = null;
-  return { modus: "veld", veld, operator, waarde };
-}
-
-function normaliseerParagrafen(paragrafen) {
-  if (!Array.isArray(paragrafen)) return [];
+/** Beheerbare set invulvelden; ontdubbelt sleutels, normaliseert type + keuze-opties. */
+function normaliseerBriefvelden(lijst) {
+  if (!Array.isArray(lijst)) return [];
   const gezien = new Set();
   const uit = [];
-  for (const p of paragrafen.slice(0, 400)) {
-    if (!p || typeof p !== "object") continue;
-    const inhoud = langeTekst(p.tekst, 8000);
-    const naam = tekst(p.naam, 120);
-    if (!inhoud && !naam) continue;
-    let id = maakId(p.id || naam || "paragraaf") || "paragraaf";
-    let uniek = id;
-    let n = 2;
-    while (gezien.has(uniek)) uniek = `${id}-${n++}`;
-    gezien.add(uniek);
-    uit.push({
-      id: uniek,
-      naam,
-      tekst: inhoud,
-      actief: p.actief === false ? false : true,
-      voorwaarde: normaliseerVoorwaarde(p.voorwaarde),
-    });
+  for (const v of lijst.slice(0, 200)) {
+    if (!v || typeof v !== "object") continue;
+    const label = tekst(v.label, 80);
+    const sleutel = maakId(v.sleutel || label);
+    if (!label || !sleutel || gezien.has(sleutel)) continue;
+    gezien.add(sleutel);
+    const type = v.type === "keuze" ? "keuze" : "tekst";
+    const opties = [];
+    if (type === "keuze" && Array.isArray(v.opties)) {
+      const gz = new Set();
+      for (const o of v.opties.slice(0, 100)) {
+        const ol = typeof o === "string" ? o.trim().slice(0, 80) : tekst(o && o.label, 80);
+        if (!ol) continue;
+        const os = maakId((o && o.sleutel) || ol);
+        if (!os || gz.has(os)) continue;
+        gz.add(os);
+        opties.push({ sleutel: os, label: ol });
+      }
+    }
+    uit.push({ sleutel, label, type, opties });
   }
   return uit;
 }
 
-/** Volledige configuratie (afzender + sharepointMap + sjablonen + paragrafen), voor het beheerscherm. */
+/** Volledige configuratie (afzender + sharepointMap + sjablonen + briefvelden), voor het beheerscherm. */
 async function haalConfig() {
   const containerClient = await haalContainerClient();
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
   if (!(await blobClient.exists())) {
-    return { afzender: { ...STANDAARD_AFZENDER }, sharepointMap: STANDAARD_SHAREPOINT_MAP, sjablonen: STANDAARD_SJABLONEN, paragrafen: [] };
+    return { afzender: { ...STANDAARD_AFZENDER }, sharepointMap: STANDAARD_SHAREPOINT_MAP, sjablonen: STANDAARD_SJABLONEN, briefvelden: STANDAARD_BRIEFVELDEN };
   }
   try {
     const data = JSON.parse(await streamNaarTekst((await blobClient.download()).readableStreamBody));
     const sjablonen = normaliseerSjablonen(data.sjablonen);
+    // briefvelden: bestaat de sleutel nog niet in het blob (oudere versie), val terug op de startset.
+    const briefvelden = Array.isArray(data.briefvelden) ? normaliseerBriefvelden(data.briefvelden) : STANDAARD_BRIEFVELDEN;
     return {
       afzender: normaliseerAfzender(data.afzender),
       sharepointMap: tekst(data.sharepointMap, 80) || STANDAARD_SHAREPOINT_MAP,
       sjablonen: sjablonen.length ? sjablonen : STANDAARD_SJABLONEN,
-      paragrafen: normaliseerParagrafen(data.paragrafen),
+      briefvelden,
     };
   } catch {
-    return { afzender: { ...STANDAARD_AFZENDER }, sharepointMap: STANDAARD_SHAREPOINT_MAP, sjablonen: STANDAARD_SJABLONEN, paragrafen: [] };
+    return { afzender: { ...STANDAARD_AFZENDER }, sharepointMap: STANDAARD_SHAREPOINT_MAP, sjablonen: STANDAARD_SJABLONEN, briefvelden: STANDAARD_BRIEFVELDEN };
   }
 }
 
-/** Alleen wat het medewerkersportaal nodig heeft: afzender + sharepointMap + actieve sjablonen + actieve paragrafen. */
+/** Alleen wat het medewerkersportaal nodig heeft: afzender + sharepointMap + actieve sjablonen + briefvelden. */
 async function haalVoorPortaal() {
   const config = await haalConfig();
   return {
     afzender: config.afzender,
     sharepointMap: config.sharepointMap,
     sjablonen: config.sjablonen.filter((s) => s.actief),
-    paragrafen: config.paragrafen.filter((p) => p.actief),
+    briefvelden: config.briefvelden,
   };
 }
 
@@ -264,7 +281,7 @@ async function zetConfig(config) {
     afzender: normaliseerAfzender(config && config.afzender),
     sharepointMap: tekst(config && config.sharepointMap, 80) || STANDAARD_SHAREPOINT_MAP,
     sjablonen: normaliseerSjablonen(config && config.sjablonen),
-    paragrafen: normaliseerParagrafen(config && config.paragrafen),
+    briefvelden: normaliseerBriefvelden(config && config.briefvelden),
   };
   const containerClient = await haalContainerClient();
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);

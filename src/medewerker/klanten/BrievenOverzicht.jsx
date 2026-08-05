@@ -1,40 +1,35 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Search, FileText, Download, FolderInput, Mail, RefreshCw, Loader2,
-  CheckCircle2, AlertTriangle, X, ChevronDown, Database, PenLine,
+  CheckCircle2, AlertTriangle, X, ChevronDown, Building2, User, Landmark,
 } from "lucide-react";
 
 /**
- * Brieven — medewerkersportaal → Klantoverzicht → Brieven (gebouwd 05-08-2026).
+ * Brieven — medewerkersportaal → Klantoverzicht → Brieven (herzien 05-08-2026).
  *
- * Twee manieren om een brief te maken:
- *   1. "Standaardbrief uit Dynamics" — kies een klant en een brief-record (cr283_brief). De
- *      ja/nee-velden en optielijsten op dat record bepalen, via de in Beheer → Brieven ingestelde
- *      regels, welke standaardparagrafen in de brief komen (regels-engine, client-side).
- *   2. "Vrije brief" — kies een los sjabloon en pas 'm vrij aan.
+ * De medewerker kiest een klant en een standaardbrief. De geadresseerde is te kiezen: het adres van
+ * de klant zelf, het gekoppelde belastingkantoor (via Dynamics-lookup op de klant), of "overig"
+ * (handmatig). Een standaardbrief kan invulvelden hebben (bijv. periode: maand/kwartaal/jaar) die de
+ * medewerker hier invult; samen met de klant-merge-velden vullen ze {{...}} in onderwerp/tekst. Het
+ * voorbeeld staat altijd rechts in beeld (met eventueel het geüploade briefpapier als achtergrond),
+ * en de brief kan als PDF/Word gedownload, in het klantdossier opgeslagen en gemaild worden.
  *
- * In beide gevallen worden de klantgegevens uit Dynamics (NAW, contactpersoon, relatiebeheerder,
- * belastingkantoor, …) in de {{merge-velden}} ingevuld, staat het voorbeeld altijd rechts in beeld,
- * en kan de brief als PDF/Word gedownload, in het SharePoint-dossier opgeslagen en gemaild worden.
- *
- * Databronnen: /api/beheer-klanten (klanten + NAW), /api/brief-sjablonen (afzender + sjablonen +
- * paragraaf-regels), /api/brief-records (de brief-records van een klant met hun veldwaarden),
- * /api/brieven (genereren/mailen/dossier).
+ * (De eerdere "Standaardbrief uit Dynamics"-modus met cr283_brief-records + regels-engine is er op
+ * verzoek uit — "vergeet Dynamics in de brieven". De klant wordt nog wel uit Dynamics gekozen.)
  */
 
 const KLEUR = {
   blauw: "#1C5D8C", tekst: "#1C2321", subtekst: "#5B6259", mutedTekst: "#8A9089",
-  rand: "#E2E4DF", lichtblauw: "#EAF2F8", rood: "#B23B3B", groen: "#2E7D46", papier: "#FFFFFF",
+  rand: "#E2E4DF", lichtblauw: "#EAF2F8", rood: "#B23B3B", groen: "#2E7D46", goud: "#B98237", papier: "#FFFFFF",
 };
 
 function veiligeStr(v) { return String(v == null ? "" : v).trim(); }
 function samenAdres(a) { a = a || {}; return [a.straat, a.huisnummer, a.toevoeging].map(veiligeStr).filter(Boolean).join(" "); }
 function postcodePlaats(a) { a = a || {}; return [veiligeStr(a.postcode), veiligeStr(a.plaats)].filter(Boolean).join("  "); }
 function vandaagLang() { try { return new Date().toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" }); } catch { return new Date().toISOString().slice(0, 10); } }
-function kortDatum(d) { if (!d) return ""; const t = new Date(d); return isNaN(t.getTime()) ? "" : t.toLocaleDateString("nl-NL", { day: "2-digit", month: "short", year: "numeric" }); }
 function beleefdeAchternaam(c) { c = c || {}; return [veiligeStr(c.tussenvoegsel), veiligeStr(c.achternaam)].filter(Boolean).join(" ") || veiligeStr(c.naam); }
 
-/** Merge-velden voor {{...}} uit een klant + afzender. */
+/** Klant-merge-velden voor {{...}}. */
 function veldenVan(klant, afzender) {
   const k = klant || {}, c = k.contact || {}, bezoek = k.adres || {}, contactAdres = c.adres || {};
   const adresBron = samenAdres(bezoek) ? bezoek : contactAdres;
@@ -51,34 +46,14 @@ function veldenVan(klant, afzender) {
   };
 }
 function vulIn(sjabloontekst, velden) {
-  return String(sjabloontekst || "").replace(/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g, (_, sleutel) => {
+  return String(sjabloontekst || "").replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_, sleutel) => {
     const key = String(sleutel).toLowerCase().replace(/[^a-z0-9]/g, "");
     return Object.prototype.hasOwnProperty.call(velden, key) ? velden[key] : "";
   });
 }
 
-// ── Regels-engine (client-side): welke paragrafen komen mee bij een brief-record ──
-function recordWaarde(waarden, veld) { const w = waarden && waarden[veld]; return w ? w.waarde : undefined; }
-function gelijk(a, b) { if (typeof b === "boolean") return Boolean(a) === b; if (a == null) return false; return String(a) === String(b); }
-function voorwaardeKlopt(vw, waarden) {
-  if (!vw || vw.modus !== "veld") return true; // "altijd"
-  const w = recordWaarde(waarden, vw.veld);
-  const leeg = w == null || w === "";
-  if (vw.operator === "ingevuld") return !leeg;
-  if (vw.operator === "leeg") return leeg;
-  if (vw.operator === "isNiet") return !gelijk(w, vw.waarde);
-  return gelijk(w, vw.waarde); // "is"
-}
-function assembleerBody(paragrafen, waarden, velden) {
-  return (paragrafen || [])
-    .filter((p) => p.actief !== false && voorwaardeKlopt(p.voorwaarde, waarden))
-    .map((p) => vulIn(p.tekst, velden).trim())
-    .filter(Boolean)
-    .join("\n\n");
-}
-
 function aanhefVan(klant) { const a = beleefdeAchternaam(klant && klant.contact); return a ? `Geachte heer/mevrouw ${a},` : "Geachte heer, mevrouw,"; }
-function ontvangerRegelsVan(klant) {
+function ontvangerRegelsVanKlant(klant) {
   const k = klant || {}, c = k.contact || {}, bezoek = k.adres || {};
   const adresBron = samenAdres(bezoek) ? bezoek : (c.adres || {});
   const r = [];
@@ -119,31 +94,27 @@ function base64Download(base64, bestandsnaam, contentType) {
 }
 
 export default function BrievenOverzicht() {
-  const [config, setConfig] = useState(null); // { afzender, sharepointMap, sjablonen, paragrafen }
+  const [config, setConfig] = useState(null); // { afzender, sharepointMap, sjablonen, briefvelden }
   const [configFout, setConfigFout] = useState("");
   const [klanten, setKlanten] = useState(null);
   const [klantFout, setKlantFout] = useState("");
 
   const [zoek, setZoek] = useState("");
   const [klant, setKlant] = useState(null);
-  const [modus, setModus] = useState("dynamics"); // "dynamics" | "vrij"
-
-  // Dynamics-brief (records + regels)
-  const [records, setRecords] = useState(null); // null = nog niet geladen
-  const [recordVelden, setRecordVelden] = useState(null);
-  const [recordsFout, setRecordsFout] = useState("");
-  const [recordsLaden, setRecordsLaden] = useState(false);
-  const [recordId, setRecordId] = useState("");
-
-  // Vrije brief (sjabloon)
   const [sjabloonId, setSjabloonId] = useState("");
 
-  // Bewerkbare brief
+  // Geadresseerde
+  const [geadType, setGeadType] = useState("klant"); // "klant" | "belastingkantoor" | "overig"
+  const [bk, setBk] = useState({ status: "idle" }); // belastingkantoor: idle|laden|ok|niet|fout
+  const [overig, setOverig] = useState({ naam: "", straat: "", huisnummer: "", postcode: "", plaats: "" });
+
+  // Bewerkbare brief (onderwerp/tekst blijven "ruw" met {{...}}; resolven live in het voorbeeld/uitvoer)
   const [onderwerp, setOnderwerp] = useState("");
   const [aanhef, setAanhef] = useState("");
   const [tekst, setTekst] = useState("");
   const [afsluiting, setAfsluiting] = useState("");
   const [ondertekenaar, setOndertekenaar] = useState("");
+  const [veldWaarden, setVeldWaarden] = useState({}); // sleutel → waarde (invulvelden)
   const [naar, setNaar] = useState("");
   const [cc, setCc] = useState("");
   const [formaat, setFormaat] = useState("pdf");
@@ -165,62 +136,47 @@ export default function BrievenOverzicht() {
 
   const afzender = (config && config.afzender) || {};
   const sjablonen = (config && config.sjablonen) || [];
-  const paragrafen = (config && config.paragrafen) || [];
+  const briefvelden = (config && config.briefvelden) || [];
+  const sjabloon = sjablonen.find((s) => s.id === sjabloonId) || null;
+  const actieveVelddefs = useMemo(() => {
+    const sleutels = (sjabloon && Array.isArray(sjabloon.velden)) ? sjabloon.velden : [];
+    return sleutels.map((sl) => briefvelden.find((v) => v.sleutel === sl)).filter(Boolean);
+  }, [sjabloon, briefvelden]);
 
-  // Brief-records laden zodra een klant is gekozen (voor de Dynamics-modus).
+  // Belastingkantoor-adres ophalen zodra dat gekozen wordt (en bij klantwissel).
   useEffect(() => {
-    setRecords(null); setRecordId(""); setRecordsFout("");
-    if (!klant) return;
-    setRecordsLaden(true);
-    fetch(`/api/brief-records?accountId=${encodeURIComponent(klant.accountId)}`)
-      .then(async (r) => { const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || `Fout ${r.status}`); return d; })
-      .then((d) => { if (!levend.current) return; setRecords(d.records || []); setRecordVelden(d.velden || null); })
-      .catch((e) => { if (levend.current) { setRecords([]); setRecordsFout(String(e.message || e)); } })
-      .finally(() => { if (levend.current) setRecordsLaden(false); });
-  }, [klant]);
+    if (geadType !== "belastingkantoor" || !klant) { return; }
+    setBk({ status: "laden" });
+    fetch(`/api/brief-geadresseerde?accountId=${encodeURIComponent(klant.accountId)}`)
+      .then(async (r) => ({ ok: r.ok, d: await r.json().catch(() => ({})) }))
+      .then(({ ok, d }) => {
+        if (!levend.current) return;
+        if (!ok) setBk({ status: "fout", fout: d.error || "Kon het belastingkantoor niet ophalen." });
+        else if (!d.gekoppeld) setBk({ status: "niet" });
+        else setBk({ status: "ok", naam: d.naam, adres: d.adres });
+      })
+      .catch((e) => { if (levend.current) setBk({ status: "fout", fout: String(e.message || e) }); });
+  }, [geadType, klant]);
 
-  // Vrije brief: sjabloon invullen bij klant/sjabloon-wissel.
+  // Sjabloon invullen bij keuze/klantwissel: ruwe onderwerp/tekst + defaults voor de invulvelden.
   useEffect(() => {
-    if (modus !== "vrij" || !config || !sjabloonId) return;
-    const sjabloon = sjablonen.find((s) => s.id === sjabloonId);
-    if (!sjabloon) return;
-    const velden = veldenVan(klant, afzender);
-    setOnderwerp(vulIn(sjabloon.onderwerp, velden));
-    setTekst(vulIn(sjabloon.tekst, velden));
-    vulBasisVelden();
-  }, [klant, sjabloonId, config, modus]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Dynamics-brief: paragrafen samenstellen bij record-keuze.
-  useEffect(() => {
-    if (modus !== "dynamics" || !config || !recordId || !records) return;
-    const record = records.find((r) => r.id === recordId);
-    if (!record) return;
-    const velden = veldenVan(klant, afzender);
-    setOnderwerp(veiligeStr(record.naam));
-    setTekst(assembleerBody(paragrafen, record.waarden, velden));
-    vulBasisVelden();
-  }, [recordId, records, config, modus]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  function vulBasisVelden() {
+    if (!config || !sjabloon) return;
+    setOnderwerp(sjabloon.onderwerp || "");
+    setTekst(sjabloon.tekst || "");
     setAanhef(aanhefVan(klant));
     setAfsluiting(veiligeStr(afzender.afsluiting) || "Met vriendelijke groet,");
     setOndertekenaar(ondertekenaarDefault(klant, afzender));
     setNaar(veiligeStr(klant && klant.contact && klant.contact.email) || veiligeStr(klant && klant.emailKlant));
-    setMelding(null);
-  }
-
-  const opnieuwInvullen = () => {
-    if (modus === "vrij") {
-      const sjabloon = sjablonen.find((s) => s.id === sjabloonId); if (!sjabloon) return;
-      const velden = veldenVan(klant, afzender);
-      setOnderwerp(vulIn(sjabloon.onderwerp, velden)); setTekst(vulIn(sjabloon.tekst, velden));
-    } else {
-      const record = records && records.find((r) => r.id === recordId); if (!record) return;
-      const velden = veldenVan(klant, afzender);
-      setOnderwerp(veiligeStr(record.naam)); setTekst(assembleerBody(paragrafen, record.waarden, velden));
+    // invulveld-defaults
+    const start = {};
+    for (const v of (Array.isArray(sjabloon.velden) ? sjabloon.velden : [])) {
+      const def = briefvelden.find((x) => x.sleutel === v);
+      if (!def) continue;
+      start[v] = def.type === "keuze" && def.opties && def.opties[0] ? def.opties[0].label : "";
     }
-    vulBasisVelden();
-  };
+    setVeldWaarden(start);
+    setMelding(null);
+  }, [sjabloonId, klant, config]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const gefilterd = useMemo(() => {
     const t = zoek.trim().toLowerCase(); const lijst = klanten || [];
@@ -228,37 +184,50 @@ export default function BrievenOverzicht() {
     return lijst.filter((k) => `${k.klantnaam} ${k.klantnummer ?? ""} ${k.groepsnaam ?? ""}`.toLowerCase().includes(t)).slice(0, 12);
   }, [zoek, klanten]);
 
-  const veldLabels = useMemo(() => {
-    const m = {};
-    if (recordVelden) {
-      for (const b of (recordVelden.booleans || [])) m[b.naam] = b.label;
-      for (const o of (recordVelden.optielijsten || [])) m[o.naam] = o.label;
+  const ontvangerRegels = useMemo(() => {
+    if (geadType === "belastingkantoor") {
+      if (bk.status !== "ok") return ["(belastingkantoor)"];
+      return [veiligeStr(bk.naam) || "Belastingdienst", samenAdres(bk.adres), postcodePlaats(bk.adres)].filter(Boolean);
+    }
+    if (geadType === "overig") {
+      const r = [];
+      if (veiligeStr(overig.naam)) r.push(veiligeStr(overig.naam));
+      const adr = [veiligeStr(overig.straat), veiligeStr(overig.huisnummer)].filter(Boolean).join(" "); if (adr) r.push(adr);
+      const pcp = [veiligeStr(overig.postcode), veiligeStr(overig.plaats)].filter(Boolean).join("  "); if (pcp) r.push(pcp);
+      return r.length ? r : ["(vul het adres in)"];
+    }
+    return ontvangerRegelsVanKlant(klant);
+  }, [geadType, bk, overig, klant]);
+
+  // Merge-map: klant-velden + invulvelden (sleutels genormaliseerd, net als vulIn).
+  const mergeVelden = useMemo(() => {
+    const m = veldenVan(klant, afzender);
+    for (const [sleutel, waarde] of Object.entries(veldWaarden)) {
+      m[String(sleutel).toLowerCase().replace(/[^a-z0-9]/g, "")] = veiligeStr(waarde);
     }
     return m;
-  }, [recordVelden]);
+  }, [klant, afzender, veldWaarden]);
 
   const plaatsBrief = veiligeStr(afzender.plaats) || veiligeStr(klant && klant.adres && klant.adres.plaats);
   const brief = useMemo(() => ({
     afzenderNaam: veiligeStr(afzender.bedrijfsnaam) || "Activaa",
     afzenderRegels: afzenderRegelsVan(afzender),
     plaatsDatum: plaatsBrief ? `${plaatsBrief}, ${vandaagLang()}` : vandaagLang(),
-    ontvangerRegels: ontvangerRegelsVan(klant),
-    onderwerp, aanhef, tekst, afsluiting,
+    ontvangerRegels,
+    onderwerp: vulIn(onderwerp, mergeVelden),
+    aanhef, tekst: vulIn(tekst, mergeVelden), afsluiting,
     ondertekenaarRegels: [ondertekenaar, veiligeStr(afzender.bedrijfsnaam) || "Activaa"].filter(Boolean),
     voetnoot: voetnootVan(afzender),
-    logoUrl: veiligeStr(afzender.logoUrl),
-    logoUitlijning: afzender.logoUitlijning || "links",
-    logoGrootte: afzender.logoGrootte || "normaal",
-  }), [afzender, klant, onderwerp, aanhef, tekst, afsluiting, ondertekenaar, plaatsBrief]);
+    logoUrl: veiligeStr(afzender.logoUrl), logoUitlijning: afzender.logoUitlijning || "links", logoGrootte: afzender.logoGrootte || "normaal",
+    achtergrondUrl: veiligeStr(afzender.achtergrondUrl),
+  }), [afzender, ontvangerRegels, onderwerp, aanhef, tekst, afsluiting, ondertekenaar, plaatsBrief, mergeVelden]);
 
-  const bronNaam = modus === "vrij"
-    ? ((sjablonen.find((s) => s.id === sjabloonId) || {}).naam || "Brief")
-    : ((records && records.find((r) => r.id === recordId) || {}).naam || "Brief");
-  const bestandsnaamBasis = `${bronNaam}${klant ? " - " + veiligeStr(klant.klantnaam) : ""}`;
-  const klaarVoorActie = !!klant && (modus === "vrij" ? !!sjabloonId : !!recordId);
+  const bestandsnaamBasis = `${(sjabloon && sjabloon.naam) || "Brief"}${klant ? " - " + veiligeStr(klant.klantnaam) : ""}`;
+  const geadresseerdeOk = geadType !== "belastingkantoor" || bk.status === "ok";
+  const klaarVoorActie = !!klant && !!sjabloonId && geadresseerdeOk;
 
   async function doeActie(actie, fmt) {
-    if (!klaarVoorActie) { setMelding({ type: "fout", tekst: "Kies eerst een klant én een brief." }); return; }
+    if (!klaarVoorActie) { setMelding({ type: "fout", tekst: "Kies eerst een klant, een brief en een geldige geadresseerde." }); return; }
     setMelding(null); setBezig(actie + (fmt || ""));
     try {
       const payload = { actie, brief, bestandsnaamBasis, formaat: fmt || formaat };
@@ -286,9 +255,8 @@ export default function BrievenOverzicht() {
   return (
     <div style={{ maxWidth: 1600, margin: "0 auto", padding: "0 24px 40px" }}>
       <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 16 }}>
-        Kies een klant en een brief; de gegevens uit Dynamics worden automatisch ingevuld en het
-        voorbeeld staat rechts altijd in beeld. Bij een standaardbrief uit Dynamics bepalen de
-        ja/nee-velden en optielijsten van het brief-record welke paragrafen meegaan.
+        Kies een klant en een standaardbrief. Stel de geadresseerde in (de klant zelf, het gekoppelde
+        belastingkantoor, of een handmatig adres) en vul eventuele invulvelden in. Het voorbeeld staat rechts.
       </div>
 
       {configFout && <Banner type="fout" tekst={configFout} />}
@@ -306,7 +274,7 @@ export default function BrievenOverzicht() {
                   <div style={{ fontSize: 13.5, fontWeight: 700, color: KLEUR.tekst, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{veiligeStr(klant.klantnaam)}</div>
                   <div style={{ fontSize: 11.5, color: KLEUR.subtekst }}>{veiligeStr(klant.klantnummer) && `nr ${veiligeStr(klant.klantnummer)}`}{veiligeStr(klant.groepsnaam) && `  ·  ${veiligeStr(klant.groepsnaam)}`}</div>
                 </div>
-                <button onClick={() => { setKlant(null); setZoek(""); }} style={{ ...knopLicht, padding: "6px 10px" }}><X size={14} /> Wijzig</button>
+                <button onClick={() => { setKlant(null); setZoek(""); setBk({ status: "idle" }); }} style={{ ...knopLicht, padding: "6px 10px" }}><X size={14} /> Wijzig</button>
               </div>
             ) : (
               <div>
@@ -328,59 +296,74 @@ export default function BrievenOverzicht() {
             )}
           </div>
 
-          {/* Modus-schakelaar */}
-          <div style={{ display: "flex", gap: 6, background: "#F2F3F0", borderRadius: 9, padding: 4 }}>
-            {[["dynamics", "Standaardbrief uit Dynamics", Database], ["vrij", "Vrije brief", PenLine]].map(([k, t, Icon]) => (
-              <button key={k} onClick={() => { setModus(k); setMelding(null); }} style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 10px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 12.5, fontWeight: 600, background: modus === k ? "#fff" : "transparent", color: modus === k ? KLEUR.blauw : KLEUR.subtekst, boxShadow: modus === k ? "0 1px 3px rgba(0,0,0,0.08)" : "none" }}>
-                <Icon size={14} /> {t}
-              </button>
-            ))}
+          {/* Sjabloon */}
+          <div>
+            <span style={label}>Standaardbrief</span>
+            <div style={{ position: "relative" }}>
+              <select value={sjabloonId} onChange={(e) => setSjabloonId(e.target.value)} style={{ ...input, appearance: "none", paddingRight: 32, cursor: "pointer" }}>
+                <option value="">— Kies een sjabloon —</option>
+                {sjablonen.map((s) => <option key={s.id} value={s.id}>{s.naam}</option>)}
+              </select>
+              <ChevronDown size={15} color={KLEUR.mutedTekst} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+            </div>
           </div>
 
-          {/* Bronkeuze afhankelijk van modus */}
-          {modus === "dynamics" ? (
-            <div>
-              <span style={label}>Brief-record (Dynamics)</span>
-              {!klant ? (
-                <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Kies eerst een klant.</div>
-              ) : recordsLaden ? (
-                <div style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst }}><Loader2 size={15} className="spin" /> Brief-records laden…</div>
-              ) : recordsFout ? (
-                <Banner type="fout" tekst={`Brief-records konden niet geladen worden: ${recordsFout}`} />
-              ) : (records || []).length === 0 ? (
-                <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Deze klant heeft geen brief-records in Dynamics. Gebruik eventueel "Vrije brief".</div>
-              ) : (
-                <div style={{ position: "relative" }}>
-                  <select value={recordId} onChange={(e) => setRecordId(e.target.value)} style={{ ...input, appearance: "none", paddingRight: 32, cursor: "pointer" }}>
-                    <option value="">— Kies een brief-record —</option>
-                    {records.map((r) => <option key={r.id} value={r.id}>{veiligeStr(r.naam) || "(zonder naam)"}{r.datum ? ` — ${kortDatum(r.datum)}` : ""}</option>)}
-                  </select>
-                  <ChevronDown size={15} color={KLEUR.mutedTekst} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
-                </div>
-              )}
-              {recordId && <RecordWaarden record={(records || []).find((r) => r.id === recordId)} labels={veldLabels} />}
+          {/* Geadresseerde */}
+          <div>
+            <span style={label}>Geadresseerde</span>
+            <div style={{ display: "flex", gap: 6, background: "#F2F3F0", borderRadius: 9, padding: 4 }}>
+              {[["klant", "Klant", User], ["belastingkantoor", "Belastingkantoor", Landmark], ["overig", "Overig", Building2]].map(([k, t, Icon]) => (
+                <button key={k} onClick={() => setGeadType(k)} style={{ flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "7px 8px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, background: geadType === k ? "#fff" : "transparent", color: geadType === k ? KLEUR.blauw : KLEUR.subtekst, boxShadow: geadType === k ? "0 1px 3px rgba(0,0,0,0.08)" : "none" }}>
+                  <Icon size={14} /> {t}
+                </button>
+              ))}
             </div>
-          ) : (
+            {geadType === "belastingkantoor" && (
+              <div style={{ marginTop: 8 }}>
+                {!klant ? <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Kies eerst een klant.</div>
+                  : bk.status === "laden" ? <div style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst }}><Loader2 size={15} className="spin" /> Belastingkantoor ophalen…</div>
+                  : bk.status === "ok" ? <div style={{ fontSize: 12.5, color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", background: "#FBFBF9" }}><strong style={{ color: KLEUR.tekst }}>{veiligeStr(bk.naam)}</strong><br />{samenAdres(bk.adres)}<br />{postcodePlaats(bk.adres)}</div>
+                  : bk.status === "niet" ? <Banner type="fout" tekst="Aan deze klant is nog geen belastingkantoor gekoppeld in Dynamics. Koppel het belastingkantoor (met adres) aan de klant en probeer opnieuw." />
+                  : <Banner type="fout" tekst={`Belastingkantoor kon niet worden opgehaald: ${bk.fout || ""}`} />}
+              </div>
+            )}
+            {geadType === "overig" && (
+              <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 8 }}>
+                <input value={overig.naam} onChange={(e) => setOverig({ ...overig, naam: e.target.value })} placeholder="Naam / organisatie" style={{ ...input, flex: "1 1 100%" }} />
+                <input value={overig.straat} onChange={(e) => setOverig({ ...overig, straat: e.target.value })} placeholder="Straat" style={{ ...input, flex: "2 1 160px" }} />
+                <input value={overig.huisnummer} onChange={(e) => setOverig({ ...overig, huisnummer: e.target.value })} placeholder="Nr" style={{ ...input, flex: "0 1 80px" }} />
+                <input value={overig.postcode} onChange={(e) => setOverig({ ...overig, postcode: e.target.value })} placeholder="Postcode" style={{ ...input, flex: "1 1 110px" }} />
+                <input value={overig.plaats} onChange={(e) => setOverig({ ...overig, plaats: e.target.value })} placeholder="Plaats" style={{ ...input, flex: "1 1 140px" }} />
+              </div>
+            )}
+          </div>
+
+          {/* Invulvelden */}
+          {actieveVelddefs.length > 0 && (
             <div>
-              <span style={label}>Vrij sjabloon</span>
-              <div style={{ position: "relative" }}>
-                <select value={sjabloonId} onChange={(e) => setSjabloonId(e.target.value)} style={{ ...input, appearance: "none", paddingRight: 32, cursor: "pointer" }}>
-                  <option value="">— Kies een sjabloon —</option>
-                  {sjablonen.map((s) => <option key={s.id} value={s.id}>{s.naam}</option>)}
-                </select>
-                <ChevronDown size={15} color={KLEUR.mutedTekst} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+              <span style={label}>Invulvelden</span>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                {actieveVelddefs.map((v) => (
+                  <div key={v.sleutel} style={{ flex: "1 1 180px", minWidth: 150 }}>
+                    <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>{v.label}</div>
+                    {v.type === "keuze" ? (
+                      <select value={veldWaarden[v.sleutel] || ""} onChange={(e) => setVeldWaarden((w) => ({ ...w, [v.sleutel]: e.target.value }))} style={input}>
+                        <option value="">—</option>
+                        {(v.opties || []).map((o) => <option key={o.sleutel || o.label} value={o.label}>{o.label}</option>)}
+                      </select>
+                    ) : (
+                      <input value={veldWaarden[v.sleutel] || ""} onChange={(e) => setVeldWaarden((w) => ({ ...w, [v.sleutel]: e.target.value }))} style={input} />
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
-          )}
-
-          {klaarVoorActie && (
-            <button onClick={opnieuwInvullen} style={{ ...knopLicht, alignSelf: "flex-start", padding: "6px 10px", fontSize: 12 }}><RefreshCw size={13} /> Opnieuw invullen vanuit de bron</button>
           )}
 
           {/* Bewerkbare velden */}
           <div><span style={label}>Onderwerp</span><input value={onderwerp} onChange={(e) => setOnderwerp(e.target.value)} style={input} placeholder="Betreft…" /></div>
           <div><span style={label}>Aanhef</span><input value={aanhef} onChange={(e) => setAanhef(e.target.value)} style={input} /></div>
-          <div><span style={label}>Tekst</span><textarea value={tekst} onChange={(e) => setTekst(e.target.value)} rows={12} style={{ ...input, resize: "vertical", minHeight: 220, lineHeight: 1.5, fontFamily: "inherit" }} placeholder="Inhoud van de brief… (lege regel = nieuwe alinea)" /></div>
+          <div><span style={label}>Tekst</span><textarea value={tekst} onChange={(e) => setTekst(e.target.value)} rows={11} style={{ ...input, resize: "vertical", minHeight: 200, lineHeight: 1.5, fontFamily: "inherit" }} placeholder="Inhoud van de brief… ({{velden}} worden live ingevuld)" /></div>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             <div style={{ flex: "1 1 200px" }}><span style={label}>Afsluiting</span><input value={afsluiting} onChange={(e) => setAfsluiting(e.target.value)} style={input} /></div>
             <div style={{ flex: "1 1 200px" }}><span style={label}>Ondertekenaar</span><input value={ondertekenaar} onChange={(e) => setOndertekenaar(e.target.value)} style={input} /></div>
@@ -422,23 +405,6 @@ export default function BrievenOverzicht() {
   );
 }
 
-/** Compacte weergave van de (niet-lege) veldwaarden van het gekozen brief-record. */
-function RecordWaarden({ record, labels }) {
-  if (!record || !record.waarden) return null;
-  const rijen = Object.entries(record.waarden)
-    .filter(([, w]) => w && w.tekst != null && String(w.tekst) !== "")
-    .map(([veld, w]) => [labels[veld] || veld, w.tekst]);
-  if (rijen.length === 0) return null;
-  return (
-    <div style={{ marginTop: 8, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", background: "#FBFBF9" }}>
-      <div style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 4 }}>Gegevens uit dit record</div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "3px 14px" }}>
-        {rijen.map(([l, v], i) => <span key={i} style={{ fontSize: 11.5, color: KLEUR.subtekst }}><span style={{ color: KLEUR.mutedTekst }}>{l}:</span> <strong style={{ color: KLEUR.tekst, fontWeight: 600 }}>{String(v)}</strong></span>)}
-      </div>
-    </div>
-  );
-}
-
 function Banner({ type, tekst }) {
   const ok = type === "ok";
   return (
@@ -448,20 +414,35 @@ function Banner({ type, tekst }) {
   );
 }
 
+/** Live weergave van de brief. Met een achtergrond (briefpapier) wordt die als A4-achtergrond
+ *  getoond en vallen de eigen logo/afzenderkop + voetnoot weg (zit al in het briefpapier). */
 function BriefVoorbeeld({ brief }) {
   const b = brief || {};
   const alineas = String(b.tekst || "").replace(/\r\n/g, "\n").split(/\n[ \t]*\n/);
+  const heeftAcht = !!b.achtergrondUrl;
+  const paginaStijl = {
+    background: KLEUR.papier, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, boxShadow: "0 6px 24px rgba(0,0,0,0.07)",
+    color: KLEUR.tekst, fontFamily: "Helvetica, Arial, sans-serif", fontSize: 13, lineHeight: 1.5,
+    aspectRatio: "1 / 1.414", position: "relative", overflow: "hidden",
+    ...(heeftAcht
+      ? { backgroundImage: `url("${b.achtergrondUrl}")`, backgroundSize: "100% 100%", backgroundRepeat: "no-repeat", padding: "16% 12% 12%" }
+      : { padding: "48px 52px" }),
+  };
   return (
-    <div style={{ background: KLEUR.papier, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, boxShadow: "0 6px 24px rgba(0,0,0,0.07)", padding: "48px 52px", color: KLEUR.tekst, fontFamily: "Helvetica, Arial, sans-serif", fontSize: 13, lineHeight: 1.5, minHeight: 640 }}>
-      {b.logoUrl ? (
-        <div style={{ textAlign: b.logoUitlijning === "midden" ? "center" : b.logoUitlijning === "rechts" ? "right" : "left", marginBottom: 6 }}>
-          <img src={b.logoUrl} alt="logo" style={{ width: ({ klein: 120, normaal: 170, groot: 230 })[b.logoGrootte] || 170, maxWidth: "100%", height: "auto", display: "inline-block" }} />
-        </div>
-      ) : (
-        <div style={{ fontSize: 21, fontWeight: 800, letterSpacing: "-0.01em" }}>{b.afzenderNaam}</div>
+    <div style={paginaStijl}>
+      {!heeftAcht && (
+        <>
+          {b.logoUrl ? (
+            <div style={{ textAlign: b.logoUitlijning === "midden" ? "center" : b.logoUitlijning === "rechts" ? "right" : "left", marginBottom: 6 }}>
+              <img src={b.logoUrl} alt="logo" style={{ width: ({ klein: 120, normaal: 170, groot: 230 })[b.logoGrootte] || 170, maxWidth: "100%", height: "auto", display: "inline-block" }} />
+            </div>
+          ) : (
+            <div style={{ fontSize: 21, fontWeight: 800, letterSpacing: "-0.01em" }}>{b.afzenderNaam}</div>
+          )}
+          <div style={{ marginTop: 4, color: KLEUR.mutedTekst, fontSize: 11.5, lineHeight: 1.45 }}>{(b.afzenderRegels || []).map((r, i) => <div key={i}>{r}</div>)}</div>
+          <div style={{ borderTop: `1px solid ${KLEUR.rand}`, margin: "16px 0 20px" }} />
+        </>
       )}
-      <div style={{ marginTop: 4, color: KLEUR.mutedTekst, fontSize: 11.5, lineHeight: 1.45 }}>{(b.afzenderRegels || []).map((r, i) => <div key={i}>{r}</div>)}</div>
-      <div style={{ borderTop: `1px solid ${KLEUR.rand}`, margin: "16px 0 20px" }} />
       <div style={{ textAlign: "right", color: KLEUR.subtekst, marginBottom: 22 }}>{b.plaatsDatum}</div>
       <div style={{ marginBottom: 26 }}>{(b.ontvangerRegels || []).map((r, i) => <div key={i}>{r}</div>)}</div>
       {b.onderwerp && <div style={{ fontWeight: 700, marginBottom: 18 }}>Betreft: {b.onderwerp}</div>}
@@ -470,7 +451,7 @@ function BriefVoorbeeld({ brief }) {
       {b.afsluiting && <div style={{ marginTop: 20 }}>{b.afsluiting}</div>}
       <div style={{ height: 44 }} />
       <div>{(b.ondertekenaarRegels || []).map((r, i) => <div key={i}>{r}</div>)}</div>
-      {b.voetnoot && <div style={{ marginTop: 40, paddingTop: 12, borderTop: `1px solid ${KLEUR.rand}`, textAlign: "center", color: KLEUR.mutedTekst, fontSize: 10.5 }}>{b.voetnoot}</div>}
+      {!heeftAcht && b.voetnoot && <div style={{ marginTop: 40, paddingTop: 12, borderTop: `1px solid ${KLEUR.rand}`, textAlign: "center", color: KLEUR.mutedTekst, fontSize: 10.5 }}>{b.voetnoot}</div>}
     </div>
   );
 }
