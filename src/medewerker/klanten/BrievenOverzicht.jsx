@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Search, FileText, Download, FolderInput, Mail, RefreshCw, Loader2,
-  CheckCircle2, AlertTriangle, X, ChevronDown, Building2, User, Landmark, Paperclip,
+  CheckCircle2, AlertTriangle, X, ChevronDown, Building2, User, Landmark, Paperclip, Upload,
 } from "lucide-react";
 
 /**
@@ -119,6 +119,8 @@ export default function BrievenOverzicht() {
   const [cc, setCc] = useState("");
   const [formaat, setFormaat] = useState("pdf");
   const [bijlage, setBijlage] = useState(null); // { naam, dataUrl, grootte } of null
+  const [sleepBijlage, setSleepBijlage] = useState(false);
+  const bijlageInputRef = useRef(null);
 
   const [bezig, setBezig] = useState("");
   const [melding, setMelding] = useState(null);
@@ -388,24 +390,38 @@ export default function BrievenOverzicht() {
             <div style={{ flex: "1 1 180px" }}><span style={label}>CC (optioneel)</span><input value={cc} onChange={(e) => setCc(e.target.value)} style={input} placeholder="cc@… (komma-gescheiden)" /></div>
           </div>
 
-          {/* Bijlage */}
+          {/* Bijlage — dropvenster (zelfde opzet als het IB-dossier: slepen of klikken) */}
           <div>
             <span style={label}>Bijlage (optioneel)</span>
-            {bijlage ? (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 12px", background: "#FBFBF9" }}>
-                <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 8 }}>
-                  <Paperclip size={15} color={KLEUR.subtekst} style={{ flexShrink: 0 }} />
-                  <span style={{ fontSize: 13, color: KLEUR.tekst, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{bijlage.naam}</span>
-                  <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst, whiteSpace: "nowrap", flexShrink: 0 }}>{(bijlage.grootte / 1048576).toFixed(1)} MB</span>
+            <div
+              onDragOver={(e) => { e.preventDefault(); setSleepBijlage(true); }}
+              onDragLeave={() => setSleepBijlage(false)}
+              onDrop={(e) => { e.preventDefault(); setSleepBijlage(false); kiesBijlage(e.dataTransfer.files && e.dataTransfer.files[0]); }}
+              onClick={() => bijlageInputRef.current && bijlageInputRef.current.click()}
+              style={{
+                border: `1.5px dashed ${sleepBijlage ? KLEUR.blauw : KLEUR.rand}`, borderRadius: 10,
+                padding: bijlage ? "12px 14px" : "20px 14px", textAlign: "center", cursor: "pointer",
+                background: sleepBijlage ? KLEUR.lichtblauw : "#FAFBF9",
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+              }}
+            >
+              {bijlage ? (
+                <div style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                  <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 8 }}>
+                    <Paperclip size={15} color={KLEUR.subtekst} style={{ flexShrink: 0 }} />
+                    <span style={{ fontSize: 13, color: KLEUR.tekst, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{bijlage.naam}</span>
+                    <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst, whiteSpace: "nowrap", flexShrink: 0 }}>{(bijlage.grootte / 1048576).toFixed(1)} MB</span>
+                  </div>
+                  <button onClick={(e) => { e.stopPropagation(); setBijlage(null); }} style={{ ...knopLicht, padding: "6px 10px", flexShrink: 0 }}><X size={14} /> Verwijder</button>
                 </div>
-                <button onClick={() => setBijlage(null)} style={{ ...knopLicht, padding: "6px 10px", flexShrink: 0 }}><X size={14} /> Verwijder</button>
-              </div>
-            ) : (
-              <label style={{ ...knopLicht, cursor: "pointer" }}>
-                <Paperclip size={15} /> Bestand kiezen
-                <input type="file" style={{ display: "none" }} onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; kiesBijlage(f); }} />
-              </label>
-            )}
+              ) : (
+                <>
+                  <Upload size={18} color={KLEUR.mutedTekst} />
+                  <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>Sleep hier een bestand naartoe, of klik om te kiezen</div>
+                </>
+              )}
+              <input ref={bijlageInputRef} type="file" style={{ display: "none" }} onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; kiesBijlage(f); }} />
+            </div>
             <div style={{ marginTop: 6, fontSize: 11.5, color: KLEUR.mutedTekst }}>Gaat mee als bijlage bij het mailen en wordt met “In klantdossier” ook in de SharePoint-map opgeslagen. Grote bestanden (boven ± 3 MB) passen soms niet in een e-mail, maar worden wél in het dossier bewaard.</div>
           </div>
 
