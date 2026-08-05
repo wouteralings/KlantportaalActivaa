@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload } from "lucide-react";
+import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload, Lightbulb } from "lucide-react";
 import { startMeekijken } from "../meekijken";
 import OffertesModule from "./OffertesModule";
 import ContractenOverzicht from "./ContractenOverzicht";
@@ -3899,7 +3899,6 @@ export default function MedewerkerPortaal() {
     ["reacties", "Log klantreacties", 0],
     ["ondertekeningen", "Ondertekeningen", 0],
     ["reviews", "Reviews", tellingen.nieuweReviews],
-    ["ontwikkelverzoeken", "Ontwikkelverzoeken", 0],
     ...(magOffertes || isBeheerder ? [["offertes", "Offertes", 0]] : []),
     ...(magContracten || isBeheerder ? [["contracten", "Contracten", 0]] : []),
     ...(magAlsKlant || isBeheerder ? [["meekijken", "Meekijken als klant", 0]] : []),
@@ -3914,6 +3913,13 @@ export default function MedewerkerPortaal() {
           {logoUrl && <img src={logoUrl} alt="Logo" style={{ maxHeight: 30, maxWidth: 160, objectFit: "contain", display: "block", alignSelf: "center", marginLeft: 8 }} />}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button
+            onClick={() => setTab("ontwikkelverzoeken")}
+            title="Ontwikkelverzoeken — bug melden of functionaliteit voorstellen"
+            style={{ background: "none", border: "none", cursor: "pointer", color: tab === "ontwikkelverzoeken" ? KLEUR.goud : KLEUR.mutedTekst, padding: 4, display: "flex" }}
+          >
+            <Lightbulb size={19} fill={tab === "ontwikkelverzoeken" ? "currentColor" : "none"} />
+          </button>
           <span style={{ fontSize: 12.5, color: KLEUR.subtekst }}>{gebruiker?.userDetails}</span>
           {isBeheerder && (
             <a href="/beheer" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: KLEUR.blauw, textDecoration: "none" }}>

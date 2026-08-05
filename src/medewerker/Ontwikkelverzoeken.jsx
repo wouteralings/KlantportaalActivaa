@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bug, Lightbulb, ThumbsUp, Plus, Loader2, Trash2, Image as ImageIcon, X, MessageSquare, Send, Paperclip, RefreshCw, CalendarClock } from "lucide-react";
+import { Bug, Lightbulb, ThumbsUp, Plus, Loader2, Trash2, Image as ImageIcon, X, MessageSquare, Send, Paperclip, RefreshCw, CalendarClock, Pencil, Check } from "lucide-react";
 
 /**
  * Ontwikkelverzoeken — intern bord in het medewerkersportaal. Medewerkers melden bugs of stellen
@@ -38,6 +38,8 @@ export default function Ontwikkelverzoeken() {
   const [sorteer, setSorteer] = useState("stemmen"); // stemmen | nieuwste
   const [vergroot, setVergroot] = useState(null); // id van uitvergrote screenshot
   const [reactie, setReactie] = useState({}); // id -> tekst
+  const [bewerkId, setBewerkId] = useState(""); // id van het verzoek waarvan titel/omschrijving/type nu bewerkt wordt (beheerder)
+  const [bewerkForm, setBewerkForm] = useState(LEEG);
   const fileRef = useRef(null);
 
   const laad = useCallback(() => {
@@ -91,6 +93,15 @@ export default function Ontwikkelverzoeken() {
   };
   const stem = (v) => patch({ id: v.id, actie: "stem" }, v.id);
   const zet = (v, velden) => patch({ id: v.id, ...velden }, v.id);
+  // Beheerder kan titel/omschrijving/type van een bestaand verzoek aanpassen (bv. een slordig
+  // gemelde bug opschonen) — los van status/prioriteit/opleverdatum, die al direct in de rij
+  // zelf te wijzigen zijn.
+  const startBewerken = (v) => { setBewerkId(v.id); setBewerkForm({ type: v.type, titel: v.titel, omschrijving: v.omschrijving || "" }); };
+  const opslaanBewerking = async (v) => {
+    if (!bewerkForm.titel.trim()) { setFout("Geef een titel op."); return; }
+    await zet(v, { type: bewerkForm.type, titel: bewerkForm.titel, omschrijving: bewerkForm.omschrijving });
+    setBewerkId("");
+  };
   const plaatsReactie = async (v) => {
     const tekst = (reactie[v.id] || "").trim();
     if (!tekst) return;
@@ -221,9 +232,29 @@ export default function Ontwikkelverzoeken() {
                     <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: s[2] + "1A", color: s[2] }}>{s[1]}</span>
                     {v.verwachteOpleverdatum && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: KLEUR.groen + "1A", color: KLEUR.groen }}><CalendarClock size={11} /> Verwacht {datumNL(v.verwachteOpleverdatum)}</span>}
                   </div>
-                  <div style={{ fontSize: 14.5, fontWeight: 700, marginBottom: 2 }}>{v.titel}</div>
-                  <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 8 }}>{v.indienerNaam || v.indienerEmail} · {datumNL(v.aangemaaktOp)}</div>
-                  {v.omschrijving && <div style={{ fontSize: 13, color: KLEUR.tekst, whiteSpace: "pre-wrap", marginBottom: 10 }}>{v.omschrijving}</div>}
+                  {isBeheerder && bewerkId === v.id ? (
+                    <div style={{ border: `1px solid ${KLEUR.blauw}`, borderRadius: 8, padding: 10, marginBottom: 10, background: KLEUR.lichtblauw }}>
+                      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                        {TYPES.map((t2) => (
+                          <button key={t2.key} onClick={() => setBewerkForm((f) => ({ ...f, type: t2.key }))} style={{ ...knop(bewerkForm.type === t2.key), borderColor: bewerkForm.type === t2.key ? t2.kleur : KLEUR.rand, background: bewerkForm.type === t2.key ? t2.kleur : "#fff", padding: "5px 10px" }}>
+                            <t2.icoon size={13} /> {t2.label}
+                          </button>
+                        ))}
+                      </div>
+                      <input value={bewerkForm.titel} onChange={(e) => setBewerkForm((f) => ({ ...f, titel: e.target.value }))} placeholder="Titel" style={{ ...veld, width: "100%", fontWeight: 700, marginBottom: 8 }} />
+                      <textarea value={bewerkForm.omschrijving} onChange={(e) => setBewerkForm((f) => ({ ...f, omschrijving: e.target.value }))} rows={3} placeholder="Omschrijving" style={{ ...veld, width: "100%", resize: "vertical", marginBottom: 8 }} />
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={() => opslaanBewerking(v)} disabled={rijBezig === v.id} style={{ ...knop(true), padding: "7px 12px" }}>{rijBezig === v.id ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : <Check size={13} />} Opslaan</button>
+                        <button onClick={() => setBewerkId("")} style={{ ...knop(false), padding: "7px 12px" }}>Annuleren</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 14.5, fontWeight: 700, marginBottom: 2 }}>{v.titel}</div>
+                      <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 8 }}>{v.indienerNaam || v.indienerEmail} · {datumNL(v.aangemaaktOp)}</div>
+                      {v.omschrijving && <div style={{ fontSize: 13, color: KLEUR.tekst, whiteSpace: "pre-wrap", marginBottom: 10 }}>{v.omschrijving}</div>}
+                    </>
+                  )}
                   {v.heeftAfbeelding && (
                     <img src={`/api/ontwikkelverzoeken?afbeelding=${encodeURIComponent(v.id)}`} alt="screenshot" onClick={() => setVergroot(v.id)} style={{ maxWidth: 220, maxHeight: 150, borderRadius: 8, border: `1px solid ${KLEUR.rand}`, cursor: "zoom-in", display: "block", marginBottom: 10 }} />
                   )}
@@ -265,6 +296,7 @@ export default function Ontwikkelverzoeken() {
                         <input value={reactie[v.id] || ""} onChange={(e) => setReactie((r) => ({ ...r, [v.id]: e.target.value }))} onKeyDown={(e) => { if (e.key === "Enter") plaatsReactie(v); }} placeholder="Reactie plaatsen…" style={{ ...veld, padding: "6px 8px", fontSize: 12, flex: 1 }} />
                         <button onClick={() => plaatsReactie(v)} disabled={rijBezig === v.id + "reactie"} style={{ ...knop(true), padding: "6px 9px" }}><Send size={12} /></button>
                       </div>
+                      <button onClick={() => startBewerken(v)} title="Titel/omschrijving bewerken" style={{ ...knop(false), padding: "6px 8px" }}><Pencil size={13} /></button>
                       <button onClick={() => verwijder(v)} disabled={rijBezig === v.id + "del"} title="Verwijderen" style={{ ...knop(false), padding: "6px 8px", color: KLEUR.rood, borderColor: "#E7C9C9" }}><Trash2 size={13} /></button>
                     </div>
                   )}
