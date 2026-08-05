@@ -1736,6 +1736,7 @@ function NieuwDossierModal({ soort, soortLabel, periodeLabel, dossiers, vasteBro
   const [client, setClient] = useState(null); // { id, naam }
   const [heeftPartner, setHeeftPartner] = useState(false);
   const [partner, setPartner] = useState(null); // { id, naam }
+  const [partnerSituatie, setPartnerSituatie] = useState(""); // "" | "gehuwd" | "samenwonend" — bepaalt de verplichte gezinssituatie bij een fiscaal partner
   const [jaar, setJaar] = useState(() => (vasteBron && vasteBron.jaar != null ? String(Number(vasteBron.jaar) + 1) : ""));
   const [bezig, setBezig] = useState(false);
   const [fout, setFout] = useState("");
@@ -1779,7 +1780,10 @@ function NieuwDossierModal({ soort, soortLabel, periodeLabel, dossiers, vasteBro
   const zoekPartner = (term) => zoekKlant(term).filter((k) => !client || k.id !== client.id);
 
   const jaarGeldig = jaar.trim() !== "" && Number.isInteger(Number(jaar));
-  const klaarOmAanTeMaken = jaarGeldig && (modus === "kopieren" ? !!bron : !!client);
+  // Bij een nieuwe aangifte mét fiscaal partner moet ook de situatie (getrouwd/samenwonend) gekozen
+  // zijn — die bepaalt de in Dynamics verplichte gezinssituatie ("Huidige situatie").
+  const partnerSituatieGeldig = !heeftPartner || partnerSituatie === "gehuwd" || partnerSituatie === "samenwonend";
+  const klaarOmAanTeMaken = jaarGeldig && (modus === "kopieren" ? !!bron : (!!client && partnerSituatieGeldig));
 
   const aanmaken = async () => {
     if (!klaarOmAanTeMaken || bezig) return;
@@ -1788,7 +1792,7 @@ function NieuwDossierModal({ soort, soortLabel, periodeLabel, dossiers, vasteBro
     try {
       const body = modus === "kopieren"
         ? { soort, kopieerVanId: bron.id, jaar: Number(jaar) }
-        : { soort, accountId: client.id, jaar: Number(jaar), fiscaalPartnerschap: heeftPartner, fiscaalPartnerAccountId: heeftPartner && partner ? partner.id : null };
+        : { soort, accountId: client.id, jaar: Number(jaar), fiscaalPartnerschap: heeftPartner, fiscaalPartnerAccountId: heeftPartner && partner ? partner.id : null, partnerSituatie: heeftPartner ? partnerSituatie : null };
       const r = await fetch("/api/medewerker-dossier-aanmaken", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
@@ -1849,10 +1853,19 @@ function NieuwDossierModal({ soort, soortLabel, periodeLabel, dossiers, vasteBro
             <div style={label}>Fiscaal partnerschap</div>
             <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
               <button onClick={() => setHeeftPartner(true)} style={{ ...tabStijl(heeftPartner), flex: "0 0 80px" }}>Ja</button>
-              <button onClick={() => { setHeeftPartner(false); setPartner(null); }} style={{ ...tabStijl(!heeftPartner), flex: "0 0 80px" }}>Nee</button>
+              <button onClick={() => { setHeeftPartner(false); setPartner(null); setPartnerSituatie(""); }} style={{ ...tabStijl(!heeftPartner), flex: "0 0 80px" }}>Nee</button>
             </div>
             {heeftPartner && (
               <ZoekKiezer label="Fiscaal partner" huidigeNaam={partner ? partner.naam : ""} zoek={zoekPartner} onKies={(id, naam) => setPartner({ id, naam })} onWis={() => setPartner(null)} />
+            )}
+            {heeftPartner && (
+              <>
+                <div style={label}>Situatie</div>
+                <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                  <button onClick={() => setPartnerSituatie("gehuwd")} style={{ ...tabStijl(partnerSituatie === "gehuwd"), flex: 1 }}>Getrouwd</button>
+                  <button onClick={() => setPartnerSituatie("samenwonend")} style={{ ...tabStijl(partnerSituatie === "samenwonend"), flex: 1 }}>Samenwonend</button>
+                </div>
+              </>
             )}
             <div style={label}>{periodeLabel}</div>
             <input type="number" value={jaar} onChange={(e) => setJaar(e.target.value)} style={{ ...veld, marginBottom: 0 }} />

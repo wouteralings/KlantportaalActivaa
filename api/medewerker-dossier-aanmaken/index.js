@@ -53,7 +53,7 @@ module.exports = async function (context, req) {
   }
 
   const email = haalEmailUitPrincipal(req);
-  const { soort: soortKey, kopieerVanId, accountId: accountIdIn, jaar, fiscaalPartnerschap, fiscaalPartnerAccountId } = req.body || {};
+  const { soort: soortKey, kopieerVanId, accountId: accountIdIn, jaar, fiscaalPartnerschap, fiscaalPartnerAccountId, partnerSituatie } = req.body || {};
   const soort = SOORTEN.find((s) => s.key === soortKey);
   if (!soort) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef een geldige 'soort' mee." } }; return; }
   if (!Array.isArray(soort.catalogus)) {
@@ -92,20 +92,28 @@ module.exports = async function (context, req) {
     const velden = {};
     if (fiscaalPartnerschap !== undefined) velden.fiscaalpartnerschap = !!fiscaalPartnerschap;
 
-    // "Huidige situatie" (cr283_gezinssituatie) is bij het aanmaken verplicht. Is er geen fiscaal
-    // partner gekozen (cr283_fiscaalpartner blijft leeg), dan zetten we die standaard op
-    // "Alleenstaand". De optiewaarde halen we live uit Dynamics op (zoals elders voor deze
-    // keuzelijst), zodat er geen nummer hardgecodeerd staat. Alleen bij een nieuwe (niet-
-    // gekopieerde) aangifte — bij kopiëren neemt maakDossier de gezinssituatie van het brondossier
-    // over. Best-effort: lukt het opzoeken niet, dan laten we het veld leeg.
+    // "Huidige situatie" (cr283_gezinssituatie) is bij het aanmaken verplicht. We leiden 'm af uit
+    // de partnerkeuze uit het aanmaakscherm: géén fiscaal partner -> "Alleenstaand"; wél een partner
+    // -> "Getrouwd/gehuwd" of "Samenwonend" (req.body.partnerSituatie: "gehuwd" | "samenwonend").
+    // De optiewaarde halen we live uit Dynamics op (zoals elders voor deze keuzelijst), zodat er
+    // geen nummer hardgecodeerd staat — we matchen hoofdletterongevoelig op de stam van het label.
+    // Alleen bij een nieuwe (niet-gekopieerde) aangifte; bij kopiëren neemt maakDossier de
+    // gezinssituatie van het brondossier over. Best-effort: lukt het opzoeken/matchen niet, dan
+    // laten we het veld leeg (en meldt Dynamics het desnoods zelf weer).
     const heeftFiscaalPartner = !!(fiscaalPartnerAccountId || (kopieerVanDossier && kopieerVanDossier.fiscaalPartnerAccountId));
-    if (!kopieerVanDossier && !heeftFiscaalPartner && velden.gezinssituatie === undefined) {
+    if (!kopieerVanDossier && velden.gezinssituatie === undefined) {
+      const zoekTermen = !heeftFiscaalPartner
+        ? ["alleenstaand"]
+        : partnerSituatie === "samenwonend"
+          ? ["samenwon"]
+          : ["gehuw", "getrouwd"]; // getrouwd/gehuwd — ook de terugval als er geen keuze is meegestuurd
       try {
         const picklistOpties = await haalDynamischePicklistOpties(resource, token, soortEffectief);
-        const alleenstaand = (picklistOpties.gezinssituatie || []).find((o) => String(o.label).toLowerCase().includes("alleenstaand"));
-        if (alleenstaand) velden.gezinssituatie = alleenstaand.waarde;
+        const opties = picklistOpties.gezinssituatie || [];
+        const match = opties.find((o) => zoekTermen.some((t) => String(o.label).toLowerCase().includes(t)));
+        if (match) velden.gezinssituatie = match.waarde;
       } catch (e) {
-        context.log.error("Kon standaard 'Alleenstaand' voor gezinssituatie niet bepalen:", e);
+        context.log.error("Kon de standaard gezinssituatie niet bepalen:", e);
       }
     }
 
