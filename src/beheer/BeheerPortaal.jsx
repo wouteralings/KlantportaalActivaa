@@ -7,6 +7,7 @@ import ContractenDossierInstellingen from "./ContractenDossierInstellingen";
 import ContractenMailInstellingen from "./ContractenMailInstellingen";
 import VerlofBeheer from "./VerlofBeheer";
 import DossierIndelingBeheer from "./DossierIndelingBeheer";
+import BrievenBeheer from "./BrievenBeheer";
 import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Search, ArrowUp, ArrowDown, HelpCircle, ChevronDown, Plus, Pencil, Check, X, Clock } from "lucide-react";
 
 const KLEUR = {
@@ -1518,6 +1519,7 @@ export default function BeheerPortaal() {
           ["medewerkers", "Medewerkers"],
           ["facturatie", "Facturatie"],
           ["offertes", "Offertes"],
+          ["brieven", "Brieven"],
           ["aanleveren", "Uitvraag"],
           ["uren", "Uren"],
           ["dossiers", "Dossiers"],
@@ -3514,6 +3516,8 @@ export default function BeheerPortaal() {
           overzichten). Het component doet zijn eigen beheerderscheck via /api/ben-ik-beheerder,
           bovenop het feit dat dit hele portaal al achter de rol 'beheerder' zit. */}
       {tab === "offertes" && <OffertetoolApp modus="beheer" />}
+
+      {tab === "brieven" && <BrievenBeheer />}
 
     </div>
   );

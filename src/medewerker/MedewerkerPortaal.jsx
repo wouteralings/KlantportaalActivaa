@@ -9,6 +9,7 @@ import Urenregistratie from "./uren/Urenregistratie";
 import Ontwikkelverzoeken from "./Ontwikkelverzoeken";
 import ScopeToggle, { useMijnNaam, isKlantVanMij } from "./MijnFilter";
 import ContactpersonenOverzicht from "./klanten/ContactpersonenOverzicht";
+import BrievenOverzicht from "./klanten/BrievenOverzicht";
 import NogInTeRichten from "./klanten/NogInTeRichten";
 import Logboek from "./klanten/Logboek";
 import KlantVasteUitvragen from "./klanten/KlantVasteUitvragen";
@@ -1596,6 +1597,7 @@ const BASIS_KOLOMMEN = [
 const KLANTEN_SUBTABS = [
   { key: "klanten", label: "Klanten", icon: LayoutGrid },
   { key: "contactpersonen", label: "Contactpersonen", icon: Users },
+  { key: "brieven", label: "Brieven", icon: Mail },
   { key: "ib", label: "Inkomstenbelasting", icon: FileText, watKomtEr: "Per cliënt de inkomstenbelasting-aangiftes: jaar, status, behandelaar en deadline, zodat je in één lijst ziet wat nog open staat en bij wie het ligt." },
   { key: "vpb", label: "Vennootschapsbelasting", icon: Building2, watKomtEr: "Per cliënt de vennootschapsbelasting-aangiftes: jaar, status, behandelaar en deadline, inclusief fiscale eenheden waar die van toepassing zijn." },
   { key: "divb", label: "Dividendbelasting", icon: Coins, watKomtEr: "Per cliënt de dividendbelasting-aangiftes: aangiftedatum, uitgekeerd dividend, status en behandelaar." },
@@ -1665,6 +1667,7 @@ function KlantenModule() {
       <div style={{ paddingTop: 24 }}>
         {sub === "klanten" && <KlantOverzicht />}
         {sub === "contactpersonen" && <ContactpersonenOverzicht />}
+        {sub === "brieven" && <BrievenOverzicht />}
         {(sub === "ib" || sub === "vpb") && <MedewerkerDossiers soort={sub} />}
         {(sub === "divb" || sub === "lonen") && <NogInTeRichten titel={actief.label} watKomtEr={actief.watKomtEr} />}
       </div>
