@@ -8,6 +8,7 @@ import ContractenMailInstellingen from "./ContractenMailInstellingen";
 import VerlofBeheer from "./VerlofBeheer";
 import DossierIndelingBeheer from "./DossierIndelingBeheer";
 import BrievenBeheer from "./BrievenBeheer";
+import BrievenAfzenderInstellingen from "./BrievenAfzenderInstellingen";
 import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Search, ArrowUp, ArrowDown, HelpCircle, ChevronDown, Plus, Pencil, Check, X, Clock } from "lucide-react";
 
 const KLEUR = {
@@ -1512,7 +1513,6 @@ export default function BeheerPortaal() {
 
       <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap", borderBottom: `1px solid ${KLEUR.rand}` }}>
         {[
-          ["uitstraling", "Huisstijl"],
           ["content", "Content"],
           ["faq", "FAQ"],
           ["taken", "Taken"],
@@ -1560,105 +1560,6 @@ export default function BeheerPortaal() {
           <DossierIndelingBeheer />
         </div>
       )}
-
-      {tab === "uitstraling" && (<>
-      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
-        <button
-          onClick={() => toggleRubriek("logo")}
-          aria-expanded={rubriekIsOpen("logo")}
-          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
-        >
-          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("logo") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
-          <span style={{ fontSize: 15, fontWeight: 700 }}>Logo</span>
-        </button>
-        {rubriekIsOpen("logo") && (<>
-        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 18px" }}>
-          Verschijnt op het inlogscherm en bovenaan het klantportaal.
-        </div>
-
-        {logoUrl && (
-          <div style={{ marginBottom: 18, padding: 16, background: KLEUR.lichtblauw, borderRadius: 8, display: "flex", justifyContent: "center" }}>
-            <img src={logoUrl} alt="Huidig logo" style={{ maxHeight: 70, maxWidth: 280, objectFit: "contain" }} />
-          </div>
-        )}
-
-        <label
-          style={{
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px 16px",
-            border: `1.5px dashed ${KLEUR.rand}`, borderRadius: 8, cursor: "pointer", fontSize: 13.5,
-            fontWeight: 600, color: KLEUR.blauw,
-          }}
-        >
-          <Upload size={16} />
-          {uploadStatus === "bezig" ? "Bezig met uploaden..." : "Nieuw logo kiezen"}
-          <input
-            type="file"
-            accept="image/*"
-            style={{ display: "none" }}
-            onChange={(e) => uploadLogo(e.target.files?.[0])}
-          />
-        </label>
-
-        {uploadStatus === "gelukt" && (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, fontSize: 12.5, color: KLEUR.blauw }}>
-            <CheckCircle2 size={14} /> Logo bijgewerkt.
-          </div>
-        )}
-        {uploadStatus === "fout" && (
-          <div style={{ marginTop: 12, fontSize: 12.5, color: KLEUR.rood }}>Uploaden is niet gelukt, probeer het nog eens.</div>
-        )}
-        </>)}
-      </div>
-
-      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <button
-          onClick={() => toggleRubriek("favicon")}
-          aria-expanded={rubriekIsOpen("favicon")}
-          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
-        >
-          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("favicon") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
-          <span style={{ fontSize: 15, fontWeight: 700 }}>Favicon</span>
-        </button>
-        {rubriekIsOpen("favicon") && (<>
-        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 18px" }}>
-          Het kleine icoon in de browsertab. Gebruik bij voorkeur een vierkante afbeelding (PNG of SVG).
-        </div>
-
-        {faviconUrl && (
-          <div style={{ marginBottom: 18, padding: 16, background: KLEUR.lichtblauw, borderRadius: 8, display: "flex", justifyContent: "center" }}>
-            <img src={faviconUrl} alt="Huidige favicon" style={{ height: 48, width: 48, objectFit: "contain" }} />
-          </div>
-        )}
-
-        <label
-          style={{
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px 16px",
-            border: `1.5px dashed ${KLEUR.rand}`, borderRadius: 8, cursor: "pointer", fontSize: 13.5,
-            fontWeight: 600, color: KLEUR.blauw,
-          }}
-        >
-          <Upload size={16} />
-          {faviconUploadStatus === "bezig" ? "Bezig met uploaden..." : "Nieuwe favicon kiezen"}
-          <input
-            type="file"
-            accept="image/*"
-            style={{ display: "none" }}
-            onChange={(e) => uploadFavicon(e.target.files?.[0])}
-          />
-        </label>
-
-        {faviconUploadStatus === "gelukt" && (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, fontSize: 12.5, color: KLEUR.blauw }}>
-            <CheckCircle2 size={14} /> Favicon bijgewerkt.
-          </div>
-        )}
-        {faviconUploadStatus === "fout" && (
-          <div style={{ marginTop: 12, fontSize: 12.5, color: KLEUR.rood }}>Uploaden is niet gelukt, probeer het nog eens.</div>
-        )}
-        </>)}
-      </div>
-
-      </>)}
 
       {tab === "content" && (<>
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
@@ -2319,6 +2220,111 @@ export default function BeheerPortaal() {
       )}
 
       {tab === "instellingen" && (<>
+      {/* Huisstijl — hierheen verplaatst (was een los tabblad) op verzoek van Wouter, 05-08-2026.
+          Word-briefpapier (.docx) hoort er inhoudelijk ook bij (zie hieronder) en staat sinds
+          hetzelfde verzoek niet meer bij de tab Brieven. */}
+      <div style={{ fontSize: 15, fontWeight: 700, color: KLEUR.tekst, margin: "4px 0 2px" }}>Huisstijl</div>
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 16 }}>
+        <button
+          onClick={() => toggleRubriek("logo")}
+          aria-expanded={rubriekIsOpen("logo")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("logo") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Logo</span>
+        </button>
+        {rubriekIsOpen("logo") && (<>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 18px" }}>
+          Verschijnt op het inlogscherm en bovenaan het klantportaal.
+        </div>
+
+        {logoUrl && (
+          <div style={{ marginBottom: 18, padding: 16, background: KLEUR.lichtblauw, borderRadius: 8, display: "flex", justifyContent: "center" }}>
+            <img src={logoUrl} alt="Huidig logo" style={{ maxHeight: 70, maxWidth: 280, objectFit: "contain" }} />
+          </div>
+        )}
+
+        <label
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px 16px",
+            border: `1.5px dashed ${KLEUR.rand}`, borderRadius: 8, cursor: "pointer", fontSize: 13.5,
+            fontWeight: 600, color: KLEUR.blauw,
+          }}
+        >
+          <Upload size={16} />
+          {uploadStatus === "bezig" ? "Bezig met uploaden..." : "Nieuw logo kiezen"}
+          <input
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={(e) => uploadLogo(e.target.files?.[0])}
+          />
+        </label>
+
+        {uploadStatus === "gelukt" && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, fontSize: 12.5, color: KLEUR.blauw }}>
+            <CheckCircle2 size={14} /> Logo bijgewerkt.
+          </div>
+        )}
+        {uploadStatus === "fout" && (
+          <div style={{ marginTop: 12, fontSize: 12.5, color: KLEUR.rood }}>Uploaden is niet gelukt, probeer het nog eens.</div>
+        )}
+        </>)}
+      </div>
+
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+        <button
+          onClick={() => toggleRubriek("favicon")}
+          aria-expanded={rubriekIsOpen("favicon")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("favicon") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Favicon</span>
+        </button>
+        {rubriekIsOpen("favicon") && (<>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 18px" }}>
+          Het kleine icoon in de browsertab. Gebruik bij voorkeur een vierkante afbeelding (PNG of SVG).
+        </div>
+
+        {faviconUrl && (
+          <div style={{ marginBottom: 18, padding: 16, background: KLEUR.lichtblauw, borderRadius: 8, display: "flex", justifyContent: "center" }}>
+            <img src={faviconUrl} alt="Huidige favicon" style={{ height: 48, width: 48, objectFit: "contain" }} />
+          </div>
+        )}
+
+        <label
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px 16px",
+            border: `1.5px dashed ${KLEUR.rand}`, borderRadius: 8, cursor: "pointer", fontSize: 13.5,
+            fontWeight: 600, color: KLEUR.blauw,
+          }}
+        >
+          <Upload size={16} />
+          {faviconUploadStatus === "bezig" ? "Bezig met uploaden..." : "Nieuwe favicon kiezen"}
+          <input
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={(e) => uploadFavicon(e.target.files?.[0])}
+          />
+        </label>
+
+        {faviconUploadStatus === "gelukt" && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, fontSize: 12.5, color: KLEUR.blauw }}>
+            <CheckCircle2 size={14} /> Favicon bijgewerkt.
+          </div>
+        )}
+        {faviconUploadStatus === "fout" && (
+          <div style={{ marginTop: 12, fontSize: 12.5, color: KLEUR.rood }}>Uploaden is niet gelukt, probeer het nog eens.</div>
+        )}
+        </>)}
+      </div>
+
+      {/* Word-briefpapier (.docx) hoort inhoudelijk bij Huisstijl; afzendergegevens (eigen kop
+          hieronder) idem verplaatst — beide beheren dezelfde Brieven-configuratie, zie
+          BrievenAfzenderInstellingen.jsx. */}
+      <BrievenAfzenderInstellingen />
+
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
         <button
           onClick={() => toggleRubriek("webhooks")}

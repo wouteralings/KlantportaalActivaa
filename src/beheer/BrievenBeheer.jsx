@@ -25,22 +25,24 @@ function slug(s) {
 }
 
 /**
- * Beheer van de Brieven-module (herzien 05-08-2026). Briefpapier (logo + achtergrond),
- * afzendergegevens, een beheerbare set invulvelden en de standaardbrieven. Zowel de invulvelden als
- * de standaardbrieven zijn **per item inklapbaar** (standaard dicht — je ziet alleen de naam/label)
- * met de aantalkeuze onderaan (25/50/100/250/500/Alle), zoals elders in het portaal. Opslag via
- * /api/beheer-briefsjablonen; logo/achtergrond via /api/beheer-brieflogo resp. /api/beheer-briefachtergrond.
+ * Beheer van de Brieven-module (herzien 05-08-2026, en nogmaals op 05-08-2026 — reorganisatie op
+ * verzoek van Wouter: "Tabblad brieven afzendergegevens verplaatsen naar instellingen. Logo van
+ * brieven en achtergrond verwijderen. Word-briefpapier verhuizen naar huisstijl."). Dit scherm
+ * toont nu alleen nog de SharePoint-opslagmap, de beheerbare invulvelden en de standaardbrieven.
+ * De afzendergegevens en het Word-briefpapier zijn verplaatst naar Beheer → Instellingen (zie
+ * BrievenAfzenderInstellingen.jsx — zelfde onderliggende configuratie/opslag, alleen elders
+ * getoond). De losse Brieven-logo en -achtergrond (afbeelding-briefpapier) zijn op hetzelfde
+ * verzoek volledig verwijderd — niet verplaatst; de backend-velden (`afzender.logoUrl`/
+ * `achtergrondUrl`) en de bijbehorende endpoints (/api/beheer-brieflogo, /api/beheer-briefachtergrond)
+ * bestaan nog (voor eventuele oude waarde/toekomstig hergebruik) maar zijn nergens meer in te
+ * stellen. Zowel de invulvelden als de standaardbrieven zijn **per item inklapbaar** (standaard
+ * dicht — je ziet alleen de naam/label) met de aantalkeuze onderaan (25/50/100/250/500/Alle),
+ * zoals elders in het portaal. Opslag via /api/beheer-briefsjablonen.
  */
 export default function BrievenBeheer() {
   const [config, setConfig] = useState(null); // { afzender, sharepointMap, sjablonen, briefvelden }
   const [status, setStatus] = useState("rust");
   const [fout, setFout] = useState("");
-  const [logoBezig, setLogoBezig] = useState(false);
-  const [logoFout, setLogoFout] = useState("");
-  const [achtBezig, setAchtBezig] = useState(false);
-  const [achtFout, setAchtFout] = useState("");
-  const [papierBezig, setPapierBezig] = useState(false);
-  const [papierFout, setPapierFout] = useState("");
   const [aantal, setAantal] = useState(25);
   const [veldAantal, setVeldAantal] = useState(25);
   const [openBrieven, setOpenBrieven] = useState(() => new Set()); // indices van opengeklapte brieven
@@ -62,56 +64,6 @@ export default function BrievenBeheer() {
   const toggleSet = (setFn, i) => setFn((s) => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n; });
   const naVerplaats = (setFn, i, j) => setFn((s) => { const n = new Set(s); const hi = s.has(i), hj = s.has(j); hj ? n.add(i) : n.delete(i); hi ? n.add(j) : n.delete(j); return n; });
   const naVerwijder = (setFn, i) => setFn((s) => { const n = new Set(); for (const x of s) { if (x < i) n.add(x); else if (x > i) n.add(x - 1); } return n; });
-
-  const zetAfzender = (key, val) => setConfig((c) => ({ ...c, afzender: { ...c.afzender, [key]: val } }));
-
-  function uploadAfbeelding(bestand, endpoint, veld, setBezig, setUploadFout) {
-    if (!bestand) return;
-    if (!/^image\//.test(bestand.type)) { setUploadFout("Kies een afbeelding (PNG of JPG)."); return; }
-    if (bestand.size > 6 * 1024 * 1024) { setUploadFout("Maximaal 6 MB."); return; }
-    setUploadFout(""); setBezig(true);
-    const lezer = new FileReader();
-    lezer.onload = async () => {
-      try {
-        const res = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dataUrl: lezer.result }) });
-        const d = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(d.error || "Uploaden mislukt.");
-        zetAfzender(veld, d[veld]);
-      } catch (e) { setUploadFout(String(e.message || e)); }
-      finally { setBezig(false); }
-    };
-    lezer.onerror = () => { setBezig(false); setUploadFout("Kon het bestand niet lezen."); };
-    lezer.readAsDataURL(bestand);
-  }
-
-  function uploadBriefpapier(bestand) {
-    if (!bestand) return;
-    if (!/\.docx$/i.test(bestand.name || "") && !/wordprocessing/.test(bestand.type || "")) { setPapierFout("Kies een .docx-bestand."); return; }
-    if (bestand.size > 20 * 1024 * 1024) { setPapierFout("Maximaal 20 MB."); return; }
-    setPapierFout(""); setPapierBezig(true);
-    const lezer = new FileReader();
-    lezer.onload = async () => {
-      try {
-        const res = await fetch("/api/beheer-briefpapier-docx", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dataUrl: lezer.result }) });
-        const d = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(d.error || "Uploaden mislukt.");
-        zetAfzender("briefpapierDocx", d.briefpapierDocx === true);
-      } catch (e) { setPapierFout(String(e.message || e)); }
-      finally { setPapierBezig(false); }
-    };
-    lezer.onerror = () => { setPapierBezig(false); setPapierFout("Kon het bestand niet lezen."); };
-    lezer.readAsDataURL(bestand);
-  }
-  async function verwijderBriefpapier() {
-    setPapierBezig(true); setPapierFout("");
-    try {
-      const res = await fetch("/api/beheer-briefpapier-docx", { method: "DELETE" });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(d.error || "Verwijderen mislukt.");
-      zetAfzender("briefpapierDocx", false);
-    } catch (e) { setPapierFout(String(e.message || e)); }
-    finally { setPapierBezig(false); }
-  }
 
   // Standaardbrieven
   const zetSjabloon = (i, key, val) => setConfig((c) => { const s = c.sjablonen.slice(); s[i] = { ...s[i], [key]: val }; return { ...c, sjablonen: s }; });
@@ -152,13 +104,6 @@ export default function BrievenBeheer() {
 
   if (config === null) return <div style={{ fontSize: 13, color: KLEUR.mutedTekst, padding: "16px 0" }}>Brieven-instellingen laden…</div>;
 
-  const a = config.afzender || {};
-  const veld = (key, titel, opts = {}) => (
-    <div style={{ flex: opts.flex || "1 1 200px", minWidth: opts.minWidth || 160 }}>
-      <span style={labelStijl}>{titel}</span>
-      <input value={a[key] || ""} onChange={(e) => zetAfzender(key, e.target.value)} placeholder={opts.placeholder || ""} style={invoerStijl} />
-    </div>
-  );
   const zichtbareSjablonen = aantal === Infinity ? config.sjablonen : config.sjablonen.slice(0, aantal);
   const zichtbareVelden = veldAantal === Infinity ? config.briefvelden : config.briefvelden.slice(0, veldAantal);
 
@@ -168,100 +113,10 @@ export default function BrievenBeheer() {
         <Mail size={17} color={KLEUR.blauw} /><h3 style={{ margin: 0, fontSize: 15, color: KLEUR.tekst }}>Brieven</h3>
       </div>
       <p style={{ fontSize: 12.5, color: KLEUR.subtekst, margin: "0 0 18px", maxWidth: 760 }}>
-        Briefpapier (logo of volledige achtergrond), afzendergegevens, invulvelden en standaardbrieven
-        voor de tab Klantoverzicht → Brieven. In de tekst kun je {"{{merge-velden}}"} gebruiken.
+        Opslagmap, invulvelden en standaardbrieven voor de tab Klantoverzicht → Brieven. In de tekst
+        kun je {"{{merge-velden}}"} gebruiken. Briefpapier (Word-briefpapier voor de Word-download)
+        en de afzendergegevens staan sinds kort bij <strong>Beheer → Instellingen</strong>.
       </p>
-
-      {/* Briefpapier: logo + achtergrond */}
-      <Rubriek titel="Briefpapier">
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 24 }}>
-          <AfbeeldingBlok
-            titel="Logo" url={a.logoUrl} bezig={logoBezig} fout={logoFout}
-            onKies={(f) => uploadAfbeelding(f, "/api/beheer-brieflogo", "logoUrl", setLogoBezig, setLogoFout)}
-            onVerwijder={() => zetAfzender("logoUrl", "")}
-          >
-            <div style={{ display: "flex", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
-              <div><span style={labelStijl}>Uitlijning</span>
-                <select value={a.logoUitlijning || "links"} onChange={(e) => zetAfzender("logoUitlijning", e.target.value)} style={invoerStijl}>
-                  <option value="links">Links</option><option value="midden">Midden</option><option value="rechts">Rechts</option>
-                </select>
-              </div>
-              <div><span style={labelStijl}>Grootte</span>
-                <select value={a.logoGrootte || "normaal"} onChange={(e) => zetAfzender("logoGrootte", e.target.value)} style={invoerStijl}>
-                  <option value="klein">Klein</option><option value="normaal">Normaal</option><option value="groot">Groot</option>
-                </select>
-              </div>
-            </div>
-          </AfbeeldingBlok>
-
-          <AfbeeldingBlok
-            titel="Achtergrond (volledig briefpapier)" url={a.achtergrondUrl} bezig={achtBezig} fout={achtFout} groot
-            onKies={(f) => uploadAfbeelding(f, "/api/beheer-briefachtergrond", "achtergrondUrl", setAchtBezig, setAchtFout)}
-            onVerwijder={() => zetAfzender("achtergrondUrl", "")}
-          >
-            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 10 }}>
-              Een geüploade achtergrond wordt als volledige A4-afbeelding achter de brief getoond. Zit je
-              logo/adres al ín het briefpapier, dan laat het portaal de eigen kop en voetnoot automatisch weg.
-              PNG of JPG op A4-verhouding, max 6 MB.
-            </div>
-          </AfbeeldingBlok>
-        </div>
-
-        {/* Word-briefpapier (.docx) — voor de Word-download op jullie eigen briefpapier */}
-        <div style={{ marginTop: 16, borderTop: `1px solid ${KLEUR.rand}`, paddingTop: 14 }}>
-          <span style={labelStijl}>Word-briefpapier (.docx) — voor de Word-download</span>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            {a.briefpapierDocx
-              ? <span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: KLEUR.groen, fontSize: 12.5, fontWeight: 600 }}><CheckCircle2 size={15} /> Ingesteld</span>
-              : <span style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Nog geen Word-briefpapier</span>}
-            <label style={{ ...knopLichtStijl, cursor: papierBezig ? "default" : "pointer", opacity: papierBezig ? 0.6 : 1 }}>
-              {papierBezig ? "Bezig…" : (a.briefpapierDocx ? "Vervangen" : "Uploaden")}
-              <input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style={{ display: "none" }} disabled={papierBezig} onChange={(e) => { uploadBriefpapier(e.target.files && e.target.files[0]); e.target.value = ""; }} />
-            </label>
-            {a.briefpapierDocx && <button onClick={verwijderBriefpapier} disabled={papierBezig} style={{ ...knopLichtStijl, color: KLEUR.rood }}>Verwijderen</button>}
-          </div>
-          <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8, maxWidth: 720 }}>
-            Upload één .docx met jullie huisstijl in de <strong>kop- en voettekst</strong> (logo/adres/voettekst). Bij
-            "Word downloaden" zet het portaal de brief in dit briefpapier — een echte Word op jullie huisstijl. De
-            afbeelding-achtergrond hierboven blijft voor het voorbeeld/PDF; dit Word-briefpapier geldt voor de Word-uitvoer.
-          </div>
-          {papierFout && <div style={{ fontSize: 11.5, color: KLEUR.rood, marginTop: 8 }}>{papierFout}</div>}
-        </div>
-      </Rubriek>
-
-      {/* Afzendergegevens */}
-      <Rubriek titel="Afzendergegevens">
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-          {veld("bedrijfsnaam", "Bedrijfsnaam", { flex: "1 1 260px" })}{veld("kvk", "KvK-nummer", { flex: "1 1 160px" })}
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 12 }}>
-          {veld("adres", "Adres (straat + nr)", { flex: "2 1 260px" })}{veld("postcode", "Postcode", { flex: "1 1 120px" })}{veld("plaats", "Plaats", { flex: "1 1 160px" })}
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 12 }}>
-          {veld("telefoon", "Telefoon", { flex: "1 1 160px" })}{veld("email", "E-mail", { flex: "1 1 200px" })}{veld("website", "Website", { flex: "1 1 200px" })}
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 12, alignItems: "flex-end" }}>
-          {veld("afsluiting", "Afsluiting", { flex: "1 1 220px", placeholder: "Met vriendelijke groet," })}
-          <div style={{ flex: "1 1 240px", minWidth: 200 }}>
-            <span style={labelStijl}>Wie ondertekent standaard</span>
-            <select value={a.ondertekenaarBron || "relatiebeheerder"} onChange={(e) => zetAfzender("ondertekenaarBron", e.target.value)} style={invoerStijl}>
-              <option value="relatiebeheerder">Relatiebeheerder van de klant</option>
-              <option value="accountant">Accountant van de klant</option>
-              <option value="vast">Vaste ondertekenaar</option>
-            </select>
-          </div>
-          {a.ondertekenaarBron === "vast" && (
-            <div style={{ flex: "1 1 200px", minWidth: 160 }}>
-              <span style={labelStijl}>Vaste ondertekenaar</span>
-              <input value={a.ondertekenaarVast || ""} onChange={(e) => zetAfzender("ondertekenaarVast", e.target.value)} style={invoerStijl} />
-            </div>
-          )}
-        </div>
-        <div style={{ marginTop: 12 }}>
-          <span style={labelStijl}>Voetnoot</span>
-          <input value={a.voetnoot || ""} onChange={(e) => zetAfzender("voetnoot", e.target.value)} placeholder="Leeg = automatisch (bedrijfsnaam · KvK · e-mail · website)" style={invoerStijl} />
-        </div>
-      </Rubriek>
 
       {/* SharePoint-map */}
       <Rubriek titel="Opslaan in klantdossier">
@@ -413,30 +268,6 @@ function AantalKiezer({ aantal, setAantal, getoond, totaal }) {
           <button key={lbl} onClick={() => setAantal(n)} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", border: `1px solid ${aantal === n ? KLEUR.blauw : KLEUR.rand}`, background: aantal === n ? KLEUR.blauw : "#fff", color: aantal === n ? "#fff" : KLEUR.subtekst }}>{lbl}</button>
         ))}
       </div>
-    </div>
-  );
-}
-
-function AfbeeldingBlok({ titel, url, bezig, fout, onKies, onVerwijder, groot, children }) {
-  return (
-    <div style={{ flex: groot ? "1 1 320px" : "1 1 240px", minWidth: 220 }}>
-      <span style={labelStijl}>{titel}</span>
-      <div style={{ border: `1px dashed ${KLEUR.rand}`, borderRadius: 10, padding: 14, background: "#FBFBF9", textAlign: "center" }}>
-        {url ? (
-          <img src={url} alt={titel} style={{ maxWidth: "100%", maxHeight: groot ? 150 : 90, height: "auto", display: "inline-block" }} />
-        ) : (
-          <div style={{ fontSize: 12, color: KLEUR.mutedTekst, padding: "18px 8px" }}>Nog geen afbeelding</div>
-        )}
-        <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 12 }}>
-          <label style={{ ...knopLichtStijl, cursor: bezig ? "default" : "pointer", opacity: bezig ? 0.6 : 1 }}>
-            {bezig ? "Uploaden…" : (url ? "Vervangen" : "Uploaden")}
-            <input type="file" accept="image/png,image/jpeg" style={{ display: "none" }} disabled={bezig} onChange={(e) => { onKies(e.target.files && e.target.files[0]); e.target.value = ""; }} />
-          </label>
-          {url && <button onClick={onVerwijder} style={{ ...knopLichtStijl, color: KLEUR.rood }}>Verwijderen</button>}
-        </div>
-        {fout && <div style={{ fontSize: 11.5, color: KLEUR.rood, marginTop: 8 }}>{fout}</div>}
-      </div>
-      {children}
     </div>
   );
 }
