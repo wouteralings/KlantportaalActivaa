@@ -1910,6 +1910,7 @@ function MedewerkerDossiers({ soort }) {
   const [detailFout, setDetailFout] = useState("");
   const [nieuwOpen, setNieuwOpen] = useState(false); // "+ Nieuwe ..."-popup
   const [magVerwijderen, setMagVerwijderen] = useState(false); // los in te stellen recht (Beheer → Medewerkers) — beheerders mogen dit sowieso altijd
+  const [magWijzigen, setMagWijzigen] = useState(false); // klant-wijzigrecht — zelfde recht als op de klantkaart, hier nodig voor de ingebedde "Vaste uitvragen" (zie DossierDetail)
   const [extraKolommen, setExtraKolommen] = useState([]); // door Beheer → Kolommen toegevoegde extra velden voor déze soort
   // true zodra de opgeslagen weergaven/laatste stand zijn opgehaald én toegepast — pas dan mag de
   // auto-opslag-effect verderop in dit component gaan schrijven (zie ook api/_gedeeld/weergaven.js).
@@ -1919,13 +1920,18 @@ function MedewerkerDossiers({ soort }) {
   const scherm = "dossiers-" + soort; // eigen namespace voor opgeslagen weergaven (zie api/_gedeeld/weergaven.js)
   const soortLabelText = soort === "vpb" ? "Vennootschapsbelasting" : "Inkomstenbelasting";
 
-  // Verwijder-recht voor déze dossiersoort ophalen (per soort een ander recht — magVerwijderIb/magVerwijderVpb).
+  // Verwijder-recht voor déze dossiersoort ophalen (per soort een ander recht — magVerwijderIb/magVerwijderVpb),
+  // en het algemene klant-wijzigrecht (zelfde recht als de klantkaart) voor de ingebedde "Vaste uitvragen".
   useEffect(() => {
     let actief = true;
     fetch("/api/medewerker-rechten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { if (actief) setMagVerwijderen(!!d.beheerder || !!(soort === "vpb" ? d.magVerwijderVpb : d.magVerwijderIb)); })
-      .catch(() => { if (actief) setMagVerwijderen(false); });
+      .then((d) => {
+        if (!actief) return;
+        setMagVerwijderen(!!d.beheerder || !!(soort === "vpb" ? d.magVerwijderVpb : d.magVerwijderIb));
+        setMagWijzigen(!!d.magWijzigen);
+      })
+      .catch(() => { if (actief) { setMagVerwijderen(false); setMagWijzigen(false); } });
     return () => { actief = false; };
   }, [soort]);
 
@@ -2083,7 +2089,9 @@ function MedewerkerDossiers({ soort }) {
         alleenLezen={detail.alleenLezen || []}
         picklistOpties={detail.picklistOpties || {}}
         gekoppeldeUitvragen={detail.gekoppeldeUitvragen || []}
+        gekoppeldeLijstId={detail.gekoppeldeLijstId || ""}
         magVerwijderen={magVerwijderen}
+        magWijzigen={magWijzigen}
         onDossierVerwijderd={dossierVerwijderd}
         onTerug={() => { setDetailId(null); setDetail(null); }}
         onOpgeslagen={(bijgewerkt) => {
@@ -2812,7 +2820,7 @@ function AangifteVersturenKaart({ dossier, disabled }) {
    kaart bovenaan (vóór de secties) de gekoppelde uitvraaglijst(en) — de volledige vragenlijst
    (documenten aftekenen/heropenen, vragen van de klant beantwoorden) rechtstreeks ingebouwd via
    VragenlijstDetail, dezelfde functionaliteit als het tabblad Vragenlijsten. */
-function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen, picklistOpties, gekoppeldeUitvragen, magVerwijderen, onDossierVerwijderd, onTerug, onOpgeslagen, onDossierAangemaakt }) {
+function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen, picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId, magVerwijderen, magWijzigen, onDossierVerwijderd, onTerug, onOpgeslagen, onDossierAangemaakt }) {
   const [status, setStatus] = useState(dossier.status != null ? String(dossier.status) : "");
   const [urlDossier, setUrlDossier] = useState(dossier.urlDossier || "");
   const [documentUrl, setDocumentUrl] = useState(dossier.documentUrl || "");
@@ -3086,6 +3094,16 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
           </div>
         );
       })}
+
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
+        <KlantVasteUitvragen
+          accountId={dossier.accountId}
+          klantnaam={dossier.klantnaam}
+          defaultContact={{ id: "", naam: "" }}
+          magWijzigen={magWijzigen}
+          prioriteitLijstId={gekoppeldeLijstId}
+        />
+      </div>
 
       {zichtbareSecties.map((sectie) => (
         <div key={sectie.sleutel} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>

@@ -5,7 +5,7 @@
  *
  *   - GET  ?soort=ib|vpb&id=<guid>
  *       → { dossier, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen,
- *           picklistOpties, gekoppeldeUitvragen }
+ *           picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId }
  *         (catalogus bevat naast de vrije catalogus ook de "vaste" velden __status/__urlDossier/
  *         __documentUrl (zie vasteVeldenVoorSoort() in dossierVelden.js) en eventuele door Wouter
  *         zelf via Beheer → Dossiers aangemaakte extra velden (dossierIndeling.<soort>.
@@ -20,7 +20,11 @@
  *         verzoek (zelfde vorm/verrijkVerzoek() als het Vragenlijsten-werkoverzicht — documenten,
  *         vragen, voortgang), zodat het medewerkersportaal de vragenlijst rechtstreeks in het
  *         dossier kan tonen én laten beantwoorden (VragenlijstDetail-component). Zie
- *         gekoppeldeUitvragenVoorDossier() hieronder.)
+ *         gekoppeldeUitvragenVoorDossier() hieronder. gekoppeldeLijstId = de standaard-aanleverlijst
+ *         van datzelfde gekoppelde onderwerp (onderwerp.standaardLijstId) — gebruikt om de ingebedde
+ *         "Vaste uitvragen" (klantkaart) in het dossier op voor te sorteren (die lijst bovenaan en
+ *         opengeklapt); leeg zonder gekoppeld onderwerp of standaardlijst. Zie
+ *         gekoppeldeLijstIdVoorDossier() hieronder.)
  *   - POST { soort, id, status?, urlDossier?, documentUrl?, velden? }  → bijwerken (weigert bij
  *         inactief). "velden" is de vrije bag met catalogussleutels, bijv. { loon: true }.
  *         Velden die in Beheer → Dossiers op alleen-lezen staan worden hier genegeerd, ook al
@@ -37,6 +41,7 @@ const { SOORTEN, haalEenDossier, werkDossierBij, verwijderDossier, haalDynamisch
 const { haalInstellingen } = require("../_gedeeld/instellingen");
 const { standaardIndelingIB, standaardIndelingOverig, vasteVeldenVoorSoort, metLabels } = require("../_gedeeld/dossierVelden");
 const { haalVoorAccounts, haalLaatstGezien, verrijkVerzoek } = require("../_gedeeld/aanleververzoeken");
+const { haalOnderwerpen } = require("../_gedeeld/aanleveronderwerpen");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
 const { magVerwijderIb, magVerwijderVpb } = require("../_gedeeld/wijzigrechten");
 
@@ -89,6 +94,23 @@ async function gekoppeldeUitvragenVoorDossier(dossier, onderwerpId) {
   }
 }
 
+/** Zoekt de standaard-aanleverlijst die bij het aan deze dossiersoort gekoppelde onderwerp hoort
+ *  (Beheer → Dossiers → "Gekoppelde uitvraaglijst"). Gebruikt door het medewerkersportaal om de
+ *  ingebedde "Vaste uitvragen" (zie DossierDetail/KlantVasteUitvragen in MedewerkerPortaal.jsx) op
+ *  voor te sorteren, zodat de bij dit dossier horende lijst bovenaan staat en meteen opengeklapt is
+ *  i.p.v. dat de medewerker tussen alle aanleverlijsten moet zoeken. Leeg zonder gekoppeld onderwerp,
+ *  of als dat onderwerp (nog) geen standaardlijst heeft. Best-effort: faalt de onderwerpen-opslag,
+ *  dan blokkeert dat het dossier niet. */
+async function gekoppeldeLijstIdVoorDossier(onderwerpId) {
+  if (!onderwerpId) return "";
+  try {
+    const onderwerp = (await haalOnderwerpen()).find((o) => o.id === onderwerpId);
+    return (onderwerp && onderwerp.standaardLijstId) || "";
+  } catch {
+    return "";
+  }
+}
+
 module.exports = async function (context, req) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   if (!resource) { context.res = { status: 501, headers: { "Content-Type": "application/json" }, body: { error: "Dynamics-koppeling is nog niet geconfigureerd." } }; return; }
@@ -124,7 +146,8 @@ module.exports = async function (context, req) {
       // Gekoppelde uitvraaglijst(en) (aanleververzoeken) — alleen als Wouter in Beheer → Dossiers
       // een onderwerp aan deze dossiersoort heeft gekoppeld (indeling.onderwerpId).
       const gekoppeldeUitvragen = await gekoppeldeUitvragenVoorDossier(dossier, indeling.onderwerpId);
-      context.res = { headers: { "Content-Type": "application/json" }, body: { dossier, statusOpties: soort.statusOpties, catalogus, secties: indeling.secties, verborgen: indeling.verborgen, voorwaarden: indeling.voorwaarden, alleenLezen: indeling.alleenLezen, picklistOpties, gekoppeldeUitvragen } };
+      const gekoppeldeLijstId = await gekoppeldeLijstIdVoorDossier(indeling.onderwerpId);
+      context.res = { headers: { "Content-Type": "application/json" }, body: { dossier, statusOpties: soort.statusOpties, catalogus, secties: indeling.secties, verborgen: indeling.verborgen, voorwaarden: indeling.voorwaarden, alleenLezen: indeling.alleenLezen, picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId } };
       return;
     }
 

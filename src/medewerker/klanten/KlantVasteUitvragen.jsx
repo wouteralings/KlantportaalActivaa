@@ -33,8 +33,14 @@ const datum = (iso) => {
  * zodat je hem het jaar erop met één klik (alleen het jaar aanpassen) opnieuw uitzet. Achter elke
  * uitvraag zie je wie hem laatst bewerkte en wanneer. Leest/schrijft via
  * /api/medewerker-klant-vaste-uitvragen; uitzetten via /api/medewerker-aanleververzoeken.
+ *
+ * `prioriteitLijstId` (optioneel): als dit component ingebed staat in een aangifte (zie DossierDetail
+ * in MedewerkerPortaal.jsx) is dit de aanleverlijst van het aan die dossiersoort gekoppelde onderwerp
+ * (Beheer → Dossiers → "Gekoppelde uitvraaglijst") — die lijst wordt dan vóórgesorteerd (bovenaan) en
+ * staat bij het laden meteen opengeklapt, zodat je 'm niet tussen alle aanleverlijsten hoeft te
+ * zoeken. Op de klantkaart zelf wordt dit niet meegegeven, dan verandert er niets aan de volgorde.
  */
-export default function KlantVasteUitvragen({ accountId, klantnaam, defaultContact, magWijzigen }) {
+export default function KlantVasteUitvragen({ accountId, klantnaam, defaultContact, magWijzigen, prioriteitLijstId }) {
   const [data, setData] = useState(null); // { lijsten, vaste } | null = laden
   const [werk, setWerk] = useState({}); // lijstId -> item (bewerkbaar)
   const [status, setStatus] = useState({}); // lijstId -> 'rust'|'bezig'|'opgeslagen'|'fout'
@@ -50,10 +56,22 @@ export default function KlantVasteUitvragen({ accountId, klantnaam, defaultConta
   const laad = () =>
     fetch("/api/medewerker-klant-vaste-uitvragen?accountId=" + encodeURIComponent(accountId))
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { setData({ lijsten: d.lijsten || [], vaste: d.vaste || {} }); setWerk({ ...(d.vaste || {}) }); })
+      .then((d) => {
+        setData({ lijsten: d.lijsten || [], vaste: d.vaste || {} });
+        setWerk({ ...(d.vaste || {}) });
+        // De gekoppelde lijst (indien meegegeven) meteen opengeklapt tonen — alleen bij het laden,
+        // zodat een handmatig dichtgeklikte lijst daarna niet steeds weer vanzelf openspringt.
+        if (prioriteitLijstId) setOpen((o) => new Set(o).add(prioriteitLijstId));
+      })
       .catch(() => setData({ lijsten: [], vaste: {} }));
 
   useEffect(() => { setData(null); setWerk({}); laad(); /* eslint-disable-next-line */ }, [accountId]);
+
+  // De gekoppelde lijst (prioriteitLijstId) bovenaan tonen; de rest houdt onderling zijn volgorde
+  // (Array.sort is stabiel) — zonder prioriteitLijstId (bv. op de klantkaart) verandert er niets.
+  const lijstenGesorteerd = data && prioriteitLijstId
+    ? [...data.lijsten].sort((a, b) => (a.id === prioriteitLijstId ? -1 : b.id === prioriteitLijstId ? 1 : 0))
+    : (data ? data.lijsten : []);
 
   useEffect(() => {
     if (!zoekVoor || cTerm.trim().length < 2) { setCRes([]); return; }
@@ -148,12 +166,12 @@ export default function KlantVasteUitvragen({ accountId, klantnaam, defaultConta
         met één klik opnieuw uit — alleen het jaar aanpassen.
       </div>
 
-      {data.lijsten.length === 0 && (
+      {lijstenGesorteerd.length === 0 && (
         <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Er zijn nog geen aanleverlijsten (Beheer → Aanleverlijsten).</div>
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {data.lijsten.map((lijst) => {
+        {lijstenGesorteerd.map((lijst) => {
           const item = werk[lijst.id];
           const isIngericht = ingericht(lijst.id);
           const isOpen = open.has(lijst.id);
@@ -161,12 +179,14 @@ export default function KlantVasteUitvragen({ accountId, klantnaam, defaultConta
           const regels = effRegels(lijst);
           const contactRecht = item && item.contactId ? recht[item.contactId] : null;
           const st = status[lijst.id] || "rust";
+          const isGekoppeld = !!prioriteitLijstId && lijst.id === prioriteitLijstId;
           return (
             <div key={lijst.id} style={{ border: `1px solid ${isIngericht ? KLEUR.blauw : KLEUR.rand}`, borderRadius: 8, background: isIngericht ? "#fff" : "#FBFBF9" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px" }}>
                 <button onClick={() => toggle(lijst.id)} style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, background: "none", border: "none", textAlign: "left", cursor: "pointer", padding: 0 }}>
                   <ChevronDown size={15} color={KLEUR.mutedTekst} style={{ flexShrink: 0, transform: isOpen ? "none" : "rotate(-90deg)", transition: "transform .15s" }} />
                   <span style={{ fontSize: 13, fontWeight: 700, color: KLEUR.tekst, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{lijst.naam || "Naamloze lijst"}</span>
+                  {isGekoppeld && <span title="Gekoppeld aan dit dossier (Beheer → Dossiers)" style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: "#F0F0EC", color: KLEUR.mutedTekst, flexShrink: 0 }}>Gekoppeld</span>}
                   {isIngericht && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: KLEUR.lichtblauw, color: KLEUR.blauw, flexShrink: 0 }}>Ingericht</span>}
                   {aangepast && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: "#FBF3E4", color: KLEUR.goud, flexShrink: 0 }}>Aangepast</span>}
                 </button>
