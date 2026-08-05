@@ -15,6 +15,15 @@ const STANDAARD_AANGIFTE_MAIL_TEKST =
   "U kunt de aangifte inzien via het portaal, onder \"Taken\". Zodra u akkoord geeft, ronden wij de aangifte verder voor u af.\n\n" +
   "Heeft u vragen? Neem gerust contact met ons op.\n\nMet vriendelijke groet,\nActivaa Accountants en Adviseurs";
 
+// Standaard-submap (onder cr283_sharepoint) waarin een via het IB-dossier gedropte aangifte belandt,
+// het onderwerp van de bijbehorende Dynamics-taak en de optiesetwaarde (soort) van die taak — tot
+// 05-08-2026 hardcoded in api/medewerker-aangifte-versturen, nu instelbaar via Beheer → Dossiers.
+// Pad ondersteunt submappen (scheiding met "/") en dezelfde plaatshouders als de rest: {klant}/{jaar}.
+const STANDAARD_AANGIFTE_PAD = "Correspondentie";
+const STANDAARD_AANGIFTE_TAAK_ONDERWERP = "Aangifte inkomstenbelasting {jaar} klaar ter beoordeling";
+// "In afwachting reactie client" — bestaande optiesetwaarde op Task.cr283_soortactiecategorie.
+const STANDAARD_AANGIFTE_TAAK_SOORT = 8006;
+
 async function haalContainerClient() {
   if (cachedContainerClient) return cachedContainerClient;
   const connectionString = process.env.STORAGE_CONNECTION_STRING;
@@ -41,7 +50,7 @@ async function haalInstellingen() {
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
 
   const bestaat = await blobClient.exists();
-  if (!bestaat) return { medewerkersGroepId: "", medewerkersGroepNaam: "", googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "", reviewWebhookUrl: "", facturatiemodulePrijs: 5, urenmodulePrijs: 2.5, rapportagesmodulePrijs: 7.5, bezittingenmodulePrijs: 5, rittenmodulePrijs: 1.5, contractenmodulePrijs: 2.5, contractenSharepointOpslag: false, contractenSharepointMap: "Contracten", contractenReminderAfzender: "", contractenReminderOnderwerp: "", contractenReminderTekst: "", klantoverzicht: { extraKolommen: [], standaardVerborgen: [] }, dossierIndeling: { ib: standaardIndelingIB() }, aangifteBestandsnaamTemplate: "Aangifte inkomstenbelasting {jaar} - {klant}.pdf", aangifteMailOnderwerpTemplate: STANDAARD_AANGIFTE_MAIL_ONDERWERP, aangifteMailTekstTemplate: STANDAARD_AANGIFTE_MAIL_TEKST, dossierExtraKolommen: { ib: [], vpb: [] }, contactpersonenExtraKolommen: [] };
+  if (!bestaat) return { medewerkersGroepId: "", medewerkersGroepNaam: "", googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "", reviewWebhookUrl: "", facturatiemodulePrijs: 5, urenmodulePrijs: 2.5, rapportagesmodulePrijs: 7.5, bezittingenmodulePrijs: 5, rittenmodulePrijs: 1.5, contractenmodulePrijs: 2.5, contractenSharepointOpslag: false, contractenSharepointMap: "Contracten", contractenReminderAfzender: "", contractenReminderOnderwerp: "", contractenReminderTekst: "", klantoverzicht: { extraKolommen: [], standaardVerborgen: [] }, dossierIndeling: { ib: standaardIndelingIB() }, aangifteBestandsnaamTemplate: "Aangifte inkomstenbelasting {jaar} - {klant}.pdf", aangifteMailOnderwerpTemplate: STANDAARD_AANGIFTE_MAIL_ONDERWERP, aangifteMailTekstTemplate: STANDAARD_AANGIFTE_MAIL_TEKST, aangiftePadTemplate: STANDAARD_AANGIFTE_PAD, aangifteTaakOnderwerpTemplate: STANDAARD_AANGIFTE_TAAK_ONDERWERP, aangifteTaakSoort: STANDAARD_AANGIFTE_TAAK_SOORT, dossierExtraKolommen: { ib: [], vpb: [] }, contactpersonenExtraKolommen: [] };
 
   const downloadResponse = await blobClient.download();
   const tekst = await streamNaarTekst(downloadResponse.readableStreamBody);
@@ -129,6 +138,14 @@ async function haalInstellingen() {
     // bepaalt alleen wat daar standaard al is ingevuld.
     aangifteMailOnderwerpTemplate: STANDAARD_AANGIFTE_MAIL_ONDERWERP,
     aangifteMailTekstTemplate: STANDAARD_AANGIFTE_MAIL_TEKST,
+    // Submap onder de SharePoint-basismap (cr283_sharepoint) van de ontvanger waarin de aangifte-PDF
+    // wordt opgeslagen, het onderwerp van de aangemaakte Dynamics-taak en de soort (optiesetwaarde,
+    // Task.cr283_soortactiecategorie / DYNAMICS_TAAK_SOORT_VELD) van die taak — alle drie instelbaar
+    // via Beheer → Dossiers (DossierIndelingBeheer.jsx), zie api/medewerker-aangifte-versturen. Het pad
+    // mag submappen bevatten (scheiding met "/") en dezelfde plaatshouders {klant}/{jaar} als de rest.
+    aangiftePadTemplate: STANDAARD_AANGIFTE_PAD,
+    aangifteTaakOnderwerpTemplate: STANDAARD_AANGIFTE_TAAK_ONDERWERP,
+    aangifteTaakSoort: STANDAARD_AANGIFTE_TAAK_SOORT,
     // Extra (door Beheer zelf toegevoegde) Dynamics-velden als kolom in de hoofdtabellen
     // Inkomstenbelasting/Vennootschapsbelasting — zelfde vorm als klantoverzicht.extraKolommen
     // hierboven, maar per dossiersoort (andere entiteit/velden per soort, zie api/_gedeeld/dossiers.js).

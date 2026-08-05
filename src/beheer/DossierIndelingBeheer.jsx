@@ -120,6 +120,15 @@ export default function DossierIndelingBeheer() {
   const [mailOnderwerpTemplate, setMailOnderwerpTemplate] = useState("");
   const [mailTekstTemplate, setMailTekstTemplate] = useState("");
   const [mailStatus, setMailStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
+  // Pad (submap na cr283_sharepoint), taak-onderwerp en taak-soort voor diezelfde "Aangifte
+  // versturen"-actie — samen in één blok met één "Opslaan"-knop (net als het mail-blok hierboven).
+  // De taak-soort-opties komen uit /api/beheer-taaksoorten (dezelfde optieset cr283_soortactiecategorie
+  // die ook Beheer → Taken gebruikt), zodat je een échte taaksoort kiest i.p.v. een nummer te typen.
+  const [padTemplate, setPadTemplate] = useState("");
+  const [taakOnderwerpTemplate, setTaakOnderwerpTemplate] = useState("");
+  const [taakSoort, setTaakSoort] = useState(""); // optiesetwaarde als string in de <select>
+  const [taakSoortOpties, setTaakSoortOpties] = useState([]); // [{ waarde, label }]
+  const [taakInstellingStatus, setTaakInstellingStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
   const [fout, setFout] = useState("");
   const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
   const [nieuweSectieTitel, setNieuweSectieTitel] = useState("");
@@ -138,8 +147,11 @@ export default function DossierIndelingBeheer() {
       // dat de rest van dit scherm niet blokkeren (dan toont de dropdown gewoon "nog geen
       // onderwerpen ingericht").
       fetch("/api/beheer-aanleveronderwerpen").then((r) => (r.ok ? r.json() : { onderwerpen: [] })).catch(() => ({ onderwerpen: [] })),
+      // Best-effort: de taaksoort-optieset (cr283_soortactiecategorie) voor de dropdown hieronder — als
+      // die (nog) niet ophaalbaar is, valt het blok terug op een vrij in te vullen nummer.
+      fetch("/api/beheer-taaksoorten").then((r) => (r.ok ? r.json() : { opties: [] })).catch(() => ({ opties: [] })),
     ])
-      .then(([veldenData, instellingenData, onderwerpenData]) => {
+      .then(([veldenData, instellingenData, onderwerpenData, taaksoortenData]) => {
         setCatalogus(veldenData.catalogus || []);
         const huidigeIndeling = instellingenData.dossierIndeling || {};
         setDossierIndeling(huidigeIndeling);
@@ -156,6 +168,10 @@ export default function DossierIndelingBeheer() {
         setBestandsnaamTemplate(instellingenData.aangifteBestandsnaamTemplate || "");
         setMailOnderwerpTemplate(instellingenData.aangifteMailOnderwerpTemplate || "");
         setMailTekstTemplate(instellingenData.aangifteMailTekstTemplate || "");
+        setPadTemplate(instellingenData.aangiftePadTemplate || "");
+        setTaakOnderwerpTemplate(instellingenData.aangifteTaakOnderwerpTemplate || "");
+        setTaakSoort(instellingenData.aangifteTaakSoort != null ? String(instellingenData.aangifteTaakSoort) : "");
+        setTaakSoortOpties((taaksoortenData && taaksoortenData.opties) || []);
       })
       .catch(() => { setCatalogus([]); setSecties([]); setFout("Kon de dossierindeling niet laden."); });
   }, []);
@@ -239,6 +255,29 @@ export default function DossierIndelingBeheer() {
       setMailStatus("opgeslagen");
     } catch {
       setMailStatus("fout");
+    }
+  };
+
+  /** Pad (submap), taak-onderwerp en taak-soort samen opslaan — zelfde generieke
+   *  /api/beheer-instellingen als hierboven, gewoon drie extra top-level velden. De soort wordt als
+   *  getal opgeslagen (leeg = de backend valt terug op de standaardwaarde). */
+  const bewaarAangifteTaakInstellingen = async () => {
+    setTaakInstellingStatus("bezig");
+    try {
+      const soortGetal = taakSoort === "" ? null : Number(taakSoort);
+      const r = await fetch("/api/beheer-instellingen", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          aangiftePadTemplate: padTemplate,
+          aangifteTaakOnderwerpTemplate: taakOnderwerpTemplate,
+          aangifteTaakSoort: Number.isFinite(soortGetal) ? soortGetal : null,
+        }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      setTaakInstellingStatus("opgeslagen");
+    } catch {
+      setTaakInstellingStatus("fout");
     }
   };
 
@@ -579,6 +618,76 @@ export default function DossierIndelingBeheer() {
           </button>
           {mailStatus === "opgeslagen" && <span style={{ fontSize: 11.5, color: KLEUR.groen }}>Opgeslagen</span>}
           {mailStatus === "fout" && <span style={{ fontSize: 11.5, color: KLEUR.rood }}>Opslaan mislukt</span>}
+        </div>
+      </div>
+
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14, marginBottom: 18, background: KLEUR.lichtblauw }}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Opslag & taak — aangifte versturen</div>
+        <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 12, maxWidth: 640 }}>
+          Waar de gedropte aangifte in het SharePoint-dossier terechtkomt, en hoe de bijbehorende taak
+          in Dynamics eruitziet. De submap staat onder de dossiermap van de klant ({" "}
+          <code>cr283_sharepoint</code>) — met een <code>/</code> maak je submappen (bijv.{" "}
+          <code>Correspondentie/{"{jaar}"}</code>). Plaatshouders <code>{"{klant}"}</code> en{" "}
+          <code>{"{jaar}"}</code> mogen ook in het pad en het taak-onderwerp.
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 10 }}>
+          <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>Submap in het SharePoint-dossier</span>
+          <input
+            value={padTemplate}
+            onChange={(e) => { setPadTemplate(e.target.value); setTaakInstellingStatus("rust"); }}
+            placeholder="Correspondentie"
+            style={{ ...invoerStijl, width: "100%", maxWidth: 420, background: "#fff" }}
+          />
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 10 }}>
+          <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>Onderwerp van de taak</span>
+          <input
+            value={taakOnderwerpTemplate}
+            onChange={(e) => { setTaakOnderwerpTemplate(e.target.value); setTaakInstellingStatus("rust"); }}
+            placeholder="Aangifte inkomstenbelasting {jaar} klaar ter beoordeling"
+            style={{ ...invoerStijl, width: "100%", maxWidth: 560, background: "#fff" }}
+          />
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 12 }}>
+          <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>Soort taak</span>
+          {taakSoortOpties.length > 0 ? (
+            <select
+              value={taakSoort}
+              onChange={(e) => { setTaakSoort(e.target.value); setTaakInstellingStatus("rust"); }}
+              style={{ ...invoerStijl, width: "100%", maxWidth: 420, background: "#fff" }}
+            >
+              <option value="">— standaard (In afwachting reactie client) —</option>
+              {taakSoortOpties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
+            </select>
+          ) : (
+            <>
+              <input
+                type="number"
+                value={taakSoort}
+                onChange={(e) => { setTaakSoort(e.target.value); setTaakInstellingStatus("rust"); }}
+                placeholder="8006"
+                style={{ ...invoerStijl, width: "100%", maxWidth: 200, background: "#fff" }}
+              />
+              <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>
+                De taaksoorten-lijst kon niet worden opgehaald — vul de optiesetwaarde (nummer) rechtstreeks in. Leeg = standaard 8006.
+              </span>
+            </>
+          )}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button
+            onClick={bewaarAangifteTaakInstellingen}
+            disabled={taakInstellingStatus === "bezig"}
+            style={{ padding: "7px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: taakInstellingStatus === "bezig" ? "default" : "pointer" }}
+          >
+            {taakInstellingStatus === "bezig" ? "Opslaan…" : "Opslaan"}
+          </button>
+          {taakInstellingStatus === "opgeslagen" && <span style={{ fontSize: 11.5, color: KLEUR.groen }}>Opgeslagen</span>}
+          {taakInstellingStatus === "fout" && <span style={{ fontSize: 11.5, color: KLEUR.rood }}>Opslaan mislukt</span>}
         </div>
       </div>
 

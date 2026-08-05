@@ -4,12 +4,15 @@
  * medewerkersportaal (zie AangifteVersturenModal in MedewerkerPortaal.jsx, en de voorbereidende
  * stap GET /api/medewerker-aangifte-ontvanger):
  *
- *   1. Uploadt de PDF via app-only Graph naar de map "Correspondentie" in het SharePoint-dossier
- *      van de ontvanger (cr283_sharepoint op het account) — bestandsnaam volgens het sjabloon uit
- *      Beheer → Dossiers (evt. hier al ingevuld/aangepast door de medewerker).
- *   2. Maakt een Dynamics-taak (soort "In afwachting reactie client", cr283_soortactiecategorie
- *      8006 — bestaande, elders ook al gebruikte optiesetwaarde) gekoppeld aan de ontvanger, met
- *      de geüploade PDF als documentlink (zodat de klant 'm via /api/taken-document kan inzien).
+ *   1. Uploadt de PDF via app-only Graph naar de submap uit Beheer → Dossiers (standaard
+ *      "Correspondentie", instelbaar via aangiftePadTemplate — mag submappen met "/" en de
+ *      plaatshouders {klant}/{jaar} bevatten) in het SharePoint-dossier van de ontvanger
+ *      (cr283_sharepoint op het account) — bestandsnaam volgens het sjabloon uit Beheer → Dossiers
+ *      (evt. hier al ingevuld/aangepast door de medewerker).
+ *   2. Maakt een Dynamics-taak gekoppeld aan de ontvanger, met de geüploade PDF als documentlink
+ *      (zodat de klant 'm via /api/taken-document kan inzien). Onderwerp en soort (optiesetwaarde op
+ *      cr283_soortactiecategorie, standaard 8006 "In afwachting reactie client") zijn óók instelbaar
+ *      via Beheer → Dossiers (aangifteTaakOnderwerpTemplate / aangifteTaakSoort).
  *   3. Verstuurt een mail vanaf het vaste afzenderadres correspondentie@activaa.nl (zelfde opzet
  *      als /api/offertes-verstuur-mail) met de door de medewerker gecontroleerde/bewerkte tekst.
  *   4. Logt de actie bij de cliënt (klantlog).
@@ -30,14 +33,18 @@ const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/
 const { haalAppGraphToken } = require("../_gedeeld/graphApp");
 const { haalGraphToken } = require("../_gedeeld/mail");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
+const { haalInstellingen } = require("../_gedeeld/instellingen");
 
 const SHAREPOINT_VELD = process.env.DYNAMICS_KLANT_SHAREPOINT_VELD || "cr283_sharepoint";
 const KLANT_VELD = process.env.DYNAMICS_TAAK_KLANT_VELD || "sk_client";
 const SOORT_VELD = process.env.DYNAMICS_TAAK_SOORT_VELD || "";
 const DOCUMENT_VELD = process.env.DYNAMICS_TAAK_DOCUMENT_VELD || "";
 // "In afwachting reactie client" — bestaande optiesetwaarde op Task.cr283_soortactiecategorie
-// (of het veld dat via DYNAMICS_TAAK_SOORT_VELD is ingesteld), al elders in gebruik.
+// (of het veld dat via DYNAMICS_TAAK_SOORT_VELD is ingesteld), al elders in gebruik. Dient nu als
+// terugval als er in Beheer → Dossiers (aangifteTaakSoort) nog niets is ingesteld.
 const SOORT_WAARDE_IN_AFWACHTING = 8006;
+// Terugval-onderwerp voor de taak als er in Beheer → Dossiers nog geen aangifteTaakOnderwerpTemplate is.
+const STANDAARD_TAAK_ONDERWERP = "Aangifte inkomstenbelasting {jaar} klaar ter beoordeling";
 
 const AFZENDER_MAILBOX = "correspondentie@activaa.nl";
 const MAX_BYTES = 15 * 1024 * 1024; // 15 MB — ruim voldoende voor een aangifte-PDF
@@ -48,6 +55,28 @@ function veiligeBestandsnaam(naam) {
   if (!n) n = "Aangifte inkomstenbelasting.pdf";
   if (!/\.pdf$/i.test(n)) n += ".pdf";
   return n;
+}
+
+// Vult {klant}/{jaar} in een sjabloon (taak-onderwerp of pad-segment) en ruimt dubbele/rand-spaties
+// op — zodat een lege {jaar} niet "inkomstenbelasting  klaar" oplevert.
+function vulSjabloonIn(sjabloon, { klant, jaar }) {
+  return String(sjabloon || "")
+    .replaceAll("{klant}", klant || "")
+    .replaceAll("{jaar}", jaar != null ? String(jaar) : "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+// Zet het in Beheer → Dossiers ingestelde pad-sjabloon (bijv. "Correspondentie" of
+// "Correspondentie/{jaar}") om naar een lijst schone mapsegmenten voor ensureFolderPath: splitst op
+// / en \, vult {klant}/{jaar} in, verwijdert ongeldige tekens en lege segmenten. Valt terug op
+// ["Correspondentie"] als er niets bruikbaars overblijft (zodat een aangifte nooit in de wortel belandt).
+function bepaalMapSegmenten(sjabloon, { klant, jaar }) {
+  const segmenten = String(sjabloon == null || sjabloon === "" ? "Correspondentie" : sjabloon)
+    .split(/[\\/]+/)
+    .map((deel) => vulSjabloonIn(deel, { klant, jaar }).replace(/[\\/:*?"<>|]/g, "-").trim())
+    .filter(Boolean);
+  return segmenten.length ? segmenten : ["Correspondentie"];
 }
 
 function escapeHtml(tekst) {
@@ -135,12 +164,22 @@ module.exports = async function (context, req) {
     if (!basisUrl) { context.res = { status: 409, headers: { "Content-Type": "application/json" }, body: { error: `Voor ${naam} is nog geen SharePoint-map ingesteld (${SHAREPOINT_VELD} in Dynamics).` } }; return; }
     if (!ontvangerEmail) { context.res = { status: 409, headers: { "Content-Type": "application/json" }, body: { error: `Voor ${naam} is geen e-mailadres bekend bij de hoofdcontactpersoon in Dynamics.` } }; return; }
 
+    // Instelbare waarden uit Beheer → Dossiers (pad, taak-onderwerp, taak-soort) — met terugval op de
+    // oude, hardcoded standaarden zodat het ook werkt vóórdat er iets is ingesteld.
+    const instellingen = await haalInstellingen().catch(() => ({}));
+    const mapSegmenten = bepaalMapSegmenten(instellingen.aangiftePadTemplate, { klant: naam, jaar: dossier.jaar });
+    const taakOnderwerp =
+      vulSjabloonIn(instellingen.aangifteTaakOnderwerpTemplate || STANDAARD_TAAK_ONDERWERP, { klant: naam, jaar: dossier.jaar }) ||
+      vulSjabloonIn(STANDAARD_TAAK_ONDERWERP, { klant: naam, jaar: dossier.jaar });
+    const soortInstelling = Number(instellingen.aangifteTaakSoort);
+    const taakSoortWaarde = Number.isFinite(soortInstelling) && soortInstelling > 0 ? soortInstelling : SOORT_WAARDE_IN_AFWACHTING;
+
     // ── 1. Uploaden naar SharePoint (app-only — de klant hoeft zelf geen SharePoint-rechten te
     // hebben op deze map; het portaal toont het bestand straks via de eigen, gecontroleerde
     // /api/taken-document i.p.v. een rechtstreekse SharePoint-link). ──
     const appToken = await haalAppGraphToken();
     const map = await resolveFolder(appToken, basisUrl);
-    const doelId = await ensureFolderPath(appToken, map.driveId, map.itemId, ["Correspondentie"]);
+    const doelId = await ensureFolderPath(appToken, map.driveId, map.itemId, mapSegmenten);
     const upload = await uploadBestand(appToken, map.driveId, doelId, veiligeNaam, buffer, "application/pdf");
 
     // ── 2. Dynamics-taak aanmaken ──
@@ -153,11 +192,11 @@ module.exports = async function (context, req) {
     // anders 0x80048d19 "undeclared property 'sk_client'".
     const klantNav = await haalNavigatieNaam(resource, "task", KLANT_VELD, token);
     const taakBody = {
-      subject: `Aangifte inkomstenbelasting${dossier.jaar ? ` ${dossier.jaar}` : ""} klaar ter beoordeling`,
+      subject: taakOnderwerp,
       description: `Aangifte inkomstenbelasting${dossier.jaar ? ` ${dossier.jaar}` : ""} van ${naam} is via het klantportaal verstuurd naar ${ontvangerEmail} op ${new Date().toLocaleString("nl-NL", { timeZone: "Europe/Amsterdam" })} door ${email || "onbekend"}.`,
       [`${klantNav}@odata.bind`]: `/accounts(${accountId})`,
     };
-    if (SOORT_VELD) taakBody[SOORT_VELD] = SOORT_WAARDE_IN_AFWACHTING;
+    if (SOORT_VELD) taakBody[SOORT_VELD] = taakSoortWaarde;
     if (DOCUMENT_VELD) taakBody[DOCUMENT_VELD] = upload.webUrl || null;
 
     const taakRes = await fetch(`${resource}/api/data/v9.2/tasks`, {
@@ -207,7 +246,7 @@ module.exports = async function (context, req) {
     await logGebeurtenis({
       door: email || "onbekend", actie: "aangifte", accountId, accountIds: [accountId],
       klantnaam: naam,
-      tekst: `Aangifte inkomstenbelasting${dossier.jaar ? ` ${dossier.jaar}` : ""} verstuurd naar ${doelgroep === "partner" ? "fiscaal partner" : "cliënt"} ${naam} (${ontvangerEmail}) — bestand "${veiligeNaam}" opgeslagen in Correspondentie, taak aangemaakt${mailVerzonden ? ", mail verzonden vanaf " + AFZENDER_MAILBOX : " — mail versturen is mislukt"}.`,
+      tekst: `Aangifte inkomstenbelasting${dossier.jaar ? ` ${dossier.jaar}` : ""} verstuurd naar ${doelgroep === "partner" ? "fiscaal partner" : "cliënt"} ${naam} (${ontvangerEmail}) — bestand "${veiligeNaam}" opgeslagen in ${mapSegmenten.join("/")}, taak aangemaakt${mailVerzonden ? ", mail verzonden vanaf " + AFZENDER_MAILBOX : " — mail versturen is mislukt"}.`,
     });
 
     context.res = {
