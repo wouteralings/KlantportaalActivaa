@@ -22,6 +22,7 @@
 const { genereerBriefPdf, genereerBriefDocx } = require("../_gedeeld/briefRenderer");
 const { verstuurMailMetBijlage } = require("../_gedeeld/mail");
 const { haalConfig } = require("../_gedeeld/briefSjablonen");
+const { haalAfbeelding } = require("../_gedeeld/media");
 const { haalDynamicsToken } = require("../_gedeeld/identiteit");
 const { haalAppGraphToken } = require("../_gedeeld/graphApp");
 const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/sharepointUpload");
@@ -45,6 +46,27 @@ async function rennerVoorFormaat(formaat, brief) {
     return { buffer: await genereerBriefDocx(brief), contentType: DOCX_TYPE, ext: "docx" };
   }
   return { buffer: await genereerBriefPdf(brief), contentType: PDF_TYPE, ext: "pdf" };
+}
+
+/** Haalt de blob-basisnaam uit een media-URL (/api/media/<naam>?v=...), zoals facturenPdf. */
+function basisnaamUitMediaUrl(url) {
+  const m = /\/api\/media\/([a-z0-9_-]+)/i.exec(url || "");
+  return m ? m[1] : null;
+}
+
+/**
+ * Laadt (best-effort) de logo-bytes voor het briefpapier op basis van brief.logoUrl en hangt ze aan
+ * het brief-object (brief.logo = { buffer, contentType }). Een ontbrekend/onleesbaar logo mag de
+ * brief nooit laten mislukken — dan wordt gewoon zonder logo gerenderd.
+ */
+async function verrijkMetLogo(brief) {
+  const basisnaam = basisnaamUitMediaUrl(brief && brief.logoUrl);
+  if (!basisnaam) return brief;
+  try {
+    const afb = await haalAfbeelding(basisnaam);
+    if (afb && afb.buffer) brief.logo = { buffer: afb.buffer, contentType: afb.contentType };
+  } catch { /* zonder logo verder */ }
+  return brief;
 }
 
 function escapeHtml(s) {
@@ -118,6 +140,9 @@ module.exports = async function (context, req) {
   }
 
   try {
+    // Briefpapier-logo (best-effort) aan het brief-object hangen vóór het renderen/versturen.
+    await verrijkMetLogo(brief);
+
     if (actie === "genereer") {
       const formaat = body.formaat === "docx" ? "docx" : "pdf";
       const { buffer, contentType, ext } = await rennerVoorFormaat(formaat, brief);

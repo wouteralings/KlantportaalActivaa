@@ -246,6 +246,9 @@ export default function BrievenOverzicht() {
     onderwerp, aanhef, tekst, afsluiting,
     ondertekenaarRegels: [ondertekenaar, veiligeStr(afzender.bedrijfsnaam) || "Activaa"].filter(Boolean),
     voetnoot: voetnootVan(afzender),
+    logoUrl: veiligeStr(afzender.logoUrl),
+    logoUitlijning: afzender.logoUitlijning || "links",
+    logoGrootte: afzender.logoGrootte || "normaal",
   }), [afzender, klant, onderwerp, aanhef, tekst, afsluiting, ondertekenaar, plaatsBrief]);
 
   const bronNaam = modus === "vrij"
@@ -450,7 +453,13 @@ function BriefVoorbeeld({ brief }) {
   const alineas = String(b.tekst || "").replace(/\r\n/g, "\n").split(/\n[ \t]*\n/);
   return (
     <div style={{ background: KLEUR.papier, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, boxShadow: "0 6px 24px rgba(0,0,0,0.07)", padding: "48px 52px", color: KLEUR.tekst, fontFamily: "Helvetica, Arial, sans-serif", fontSize: 13, lineHeight: 1.5, minHeight: 640 }}>
-      <div style={{ fontSize: 21, fontWeight: 800, letterSpacing: "-0.01em" }}>{b.afzenderNaam}</div>
+      {b.logoUrl ? (
+        <div style={{ textAlign: b.logoUitlijning === "midden" ? "center" : b.logoUitlijning === "rechts" ? "right" : "left", marginBottom: 6 }}>
+          <img src={b.logoUrl} alt="logo" style={{ width: ({ klein: 120, normaal: 170, groot: 230 })[b.logoGrootte] || 170, maxWidth: "100%", height: "auto", display: "inline-block" }} />
+        </div>
+      ) : (
+        <div style={{ fontSize: 21, fontWeight: 800, letterSpacing: "-0.01em" }}>{b.afzenderNaam}</div>
+      )}
       <div style={{ marginTop: 4, color: KLEUR.mutedTekst, fontSize: 11.5, lineHeight: 1.45 }}>{(b.afzenderRegels || []).map((r, i) => <div key={i}>{r}</div>)}</div>
       <div style={{ borderTop: `1px solid ${KLEUR.rand}`, margin: "16px 0 20px" }} />
       <div style={{ textAlign: "right", color: KLEUR.subtekst, marginBottom: 22 }}>{b.plaatsDatum}</div>

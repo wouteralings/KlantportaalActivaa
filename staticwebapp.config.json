@@ -176,6 +176,12 @@
       ]
     },
     {
+      "route": "/api/beheer-brieflogo",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
       "route": "/api/brief-dynamics-velden",
       "allowedRoles": [
         "beheerder"

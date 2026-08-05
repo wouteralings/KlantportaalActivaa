@@ -72,4 +72,8 @@ const slaFaviconOp = (dataUrl) => slaAfbeeldingOp(dataUrl, "favicon");
 // dus altijd al een veilige blobnaam — geen aparte sanitatie nodig zoals bij haalAfbeelding.
 const slaKlantLogoOp = (dataUrl, klantAccountId) => slaAfbeeldingOp(dataUrl, `klantlogo-${klantAccountId}`);
 
-module.exports = { slaLogoOp, slaFaviconOp, slaKlantLogoOp, haalAfbeelding };
+// Logo op het briefpapier van de Brieven-module (Beheer → Brieven). Eén blob "brieflogo",
+// geserveerd via /api/media/brieflogo en geëmbed in de PDF/Word van een brief.
+const slaBrieflogoOp = (dataUrl) => slaAfbeeldingOp(dataUrl, "brieflogo");
+
+module.exports = { slaLogoOp, slaFaviconOp, slaKlantLogoOp, slaBrieflogoOp, haalAfbeelding };

@@ -43,6 +43,10 @@ const STANDAARD_AFZENDER = {
   ondertekenaarBron: "relatiebeheerder",
   ondertekenaarVast: "",
   voetnoot: "",
+  // Briefpapier: logo + plaatsing. logoUrl wijst naar /api/media/brieflogo (zie media.js).
+  logoUrl: "",
+  logoUitlijning: "links", // "links" | "midden" | "rechts"
+  logoGrootte: "normaal",  // "klein" | "normaal" | "groot"
 };
 
 const STANDAARD_SHAREPOINT_MAP = "Brieven";
@@ -127,6 +131,11 @@ function normaliseerAfzender(a) {
   const ondertekenaarBron = ["relatiebeheerder", "accountant", "vast"].includes(bronOndertekenaar)
     ? bronOndertekenaar
     : "relatiebeheerder";
+  const logoUitlijning = ["links", "midden", "rechts"].includes(bron.logoUitlijning) ? bron.logoUitlijning : "links";
+  const logoGrootte = ["klein", "normaal", "groot"].includes(bron.logoGrootte) ? bron.logoGrootte : "normaal";
+  // Alleen een eigen media-route toestaan als logoUrl (geen externe URL's) — defensief.
+  const logoUrlRuw = tekst(bron.logoUrl, 300);
+  const logoUrl = /^\/api\/media\/[a-z0-9_-]+(\?.*)?$/i.test(logoUrlRuw) ? logoUrlRuw : "";
   return {
     bedrijfsnaam: tekst(bron.bedrijfsnaam, 120) || STANDAARD_AFZENDER.bedrijfsnaam,
     adres: tekst(bron.adres, 160),
@@ -140,6 +149,9 @@ function normaliseerAfzender(a) {
     ondertekenaarBron,
     ondertekenaarVast: tekst(bron.ondertekenaarVast, 120),
     voetnoot: tekst(bron.voetnoot, 400),
+    logoUrl,
+    logoUitlijning,
+    logoGrootte,
   };
 }
 

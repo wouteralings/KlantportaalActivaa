@@ -34,6 +34,8 @@ export default function BrievenBeheer() {
   const [fout, setFout] = useState("");
   const [velden, setVelden] = useState(null); // { booleans, optielijsten } | null
   const [veldenFout, setVeldenFout] = useState("");
+  const [logoBezig, setLogoBezig] = useState(false);
+  const [logoFout, setLogoFout] = useState("");
 
   useEffect(() => {
     fetch("/api/beheer-briefsjablonen")
@@ -62,6 +64,26 @@ export default function BrievenBeheer() {
   }, [velden]);
 
   const zetAfzender = (key, val) => setConfig((c) => ({ ...c, afzender: { ...c.afzender, [key]: val } }));
+
+  function kiesLogo(bestand) {
+    if (!bestand) return;
+    if (!/^image\//.test(bestand.type)) { setLogoFout("Kies een afbeelding (PNG of JPG)."); return; }
+    if (bestand.size > 2 * 1024 * 1024) { setLogoFout("Maximaal 2 MB."); return; }
+    setLogoFout(""); setLogoBezig(true);
+    const lezer = new FileReader();
+    lezer.onload = async () => {
+      try {
+        const res = await fetch("/api/beheer-brieflogo", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dataUrl: lezer.result }) });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(d.error || "Uploaden mislukt.");
+        zetAfzender("logoUrl", d.logoUrl);
+      } catch (e) { setLogoFout(String(e.message || e)); }
+      finally { setLogoBezig(false); }
+    };
+    lezer.onerror = () => { setLogoBezig(false); setLogoFout("Kon het bestand niet lezen."); };
+    lezer.readAsDataURL(bestand);
+  }
+
   const zetSjabloon = (i, key, val) => setConfig((c) => { const s = c.sjablonen.slice(); s[i] = { ...s[i], [key]: val }; return { ...c, sjablonen: s }; });
   const verplaatsSjabloon = (i, r) => setConfig((c) => { const j = i + r; if (j < 0 || j >= c.sjablonen.length) return c; const s = c.sjablonen.slice(); [s[i], s[j]] = [s[j], s[i]]; return { ...c, sjablonen: s }; });
   const verwijderSjabloon = (i) => setConfig((c) => ({ ...c, sjablonen: c.sjablonen.filter((_, idx) => idx !== i) }));
@@ -104,6 +126,48 @@ export default function BrievenBeheer() {
         Brieven) en vrije standaardbrieven voor de tab Klantoverzicht → Brieven. In tekst kun je
         {" {{merge-velden}} "} gebruiken; die worden met de Dynamics-gegevens van de klant ingevuld.
       </p>
+
+      {/* Briefpapier: logo + plaatsing */}
+      <Rubriek titel="Briefpapier — logo">
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 18, alignItems: "flex-start" }}>
+          <div style={{ border: `1px dashed ${KLEUR.rand}`, borderRadius: 10, padding: 14, background: "#FBFBF9", minWidth: 220, textAlign: "center" }}>
+            {a.logoUrl ? (
+              <img src={a.logoUrl} alt="logo" style={{ maxWidth: 220, maxHeight: 90, height: "auto", display: "inline-block" }} />
+            ) : (
+              <div style={{ fontSize: 12, color: KLEUR.mutedTekst, padding: "18px 8px" }}>Nog geen logo</div>
+            )}
+            <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 12 }}>
+              <label style={{ ...knopLichtStijl, marginTop: 0, cursor: logoBezig ? "default" : "pointer", opacity: logoBezig ? 0.6 : 1 }}>
+                {logoBezig ? "Uploaden…" : (a.logoUrl ? "Vervangen" : "Logo uploaden")}
+                <input type="file" accept="image/png,image/jpeg" style={{ display: "none" }} disabled={logoBezig} onChange={(e) => { kiesLogo(e.target.files && e.target.files[0]); e.target.value = ""; }} />
+              </label>
+              {a.logoUrl && <button onClick={() => zetAfzender("logoUrl", "")} style={{ ...knopLichtStijl, marginTop: 0, color: KLEUR.rood }}>Verwijderen</button>}
+            </div>
+            {logoFout && <div style={{ fontSize: 11.5, color: KLEUR.rood, marginTop: 8 }}>{logoFout}</div>}
+          </div>
+          <div style={{ flex: "1 1 240px", minWidth: 200 }}>
+            <div style={{ marginBottom: 12 }}>
+              <span style={labelStijl}>Uitlijning logo</span>
+              <select value={a.logoUitlijning || "links"} onChange={(e) => zetAfzender("logoUitlijning", e.target.value)} style={invoerStijl}>
+                <option value="links">Links</option>
+                <option value="midden">Midden</option>
+                <option value="rechts">Rechts</option>
+              </select>
+            </div>
+            <div>
+              <span style={labelStijl}>Grootte logo</span>
+              <select value={a.logoGrootte || "normaal"} onChange={(e) => zetAfzender("logoGrootte", e.target.value)} style={invoerStijl}>
+                <option value="klein">Klein</option>
+                <option value="normaal">Normaal</option>
+                <option value="groot">Groot</option>
+              </select>
+            </div>
+            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8 }}>
+              Het logo komt boven aan de brief (i.p.v. de bedrijfsnaam). De adresregels hieronder blijven eronder staan. PNG of JPG, max 2 MB.
+            </div>
+          </div>
+        </div>
+      </Rubriek>
 
       {/* Afzendergegevens */}
       <Rubriek titel="Afzendergegevens (briefpapier)">

@@ -18,10 +18,20 @@
  *   - POST { actie:"deadline-zetten", verzoekId, deadline } → deadline (YYYY-MM-DD, leeg mag) aanpassen
  *                                                       op een al uitgezet verzoek (klant krijgt een bericht
  *                                                       als de deadline echt wijzigt)
- *   - POST { actie:"regel-toevoegen", verzoekId, naam, toelichting?, verplicht?, bestandsnaam? } →
- *                                                       extra document/vraag toevoegen aan een al
+ *   - POST { actie:"regel-toevoegen", verzoekId, naam, toelichting?, verplicht?, bestandsnaam?,
+ *            ookInLijst? } →                            extra document/vraag toevoegen aan een al
  *                                                       uitgezet verzoek (heropent 'm eventueel, klant
- *                                                       krijgt een bericht)
+ *                                                       krijgt een bericht). ookInLijst=true zet
+ *                                                       dezelfde vraag ook op de onderliggende vaste
+ *                                                       aanleverlijst (het sjabloon achter dit verzoek
+ *                                                       — via lijstId, of anders via het gekoppelde
+ *                                                       onderwerp z'n standaardLijstId), zodat hij
+ *                                                       vanzelf meekomt bij een volgende/toekomstige
+ *                                                       uitvraag. Antwoord bevat dan ook
+ *                                                       `lijstBijgewerkt`/`lijstNaam` zodat de
+ *                                                       medewerker ziet of dat gelukt is (geen lijstId
+ *                                                       en geen onderwerp-standaardlijst → niet gelukt,
+ *                                                       verzoek zelf is dan alsnog gewoon bijgewerkt).
  *   - POST { actie:"regel-bewerken", verzoekId, regelId, naam?, toelichting?, verplicht? } →
  *                                                       een al bestaande vraag/document aanpassen
  *                                                       (naam/toelichting/verplicht), ongeacht de status
@@ -40,7 +50,7 @@ const { haalDynamicsToken, haalEmailUitPrincipal, haalNaamUitPrincipal, haalRoll
 const verzoeken = require("../_gedeeld/aanleververzoeken");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
 const { haalOnderwerpen, resolvePad } = require("../_gedeeld/aanleveronderwerpen");
-const { haalLijsten } = require("../_gedeeld/aanleverlijsten");
+const { haalLijsten, zetLijsten } = require("../_gedeeld/aanleverlijsten");
 
 /**
  * Zoekt de volledige naam (systemuser fullname) van de ingelogde medewerker op basis van het
@@ -83,6 +93,7 @@ module.exports = async function (context, req) {
       const {
         actie, verzoekId, regelId, tekst, deadline, lijstNaam, jaar,
         naam: nieuweRegelNaam, toelichting: nieuweRegelToelichting, verplicht: nieuweRegelVerplicht, bestandsnaam: nieuweRegelBestandsnaam,
+        ookInLijst,
       } = req.body || {};
 
       if (actie === "antwoord") {
@@ -218,8 +229,40 @@ module.exports = async function (context, req) {
           klantnaam: v.klantnaam, klantnummer: v.klantnummer, contactId: v.contactId, contactNaam: v.contactNaam,
           tekst: `Nieuwe vraag "${nieuweRegel.naam}" toegevoegd aan "${v.lijstNaam || "aanlever-verzoek"}".`,
         });
+
+        // Optioneel: dezelfde vraag ook op de onderliggende vaste aanleverlijst zetten, zodat hij
+        // vanzelf meekomt bij een volgende/toekomstige uitvraag (gevraagd door Wouter, 05-08-2026).
+        // Doel-lijst: v.lijstId zelf, of anders (verzoek kwam via een onderwerp) de standaardlijst
+        // van dat onderwerp. Geen van beide aanwezig → niets om aan toe te voegen, gewoon melden.
+        let lijstBijgewerkt = false;
+        let doelLijstNaam = "";
+        if (ookInLijst) {
+          try {
+            let doelLijstId = v.lijstId || "";
+            if (!doelLijstId && v.onderwerpId) {
+              const onderwerp = (await haalOnderwerpen()).find((o) => o.id === v.onderwerpId);
+              doelLijstId = (onderwerp && onderwerp.standaardLijstId) || "";
+            }
+            if (doelLijstId) {
+              const lijsten = await haalLijsten();
+              const doelLijst = lijsten.find((l) => l.id === doelLijstId);
+              if (doelLijst) {
+                doelLijst.regels = [...(doelLijst.regels || []), {
+                  naam: nieuweRegel.naam, bestandsnaam: nieuweRegel.bestandsnaam || "",
+                  toelichting: nieuweRegel.toelichting || "", verplicht: nieuweRegel.verplicht,
+                }];
+                await zetLijsten(lijsten);
+                lijstBijgewerkt = true;
+                doelLijstNaam = doelLijst.naam || "";
+              }
+            }
+          } catch (lijstFout) {
+            context.log.error("Vraag ook op de vaste lijst zetten mislukt:", lijstFout);
+          }
+        }
+
         const laatstGezienNa = await verzoeken.haalLaatstGezien().catch(() => null);
-        context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek: verrijk(v, laatstGezienNa) } };
+        context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek: verrijk(v, laatstGezienNa), lijstBijgewerkt, lijstNaam: doelLijstNaam } };
         return;
       }
 

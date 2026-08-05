@@ -48,8 +48,9 @@ export default function VragenlijstDetail({ verzoek: r, onGewijzigd, onVerwijder
   const [titelDraft, setTitelDraft] = useState(null);
   const [jaarDraft, setJaarDraft] = useState(null);
   const [bezigTitel, setBezigTitel] = useState(false);
-  const [nieuweVraag, setNieuweVraag] = useState({ tonen: false, naam: "", toelichting: "", verplicht: true });
+  const [nieuweVraag, setNieuweVraag] = useState({ tonen: false, naam: "", toelichting: "", verplicht: true, ookInLijst: false });
   const [bezigVraagToevoegen, setBezigVraagToevoegen] = useState(false);
+  const [vraagLijstInfo, setVraagLijstInfo] = useState(""); // melding na "Toevoegen" over de vaste-lijst-koppeling
   const [bewerkRegelId, setBewerkRegelId] = useState("");
   const [regelDraft, setRegelDraft] = useState({ naam: "", toelichting: "", verplicht: true });
   const [bezigRegelWijzigen, setBezigRegelWijzigen] = useState(false);
@@ -157,16 +158,26 @@ export default function VragenlijstDetail({ verzoek: r, onGewijzigd, onVerwijder
   const vraagToevoegen = async () => {
     const naam = (nieuweVraag.naam || "").trim();
     if (!naam) return;
-    setBezigVraagToevoegen(true); setFout("");
+    setBezigVraagToevoegen(true); setFout(""); setVraagLijstInfo("");
     try {
       const res = await fetch("/api/medewerker-vragenlijsten", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ actie: "regel-toevoegen", verzoekId: r.id, naam, toelichting: nieuweVraag.toelichting || "", verplicht: nieuweVraag.verplicht !== false }),
+        body: JSON.stringify({
+          actie: "regel-toevoegen", verzoekId: r.id, naam, toelichting: nieuweVraag.toelichting || "", verplicht: nieuweVraag.verplicht !== false,
+          ookInLijst: !!nieuweVraag.ookInLijst,
+        }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
       onGewijzigd(d.verzoek);
-      setNieuweVraag({ tonen: false, naam: "", toelichting: "", verplicht: true });
+      // Alleen relevant als "ook in vaste lijst" was aangevinkt — laat zien of dat gelukt is (geen
+      // lijstId/onderwerp-standaardlijst gekoppeld aan dit verzoek → lukt niet, gewoon melden).
+      if (nieuweVraag.ookInLijst) {
+        setVraagLijstInfo(d.lijstBijgewerkt
+          ? `Ook toegevoegd aan de vaste lijst "${d.lijstNaam || ""}" — komt vanzelf mee bij een volgende uitvraag.`
+          : "Vraag is toegevoegd aan dit verzoek, maar er is geen vaste lijst aan gekoppeld om 'm ook op te zetten.");
+      }
+      setNieuweVraag({ tonen: false, naam: "", toelichting: "", verplicht: true, ookInLijst: false });
     } catch (e) { setFout("Vraag toevoegen mislukt: " + (e.message || e)); }
     finally { setBezigVraagToevoegen(false); }
   };
@@ -336,6 +347,10 @@ export default function VragenlijstDetail({ verzoek: r, onGewijzigd, onVerwijder
               placeholder="Toelichting (optioneel)…"
               style={{ boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "6px 9px", fontSize: 12.5, outline: "none" }}
             />
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: KLEUR.subtekst }}>
+              <input type="checkbox" checked={!!nieuweVraag.ookInLijst} onChange={(e) => setNieuweVraag((h) => ({ ...h, ookInLijst: e.target.checked }))} />
+              Ook toevoegen aan de vaste lijst (komt dan vanzelf mee bij een volgende/toekomstige uitvraag)
+            </label>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
               <label style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: KLEUR.subtekst }}>
                 <input type="checkbox" checked={nieuweVraag.verplicht !== false} onChange={(e) => setNieuweVraag((h) => ({ ...h, verplicht: e.target.checked }))} />
@@ -363,6 +378,7 @@ export default function VragenlijstDetail({ verzoek: r, onGewijzigd, onVerwijder
             <Plus size={12} /> Vraag toevoegen
           </button>
         )}
+        {vraagLijstInfo && <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginTop: 6 }}>{vraagLijstInfo}</div>}
       </div>
 
       {/* Vragen (chat met de klant) */}
