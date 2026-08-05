@@ -281,6 +281,10 @@ function verrijkVerzoek(v, laatstGezien) {
     lijstNaam: v.lijstNaam || v.onderwerp || "Aanlever-verzoek",
     jaar: v.jaar || "",
     startdatum: (v.aangemaaktOp || "").slice(0, 10),
+    // E-mail van de medewerker die deze lijst heeft uitgezet ("behandelaar") — gebruikt in het
+    // Vragenlijsten-werkoverzicht om de "volledig aangeleverd, wacht op controle"-melding aan de
+    // juiste medewerker te tonen (zie Vragenlijsten.jsx, vergeleken met mijnEmail).
+    aangemaaktDoor: v.aangemaaktDoor || "",
     deadline: v.deadline || "",
     aantalDocumenten: regels.length,
     aangeleverd,

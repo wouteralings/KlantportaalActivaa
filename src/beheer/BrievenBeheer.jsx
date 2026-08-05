@@ -10,9 +10,8 @@ const KLEUR = {
 const invoerStijl = { boxSizing: "border-box", width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 13, outline: "none", background: "#fff", color: KLEUR.tekst };
 const labelStijl = { display: "block", fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 5 };
 const knopLichtStijl = { display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.blauw, borderRadius: 8, padding: "8px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" };
-const AANTAL_KEUZES = [[25, "25"], [50, "50"], [100, "100"], [250, "250"], [500, "500"], [Infinity, "Alle"]];
+const AANTALLEN = [[25, "25"], [50, "50"], [100, "100"], [250, "250"], [500, "500"], [Infinity, "Alle"]];
 
-// Vaste merge-placeholders (klantgegevens). Daarnaast bestaan er beheerbare invulvelden (briefvelden).
 const PLACEHOLDERS = [
   ["{{klantnaam}}", "Bedrijfs-/cliëntnaam"], ["{{klantnummer}}", "Cliëntnummer"], ["{{groepsnaam}}", "Groepsnaam"],
   ["{{kvk}}", "KvK-nummer"], ["{{relatiebeheerder}}", "Relatiebeheerder"], ["{{accountant}}", "Accountant"],
@@ -26,10 +25,10 @@ function slug(s) {
 }
 
 /**
- * Beheer van de Brieven-module. Sinds 05-08-2026 (herzien): briefpapier (logo + achtergrond),
- * afzendergegevens, een beheerbare set **invulvelden** (briefvelden, bijv. periode = maand/kwartaal/
- * jaar) waaruit elke standaardbrief kiest, en de standaardbrieven zelf (inklapbaar + paginering).
- * De Dynamics-regels-engine is eruit (op verzoek: "vergeet Dynamics in de brieven"). Opslag via
+ * Beheer van de Brieven-module (herzien 05-08-2026). Briefpapier (logo + achtergrond),
+ * afzendergegevens, een beheerbare set invulvelden en de standaardbrieven. Zowel de invulvelden als
+ * de standaardbrieven zijn **per item inklapbaar** (standaard dicht — je ziet alleen de naam/label)
+ * met de aantalkeuze onderaan (25/50/100/250/500/Alle), zoals elders in het portaal. Opslag via
  * /api/beheer-briefsjablonen; logo/achtergrond via /api/beheer-brieflogo resp. /api/beheer-briefachtergrond.
  */
 export default function BrievenBeheer() {
@@ -40,10 +39,10 @@ export default function BrievenBeheer() {
   const [logoFout, setLogoFout] = useState("");
   const [achtBezig, setAchtBezig] = useState(false);
   const [achtFout, setAchtFout] = useState("");
-  const [brievenOpen, setBrievenOpen] = useState(false);
   const [aantal, setAantal] = useState(25);
-  const [veldenOpen, setVeldenOpen] = useState(false);
   const [veldAantal, setVeldAantal] = useState(25);
+  const [openBrieven, setOpenBrieven] = useState(() => new Set()); // indices van opengeklapte brieven
+  const [openVelden, setOpenVelden] = useState(() => new Set());   // indices van opengeklapte invulvelden
 
   useEffect(() => {
     fetch("/api/beheer-briefsjablonen")
@@ -56,6 +55,11 @@ export default function BrievenBeheer() {
       }))
       .catch(() => { setConfig({ afzender: {}, sharepointMap: "Brieven", sjablonen: [], briefvelden: [] }); setFout("De briefsjablonen konden niet worden geladen."); });
   }, []);
+
+  // Open-set-hulpjes: bij verplaatsen/verwijderen schuiven de indices mee, zodat de juiste kaart open blijft.
+  const toggleSet = (setFn, i) => setFn((s) => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n; });
+  const naVerplaats = (setFn, i, j) => setFn((s) => { const n = new Set(s); const hi = s.has(i), hj = s.has(j); hj ? n.add(i) : n.delete(i); hi ? n.add(j) : n.delete(j); return n; });
+  const naVerwijder = (setFn, i) => setFn((s) => { const n = new Set(); for (const x of s) { if (x < i) n.add(x); else if (x > i) n.add(x - 1); } return n; });
 
   const zetAfzender = (key, val) => setConfig((c) => ({ ...c, afzender: { ...c.afzender, [key]: val } }));
 
@@ -80,16 +84,16 @@ export default function BrievenBeheer() {
 
   // Standaardbrieven
   const zetSjabloon = (i, key, val) => setConfig((c) => { const s = c.sjablonen.slice(); s[i] = { ...s[i], [key]: val }; return { ...c, sjablonen: s }; });
-  const verplaatsSjabloon = (i, r) => setConfig((c) => { const j = i + r; if (j < 0 || j >= c.sjablonen.length) return c; const s = c.sjablonen.slice(); [s[i], s[j]] = [s[j], s[i]]; return { ...c, sjablonen: s }; });
-  const verwijderSjabloon = (i) => setConfig((c) => ({ ...c, sjablonen: c.sjablonen.filter((_, idx) => idx !== i) }));
-  const nieuwSjabloon = () => setConfig((c) => ({ ...c, sjablonen: [...c.sjablonen, { id: "", naam: "Nieuwe brief", onderwerp: "", tekst: "", actief: true, velden: [] }] }));
+  const verplaatsSjabloon = (i, r) => { const j = i + r; if (!config || j < 0 || j >= config.sjablonen.length) return; setConfig((c) => { const s = c.sjablonen.slice(); [s[i], s[j]] = [s[j], s[i]]; return { ...c, sjablonen: s }; }); naVerplaats(setOpenBrieven, i, j); };
+  const verwijderSjabloon = (i) => { setConfig((c) => ({ ...c, sjablonen: c.sjablonen.filter((_, idx) => idx !== i) })); naVerwijder(setOpenBrieven, i); };
+  const nieuwSjabloon = () => { const idx = config.sjablonen.length; setConfig((c) => ({ ...c, sjablonen: [...c.sjablonen, { id: "", naam: "Nieuwe brief", onderwerp: "", tekst: "", actief: true, velden: [] }] })); setOpenBrieven((s) => new Set([...s, idx])); };
   const toggleSjabloonVeld = (i, sleutel) => setConfig((c) => {
     const s = c.sjablonen.slice(); const huidig = Array.isArray(s[i].velden) ? s[i].velden : [];
     s[i] = { ...s[i], velden: huidig.includes(sleutel) ? huidig.filter((x) => x !== sleutel) : [...huidig, sleutel] };
     return { ...c, sjablonen: s };
   });
 
-  // Briefvelden (invulvelden)
+  // Invulvelden (briefvelden)
   const zetVeld = (i, key, val) => setConfig((c) => {
     const v = c.briefvelden.slice();
     v[i] = { ...v[i], [key]: val };
@@ -97,8 +101,9 @@ export default function BrievenBeheer() {
     return { ...c, briefvelden: v };
   });
   const zetVeldSleutel = (i, val) => setConfig((c) => { const v = c.briefvelden.slice(); v[i] = { ...v[i], sleutel: slug(val), sleutelHandmatig: true }; return { ...c, briefvelden: v }; });
-  const verwijderVeld = (i) => setConfig((c) => ({ ...c, briefvelden: c.briefvelden.filter((_, idx) => idx !== i) }));
-  const nieuwVeld = () => setConfig((c) => ({ ...c, briefvelden: [...c.briefvelden, { sleutel: "", label: "", type: "tekst", opties: [] }] }));
+  const verplaatsVeld = (i, r) => { const j = i + r; if (!config || j < 0 || j >= config.briefvelden.length) return; setConfig((c) => { const v = c.briefvelden.slice(); [v[i], v[j]] = [v[j], v[i]]; return { ...c, briefvelden: v }; }); naVerplaats(setOpenVelden, i, j); };
+  const verwijderVeld = (i) => { setConfig((c) => ({ ...c, briefvelden: c.briefvelden.filter((_, idx) => idx !== i) })); naVerwijder(setOpenVelden, i); };
+  const nieuwVeld = () => { const idx = config.briefvelden.length; setConfig((c) => ({ ...c, briefvelden: [...c.briefvelden, { sleutel: "", label: "", type: "tekst", opties: [] }] })); setOpenVelden((s) => new Set([...s, idx])); };
   const zetOptie = (vi, oi, label) => setConfig((c) => { const v = c.briefvelden.slice(); const o = (v[vi].opties || []).slice(); o[oi] = { sleutel: slug(label), label }; v[vi] = { ...v[vi], opties: o }; return { ...c, briefvelden: v }; });
   const nieuweOptie = (vi) => setConfig((c) => { const v = c.briefvelden.slice(); v[vi] = { ...v[vi], opties: [...(v[vi].opties || []), { sleutel: "", label: "" }] }; return { ...c, briefvelden: v }; });
   const verwijderOptie = (vi, oi) => setConfig((c) => { const v = c.briefvelden.slice(); v[vi] = { ...v[vi], opties: (v[vi].opties || []).filter((_, idx) => idx !== oi) }; return { ...c, briefvelden: v }; });
@@ -214,121 +219,114 @@ export default function BrievenBeheer() {
         </div>
       </Rubriek>
 
-      {/* Invulvelden (briefvelden) — inklapbaar + paginering */}
-      <div style={{ marginBottom: 22 }}>
-        <button onClick={() => setVeldenOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: "6px 0", fontSize: 13, fontWeight: 700, color: KLEUR.tekst }}>
-          {veldenOpen ? <ChevronDown size={16} color={KLEUR.subtekst} /> : <ChevronRight size={16} color={KLEUR.subtekst} />}
-          Invulvelden ({config.briefvelden.length})
-        </button>
-        {veldenOpen && (<div style={{ marginTop: 10 }}>
+      {/* Invulvelden — per item inklapbaar + aantalkeuze onderaan */}
+      <Rubriek titel={`Invulvelden (${config.briefvelden.length})`}>
         <p style={{ fontSize: 12, color: KLEUR.subtekst, margin: "0 0 12px", maxWidth: 720 }}>
-          Een vaste set velden die je per standaardbrief kunt aanzetten. De medewerker vult/kiest ze bij het
-          maken van de brief; ze vullen {"{{sleutel}}"} in onderwerp/tekst. Type "keuze" toont een keuzelijst.
+          Een vaste set velden die je per standaardbrief kunt aanzetten. De medewerker vult/kiest ze; ze vullen
+          {" {{sleutel}} "} in onderwerp/tekst. Klik op een veld om het uit te klappen.
         </p>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, fontSize: 12, color: KLEUR.subtekst }}>
-          <span>Toon:</span>
-          {AANTAL_KEUZES.map(([w, l]) => (
-            <button key={l} onClick={() => setVeldAantal(w)} style={{ border: `1px solid ${veldAantal === w ? KLEUR.blauw : KLEUR.rand}`, background: veldAantal === w ? KLEUR.lichtblauw : "#fff", color: veldAantal === w ? KLEUR.blauw : KLEUR.subtekst, borderRadius: 6, padding: "3px 9px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{l}</button>
-          ))}
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {zichtbareVelden.map((v, i) => (
-            <div key={i} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 12 }}>
-              <div style={{ display: "flex", alignItems: "flex-end", gap: 8, flexWrap: "wrap" }}>
-                <div style={{ flex: "1 1 200px" }}>
-                  <span style={labelStijl}>Label</span>
-                  <input value={v.label || ""} onChange={(e) => zetVeld(i, "label", e.target.value)} placeholder="bijv. Periode" style={invoerStijl} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {zichtbareVelden.map((v, i) => {
+            const open = openVelden.has(i);
+            return (
+              <div key={i} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: open ? "#FBFBF9" : "#fff" }}>
+                  <button onClick={() => toggleSet(setOpenVelden, i)} style={kopKnop}>
+                    {open ? <ChevronDown size={15} color={KLEUR.subtekst} /> : <ChevronRight size={15} color={KLEUR.subtekst} />}
+                    <span style={{ fontWeight: 600, color: KLEUR.tekst }}>{v.label || "(zonder label)"}</span>
+                    <span style={{ fontFamily: "monospace", fontSize: 11.5, color: KLEUR.mutedTekst }}>{v.sleutel ? `{{${v.sleutel}}}` : ""}</span>
+                    <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>· {v.type === "keuze" ? "keuzelijst" : "vrije tekst"}</span>
+                  </button>
+                  <button onClick={() => verplaatsVeld(i, -1)} disabled={i === 0} title="Omhoog" style={pijlStijl(i === 0)}><ArrowUp size={15} /></button>
+                  <button onClick={() => verplaatsVeld(i, 1)} disabled={i === zichtbareVelden.length - 1} title="Omlaag" style={pijlStijl(i === zichtbareVelden.length - 1)}><ArrowDown size={15} /></button>
+                  <button onClick={() => verwijderVeld(i)} title="Verwijderen" style={{ ...pijlStijl(false), color: KLEUR.rood }}><Trash2 size={15} /></button>
                 </div>
-                <div style={{ flex: "0 1 180px" }}>
-                  <span style={labelStijl}>Sleutel ({"{{...}}"})</span>
-                  <input value={v.sleutel || ""} onChange={(e) => zetVeldSleutel(i, e.target.value)} placeholder="periode" style={{ ...invoerStijl, fontFamily: "monospace" }} />
-                </div>
-                <div style={{ flex: "0 1 140px" }}>
-                  <span style={labelStijl}>Type</span>
-                  <select value={v.type || "tekst"} onChange={(e) => zetVeld(i, "type", e.target.value)} style={invoerStijl}>
-                    <option value="tekst">Vrije tekst</option>
-                    <option value="keuze">Keuzelijst</option>
-                  </select>
-                </div>
-                <button onClick={() => verwijderVeld(i)} title="Veld verwijderen" style={{ ...pijlStijl(false), color: KLEUR.rood }}><Trash2 size={15} /></button>
-              </div>
-              {v.type === "keuze" && (
-                <div style={{ marginTop: 10, paddingLeft: 2 }}>
-                  <span style={labelStijl}>Opties</span>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                    {(v.opties || []).map((o, oi) => (
-                      <div key={oi} style={{ display: "inline-flex", alignItems: "center", gap: 4, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "3px 6px 3px 9px", background: KLEUR.lichtblauw }}>
-                        <input value={o.label || ""} onChange={(e) => zetOptie(i, oi, e.target.value)} placeholder="optie" style={{ border: "none", background: "transparent", outline: "none", fontSize: 12.5, width: 100, color: KLEUR.tekst }} />
-                        <button onClick={() => verwijderOptie(i, oi)} style={{ border: "none", background: "none", cursor: "pointer", color: KLEUR.mutedTekst, display: "flex" }}><X size={13} /></button>
-                      </div>
-                    ))}
-                    <button onClick={() => nieuweOptie(i)} style={{ ...knopLichtStijl, padding: "5px 9px", fontSize: 12 }}><Plus size={13} /> optie</button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-        <button onClick={nieuwVeld} style={{ ...knopLichtStijl, marginTop: 12 }}><Plus size={15} /> Nieuw veld</button>
-        </div>)}
-      </div>
-
-      {/* Standaardbrieven — inklapbaar + paginering */}
-      <div style={{ marginBottom: 22 }}>
-        <button onClick={() => setBrievenOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: "6px 0", fontSize: 13, fontWeight: 700, color: KLEUR.tekst }}>
-          {brievenOpen ? <ChevronDown size={16} color={KLEUR.subtekst} /> : <ChevronRight size={16} color={KLEUR.subtekst} />}
-          Standaardbrieven ({config.sjablonen.length})
-        </button>
-        {brievenOpen && (
-          <div style={{ marginTop: 10 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, fontSize: 12, color: KLEUR.subtekst }}>
-              <span>Toon:</span>
-              {AANTAL_KEUZES.map(([w, l]) => (
-                <button key={l} onClick={() => setAantal(w)} style={{ border: `1px solid ${aantal === w ? KLEUR.blauw : KLEUR.rand}`, background: aantal === w ? KLEUR.lichtblauw : "#fff", color: aantal === w ? KLEUR.blauw : KLEUR.subtekst, borderRadius: 6, padding: "3px 9px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{l}</button>
-              ))}
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              {zichtbareSjablonen.map((s, i) => (
-                <div key={i} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14, background: s.actief === false ? "#F7F7F5" : "#fff" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                    <input value={s.naam || ""} onChange={(e) => zetSjabloon(i, "naam", e.target.value)} placeholder="Naam van de brief" style={{ ...invoerStijl, fontWeight: 700, flex: 1 }} />
-                    <button onClick={() => zetSjabloon(i, "actief", !(s.actief !== false))} title={s.actief === false ? "Inactief" : "Actief"} style={{ display: "inline-flex", alignItems: "center", gap: 5, border: `1px solid ${KLEUR.rand}`, background: "#fff", borderRadius: 7, padding: "6px 10px", fontSize: 12, fontWeight: 600, color: s.actief === false ? KLEUR.mutedTekst : KLEUR.groen, cursor: "pointer" }}>
-                      {s.actief === false ? <XCircle size={14} /> : <CheckCircle2 size={14} />} {s.actief === false ? "Inactief" : "Actief"}
-                    </button>
-                    <button onClick={() => verplaatsSjabloon(i, -1)} disabled={i === 0} title="Omhoog" style={pijlStijl(i === 0)}><ArrowUp size={15} /></button>
-                    <button onClick={() => verplaatsSjabloon(i, 1)} disabled={i === zichtbareSjablonen.length - 1} title="Omlaag" style={pijlStijl(i === zichtbareSjablonen.length - 1)}><ArrowDown size={15} /></button>
-                    <button onClick={() => verwijderSjabloon(i)} title="Verwijderen" style={{ ...pijlStijl(false), color: KLEUR.rood }}><Trash2 size={15} /></button>
-                  </div>
-                  <div style={{ marginBottom: 10 }}>
-                    <span style={labelStijl}>Onderwerp</span>
-                    <input value={s.onderwerp || ""} onChange={(e) => zetSjabloon(i, "onderwerp", e.target.value)} placeholder="Betreft…" style={invoerStijl} />
-                  </div>
-                  <div style={{ marginBottom: 10 }}>
-                    <span style={labelStijl}>Tekst</span>
-                    <textarea value={s.tekst || ""} onChange={(e) => zetSjabloon(i, "tekst", e.target.value)} rows={6} style={{ ...invoerStijl, resize: "vertical", minHeight: 120, lineHeight: 1.5, fontFamily: "inherit" }} placeholder="Inhoud… (lege regel = nieuwe alinea, gebruik {{merge-velden}} en {{invulvelden}})" />
-                  </div>
-                  {config.briefvelden.length > 0 && (
-                    <div>
-                      <span style={labelStijl}>Invulvelden bij deze brief</span>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                        {config.briefvelden.map((v) => {
-                          const aan = Array.isArray(s.velden) && s.velden.includes(v.sleutel);
-                          return (
-                            <button key={v.sleutel || v.label} onClick={() => toggleSjabloonVeld(i, v.sleutel)} style={{ border: `1px solid ${aan ? KLEUR.blauw : KLEUR.rand}`, background: aan ? KLEUR.lichtblauw : "#fff", color: aan ? KLEUR.blauw : KLEUR.subtekst, borderRadius: 20, padding: "4px 11px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                              {aan ? "✓ " : ""}{v.label || v.sleutel} <span style={{ fontFamily: "monospace", opacity: 0.7 }}>{`{{${v.sleutel}}}`}</span>
-                            </button>
-                          );
-                        })}
+                {open && (
+                  <div style={{ padding: "12px", borderTop: `1px solid ${KLEUR.rand}` }}>
+                    <div style={{ display: "flex", alignItems: "flex-end", gap: 8, flexWrap: "wrap" }}>
+                      <div style={{ flex: "1 1 200px" }}><span style={labelStijl}>Label</span><input value={v.label || ""} onChange={(e) => zetVeld(i, "label", e.target.value)} placeholder="bijv. Periode" style={invoerStijl} /></div>
+                      <div style={{ flex: "0 1 180px" }}><span style={labelStijl}>Sleutel ({"{{...}}"})</span><input value={v.sleutel || ""} onChange={(e) => zetVeldSleutel(i, e.target.value)} placeholder="periode" style={{ ...invoerStijl, fontFamily: "monospace" }} /></div>
+                      <div style={{ flex: "0 1 140px" }}><span style={labelStijl}>Type</span>
+                        <select value={v.type || "tekst"} onChange={(e) => zetVeld(i, "type", e.target.value)} style={invoerStijl}><option value="tekst">Vrije tekst</option><option value="keuze">Keuzelijst</option></select>
                       </div>
                     </div>
-                  )}
+                    {v.type === "keuze" && (
+                      <div style={{ marginTop: 10 }}>
+                        <span style={labelStijl}>Opties</span>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                          {(v.opties || []).map((o, oi) => (
+                            <div key={oi} style={{ display: "inline-flex", alignItems: "center", gap: 4, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "3px 6px 3px 9px", background: KLEUR.lichtblauw }}>
+                              <input value={o.label || ""} onChange={(e) => zetOptie(i, oi, e.target.value)} placeholder="optie" style={{ border: "none", background: "transparent", outline: "none", fontSize: 12.5, width: 100, color: KLEUR.tekst }} />
+                              <button onClick={() => verwijderOptie(i, oi)} style={{ border: "none", background: "none", cursor: "pointer", color: KLEUR.mutedTekst, display: "flex" }}><X size={13} /></button>
+                            </div>
+                          ))}
+                          <button onClick={() => nieuweOptie(i)} style={{ ...knopLichtStijl, padding: "5px 9px", fontSize: 12 }}><Plus size={13} /> optie</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+          <button onClick={nieuwVeld} style={knopLichtStijl}><Plus size={15} /> Nieuw veld</button>
+          <AantalKiezer aantal={veldAantal} setAantal={setVeldAantal} getoond={zichtbareVelden.length} totaal={config.briefvelden.length} />
+        </div>
+      </Rubriek>
+
+      {/* Standaardbrieven — per item inklapbaar + aantalkeuze onderaan */}
+      <Rubriek titel={`Standaardbrieven (${config.sjablonen.length})`}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {zichtbareSjablonen.map((s, i) => {
+            const open = openBrieven.has(i);
+            return (
+              <div key={i} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden", background: s.actief === false ? "#F7F7F5" : "#fff" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px" }}>
+                  <button onClick={() => toggleSet(setOpenBrieven, i)} style={kopKnop}>
+                    {open ? <ChevronDown size={15} color={KLEUR.subtekst} /> : <ChevronRight size={15} color={KLEUR.subtekst} />}
+                    <span style={{ fontWeight: 700, color: KLEUR.tekst }}>{s.naam || "(zonder naam)"}</span>
+                    {s.actief === false && <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>· inactief</span>}
+                  </button>
+                  <button onClick={() => zetSjabloon(i, "actief", !(s.actief !== false))} title={s.actief === false ? "Inactief" : "Actief"} style={{ display: "inline-flex", alignItems: "center", gap: 5, border: `1px solid ${KLEUR.rand}`, background: "#fff", borderRadius: 7, padding: "6px 10px", fontSize: 12, fontWeight: 600, color: s.actief === false ? KLEUR.mutedTekst : KLEUR.groen, cursor: "pointer" }}>
+                    {s.actief === false ? <XCircle size={14} /> : <CheckCircle2 size={14} />} {s.actief === false ? "Inactief" : "Actief"}
+                  </button>
+                  <button onClick={() => verplaatsSjabloon(i, -1)} disabled={i === 0} title="Omhoog" style={pijlStijl(i === 0)}><ArrowUp size={15} /></button>
+                  <button onClick={() => verplaatsSjabloon(i, 1)} disabled={i === zichtbareSjablonen.length - 1} title="Omlaag" style={pijlStijl(i === zichtbareSjablonen.length - 1)}><ArrowDown size={15} /></button>
+                  <button onClick={() => verwijderSjabloon(i)} title="Verwijderen" style={{ ...pijlStijl(false), color: KLEUR.rood }}><Trash2 size={15} /></button>
                 </div>
-              ))}
-            </div>
-            <button onClick={nieuwSjabloon} style={{ ...knopLichtStijl, marginTop: 12 }}><Plus size={15} /> Nieuwe brief</button>
-          </div>
-        )}
-      </div>
+                {open && (
+                  <div style={{ padding: "12px", borderTop: `1px solid ${KLEUR.rand}` }}>
+                    <div style={{ marginBottom: 10 }}><span style={labelStijl}>Naam</span><input value={s.naam || ""} onChange={(e) => zetSjabloon(i, "naam", e.target.value)} placeholder="Naam van de brief" style={{ ...invoerStijl, fontWeight: 700 }} /></div>
+                    <div style={{ marginBottom: 10 }}><span style={labelStijl}>Onderwerp</span><input value={s.onderwerp || ""} onChange={(e) => zetSjabloon(i, "onderwerp", e.target.value)} placeholder="Betreft…" style={invoerStijl} /></div>
+                    <div style={{ marginBottom: 10 }}><span style={labelStijl}>Tekst</span><textarea value={s.tekst || ""} onChange={(e) => zetSjabloon(i, "tekst", e.target.value)} rows={6} style={{ ...invoerStijl, resize: "vertical", minHeight: 120, lineHeight: 1.5, fontFamily: "inherit" }} placeholder="Inhoud… (lege regel = nieuwe alinea, gebruik {{merge-velden}} en {{invulvelden}})" /></div>
+                    {config.briefvelden.length > 0 && (
+                      <div>
+                        <span style={labelStijl}>Invulvelden bij deze brief</span>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                          {config.briefvelden.map((v) => {
+                            const aan = Array.isArray(s.velden) && s.velden.includes(v.sleutel);
+                            return (
+                              <button key={v.sleutel || v.label} onClick={() => toggleSjabloonVeld(i, v.sleutel)} style={{ border: `1px solid ${aan ? KLEUR.blauw : KLEUR.rand}`, background: aan ? KLEUR.lichtblauw : "#fff", color: aan ? KLEUR.blauw : KLEUR.subtekst, borderRadius: 20, padding: "4px 11px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                                {aan ? "✓ " : ""}{v.label || v.sleutel} <span style={{ fontFamily: "monospace", opacity: 0.7 }}>{`{{${v.sleutel}}}`}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+          <button onClick={nieuwSjabloon} style={knopLichtStijl}><Plus size={15} /> Nieuwe brief</button>
+          <AantalKiezer aantal={aantal} setAantal={setAantal} getoond={zichtbareSjablonen.length} totaal={config.sjablonen.length} />
+        </div>
+      </Rubriek>
 
       {/* Merge-velden overzicht */}
       <Rubriek titel="Beschikbare klant-merge-velden">
@@ -346,6 +344,22 @@ export default function BrievenBeheer() {
         </button>
         {status === "opgeslagen" && <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: KLEUR.groen, fontSize: 12.5, fontWeight: 600 }}><CheckCircle2 size={15} /> Opgeslagen</span>}
         {status === "fout" && <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: KLEUR.rood, fontSize: 12.5, fontWeight: 600 }}><XCircle size={15} /> {fout}</span>}
+      </div>
+    </div>
+  );
+}
+
+const kopKnop = { display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: 0, fontSize: 13, color: KLEUR.tekst };
+
+function AantalKiezer({ aantal, setAantal, getoond, totaal }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+      <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{Math.min(getoond, totaal)} van {totaal} getoond</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+        <span style={{ color: KLEUR.mutedTekst }}>Toon:</span>
+        {AANTALLEN.map(([n, lbl]) => (
+          <button key={lbl} onClick={() => setAantal(n)} style={{ padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", border: `1px solid ${aantal === n ? KLEUR.blauw : KLEUR.rand}`, background: aantal === n ? KLEUR.blauw : "#fff", color: aantal === n ? "#fff" : KLEUR.subtekst }}>{lbl}</button>
+        ))}
       </div>
     </div>
   );
@@ -376,7 +390,7 @@ function AfbeeldingBlok({ titel, url, bezig, fout, onKies, onVerwijder, groot, c
 }
 
 function pijlStijl(uit) {
-  return { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${KLEUR.rand}`, background: "#fff", borderRadius: 7, color: uit ? KLEUR.rand : KLEUR.subtekst, cursor: uit ? "default" : "pointer" };
+  return { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${KLEUR.rand}`, background: "#fff", borderRadius: 7, color: uit ? KLEUR.rand : KLEUR.subtekst, cursor: uit ? "default" : "pointer", flexShrink: 0 };
 }
 function Rubriek({ titel, children }) {
   return (

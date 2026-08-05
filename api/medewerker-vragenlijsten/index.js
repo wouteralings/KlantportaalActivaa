@@ -401,7 +401,7 @@ module.exports = async function (context, req) {
       } catch { /* val terug op token-naam */ }
     }
 
-    context.res = { headers: { "Content-Type": "application/json" }, body: { rijen, afgerond, mijnNaam } };
+    context.res = { headers: { "Content-Type": "application/json" }, body: { rijen, afgerond, mijnNaam, mijnEmail: email || "" } };
   } catch (err) {
     if (err.message === "MISSING_CONFIG") { context.res = { status: 501, body: { error: "Opslag is nog niet geconfigureerd." } }; return; }
     context.log.error(err);

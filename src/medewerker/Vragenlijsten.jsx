@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { ClipboardList, Search, MessageCircle, ChevronDown, Send, RefreshCw, Users, User, CheckCircle2, Circle, FileText, CheckCheck, RotateCcw, Trash2, Plus, Pencil } from "lucide-react";
+import { ClipboardList, Search, MessageCircle, ChevronDown, Send, RefreshCw, Users, User, CheckCircle2, Circle, FileText, CheckCheck, RotateCcw, Trash2, Plus, Pencil, BellRing } from "lucide-react";
 
 /** Zelfde palet als de rest van het medewerkersportaal (bewust hier herhaald zodat dit bestand op
  *  zichzelf staat). */
@@ -47,6 +47,7 @@ export default function Vragenlijsten() {
   const [afgerondOpen, setAfgerondOpen] = useState(false); // de dichtgeklapte sectie zelf
   const [toonAantalAfgerond, setToonAantalAfgerond] = useState(25);
   const [mijnNaam, setMijnNaam] = useState("");
+  const [mijnEmail, setMijnEmail] = useState(""); // e-mail van de ingelogde medewerker — voor de "wacht op controle"-melding (behandelaar)
   const [klantNamen, setKlantNamen] = useState(null); // Map accountId -> Set(namen) | null = (nog) niet geladen
   const [fout, setFout] = useState("");
   const [zoek, setZoek] = useState("");
@@ -72,7 +73,7 @@ export default function Vragenlijsten() {
     setRijen(null); setFout("");
     fetch("/api/medewerker-vragenlijsten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { setRijen(d.rijen || []); setAfgerond(d.afgerond || []); setMijnNaam(d.mijnNaam || ""); if (!d.mijnNaam) setScope("alle"); })
+      .then((d) => { setRijen(d.rijen || []); setAfgerond(d.afgerond || []); setMijnNaam(d.mijnNaam || ""); setMijnEmail(d.mijnEmail || ""); if (!d.mijnNaam) setScope("alle"); })
       .catch(() => { setRijen([]); setFout("Kon de vragenlijsten niet laden."); });
   };
 
@@ -135,6 +136,16 @@ export default function Vragenlijsten() {
   const zichtbaar = toonAantal === Infinity ? gefilterd : gefilterd.slice(0, toonAantal);
   const zichtbaarAfgerond = toonAantalAfgerond === Infinity ? gefilterdAfgerond : gefilterdAfgerond.slice(0, toonAantalAfgerond);
   const openVragenTotaal = (rijen || []).reduce((s, r) => s + (r.openVragen || 0), 0);
+
+  // Melding voor de behandelaar: vragenlijsten die ík heb uitgezet (aangemaaktDoor == mijn e-mail) én
+  // die de klant volledig heeft aangeleverd maar die ik nog niet heb gecontroleerd (wachtOpControle).
+  // Verdwijnt vanzelf zodra ik zo'n lijst accepteer (dan is wachtOpControle weg).
+  const mijnCompleet = useMemo(() => {
+    const mail = (mijnEmail || "").trim().toLowerCase();
+    if (!mail) return [];
+    return (rijen || []).filter((r) => r.wachtOpControle && (r.aangemaaktDoor || "").trim().toLowerCase() === mail);
+  }, [rijen, mijnEmail]);
+  const openMelding = (r) => { setScope("alle"); setSoort(""); setZoek(""); setOpenId(r.id); };
 
   const beantwoorden = async (r) => {
     const tekst = (antwoord[r.id] || "").trim();
@@ -576,6 +587,31 @@ export default function Vragenlijsten() {
       </div>
 
       {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 8 }}>{fout}</div>}
+
+      {/* Melding: lijsten die ík heb uitgezet en die de klant volledig heeft aangeleverd — wacht op mijn controle. */}
+      {mijnCompleet.length > 0 && (
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", marginBottom: 12, border: "1px solid #BFE0C8", background: "#F1F8F3", borderRadius: 10 }}>
+          <BellRing size={16} color={KLEUR.groen} style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#2E7D46" }}>
+              {mijnCompleet.length} vragenlijst{mijnCompleet.length === 1 ? "" : "en"} die jij hebt uitgezet {mijnCompleet.length === 1 ? "is" : "zijn"} volledig aangeleverd — wacht op jouw controle
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+              {mijnCompleet.slice(0, 8).map((r) => (
+                <button
+                  key={r.id}
+                  onClick={() => openMelding(r)}
+                  title="Deze vragenlijst openen om te controleren"
+                  style={{ fontSize: 11.5, fontWeight: 600, padding: "3px 9px", borderRadius: 999, border: "1px solid #BFE0C8", background: "#fff", color: KLEUR.blauw, cursor: "pointer" }}
+                >
+                  {r.klantnaam || r.lijstNaam || "Vragenlijst"}{r.jaar ? ` ${r.jaar}` : ""}
+                </button>
+              ))}
+              {mijnCompleet.length > 8 && <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst, alignSelf: "center" }}>+{mijnCompleet.length - 8} meer</span>}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Scope-schakelaar + zoeken */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
