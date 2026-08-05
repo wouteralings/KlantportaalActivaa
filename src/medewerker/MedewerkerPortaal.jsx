@@ -2090,6 +2090,7 @@ function MedewerkerDossiers({ soort }) {
         picklistOpties={detail.picklistOpties || {}}
         gekoppeldeUitvragen={detail.gekoppeldeUitvragen || []}
         gekoppeldeLijstId={detail.gekoppeldeLijstId || ""}
+        gekoppeldOnderwerpId={detail.onderwerpId || ""}
         defaultContact={detail.defaultContact || { id: "", naam: "" }}
         magVerwijderen={magVerwijderen}
         magWijzigen={magWijzigen}
@@ -2100,6 +2101,7 @@ function MedewerkerDossiers({ soort }) {
           setDossiers((h) => (h || []).map((x) => (x.id === bijgewerkt.id ? bijgewerkt : x)));
         }}
         onDossierAangemaakt={dossierAangemaakt}
+        onVerversen={() => openDossier(detail.dossier.id)}
       />
     );
   }
@@ -2821,7 +2823,7 @@ function AangifteVersturenKaart({ dossier, disabled }) {
    kaart bovenaan (vóór de secties) de gekoppelde uitvraaglijst(en) — de volledige vragenlijst
    (documenten aftekenen/heropenen, vragen van de klant beantwoorden) rechtstreeks ingebouwd via
    VragenlijstDetail, dezelfde functionaliteit als het tabblad Vragenlijsten. */
-function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen, picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId, defaultContact, magVerwijderen, magWijzigen, onDossierVerwijderd, onTerug, onOpgeslagen, onDossierAangemaakt }) {
+function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen, picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId, gekoppeldOnderwerpId, defaultContact, magVerwijderen, magWijzigen, onDossierVerwijderd, onTerug, onOpgeslagen, onDossierAangemaakt, onVerversen }) {
   const [status, setStatus] = useState(dossier.status != null ? String(dossier.status) : "");
   const [urlDossier, setUrlDossier] = useState(dossier.urlDossier || "");
   const [documentUrl, setDocumentUrl] = useState(dossier.documentUrl || "");
@@ -3103,6 +3105,8 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
           defaultContact={defaultContact}
           magWijzigen={magWijzigen}
           prioriteitLijstId={gekoppeldeLijstId}
+          onderwerpId={gekoppeldOnderwerpId}
+          onUitgezet={onVerversen}
         />
       </div>
 

@@ -5,7 +5,7 @@
  *
  *   - GET  ?soort=ib|vpb&id=<guid>
  *       → { dossier, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen,
- *           picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId, defaultContact }
+ *           picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId, onderwerpId, defaultContact }
  *         (catalogus bevat naast de vrije catalogus ook de "vaste" velden __status/__urlDossier/
  *         __documentUrl (zie vasteVeldenVoorSoort() in dossierVelden.js) en eventuele door Wouter
  *         zelf via Beheer → Dossiers aangemaakte extra velden (dossierIndeling.<soort>.
@@ -24,7 +24,12 @@
  *         van datzelfde gekoppelde onderwerp (onderwerp.standaardLijstId) — gebruikt om de ingebedde
  *         "Vaste uitvragen" (klantkaart) in het dossier op voor te sorteren (die lijst bovenaan en
  *         opengeklapt); leeg zonder gekoppeld onderwerp of standaardlijst. Zie
- *         gekoppeldeLijstIdVoorDossier() hieronder. defaultContact = { id, naam } van de primaire
+ *         gekoppeldeLijstIdVoorDossier() hieronder. onderwerpId = het aan deze dossiersoort
+ *         gekoppelde onderwerp zelf (indeling.onderwerpId, leeg zonder koppeling) — meegegeven zodat
+ *         een vanuit dit dossier uitgezette "Vaste uitvraag" (ingebedde KlantVasteUitvragen) meteen
+ *         met dit onderwerp getagd wordt en dus zelf ook als gekoppeldeUitvragen terugkomt, zonder
+ *         dat de medewerker de lijst zelf hoeft te "raden" via de standaardLijstId-fallback in
+ *         api/medewerker-aanleververzoeken. defaultContact = { id, naam } van de primaire
  *         contactpersoon van de cliënt (Dynamics account.primarycontactid), of null — vult de
  *         contactpersoon in de ingebedde "Vaste uitvragen" voor, net als op de klantkaart zelf. Zie
  *         haalPrimairContactVoorDossier() hieronder.)
@@ -174,7 +179,7 @@ module.exports = async function (context, req) {
         gekoppeldeLijstIdVoorDossier(indeling.onderwerpId),
         haalPrimairContactVoorDossier(resource, token, dossier.accountId),
       ]);
-      context.res = { headers: { "Content-Type": "application/json" }, body: { dossier, statusOpties: soort.statusOpties, catalogus, secties: indeling.secties, verborgen: indeling.verborgen, voorwaarden: indeling.voorwaarden, alleenLezen: indeling.alleenLezen, picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId, defaultContact } };
+      context.res = { headers: { "Content-Type": "application/json" }, body: { dossier, statusOpties: soort.statusOpties, catalogus, secties: indeling.secties, verborgen: indeling.verborgen, voorwaarden: indeling.voorwaarden, alleenLezen: indeling.alleenLezen, picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId, onderwerpId: indeling.onderwerpId || "", defaultContact } };
       return;
     }
 

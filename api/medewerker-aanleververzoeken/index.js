@@ -228,7 +228,14 @@ module.exports = async function (context, req) {
         contactNaam,
         lijstId: lijstId || "",
         lijstNaam,
-        onderwerpId: onderwerpId || "",
+        // Bug (05-08-2026): dit gaf voorheen "onderwerpId || ''" — bij de lijstId-only-fallback
+        // hierboven (geen onderwerpId meegegeven, maar de lijst is wél iemands standaardlijst) werd
+        // "onderwerp" dan wél gevonden maar zijn id nooit op het verzoek gezet. Het verzoek dook
+        // daardoor nooit op als "gekoppelde uitvraaglijst" in het bijbehorende dossier — precies wat
+        // de comment hierboven beloofde te voorkomen. "onderwerp ? onderwerp.id : ''" dekt beide
+        // paden (expliciet gekozen onderwerp én de lijstId-fallback) — zelfde patroon als de
+        // bulk-uitzetten-actie hierboven, die dit al wél goed deed.
+        onderwerpId: onderwerp ? onderwerp.id : "",
         onderwerp: onderwerp ? onderwerp.naam : "",
         jaar,
         map,

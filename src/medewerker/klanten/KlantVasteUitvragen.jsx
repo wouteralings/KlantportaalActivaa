@@ -39,8 +39,17 @@ const datum = (iso) => {
  * (Beheer → Dossiers → "Gekoppelde uitvraaglijst") — die lijst wordt dan vóórgesorteerd (bovenaan) en
  * staat bij het laden meteen opengeklapt, zodat je 'm niet tussen alle aanleverlijsten hoeft te
  * zoeken. Op de klantkaart zelf wordt dit niet meegegeven, dan verandert er niets aan de volgorde.
+ *
+ * `onderwerpId` (optioneel, ook alleen ingebed in een dossier): wordt meegestuurd bij "uitzetten",
+ * zodat het aanleververzoek meteen bij dit dossier hoort (zie gekoppeldeUitvragenVoorDossier in
+ * api/medewerker-dossier) en na een refresh direct als bewerkbare "gekoppelde uitvraaglijst" in het
+ * dossier zelf verschijnt — in plaats van de dossierkoppeling over te laten aan de standaardLijstId-
+ * fallback in api/medewerker-aanleververzoeken (die alleen werkt als de gekozen lijst toevallig de
+ * standaardlijst van een onderwerp is). `onUitgezet` (optioneel): callback die na een geslaagde
+ * uitzetten-actie wordt aangeroepen, zodat de aanroepende dossierweergave zichzelf kan verversen en
+ * de net uitgezette vragenlijst meteen toont zonder dat de medewerker handmatig hoeft te vernieuwen.
  */
-export default function KlantVasteUitvragen({ accountId, klantnaam, defaultContact, magWijzigen, prioriteitLijstId }) {
+export default function KlantVasteUitvragen({ accountId, klantnaam, defaultContact, magWijzigen, prioriteitLijstId, onderwerpId, onUitgezet }) {
   const [data, setData] = useState(null); // { lijsten, vaste } | null = laden
   const [werk, setWerk] = useState({}); // lijstId -> item (bewerkbaar)
   const [status, setStatus] = useState({}); // lijstId -> 'rust'|'bezig'|'opgeslagen'|'fout'
@@ -139,11 +148,14 @@ export default function KlantVasteUitvragen({ accountId, klantnaam, defaultConta
     try {
       const r = await fetch("/api/medewerker-aanleververzoeken", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ actie: "uitzetten", accountId, contactId: item.contactId, lijstId: lijst.id, jaar: jaar[lijst.id] || "", regels: effRegels(lijst), notitie: item.notitie || "" }),
+        body: JSON.stringify({ actie: "uitzetten", accountId, contactId: item.contactId, lijstId: lijst.id, onderwerpId: onderwerpId || "", jaar: jaar[lijst.id] || "", regels: effRegels(lijst), notitie: item.notitie || "" }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
       setUitzetInfo((u) => ({ ...u, [lijst.id]: `Uitgezet naar ${item.contactNaam || "de contactpersoon"}${jaar[lijst.id] ? ` (${jaar[lijst.id]})` : ""}.` }));
+      // Laat de aanroepende dossierweergave zichzelf verversen zodat dit verzoek meteen als
+      // gekoppelde uitvraaglijst verschijnt (alleen relevant wanneer ingebed in een dossier).
+      if (onUitgezet) onUitgezet();
     } catch (e) {
       setFout((f) => ({ ...f, [lijst.id]: e.message || "Uitzetten mislukt." }));
     } finally { setStatus((s) => ({ ...s, [lijst.id]: "rust" })); }
