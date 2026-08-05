@@ -9,7 +9,7 @@
  */
 const { haalDynamicsToken, herleidAccounts } = require("../_gedeeld/identiteit");
 const { haalVoorContact } = require("../_gedeeld/documentrechten");
-const { haalGraphAppToken } = require("../_gedeeld/graphApp");
+const { haalAppGraphToken } = require("../_gedeeld/graphApp");
 const dm = require("../_gedeeld/documentmappen");
 
 function magSectie(sectie, rechten) {
@@ -51,7 +51,7 @@ module.exports = async function (context, req) {
       return;
     }
 
-    const appToken = await haalGraphAppToken();
+    const appToken = await haalAppGraphToken();
     const spUrl = await haalSharePointUrl(resource, dynToken, account.accountId);
     if (!spUrl) { context.res = { status: 404, body: { error: "Voor deze cliënt is geen documentmap ingesteld." } }; return; }
 

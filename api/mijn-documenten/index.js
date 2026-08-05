@@ -16,7 +16,7 @@
  */
 const { haalDynamicsToken, herleidAccounts } = require("../_gedeeld/identiteit");
 const { haalVoorContact } = require("../_gedeeld/documentrechten");
-const { haalGraphAppToken } = require("../_gedeeld/graphApp");
+const { haalAppGraphToken } = require("../_gedeeld/graphApp");
 const dm = require("../_gedeeld/documentmappen");
 
 function magSectie(sectie, rechten) {
@@ -43,7 +43,7 @@ module.exports = async function (context, req) {
   try {
     const dynToken = await haalDynamicsToken();
     const { accounts } = await herleidAccounts(req, dynToken);
-    const appToken = await haalGraphAppToken();
+    const appToken = await haalAppGraphToken();
 
     // ── Doorklikken in een (sub)map ──────────────────────────────────────
     const navAccountId = (req.query.accountId || "").trim();
