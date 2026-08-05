@@ -21,7 +21,7 @@
  * Route beveiligd via staticwebapp.config.json (rol 'medewerker'/'beheerder'); extra rolcheck hier.
  */
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
-const { SOORTEN, haalEenDossier, maakDossier, bestaatDossierAl, metAangepasteVelden } = require("../_gedeeld/dossiers");
+const { SOORTEN, haalEenDossier, maakDossier, bestaatDossierAl, metAangepasteVelden, haalDynamischePicklistOpties } = require("../_gedeeld/dossiers");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
 
@@ -91,6 +91,23 @@ module.exports = async function (context, req) {
 
     const velden = {};
     if (fiscaalPartnerschap !== undefined) velden.fiscaalpartnerschap = !!fiscaalPartnerschap;
+
+    // "Huidige situatie" (cr283_gezinssituatie) is bij het aanmaken verplicht. Is er geen fiscaal
+    // partner gekozen (cr283_fiscaalpartner blijft leeg), dan zetten we die standaard op
+    // "Alleenstaand". De optiewaarde halen we live uit Dynamics op (zoals elders voor deze
+    // keuzelijst), zodat er geen nummer hardgecodeerd staat. Alleen bij een nieuwe (niet-
+    // gekopieerde) aangifte — bij kopiëren neemt maakDossier de gezinssituatie van het brondossier
+    // over. Best-effort: lukt het opzoeken niet, dan laten we het veld leeg.
+    const heeftFiscaalPartner = !!(fiscaalPartnerAccountId || (kopieerVanDossier && kopieerVanDossier.fiscaalPartnerAccountId));
+    if (!kopieerVanDossier && !heeftFiscaalPartner && velden.gezinssituatie === undefined) {
+      try {
+        const picklistOpties = await haalDynamischePicklistOpties(resource, token, soortEffectief);
+        const alleenstaand = (picklistOpties.gezinssituatie || []).find((o) => String(o.label).toLowerCase().includes("alleenstaand"));
+        if (alleenstaand) velden.gezinssituatie = alleenstaand.waarde;
+      } catch (e) {
+        context.log.error("Kon standaard 'Alleenstaand' voor gezinssituatie niet bepalen:", e);
+      }
+    }
 
     const nieuwId = await maakDossier(resource, token, soortEffectief, {
       accountId,
