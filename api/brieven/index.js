@@ -42,6 +42,34 @@ function veiligeBestandsnaam(basis, ext) {
   return `${schoon}.${ext}`;
 }
 
+const MAX_BIJLAGE_BYTES = 20 * 1024 * 1024; // 20 MB (voor het dossier); e-mail is in de praktijk kleiner begrensd
+
+/** Saniteert de originele bestandsnaam van een bijlage (extensie behouden). */
+function veiligeBijlageNaam(naam) {
+  return String(naam || "bijlage")
+    .replace(/[\\/:*?"<>|#%]+/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180) || "bijlage";
+}
+
+/**
+ * Leest een door de medewerker meegestuurde bijlage `{ naam, dataUrl }` (zoals een klant een PDF
+ * uploadt: als data-URL) om naar `{ naam, contentType, buffer }`. Geeft null bij geen/ongeldige
+ * bijlage; gooit BIJLAGE_TE_GROOT als het bestand groter is dan MAX_BIJLAGE_BYTES.
+ */
+function leesBijlage(bijlage) {
+  if (!bijlage || typeof bijlage !== "object") return null;
+  const dataUrl = String(bijlage.dataUrl || "");
+  const m = /^data:([^;,]*)(;base64)?,([\s\S]*)$/.exec(dataUrl);
+  if (!m) return null;
+  const contentType = (m[1] || "").trim() || "application/octet-stream";
+  const buffer = m[2] ? Buffer.from(m[3], "base64") : Buffer.from(decodeURIComponent(m[3]), "utf8");
+  if (!buffer || buffer.length === 0) return null;
+  if (buffer.length > MAX_BIJLAGE_BYTES) { const e = new Error("BIJLAGE_TE_GROOT"); e.code = "BIJLAGE_TE_GROOT"; throw e; }
+  return { naam: veiligeBijlageNaam(bijlage.naam), contentType, buffer };
+}
+
 async function rennerVoorFormaat(formaat, brief) {
   if (formaat === "docx") {
     // Is er een Word-briefpapier ingesteld? Dan de brief in dát briefpapier zetten (huisstijl 1-op-1).
@@ -107,8 +135,9 @@ function mailHtmlVan(brief) {
   </div>`;
 }
 
-/** Kopieert een gegenereerde brief naar <SharePoint-map van de klant>/<submap>/<bestandsnaam>. */
-async function naarDossier({ accountId, submap, bestandsnaam, buffer, contentType }) {
+/** Kopieert een gegenereerde brief (en optioneel een bijlage) naar
+ *  <SharePoint-map van de klant>/<submap>/. */
+async function naarDossier({ accountId, submap, bestandsnaam, buffer, contentType, bijlage }) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   if (!resource) return { gedaan: false, reden: "Dynamics-koppeling is nog niet geconfigureerd." };
 
@@ -129,6 +158,7 @@ async function naarDossier({ accountId, submap, bestandsnaam, buffer, contentTyp
     const map = await resolveFolder(appToken, basisUrl);
     const doelId = await ensureFolderPath(appToken, map.driveId, map.itemId, [submap || "Brieven"]);
     await uploadBestand(appToken, map.driveId, doelId, bestandsnaam, buffer, contentType);
+    if (bijlage && bijlage.buffer) await uploadBestand(appToken, map.driveId, doelId, bijlage.naam, bijlage.buffer, bijlage.contentType);
     return { gedaan: true };
   } catch (e) {
     const reden = e && e.code === "APP_TOKEN_MISLUKT"
@@ -155,6 +185,8 @@ module.exports = async function (context, req) {
   try {
     // Briefpapier-logo (best-effort) aan het brief-object hangen vóór het renderen/versturen.
     await verrijkMetLogo(brief);
+    // Optionele bijlage die de medewerker meestuurt (gaat mee bij mailen en in het dossier).
+    const bijlage = leesBijlage(body.bijlage);
 
     if (actie === "genereer") {
       const formaat = body.formaat === "docx" ? "docx" : "pdf";
@@ -177,12 +209,14 @@ module.exports = async function (context, req) {
         return;
       }
       const pdf = await genereerBriefPdf(brief);
+      const bijlagen = [{ naam: veiligeBestandsnaam(body.bestandsnaamBasis, "pdf"), contentType: PDF_TYPE, inhoud: pdf }];
+      if (bijlage) bijlagen.push({ naam: bijlage.naam, contentType: bijlage.contentType, inhoud: bijlage.buffer });
       const resultaat = await verstuurMailMetBijlage({
         naar,
         cc: Array.isArray(body.cc) ? body.cc : (body.cc ? [body.cc] : []),
         onderwerp: brief.onderwerp || "Brief van Activaa",
         html: mailHtmlVan(brief),
-        bijlagen: [{ naam: veiligeBestandsnaam(body.bestandsnaamBasis, "pdf"), contentType: PDF_TYPE, inhoud: pdf }],
+        bijlagen,
       });
       context.res = { headers: { "Content-Type": "application/json" }, body: { verzonden: true, van: resultaat.van } };
       return;
@@ -203,6 +237,7 @@ module.exports = async function (context, req) {
         bestandsnaam: veiligeBestandsnaam(body.bestandsnaamBasis, ext),
         buffer,
         contentType,
+        bijlage,
       });
       context.res = { headers: { "Content-Type": "application/json" }, body: resultaat };
       return;
@@ -210,6 +245,10 @@ module.exports = async function (context, req) {
 
     context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Onbekende actie. Kies 'genereer', 'mail' of 'dossier'." } };
   } catch (err) {
+    if (err.code === "BIJLAGE_TE_GROOT") {
+      context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "De bijlage is te groot (maximaal 20 MB)." } };
+      return;
+    }
     if (err.message === "MISSING_MAIL_SENDER") {
       context.res = { status: 501, headers: { "Content-Type": "application/json" }, body: { error: "E-mailverzending is nog niet geconfigureerd (GRAPH_MAIL_SENDER ontbreekt)." } };
       return;

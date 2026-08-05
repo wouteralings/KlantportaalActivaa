@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Search, FileText, Download, FolderInput, Mail, RefreshCw, Loader2,
-  CheckCircle2, AlertTriangle, X, ChevronDown, Building2, User, Landmark,
+  CheckCircle2, AlertTriangle, X, ChevronDown, Building2, User, Landmark, Paperclip,
 } from "lucide-react";
 
 /**
@@ -118,6 +118,7 @@ export default function BrievenOverzicht() {
   const [naar, setNaar] = useState("");
   const [cc, setCc] = useState("");
   const [formaat, setFormaat] = useState("pdf");
+  const [bijlage, setBijlage] = useState(null); // { naam, dataUrl, grootte } of null
 
   const [bezig, setBezig] = useState("");
   const [melding, setMelding] = useState(null);
@@ -226,6 +227,18 @@ export default function BrievenOverzicht() {
   const geadresseerdeOk = geadType !== "belastingkantoor" || bk.status === "ok";
   const klaarVoorActie = !!klant && !!sjabloonId && geadresseerdeOk;
 
+  // Bijlage kiezen (1 bestand, alle types) — net als de klant een document uploadt: als data-URL
+  // inlezen en meesturen. Grens op 20 MB (dossier); grote bestanden gaan mogelijk niet per e-mail mee.
+  function kiesBijlage(file) {
+    if (!file) return;
+    const MAX = 20 * 1024 * 1024;
+    if (file.size > MAX) { setMelding({ type: "fout", tekst: `Bijlage is te groot (max 20 MB). "${file.name}" is ${(file.size / 1048576).toFixed(1)} MB.` }); return; }
+    const r = new FileReader();
+    r.onload = () => { if (levend.current) { setBijlage({ naam: file.name, dataUrl: String(r.result || ""), grootte: file.size }); setMelding(null); } };
+    r.onerror = () => { if (levend.current) setMelding({ type: "fout", tekst: "Kon de bijlage niet inlezen." }); };
+    r.readAsDataURL(file);
+  }
+
   async function doeActie(actie, fmt) {
     if (!klaarVoorActie) { setMelding({ type: "fout", tekst: "Kies eerst een klant, een brief en een geldige geadresseerde." }); return; }
     setMelding(null); setBezig(actie + (fmt || ""));
@@ -233,12 +246,14 @@ export default function BrievenOverzicht() {
       const payload = { actie, brief, bestandsnaamBasis, formaat: fmt || formaat };
       if (actie === "dossier") payload.accountId = klant.accountId;
       if (actie === "mail") { payload.naar = naar.trim(); payload.cc = cc.split(/[,;]/).map((s) => s.trim()).filter(Boolean); }
+      if ((actie === "mail" || actie === "dossier") && bijlage) payload.bijlage = { naam: bijlage.naam, dataUrl: bijlage.dataUrl };
       const res = await fetch("/api/brieven", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `Er ging iets mis (${res.status}).`);
+      const metBijlage = bijlage ? " (met bijlage)" : "";
       if (actie === "genereer") { base64Download(data.base64, data.bestandsnaam, data.contentType); setMelding({ type: "ok", tekst: `${data.bestandsnaam} is gedownload.` }); }
-      else if (actie === "mail") { setMelding({ type: "ok", tekst: `Brief gemaild naar ${naar.trim()}.` }); }
-      else if (actie === "dossier") { if (data.gedaan) setMelding({ type: "ok", tekst: "Brief opgeslagen in het SharePoint-dossier van de klant." }); else setMelding({ type: "fout", tekst: data.reden || "Opslaan in het dossier is niet gelukt." }); }
+      else if (actie === "mail") { setMelding({ type: "ok", tekst: `Brief gemaild naar ${naar.trim()}${metBijlage}.` }); }
+      else if (actie === "dossier") { if (data.gedaan) setMelding({ type: "ok", tekst: `Brief opgeslagen in het SharePoint-dossier van de klant${metBijlage}.` }); else setMelding({ type: "fout", tekst: data.reden || "Opslaan in het dossier is niet gelukt." }); }
     } catch (e) { setMelding({ type: "fout", tekst: String(e.message || e) }); }
     finally { if (levend.current) setBezig(""); }
   }
@@ -371,6 +386,27 @@ export default function BrievenOverzicht() {
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             <div style={{ flex: "1 1 220px" }}><span style={label}>E-mail ontvanger</span><input value={naar} onChange={(e) => setNaar(e.target.value)} style={input} placeholder="naam@bedrijf.nl" /></div>
             <div style={{ flex: "1 1 180px" }}><span style={label}>CC (optioneel)</span><input value={cc} onChange={(e) => setCc(e.target.value)} style={input} placeholder="cc@… (komma-gescheiden)" /></div>
+          </div>
+
+          {/* Bijlage */}
+          <div>
+            <span style={label}>Bijlage (optioneel)</span>
+            {bijlage ? (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 12px", background: "#FBFBF9" }}>
+                <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 8 }}>
+                  <Paperclip size={15} color={KLEUR.subtekst} style={{ flexShrink: 0 }} />
+                  <span style={{ fontSize: 13, color: KLEUR.tekst, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{bijlage.naam}</span>
+                  <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst, whiteSpace: "nowrap", flexShrink: 0 }}>{(bijlage.grootte / 1048576).toFixed(1)} MB</span>
+                </div>
+                <button onClick={() => setBijlage(null)} style={{ ...knopLicht, padding: "6px 10px", flexShrink: 0 }}><X size={14} /> Verwijder</button>
+              </div>
+            ) : (
+              <label style={{ ...knopLicht, cursor: "pointer" }}>
+                <Paperclip size={15} /> Bestand kiezen
+                <input type="file" style={{ display: "none" }} onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; kiesBijlage(f); }} />
+              </label>
+            )}
+            <div style={{ marginTop: 6, fontSize: 11.5, color: KLEUR.mutedTekst }}>Gaat mee als bijlage bij het mailen en wordt met “In klantdossier” ook in de SharePoint-map opgeslagen. Grote bestanden (boven ± 3 MB) passen soms niet in een e-mail, maar worden wél in het dossier bewaard.</div>
           </div>
 
           {/* Acties */}
