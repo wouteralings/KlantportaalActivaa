@@ -2830,19 +2830,57 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
   // standaard dichtgeklapt (makkelijk nalezen zonder de pagina vol te zetten) en een open lijst
   // standaard opengeklapt (die vraagt nog aandacht).
   const [uitvraagOpen, setUitvraagOpen] = useState({});
+  // Fiscaal partner (lookup cr283_fiscaalpartner) — apart bewerkbaar naast de "Fiscaal
+  // partnerschap" ja/nee-schakelaar: bij "Ja" verplicht een partner kiezen, bij "Nee" wordt hij bij
+  // het opslaan losgekoppeld (enkelvoudige aangifte). De klantenlijst voor de kiezer laden we lazy
+  // zodra fiscaal partnerschap op "Ja" staat.
+  const [partnerId, setPartnerId] = useState(dossier.fiscaalPartnerAccountId || "");
+  const [partnerNaam, setPartnerNaam] = useState(dossier.fiscaalPartnerNaam || "");
+  const [klanten, setKlanten] = useState(null);
 
   const oorspronkelijkeVelden = waardenUitDossier(dossier, catalogus);
   const veldenGewijzigd = JSON.stringify(veldenState) !== JSON.stringify(oorspronkelijkeVelden);
-  const gewijzigd = String(dossier.status ?? "") !== status || (dossier.urlDossier || "") !== urlDossier || (dossier.documentUrl || "") !== documentUrl || veldenGewijzigd;
+
+  // Fiscaal partner: staat de "Fiscaal partnerschap"-schakelaar op Ja, dan is een gekozen partner
+  // verplicht; op Nee koppelen we een eventueel bestaande partner los. Alleen als de effectieve
+  // partner afwijkt van wat er in Dynamics staat, sturen we hem mee (koppelen of loskoppelen).
+  const partnerschapAan = !!veldenState.fiscaalpartnerschap;
+  const origPartnerId = dossier.fiscaalPartnerAccountId || "";
+  const effectiefPartnerId = partnerschapAan ? (partnerId || "") : "";
+  const partnerGewijzigd = effectiefPartnerId !== origPartnerId;
+  const partnerVerplichtOntbreekt = partnerschapAan && !partnerId;
+
+  const gewijzigd = String(dossier.status ?? "") !== status || (dossier.urlDossier || "") !== urlDossier || (dossier.documentUrl || "") !== documentUrl || veldenGewijzigd || partnerGewijzigd;
 
   const zetVeld = (key, waarde) => { setVeldenState((h) => ({ ...h, [key]: waarde })); setOpslaan("rust"); };
+
+  // Klantenlijst (voor de fiscaal-partner-kiezer) lazy laden zodra fiscaal partnerschap op Ja staat.
+  useEffect(() => {
+    if (!partnerschapAan || klanten !== null) return;
+    let actief = true;
+    fetch("/api/beheer-klanten")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => { if (actief) setKlanten(d.klanten || []); })
+      .catch(() => { if (actief) setKlanten([]); });
+    return () => { actief = false; };
+  }, [partnerschapAan, klanten]);
+
+  const zoekPartnerKlant = (term) => {
+    const t = term.trim().toLowerCase();
+    const lijst = (klanten || []).filter((k) => k.accountId !== dossier.accountId && (!t || `${k.klantnaam} ${k.klantnummer ?? ""}`.toLowerCase().includes(t)));
+    return lijst.slice(0, 20).map((k) => ({ id: k.accountId, naam: k.klantnaam || "—", sub: k.klantnummer ? `Nr. ${k.klantnummer}` : "" }));
+  };
 
   const bewaar = async () => {
     setOpslaan("bezig"); setFout("");
     try {
+      const body = { soort: dossier.soort, id: dossier.id, status: status === "" ? null : Number(status), urlDossier, documentUrl, velden: veldenState };
+      // Fiscaal partner mee-opslaan als die is gewijzigd: een accountId om te koppelen, of null om
+      // los te koppelen (bij "Nee" of geen partner) — enkelvoudige aangifte.
+      if (partnerGewijzigd) body.fiscaalPartnerAccountId = effectiefPartnerId || null;
       const r = await fetch("/api/medewerker-dossier", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ soort: dossier.soort, id: dossier.id, status: status === "" ? null : Number(status), urlDossier, documentUrl, velden: veldenState }),
+        body: JSON.stringify(body),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
@@ -2909,6 +2947,35 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
     }
     if (key === "__documentUrl") {
       return <VeldInvoer key={key} veldDef={veldDef} waarde={documentUrl} onChange={(w) => { setDocumentUrl(w); setOpslaan("rust"); }} disabled={!bewerkbaar} alleenLezen={isAlleenLezen} stijlen={veldStijlen} />;
+    }
+    // "Fiscaal partnerschap" (ja/nee) mét een fiscaal-partner-kiezer eronder: bij "Ja" verplicht een
+    // partner kiezen, bij "Nee" wissen we de gekozen partner (bij opslaan wordt hij losgekoppeld).
+    if (key === "fiscaalpartnerschap") {
+      return (
+        <div key={key}>
+          <VeldInvoer
+            veldDef={veldDef}
+            waarde={veldenState[key]}
+            onChange={(w) => { zetVeld(key, w); if (!w) { setPartnerId(""); setPartnerNaam(""); } }}
+            picklistOpties={picklistOpties}
+            disabled={!bewerkbaar}
+            alleenLezen={isAlleenLezen}
+            stijlen={veldStijlen}
+          />
+          {!!veldenState[key] && bewerkbaar && !isAlleenLezen && (
+            <div style={{ marginTop: 8 }}>
+              <ZoekKiezer
+                label="Fiscaal partner"
+                huidigeNaam={partnerNaam}
+                zoek={zoekPartnerKlant}
+                onKies={(id, naam) => { setPartnerId(id); setPartnerNaam(naam); setOpslaan("rust"); }}
+                onWis={() => { setPartnerId(""); setPartnerNaam(""); setOpslaan("rust"); }}
+              />
+              {!partnerId && <div style={{ fontSize: 11.5, color: KLEUR.rood, marginTop: -2 }}>Kies een fiscaal partner (verplicht bij fiscaal partnerschap).</div>}
+            </div>
+          )}
+        </div>
+      );
     }
     return (
       <VeldInvoer
@@ -3043,9 +3110,10 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
         <div style={{ position: "sticky", bottom: 0, background: "#fff", paddingTop: 8 }}>
           {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 10 }}>{fout}</div>}
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <button onClick={bewaar} disabled={opslaan === "bezig" || !gewijzigd} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: gewijzigd ? KLEUR.groen : "#9DB4A5", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: gewijzigd ? "pointer" : "default" }}>
+            <button onClick={bewaar} disabled={opslaan === "bezig" || !gewijzigd || partnerVerplichtOntbreekt} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: gewijzigd && !partnerVerplichtOntbreekt ? KLEUR.groen : "#9DB4A5", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: gewijzigd && !partnerVerplichtOntbreekt ? "pointer" : "default" }}>
               <CheckCircle2 size={14} /> {opslaan === "bezig" ? "Opslaan…" : "Opslaan"}
             </button>
+            {partnerVerplichtOntbreekt && <span style={{ fontSize: 12.5, color: KLEUR.rood }}>Kies eerst een fiscaal partner.</span>}
             {opslaan === "gelukt" && !gewijzigd && <span style={{ fontSize: 12.5, color: KLEUR.groen }}>Opgeslagen.</span>}
           </div>
         </div>

@@ -129,7 +129,7 @@ module.exports = async function (context, req) {
     }
 
     if (methode === "POST" || methode === "PATCH") {
-      const { soort: soortKey, id, actie, status, urlDossier, documentUrl, velden: veldenBag } = req.body || {};
+      const { soort: soortKey, id, actie, status, urlDossier, documentUrl, velden: veldenBag, fiscaalPartnerAccountId } = req.body || {};
       const soort = soortVan(soortKey);
       if (!soort || !id) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'soort' (ib/vpb) en 'id' mee." } }; return; }
 
@@ -174,6 +174,9 @@ module.exports = async function (context, req) {
         const gefilterdeBag = Object.fromEntries(Object.entries(veldenBag).filter(([k]) => !alleenLezenSet.has(k)));
         if (Object.keys(gefilterdeBag).length > 0) velden.velden = gefilterdeBag;
       }
+      // Fiscaal partner (lookup) koppelen/loskoppelen — een accountId om te koppelen, of "" / null om
+      // los te koppelen (enkelvoudige aangifte).
+      if (fiscaalPartnerAccountId !== undefined) velden.fiscaalPartnerAccountId = fiscaalPartnerAccountId || null;
       if (Object.keys(velden).length === 0) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Niets om bij te werken." } }; return; }
 
       await werkDossierBij(resource, token, soortEffectief, id, velden);

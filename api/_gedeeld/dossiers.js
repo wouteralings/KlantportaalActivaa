@@ -367,13 +367,35 @@ async function werkDossierBij(resource, token, soort, id, velden) {
       if (dynamicsWaarde !== undefined) body[veldDef.veld] = dynamicsWaarde;
     }
   }
-  if (Object.keys(body).length === 0) return;
-  const res = await fetch(`${resource}/api/data/v9.2/${entitySet}(${id})`, {
-    method: "PATCH",
-    headers: { ...HEADERS(token), "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`Bijwerken ${soort.key} mislukt (${res.status}): ${await res.text()}`);
+  // Fiscaal partner (single-valued lookup): KOPPELEN kan mee in de PATCH via @odata.bind; het
+  // LOSKOPPELEN moet via een aparte DELETE op de navigatie-eigenschap ($ref) — dat kan niet in een
+  // PATCH-body. partnerNav = de logische navigatienaam (bv. "cr283_fiscaalpartner").
+  const partnerNav = soort.optioneel.fiscaalpartner ? kernNaam(soort.optioneel.fiscaalpartner) : null;
+  let partnerLoskoppelen = false;
+  if (partnerNav && velden.fiscaalPartnerAccountId !== undefined) {
+    if (velden.fiscaalPartnerAccountId) {
+      body[`${partnerNav}@odata.bind`] = `/accounts(${velden.fiscaalPartnerAccountId})`;
+    } else {
+      partnerLoskoppelen = true;
+    }
+  }
+
+  if (Object.keys(body).length > 0) {
+    const res = await fetch(`${resource}/api/data/v9.2/${entitySet}(${id})`, {
+      method: "PATCH",
+      headers: { ...HEADERS(token), "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`Bijwerken ${soort.key} mislukt (${res.status}): ${await res.text()}`);
+  }
+
+  if (partnerLoskoppelen) {
+    const res = await fetch(`${resource}/api/data/v9.2/${entitySet}(${id})/${partnerNav}/$ref`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "OData-MaxVersion": "4.0", "OData-Version": "4.0" },
+    });
+    if (!res.ok && res.status !== 404) throw new Error(`Fiscaal partner loskoppelen mislukt (${res.status}): ${await res.text()}`);
+  }
 }
 
 /** Verwijdert een dossier DEFINITIEF uit Dynamics (harde DELETE, geen terugweg — anders dan

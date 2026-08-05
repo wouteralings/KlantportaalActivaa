@@ -21,9 +21,13 @@
  * Route beveiligd via staticwebapp.config.json (rol 'medewerker'/'beheerder'); extra rolcheck hier.
  */
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
-const { SOORTEN, haalEenDossier, maakDossier, bestaatDossierAl, metAangepasteVelden, haalDynamischePicklistOpties } = require("../_gedeeld/dossiers");
+const { SOORTEN, haalEenDossier, maakDossier, bestaatDossierAl, metAangepasteVelden } = require("../_gedeeld/dossiers");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
+
+// Optiewaarden van de lokale keuzelijst cr283_gezinssituatie ("Huidige situatie") op
+// cr283_inkomstenbelasting — verplicht veld, waarden door Wouter bevestigd (05-08-2026, Power Apps).
+const GEZINSSITUATIE = { getrouwd: 601280000, samenwonend: 601280001, alleenstaand: 601280002 };
 
 /** Zelf aangemaakte extra velden (Beheer → Dossiers, "Nieuw veld aanmaken") van deze soort — nodig
  * zodat zo'n veld ook echt meegekopieerd/meegeselecteerd kan worden, precies als bij het gewone
@@ -94,27 +98,16 @@ module.exports = async function (context, req) {
 
     // "Huidige situatie" (cr283_gezinssituatie) is bij het aanmaken verplicht. We leiden 'm af uit
     // de partnerkeuze uit het aanmaakscherm: géén fiscaal partner -> "Alleenstaand"; wél een partner
-    // -> "Getrouwd/gehuwd" of "Samenwonend" (req.body.partnerSituatie: "gehuwd" | "samenwonend").
-    // De optiewaarde halen we live uit Dynamics op (zoals elders voor deze keuzelijst), zodat er
-    // geen nummer hardgecodeerd staat — we matchen hoofdletterongevoelig op de stam van het label.
+    // -> "Samenwonend" of anders "Getrouwd" (req.body.partnerSituatie: "samenwonend" | anders).
     // Alleen bij een nieuwe (niet-gekopieerde) aangifte; bij kopiëren neemt maakDossier de
-    // gezinssituatie van het brondossier over. Best-effort: lukt het opzoeken/matchen niet, dan
-    // laten we het veld leeg (en meldt Dynamics het desnoods zelf weer).
+    // gezinssituatie van het brondossier over.
     const heeftFiscaalPartner = !!(fiscaalPartnerAccountId || (kopieerVanDossier && kopieerVanDossier.fiscaalPartnerAccountId));
     if (!kopieerVanDossier && velden.gezinssituatie === undefined) {
-      const zoekTermen = !heeftFiscaalPartner
-        ? ["alleenstaand"]
+      velden.gezinssituatie = !heeftFiscaalPartner
+        ? GEZINSSITUATIE.alleenstaand
         : partnerSituatie === "samenwonend"
-          ? ["samenwon"]
-          : ["gehuw", "getrouwd"]; // getrouwd/gehuwd — ook de terugval als er geen keuze is meegestuurd
-      try {
-        const picklistOpties = await haalDynamischePicklistOpties(resource, token, soortEffectief);
-        const opties = picklistOpties.gezinssituatie || [];
-        const match = opties.find((o) => zoekTermen.some((t) => String(o.label).toLowerCase().includes(t)));
-        if (match) velden.gezinssituatie = match.waarde;
-      } catch (e) {
-        context.log.error("Kon de standaard gezinssituatie niet bepalen:", e);
-      }
+          ? GEZINSSITUATIE.samenwonend
+          : GEZINSSITUATIE.getrouwd;
     }
 
     const nieuwId = await maakDossier(resource, token, soortEffectief, {
