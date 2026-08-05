@@ -31,7 +31,7 @@ const documentrechten = require("../_gedeeld/documentrechten");
 
 // Leesbaar label per documentrecht — voor de omschrijving in het logboek.
 const DOCRECHT_LABEL = {
-  aanleveren: "Aanleveren", inzien: "Inzien", akkorderen: "Akkorderen",
+  aanleveren: "Aanleveren", inzien: "Inzien correspondentie", akkorderen: "Akkorderen",
   inzienDirectie: "Inzien directie", inzienAdministratie: "Inzien administratie",
   bewerkenAdministratie: "Bewerken administratie",
 };

@@ -862,7 +862,7 @@ function Veld({ label, waarde, soort }) {
 /* ── Documentrechten per contactpersoon (beheerder): wat mag deze persoon in het klantportaal
    onder Documenten. Wijzigingen worden meteen opgeslagen (server dwingt beheerder-recht af). ── */
 const DOC_RECHTEN = [
-  { key: "inzien", label: "Inzien", uitleg: "Mag de documenten van de cliënt bekijken." },
+  { key: "inzien", label: "Inzien correspondentie", uitleg: "Mag de map Correspondentie van de cliënt bekijken." },
   { key: "aanleveren", label: "Aanleveren", uitleg: "Mag bestanden aanleveren op een verzoek." },
   { key: "akkorderen", label: "Akkorderen", uitleg: "Mag akkoord/ondertekening geven op stukken." },
   { key: "inzienDirectie", label: "Inzien directie", uitleg: "Mag de map 'Directie' bekijken." },

@@ -58,10 +58,18 @@ async function haalItem(token, driveId, itemId) {
   return await res.json();
 }
 
-/** Zoekt een submap (op naam, hoofdletterongevoelig) tussen al opgehaalde children. */
+/** Normaliseert een mapnaam voor vergelijking: hoofdletterongevoelig én zonder een leidend
+ *  volgnummer-prefix zoals "0. ", "1.", "12) " of "3 - " (veel klanten nummeren hun mappen, bijv.
+ *  "0. Correspondentie"). Zo matcht de instelling "Correspondentie" ook op "0. Correspondentie". */
+function normaliseerMapnaam(naam) {
+  return String(naam || "").toLowerCase().replace(/^\s*\d+[.)\s:\-]*/, "").trim();
+}
+
+/** Zoekt een submap (op naam, hoofdletter- én volgnummer-ongevoelig) tussen al opgehaalde children. */
 function vindSubmap(kinderen, naam) {
-  const laag = String(naam).toLowerCase();
-  const gevonden = (kinderen || []).find((c) => c.folder && String(c.name || "").toLowerCase() === laag);
+  const doel = normaliseerMapnaam(naam);
+  if (!doel) return null;
+  const gevonden = (kinderen || []).find((c) => c.folder && normaliseerMapnaam(c.name) === doel);
   return gevonden ? { itemId: gevonden.id, webUrl: gevonden.webUrl || "", naam: gevonden.name } : null;
 }
 
