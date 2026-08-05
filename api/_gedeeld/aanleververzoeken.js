@@ -293,6 +293,10 @@ function verrijkVerzoek(v, laatstGezien) {
       status: r.status || "open",
       opmerking: r.opmerking || "",
       bestandNaam: (r.bestand && r.bestand.naam) || "",
+      // SharePoint-link naar het aangeleverde bestand — alleen via verrijkVerzoek (medewerker-kant)
+      // beschikbaar, dus NIET zichtbaar voor de cliënt (die gebruikt zijn eigen shaping in
+      // mijn-aanleververzoeken). Medewerkers kunnen het document zo rechtstreeks in SharePoint openen.
+      bestandUrl: (r.bestand && r.bestand.url) || "",
       aangeleverdOp: r.aangeleverdOp || null,
     })),
     status: v.status || "open",

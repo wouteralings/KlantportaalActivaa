@@ -437,7 +437,15 @@ export default function Vragenlijsten() {
                                     {klaar ? <CheckCircle2 size={15} color={KLEUR.groen} style={{ flexShrink: 0, marginTop: 1 }} /> : <Circle size={15} color={KLEUR.mutedTekst} style={{ flexShrink: 0, marginTop: 1 }} />}
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                       <div><span style={{ fontWeight: 600 }}>{d.naam}</span>{d.verplicht === false && <span style={{ color: KLEUR.mutedTekst }}> · optioneel</span>}</div>
-                                      {klaar && d.bestandNaam && <div style={{ fontSize: 11.5, color: KLEUR.groen }}>Aangeleverd: {d.bestandNaam}{d.aangeleverdOp ? ` · ${tijd(d.aangeleverdOp)}` : ""}</div>}
+                                      {klaar && d.bestandNaam && (
+                                        <div style={{ fontSize: 11.5, color: KLEUR.groen }}>
+                                          Aangeleverd:{" "}
+                                          {d.bestandUrl ? (
+                                            <a href={d.bestandUrl} target="_blank" rel="noopener noreferrer" title="Open het aangeleverde document in SharePoint (alleen voor medewerkers)" style={{ color: KLEUR.blauw, fontWeight: 600, textDecoration: "underline" }}>{d.bestandNaam}</a>
+                                          ) : d.bestandNaam}
+                                          {d.aangeleverdOp ? ` · ${tijd(d.aangeleverdOp)}` : ""}
+                                        </div>
+                                      )}
                                       {klaar && !d.bestandNaam && <div style={{ fontSize: 11.5, color: KLEUR.goud }}>Afgemeld (via opmerking, geen bestand){d.aangeleverdOp ? ` · ${tijd(d.aangeleverdOp)}` : ""}</div>}
                                       {d.opmerking && <div style={{ fontSize: 11.5, color: KLEUR.goud }}>Opmerking klant: {d.opmerking}</div>}
                                       {d.toelichting && <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{d.toelichting}</div>}

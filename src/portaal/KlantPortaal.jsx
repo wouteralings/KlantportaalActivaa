@@ -621,7 +621,7 @@ export default function KlantPortaal() {
                       <ClipboardList size={16} color={KLEUR.blauw} style={{ flexShrink: 0 }} />
                       <span style={{ minWidth: 0, overflow: "hidden" }}>
                         <span style={{ display: "block", fontSize: 13.5, fontWeight: 600, color: KLEUR.tekst, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {v.lijstNaam || "Aanlever-verzoek"}
+                          {v.lijstNaam || "Aanlever-verzoek"}{v.jaar ? ` ${v.jaar}` : ""}
                         </span>
                         {v.klantnaam && (
                           <span style={{ display: "block", fontSize: 11, color: KLEUR.mutedTekst, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -1866,7 +1866,7 @@ function TabAanleverVerzoeken({ verzoeken, setVerzoeken, status, focusVerzoekId,
               {v.heeftNieuweActiviteit && (
                 <span title="Activaa heeft hier iets gevraagd/gereageerd, of een document heropend" style={{ width: 8, height: 8, borderRadius: "50%", background: KLEUR.rood, flexShrink: 0 }} />
               )}
-              {v.lijstNaam || "Aanlever-verzoek"}{v.klantnaam ? ` · ${v.klantnaam}` : ""}
+              {v.lijstNaam || "Aanlever-verzoek"}{v.jaar ? ` ${v.jaar}` : ""}{v.klantnaam ? ` · ${v.klantnaam}` : ""}
             </span>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               {v.deadline && <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "#F6E9E9", color: KLEUR.rood }}>Deadline {v.deadline}</span>}
@@ -1991,7 +1991,7 @@ function TabAanleverVerzoeken({ verzoeken, setVerzoeken, status, focusVerzoekId,
             <span title="Activaa heeft hier iets gevraagd/gereageerd, of een document heropend" style={{ width: 8, height: 8, borderRadius: "50%", background: KLEUR.rood, flexShrink: 0 }} />
           )}
           <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: KLEUR.tekst, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {v.lijstNaam || "Aanlever-verzoek"}{v.klantnaam ? ` · ${v.klantnaam}` : ""}
+            {v.lijstNaam || "Aanlever-verzoek"}{v.jaar ? ` ${v.jaar}` : ""}{v.klantnaam ? ` · ${v.klantnaam}` : ""}
           </span>
           {v.deadline && (
             <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: klaar ? "#F4F1EA" : "#F6E9E9", color: klaar ? KLEUR.mutedTekst : KLEUR.rood }}>

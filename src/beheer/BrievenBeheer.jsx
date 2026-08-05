@@ -42,6 +42,8 @@ export default function BrievenBeheer() {
   const [achtFout, setAchtFout] = useState("");
   const [brievenOpen, setBrievenOpen] = useState(false);
   const [aantal, setAantal] = useState(25);
+  const [veldenOpen, setVeldenOpen] = useState(false);
+  const [veldAantal, setVeldAantal] = useState(25);
 
   useEffect(() => {
     fetch("/api/beheer-briefsjablonen")
@@ -122,6 +124,7 @@ export default function BrievenBeheer() {
     </div>
   );
   const zichtbareSjablonen = aantal === Infinity ? config.sjablonen : config.sjablonen.slice(0, aantal);
+  const zichtbareVelden = veldAantal === Infinity ? config.briefvelden : config.briefvelden.slice(0, veldAantal);
 
   return (
     <div style={{ maxWidth: 1100 }}>
@@ -211,14 +214,25 @@ export default function BrievenBeheer() {
         </div>
       </Rubriek>
 
-      {/* Invulvelden (briefvelden) */}
-      <Rubriek titel={`Invulvelden (${config.briefvelden.length})`}>
+      {/* Invulvelden (briefvelden) — inklapbaar + paginering */}
+      <div style={{ marginBottom: 22 }}>
+        <button onClick={() => setVeldenOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: "6px 0", fontSize: 13, fontWeight: 700, color: KLEUR.tekst }}>
+          {veldenOpen ? <ChevronDown size={16} color={KLEUR.subtekst} /> : <ChevronRight size={16} color={KLEUR.subtekst} />}
+          Invulvelden ({config.briefvelden.length})
+        </button>
+        {veldenOpen && (<div style={{ marginTop: 10 }}>
         <p style={{ fontSize: 12, color: KLEUR.subtekst, margin: "0 0 12px", maxWidth: 720 }}>
           Een vaste set velden die je per standaardbrief kunt aanzetten. De medewerker vult/kiest ze bij het
           maken van de brief; ze vullen {"{{sleutel}}"} in onderwerp/tekst. Type "keuze" toont een keuzelijst.
         </p>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, fontSize: 12, color: KLEUR.subtekst }}>
+          <span>Toon:</span>
+          {AANTAL_KEUZES.map(([w, l]) => (
+            <button key={l} onClick={() => setVeldAantal(w)} style={{ border: `1px solid ${veldAantal === w ? KLEUR.blauw : KLEUR.rand}`, background: veldAantal === w ? KLEUR.lichtblauw : "#fff", color: veldAantal === w ? KLEUR.blauw : KLEUR.subtekst, borderRadius: 6, padding: "3px 9px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{l}</button>
+          ))}
+        </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {config.briefvelden.map((v, i) => (
+          {zichtbareVelden.map((v, i) => (
             <div key={i} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 12 }}>
               <div style={{ display: "flex", alignItems: "flex-end", gap: 8, flexWrap: "wrap" }}>
                 <div style={{ flex: "1 1 200px" }}>
@@ -256,7 +270,8 @@ export default function BrievenBeheer() {
           ))}
         </div>
         <button onClick={nieuwVeld} style={{ ...knopLichtStijl, marginTop: 12 }}><Plus size={15} /> Nieuw veld</button>
-      </Rubriek>
+        </div>)}
+      </div>
 
       {/* Standaardbrieven — inklapbaar + paginering */}
       <div style={{ marginBottom: 22 }}>
