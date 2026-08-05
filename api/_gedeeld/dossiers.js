@@ -544,4 +544,4 @@ async function haalDynamischePicklistOpties(resource, token, soort) {
   return resultaat;
 }
 
-module.exports = { SOORTEN, haalDossiersVoorSoort, haalEenDossier, werkDossierBij, verwijderDossier, maakDossier, bestaatDossierAl, haalDynamischePicklistOpties, metAangepasteVelden, metDossiernaam, metExtraKolommen };
+module.exports = { SOORTEN, haalDossiersVoorSoort, haalEenDossier, werkDossierBij, verwijderDossier, maakDossier, bestaatDossierAl, haalDynamischePicklistOpties, metAangepasteVelden, metDossiernaam, metExtraKolommen, haalNavigatieNaam };

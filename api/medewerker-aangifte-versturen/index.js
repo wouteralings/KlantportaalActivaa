@@ -25,7 +25,7 @@
  * Route beveiligd via staticwebapp.config.json (rol 'medewerker'/'beheerder'); extra rolcheck hier.
  */
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
-const { SOORTEN, haalEenDossier } = require("../_gedeeld/dossiers");
+const { SOORTEN, haalEenDossier, haalNavigatieNaam } = require("../_gedeeld/dossiers");
 const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/sharepointUpload");
 const { haalAppGraphToken } = require("../_gedeeld/graphApp");
 const { haalGraphToken } = require("../_gedeeld/mail");
@@ -148,10 +148,14 @@ module.exports = async function (context, req) {
     if (!SOORT_VELD) waarschuwingen.push("Application Setting DYNAMICS_TAAK_SOORT_VELD is niet ingesteld — de taak krijgt geen 'soort' mee en wordt daardoor mogelijk niet aan de cliënt getoond.");
     if (!DOCUMENT_VELD) waarschuwingen.push("Application Setting DYNAMICS_TAAK_DOCUMENT_VELD is niet ingesteld — de cliënt kan de aangifte dan niet vanuit de taak inzien.");
 
+    // De cliënt-lookup op de taak (sk_client) koppelen via @odata.bind vereist de NAVIGATIE-
+    // eigenschapsnaam, niet de logische kolomnaam — uit de metadata halen (zie haalNavigatieNaam),
+    // anders 0x80048d19 "undeclared property 'sk_client'".
+    const klantNav = await haalNavigatieNaam(resource, "task", KLANT_VELD, token);
     const taakBody = {
       subject: `Aangifte inkomstenbelasting${dossier.jaar ? ` ${dossier.jaar}` : ""} klaar ter beoordeling`,
       description: `Aangifte inkomstenbelasting${dossier.jaar ? ` ${dossier.jaar}` : ""} van ${naam} is via het klantportaal verstuurd naar ${ontvangerEmail} op ${new Date().toLocaleString("nl-NL", { timeZone: "Europe/Amsterdam" })} door ${email || "onbekend"}.`,
-      [`${KLANT_VELD}@odata.bind`]: `/accounts(${accountId})`,
+      [`${klantNav}@odata.bind`]: `/accounts(${accountId})`,
     };
     if (SOORT_VELD) taakBody[SOORT_VELD] = SOORT_WAARDE_IN_AFWACHTING;
     if (DOCUMENT_VELD) taakBody[DOCUMENT_VELD] = upload.webUrl || null;
