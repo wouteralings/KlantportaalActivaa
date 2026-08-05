@@ -3105,6 +3105,7 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
           defaultContact={defaultContact}
           magWijzigen={magWijzigen}
           prioriteitLijstId={gekoppeldeLijstId}
+          alleenGekoppeld
           onderwerpId={gekoppeldOnderwerpId}
           onUitgezet={onVerversen}
         />

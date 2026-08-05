@@ -40,6 +40,13 @@ const datum = (iso) => {
  * staat bij het laden meteen opengeklapt, zodat je 'm niet tussen alle aanleverlijsten hoeft te
  * zoeken. Op de klantkaart zelf wordt dit niet meegegeven, dan verandert er niets aan de volgorde.
  *
+ * `alleenGekoppeld` (optioneel, ook alleen ingebed in een dossier — sinds 05-08-2026): toont dan
+ * NIET alle aanleverlijsten van de klant, maar alleen `prioriteitLijstId` zelf (of niets, als er
+ * geen lijst aan de dossiersoort gekoppeld is). Zonder deze prop (klantkaart) blijven alle lijsten
+ * gewoon zichtbaar, met de gekoppelde lijst er alleen bovenaan gesorteerd. Reden: in een dossier
+ * (bv. Inkomstenbelasting) horen alleen de daarvoor relevante uitvragen te tonen — niet ook lijsten
+ * van andere onderwerpen (bv. een lijst "Administratie") die toevallig ook bij deze klant bestaan.
+ *
  * `onderwerpId` (optioneel, ook alleen ingebed in een dossier): wordt meegestuurd bij "uitzetten",
  * zodat het aanleververzoek meteen bij dit dossier hoort (zie gekoppeldeUitvragenVoorDossier in
  * api/medewerker-dossier) en na een refresh direct als bewerkbare "gekoppelde uitvraaglijst" in het
@@ -49,7 +56,7 @@ const datum = (iso) => {
  * uitzetten-actie wordt aangeroepen, zodat de aanroepende dossierweergave zichzelf kan verversen en
  * de net uitgezette vragenlijst meteen toont zonder dat de medewerker handmatig hoeft te vernieuwen.
  */
-export default function KlantVasteUitvragen({ accountId, klantnaam, defaultContact, magWijzigen, prioriteitLijstId, onderwerpId, onUitgezet }) {
+export default function KlantVasteUitvragen({ accountId, klantnaam, defaultContact, magWijzigen, prioriteitLijstId, alleenGekoppeld, onderwerpId, onUitgezet }) {
   const [data, setData] = useState(null); // { lijsten, vaste } | null = laden
   const [werk, setWerk] = useState({}); // lijstId -> item (bewerkbaar)
   const [status, setStatus] = useState({}); // lijstId -> 'rust'|'bezig'|'opgeslagen'|'fout'
@@ -81,6 +88,12 @@ export default function KlantVasteUitvragen({ accountId, klantnaam, defaultConta
   const lijstenGesorteerd = data && prioriteitLijstId
     ? [...data.lijsten].sort((a, b) => (a.id === prioriteitLijstId ? -1 : b.id === prioriteitLijstId ? 1 : 0))
     : (data ? data.lijsten : []);
+
+  // Ingebed in een dossier (alleenGekoppeld): alleen de aan dit dossier gekoppelde lijst tonen,
+  // niet de volledige, klantbrede verzameling aanleverlijsten (zie de doc-comment hierboven).
+  const lijstenTeTonen = alleenGekoppeld
+    ? lijstenGesorteerd.filter((l) => l.id === prioriteitLijstId)
+    : lijstenGesorteerd;
 
   useEffect(() => {
     if (!zoekVoor || cTerm.trim().length < 2) { setCRes([]); return; }
@@ -178,12 +191,16 @@ export default function KlantVasteUitvragen({ accountId, klantnaam, defaultConta
         met één klik opnieuw uit — alleen het jaar aanpassen.
       </div>
 
-      {lijstenGesorteerd.length === 0 && (
-        <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Er zijn nog geen aanleverlijsten (Beheer → Aanleverlijsten).</div>
+      {lijstenTeTonen.length === 0 && (
+        <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>
+          {alleenGekoppeld
+            ? "Aan dit dossier is geen aanleverlijst gekoppeld (Beheer → Dossiers → \"Gekoppelde uitvraaglijst\")."
+            : "Er zijn nog geen aanleverlijsten (Beheer → Aanleverlijsten)."}
+        </div>
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {lijstenGesorteerd.map((lijst) => {
+        {lijstenTeTonen.map((lijst) => {
           const item = werk[lijst.id];
           const isIngericht = ingericht(lijst.id);
           const isOpen = open.has(lijst.id);
