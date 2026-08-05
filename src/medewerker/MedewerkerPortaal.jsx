@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload, Lightbulb } from "lucide-react";
+import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload, Lightbulb, Binoculars } from "lucide-react";
 import { startMeekijken } from "../meekijken";
 import OffertesModule from "./OffertesModule";
 import ContractenOverzicht from "./ContractenOverzicht";
@@ -3959,7 +3959,6 @@ export default function MedewerkerPortaal() {
     ["reviews", "Reviews", tellingen.nieuweReviews],
     ...(magOffertes || isBeheerder ? [["offertes", "Offertes", 0]] : []),
     ...(magContracten || isBeheerder ? [["contracten", "Contracten", 0]] : []),
-    ...(magAlsKlant || isBeheerder ? [["meekijken", "Meekijken als klant", 0]] : []),
   ];
 
   return (
@@ -3971,6 +3970,15 @@ export default function MedewerkerPortaal() {
           {logoUrl && <img src={logoUrl} alt="Logo" style={{ maxHeight: 30, maxWidth: 160, objectFit: "contain", display: "block", alignSelf: "center", marginLeft: 8 }} />}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {(magAlsKlant || isBeheerder) && (
+            <button
+              onClick={() => setTab("meekijken")}
+              title="Meekijken als klant"
+              style={{ background: "none", border: "none", cursor: "pointer", color: tab === "meekijken" ? KLEUR.goud : KLEUR.mutedTekst, padding: 4, display: "flex" }}
+            >
+              <Binoculars size={19} fill={tab === "meekijken" ? "currentColor" : "none"} />
+            </button>
+          )}
           <button
             onClick={() => setTab("ontwikkelverzoeken")}
             title="Ontwikkelverzoeken — bug melden of functionaliteit voorstellen"
