@@ -39,6 +39,8 @@ export default function BrievenBeheer() {
   const [logoFout, setLogoFout] = useState("");
   const [achtBezig, setAchtBezig] = useState(false);
   const [achtFout, setAchtFout] = useState("");
+  const [papierBezig, setPapierBezig] = useState(false);
+  const [papierFout, setPapierFout] = useState("");
   const [aantal, setAantal] = useState(25);
   const [veldAantal, setVeldAantal] = useState(25);
   const [openBrieven, setOpenBrieven] = useState(() => new Set()); // indices van opengeklapte brieven
@@ -80,6 +82,35 @@ export default function BrievenBeheer() {
     };
     lezer.onerror = () => { setBezig(false); setUploadFout("Kon het bestand niet lezen."); };
     lezer.readAsDataURL(bestand);
+  }
+
+  function uploadBriefpapier(bestand) {
+    if (!bestand) return;
+    if (!/\.docx$/i.test(bestand.name || "") && !/wordprocessing/.test(bestand.type || "")) { setPapierFout("Kies een .docx-bestand."); return; }
+    if (bestand.size > 20 * 1024 * 1024) { setPapierFout("Maximaal 20 MB."); return; }
+    setPapierFout(""); setPapierBezig(true);
+    const lezer = new FileReader();
+    lezer.onload = async () => {
+      try {
+        const res = await fetch("/api/beheer-briefpapier-docx", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dataUrl: lezer.result }) });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(d.error || "Uploaden mislukt.");
+        zetAfzender("briefpapierDocx", d.briefpapierDocx === true);
+      } catch (e) { setPapierFout(String(e.message || e)); }
+      finally { setPapierBezig(false); }
+    };
+    lezer.onerror = () => { setPapierBezig(false); setPapierFout("Kon het bestand niet lezen."); };
+    lezer.readAsDataURL(bestand);
+  }
+  async function verwijderBriefpapier() {
+    setPapierBezig(true); setPapierFout("");
+    try {
+      const res = await fetch("/api/beheer-briefpapier-docx", { method: "DELETE" });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || "Verwijderen mislukt.");
+      zetAfzender("briefpapierDocx", false);
+    } catch (e) { setPapierFout(String(e.message || e)); }
+    finally { setPapierBezig(false); }
   }
 
   // Standaardbrieven
@@ -174,6 +205,27 @@ export default function BrievenBeheer() {
               PNG of JPG op A4-verhouding, max 6 MB.
             </div>
           </AfbeeldingBlok>
+        </div>
+
+        {/* Word-briefpapier (.docx) — voor de Word-download op jullie eigen briefpapier */}
+        <div style={{ marginTop: 16, borderTop: `1px solid ${KLEUR.rand}`, paddingTop: 14 }}>
+          <span style={labelStijl}>Word-briefpapier (.docx) — voor de Word-download</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            {a.briefpapierDocx
+              ? <span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: KLEUR.groen, fontSize: 12.5, fontWeight: 600 }}><CheckCircle2 size={15} /> Ingesteld</span>
+              : <span style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Nog geen Word-briefpapier</span>}
+            <label style={{ ...knopLichtStijl, cursor: papierBezig ? "default" : "pointer", opacity: papierBezig ? 0.6 : 1 }}>
+              {papierBezig ? "Bezig…" : (a.briefpapierDocx ? "Vervangen" : "Uploaden")}
+              <input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style={{ display: "none" }} disabled={papierBezig} onChange={(e) => { uploadBriefpapier(e.target.files && e.target.files[0]); e.target.value = ""; }} />
+            </label>
+            {a.briefpapierDocx && <button onClick={verwijderBriefpapier} disabled={papierBezig} style={{ ...knopLichtStijl, color: KLEUR.rood }}>Verwijderen</button>}
+          </div>
+          <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8, maxWidth: 720 }}>
+            Upload één .docx met jullie huisstijl in de <strong>kop- en voettekst</strong> (logo/adres/voettekst). Bij
+            "Word downloaden" zet het portaal de brief in dit briefpapier — een echte Word op jullie huisstijl. De
+            afbeelding-achtergrond hierboven blijft voor het voorbeeld/PDF; dit Word-briefpapier geldt voor de Word-uitvoer.
+          </div>
+          {papierFout && <div style={{ fontSize: 11.5, color: KLEUR.rood, marginTop: 8 }}>{papierFout}</div>}
         </div>
       </Rubriek>
 

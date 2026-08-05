@@ -181,6 +181,7 @@ function normaliseerAfzender(a) {
     logoUitlijning,
     logoGrootte,
     achtergrondUrl,
+    briefpapierDocx: bron.briefpapierDocx === true,
   };
 }
 

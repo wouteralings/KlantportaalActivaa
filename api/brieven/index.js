@@ -20,6 +20,7 @@
  * accountId (cr283_sharepoint) — nooit uit iets wat de browser meestuurt (zie graphApp.js).
  */
 const { genereerBriefPdf, genereerBriefDocx } = require("../_gedeeld/briefRenderer");
+const { vulBriefpapier } = require("../_gedeeld/briefWordpapier");
 const { verstuurMailMetBijlage } = require("../_gedeeld/mail");
 const { haalConfig } = require("../_gedeeld/briefSjablonen");
 const { haalAfbeelding } = require("../_gedeeld/media");
@@ -43,6 +44,10 @@ function veiligeBestandsnaam(basis, ext) {
 
 async function rennerVoorFormaat(formaat, brief) {
   if (formaat === "docx") {
+    // Is er een Word-briefpapier ingesteld? Dan de brief in dát briefpapier zetten (huisstijl 1-op-1).
+    // Best-effort: mislukt dat, dan de standaard docx-generatie.
+    const viaPapier = await vulBriefpapier(brief).catch(() => null);
+    if (viaPapier) return { buffer: viaPapier, contentType: DOCX_TYPE, ext: "docx" };
     return { buffer: await genereerBriefDocx(brief), contentType: DOCX_TYPE, ext: "docx" };
   }
   return { buffer: await genereerBriefPdf(brief), contentType: PDF_TYPE, ext: "pdf" };

@@ -188,6 +188,12 @@
       ]
     },
     {
+      "route": "/api/beheer-briefpapier-docx",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
       "route": "/api/brief-geadresseerde",
       "allowedRoles": [
         "beheerder",

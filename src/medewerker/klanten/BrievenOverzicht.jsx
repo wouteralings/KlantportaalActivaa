@@ -396,6 +396,11 @@ export default function BrievenOverzicht() {
         {/* ── Rechterkolom: voorbeeld ── */}
         <div style={{ flex: "1 1 520px", minWidth: 360, position: "sticky", top: 12 }}>
           <span style={{ ...label, marginBottom: 8 }}>Voorbeeld</span>
+          {afzender.briefpapierDocx && (
+            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 8 }}>
+              De <strong>Word</strong>-download gebruikt jullie eigen Word-briefpapier (huisstijl kan afwijken van dit voorbeeld).
+            </div>
+          )}
           <BriefVoorbeeld brief={brief} />
         </div>
       </div>
