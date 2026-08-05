@@ -1898,6 +1898,10 @@ function MedewerkerDossiers({ soort }) {
   const [nieuwOpen, setNieuwOpen] = useState(false); // "+ Nieuwe ..."-popup
   const [magVerwijderen, setMagVerwijderen] = useState(false); // los in te stellen recht (Beheer → Medewerkers) — beheerders mogen dit sowieso altijd
   const [extraKolommen, setExtraKolommen] = useState([]); // door Beheer → Kolommen toegevoegde extra velden voor déze soort
+  // true zodra de opgeslagen weergaven/laatste stand zijn opgehaald én toegepast — pas dan mag de
+  // auto-opslag-effect verderop in dit component gaan schrijven (zie ook api/_gedeeld/weergaven.js).
+  const geladenRef = useRef(false);
+  const autoOpslaanTimerRef = useRef(null);
 
   const scherm = "dossiers-" + soort; // eigen namespace voor opgeslagen weergaven (zie api/_gedeeld/weergaven.js)
   const soortLabelText = soort === "vpb" ? "Vennootschapsbelasting" : "Inkomstenbelasting";
@@ -1928,6 +1932,7 @@ function MedewerkerDossiers({ soort }) {
     setDetailId(null);
     setDetail(null);
     setNieuwOpen(false);
+    geladenRef.current = false; // pas weer laten auto-opslaan zodra de weergaven-fetch hieronder klaar is
     let actief = true;
     fetch(`/api/medewerker-dossiers?soort=${encodeURIComponent(soort)}`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
@@ -1940,11 +1945,15 @@ function MedewerkerDossiers({ soort }) {
         const views = d.views || [];
         setWeergaven(views);
         // Eén weergave kan met de ster als "mijn standaard" gemarkeerd zijn (config.standaard) —
-        // die laadt dan automatisch, i.p.v. steeds zelf een weergave te moeten kiezen.
+        // die laadt dan automatisch, i.p.v. steeds zelf een weergave te moeten kiezen. Staat er
+        // geen ster, dan valt terug op "laatst" — de niet-benoemde stand die automatisch wordt
+        // bijgehouden zodra je kolommen/volgorde/filters/sortering wijzigt (zie hieronder).
         const standaard = views.find((v) => v.config && v.config.standaard);
         if (standaard) { setActieveWeergave(standaard.naam); pasWeergaveToe(standaard.config); }
+        else if (d.laatst) pasWeergaveToe(d.laatst);
       })
-      .catch(() => { if (actief) setWeergaven([]); });
+      .catch(() => { if (actief) setWeergaven([]); })
+      .finally(() => { if (actief) geladenRef.current = true; });
     fetch("/api/instellingen")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => { if (actief) setExtraKolommen((d.dossierExtraKolommen && d.dossierExtraKolommen[soort]) || []); })
@@ -1979,6 +1988,24 @@ function MedewerkerDossiers({ soort }) {
     [nieuw[i], nieuw[j]] = [nieuw[j], nieuw[i]];
     setKolomVolgorde(nieuw);
   };
+
+  // Auto-opslaan van de huidige (niet-benoemde) kolommen/volgorde/filters/sortering, gedebiseerd
+  // zodat niet bij elke los tikje een aparte aanroep gaat — zie de uitleg bij "laatst" in
+  // api/_gedeeld/weergaven.js. Pas actief ná de eerste keer laden (geladenRef), anders zou het
+  // resetten van de state bij een soort-wissel zichzelf meteen weer overschrijven.
+  useEffect(() => {
+    if (!geladenRef.current) return;
+    clearTimeout(autoOpslaanTimerRef.current);
+    autoOpslaanTimerRef.current = setTimeout(() => {
+      fetch("/api/medewerker-weergaven", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scherm, laatst: { kolommen: [...zichtbareSet], volgorde: geordendeKolommen.map((k) => k.key), filters: kolomFilters, sortKey, sortDir, toonAantal } }),
+      }).catch(() => {});
+    }, 800);
+    return () => clearTimeout(autoOpslaanTimerRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zichtbareKolommen, kolomVolgorde, kolomFilters, sortKey, sortDir, toonAantal, scherm]);
 
   // Volledig dossier (incl. catalogus/secties/picklistopties) apart ophalen zodra er één wordt
   // geopend — de lijst zelf bevat alleen de basisvelden (Cliënt/Jaar/Status/Accountant/Assistent).
@@ -3047,6 +3074,10 @@ function KlantOverzicht() {
   const [klantToevoegenOpen, setKlantToevoegenOpen] = useState(false);
   const { mijnNaam, geladen: naamGeladen } = useMijnNaam();
   const [scope, setScope] = useState("mijn"); // "mijn" | "alle"
+  // true zodra de opgeslagen weergaven/laatste stand zijn opgehaald én toegepast — pas dan mag de
+  // auto-opslag-effect verderop in dit component gaan schrijven (zie ook api/_gedeeld/weergaven.js).
+  const geladenRef = useRef(false);
+  const autoOpslaanTimerRef = useRef(null);
 
   useEffect(() => {
     fetch("/api/beheer-klanten")
@@ -3071,11 +3102,15 @@ function KlantOverzicht() {
         const views = d.views || [];
         setWeergaven(views);
         // Eén weergave kan met de ster als "mijn standaard" gemarkeerd zijn (config.standaard) —
-        // die laadt dan automatisch, i.p.v. steeds zelf een weergave te moeten kiezen.
+        // die laadt dan automatisch, i.p.v. steeds zelf een weergave te moeten kiezen. Staat er
+        // geen ster, dan valt terug op "laatst" — de niet-benoemde stand die automatisch wordt
+        // bijgehouden zodra je kolommen/volgorde/filters/sortering wijzigt (zie hieronder).
         const standaard = views.find((v) => v.config && v.config.standaard);
         if (standaard) { setActieveWeergave(standaard.naam); pasWeergaveToe(standaard.config); }
+        else if (d.laatst) pasWeergaveToe(d.laatst);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => { geladenRef.current = true; });
     fetch("/api/klant-keuzelijsten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setKeuzes({ clienttype: d.clienttype || [], status: d.status || [], team: d.team || [], kantoor: d.kantoor || [] }))
@@ -3102,6 +3137,29 @@ function KlantOverzicht() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config]);
   const zichtbareSet = zichtbareKolommen || new Set(alleKeys.filter((key) => !(config.standaardVerborgen || []).includes(key)));
+
+  // Auto-opslaan van de huidige (niet-benoemde) kolommen/volgorde/filters/sortering, gedebiseerd
+  // zodat niet bij elke los tikje een aparte aanroep gaat — zie de uitleg bij "laatst" in
+  // api/_gedeeld/weergaven.js. Pas actief ná de eerste keer laden (geladenRef, zie de mount-
+  // effect hierboven), anders zou het toepassen van een geladen weergave zichzelf overschrijven.
+  // (Vóór de "klanten === null"-return hieronder geplaatst, zoals de Rules of Hooks vereisen —
+  // de kolomvolgorde wordt hier daarom zelf uit alleKeys/kolomVolgorde afgeleid, i.p.v. de
+  // geordendeKolommen/kolomVan hergebruikt die pas verderop gedefinieerd zijn.)
+  useEffect(() => {
+    if (!geladenRef.current) return;
+    clearTimeout(autoOpslaanTimerRef.current);
+    autoOpslaanTimerRef.current = setTimeout(() => {
+      const basis = (kolomVolgorde || []).filter((k) => alleKeys.includes(k));
+      const volgorde = [...basis, ...alleKeys.filter((k) => !basis.includes(k))];
+      fetch("/api/medewerker-weergaven", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ laatst: { kolommen: [...zichtbareSet], volgorde, filters: kolomFilters, sortKey, sortDir, toonAantal } }),
+      }).catch(() => {});
+    }, 800);
+    return () => clearTimeout(autoOpslaanTimerRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zichtbareKolommen, kolomVolgorde, kolomFilters, sortKey, sortDir, toonAantal]);
 
   // Werkt één klant bij in de lijst én in het geopende detail na een opgeslagen wijziging.
   const verwerkKlantWijziging = (accountId, patch) => {

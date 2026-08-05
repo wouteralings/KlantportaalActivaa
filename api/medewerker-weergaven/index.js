@@ -1,5 +1,5 @@
 const { haalEmailUitPrincipal } = require("../_gedeeld/identiteit");
-const { haalWeergavenVoor, zetWeergavenVoor } = require("../_gedeeld/weergaven");
+const { haalRecordVoor, zetWeergavenVoor, zetLaatsteVoor } = require("../_gedeeld/weergaven");
 
 /**
  * Route is beveiligd via staticwebapp.config.json (rol 'medewerker' of 'beheerder').
@@ -8,8 +8,12 @@ const { haalWeergavenVoor, zetWeergavenVoor } = require("../_gedeeld/weergaven")
  * als er geen 'scherm' wordt meegegeven, voor de bestaande frontend-aanroepen) of
  * "dossiers-ib"/"dossiers-vpb" (de fiscale dossieroverzichten).
  *
- * GET  ?scherm=<naam>          → { views: [{ naam, config }] }
- * PUT  body { scherm?, views } → overschrijft de eigen weergaven van dát scherm.
+ * `views` = expliciet benoemde weergaven ("Opslaan als…", evt. met ster als persoonlijke
+ * standaard). `laatst` = de laatst gebruikte (niet-benoemde) kolommen/volgorde/filters/sortering,
+ * automatisch bijgewerkt zodra iets wijzigt — zie de uitleg in _gedeeld/weergaven.js.
+ *
+ * GET  ?scherm=<naam>                    → { views: [{ naam, config }], laatst: config|null }
+ * PUT  body { scherm?, views?, laatst? } → werkt bij wat is meegegeven (minstens één van beide).
  */
 module.exports = async function (context, req) {
   try {
@@ -18,15 +22,18 @@ module.exports = async function (context, req) {
 
     if (req.method === "GET") {
       const scherm = (req.query && req.query.scherm) || "klanten";
-      context.res = { headers: { "Content-Type": "application/json" }, body: { views: await haalWeergavenVoor(email, scherm) } };
+      context.res = { headers: { "Content-Type": "application/json" }, body: await haalRecordVoor(email, scherm) };
       return;
     }
     if (req.method === "PUT") {
-      const views = (req.body && req.body.views) || [];
-      const scherm = (req.body && req.body.scherm) || "klanten";
-      if (!Array.isArray(views)) { context.res = { status: 400, body: { error: "Geef 'views' (array) mee." } }; return; }
-      const opgeslagen = await zetWeergavenVoor(email, scherm, views);
-      context.res = { headers: { "Content-Type": "application/json" }, body: { views: opgeslagen } };
+      const b = req.body || {};
+      const scherm = b.scherm || "klanten";
+      const heeftViews = Array.isArray(b.views);
+      const heeftLaatst = Object.prototype.hasOwnProperty.call(b, "laatst");
+      if (!heeftViews && !heeftLaatst) { context.res = { status: 400, body: { error: "Geef 'views' (array) of 'laatst' (object) mee." } }; return; }
+      if (heeftViews) await zetWeergavenVoor(email, scherm, b.views);
+      if (heeftLaatst) await zetLaatsteVoor(email, scherm, b.laatst);
+      context.res = { headers: { "Content-Type": "application/json" }, body: await haalRecordVoor(email, scherm) };
       return;
     }
     context.res = { status: 405, body: { error: "Methode niet ondersteund." } };

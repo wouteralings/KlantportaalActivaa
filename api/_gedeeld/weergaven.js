@@ -6,8 +6,17 @@
  * weergave van het ene scherm niet per ongeluk op een ander scherm wordt toegepast (andere
  * schermen hebben andere kolomsleutels).
  *
- * Structuur: { "<email>": { "<scherm>": { views: [{ naam, config }] }, ... } }
+ * Structuur: { "<email>": { "<scherm>": { views: [{ naam, config }], laatst: {config} }, ... } }
  * config = { kolommen: [keys], filters: {..}, sortKey, sortDir, toonAantal }
+ *
+ * `views` zijn de expliciet benoemde weergaven (via "Opslaan als…", eventueel met een ster als
+ * persoonlijke standaard). `laatst` (sinds 05-08-2026) is losstaand daarvan: de huidige
+ * kolommen/volgorde/filters/sortering worden automatisch (gedebiseerd, geen actie nodig) hierin
+ * bijgehouden zodra iets wijzigt, zodat je die aanpassingen niet apart als benoemde weergave
+ * hoeft op te slaan om ze bij een volgend bezoek terug te zien — Wouter: "instellingen ... op
+ * persoonlijk niveau blijven niet behouden" bleek te zijn dat dit er nog niet was, niet dat het
+ * opslaan zelf faalde (alle aanroepen naar de API zelf slaagden altijd al). Staat er een
+ * ster-weergave, dan wint die bij het laden (expliciete keuze gaat voor de laatst gebruikte stand).
  *
  * Backwards compatible met de oude, schermloze vorm van vóór deze uitbreiding
  * ({ "<email>": { views: [...] } }, altijd voor het klantoverzicht) — scherm "klanten" valt
@@ -88,11 +97,41 @@ async function zetWeergavenVoor(email, scherm, views) {
     .map((v) => ({ naam: String(v.naam).slice(0, 80), config: v.config || {} }));
   const alle = await haalAlles();
   const eigen = { ...(alle[laag] || {}) };
-  eigen[s] = { views: schoon };
+  eigen[s] = { ...(eigen[s] || {}), views: schoon }; // ...eigen[s] behoudt bv. "laatst" hieronder
   if (s === "klanten") eigen.views = schoon; // compat met de oude, schermloze vorm
   alle[laag] = eigen;
   await schrijfAlles(alle);
   return schoon;
+}
+
+/** Geeft zowel de benoemde weergaven als de laatst-gebruikte (niet-benoemde) stand terug. */
+async function haalRecordVoor(email, scherm) {
+  return { views: await haalWeergavenVoor(email, scherm), laatst: await haalLaatsteVoor(email, scherm) };
+}
+
+async function haalLaatsteVoor(email, scherm) {
+  const laag = String(email || "").toLowerCase();
+  if (!laag) return null;
+  const s = schermSleutel(scherm);
+  const alle = await haalAlles();
+  const eigen = alle[laag];
+  if (!eigen || !eigen[s] || typeof eigen[s].laatst !== "object" || !eigen[s].laatst) return null;
+  return eigen[s].laatst;
+}
+
+/** Bewaart de huidige (niet-benoemde) kolommen/volgorde/filters/sortering — zie de uitleg
+ *  bovenaan dit bestand bij "laatst". `config: null` wist de bewaarde stand weer (bv. als een
+ *  medewerker zelf terug wil naar de standaardkolommen). */
+async function zetLaatsteVoor(email, scherm, config) {
+  const laag = String(email || "").toLowerCase();
+  if (!laag) throw new Error("GEEN_EMAIL");
+  const s = schermSleutel(scherm);
+  const alle = await haalAlles();
+  const eigen = { ...(alle[laag] || {}) };
+  eigen[s] = { ...(eigen[s] || {}), laatst: config && typeof config === "object" ? config : null };
+  alle[laag] = eigen;
+  await schrijfAlles(alle);
+  return eigen[s].laatst;
 }
 
 // Oude namen (schermloos, altijd klantoverzicht) blijven bestaan voor bestaande call-sites.
@@ -104,4 +143,4 @@ async function zetWeergavenVoorEmail(email, views) {
   return zetWeergavenVoor(email, "klanten", views);
 }
 
-module.exports = { haalWeergavenVoor, zetWeergavenVoor, haalWeergavenVoorEmail, zetWeergavenVoorEmail };
+module.exports = { haalWeergavenVoor, zetWeergavenVoor, haalRecordVoor, haalLaatsteVoor, zetLaatsteVoor, haalWeergavenVoorEmail, zetWeergavenVoorEmail };

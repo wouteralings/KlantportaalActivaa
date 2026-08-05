@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Search, ArrowLeft, Pencil, Link2, Unlink, AlertTriangle, CheckCircle2, X, Plus, Trash2, ClipboardList, Send, ShieldCheck, ChevronUp, ChevronDown, Star } from "lucide-react";
 import Logboek from "./Logboek";
 import ScopeToggle, { useMijnNaam, isKlantVanMij } from "../MijnFilter";
@@ -102,6 +102,8 @@ export default function ContactpersonenOverzicht() {
   const { mijnNaam, geladen: naamGeladen } = useMijnNaam();
   const [scope, setScope] = useState("mijn"); // "mijn" | "alle"
   const [mijnAccountIds, setMijnAccountIds] = useState(null); // Set van accountId's waar ik behandelaar ben
+  const geladenRef = useRef(false); // true zodra de eerste weergaven-ophaal-ronde klaar is (zie hieronder)
+  const autoOpslaanTimerRef = useRef(null); // debounce-timer voor het automatisch opslaan van "laatst"
 
   useEffect(() => {
     let actief = true;
@@ -138,8 +140,12 @@ export default function ContactpersonenOverzicht() {
         // die laadt dan automatisch, i.p.v. steeds zelf een weergave te moeten kiezen.
         const standaard = views.find((v) => v.config && v.config.standaard);
         if (standaard) { setActieveWeergave(standaard.naam); pasWeergaveToe(standaard.config); }
+        // Geen ster gezet? Dan de laatst gebruikte (niet-benoemde) kolommen/volgorde/filters/
+        // sortering toepassen — automatisch bijgehouden, zie "laatst" in api/_gedeeld/weergaven.js.
+        else if (d.laatst) pasWeergaveToe(d.laatst);
       })
-      .catch(() => { if (actief) setWeergaven([]); });
+      .catch(() => { if (actief) setWeergaven([]); })
+      .finally(() => { if (actief) geladenRef.current = true; });
     return () => { actief = false; };
   }, []);
 
@@ -280,6 +286,25 @@ export default function ContactpersonenOverzicht() {
     if (cfg.sortDir) setSortDir(cfg.sortDir);
     if (cfg.toonAantal) setToonAantal(cfg.toonAantal);
   };
+
+  // Auto-opslaan van de huidige (niet-benoemde) kolommen/volgorde/filters/sortering, gedebiseerd
+  // zodat niet bij elke los tikje een aparte aanroep gaat — zie de uitleg bij "laatst" in
+  // api/_gedeeld/weergaven.js. Pas actief ná de eerste keer laden (geladenRef, zie het weergaven-
+  // ophaal-effect hierboven), anders zou het toepassen van een geladen weergave zichzelf overschrijven.
+  useEffect(() => {
+    if (!geladenRef.current) return;
+    clearTimeout(autoOpslaanTimerRef.current);
+    autoOpslaanTimerRef.current = setTimeout(() => {
+      fetch("/api/medewerker-weergaven", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scherm: "contactpersonen", laatst: huidigeConfig() }),
+      }).catch(() => {});
+    }, 800);
+    return () => clearTimeout(autoOpslaanTimerRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zichtbaar, kolomVolgorde, kolomFilters, sortKey, sortDir, toonAantal]);
+
   const bewaarWeergaven = (lijst) => {
     setWeergaven(lijst);
     setWeergaveFout(false);
