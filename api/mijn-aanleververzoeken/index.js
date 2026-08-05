@@ -12,7 +12,7 @@
  */
 const { haalDynamicsToken, herleidAccounts, haalEmailUitPrincipal } = require("../_gedeeld/identiteit");
 const { haalVoorContact } = require("../_gedeeld/documentrechten");
-const { haalGraphAppToken } = require("../_gedeeld/graphApp");
+const { haalAppGraphToken } = require("../_gedeeld/graphApp");
 const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/sharepointUpload");
 const { AANLEVEREN_MAP } = require("../_gedeeld/documentmappen");
 const verzoeken = require("../_gedeeld/aanleververzoeken");
@@ -147,7 +147,7 @@ module.exports = async function (context, req) {
     const doelnaam = veiligeBestandsnaam(regel.bestandsnaam || regel.naam, b.origineleNaam);
 
     // App-only upload naar <basismap>/Aanleveren.
-    const appToken = await haalGraphAppToken();
+    const appToken = await haalAppGraphToken();
     const spUrl = await haalSharePointUrl(resource, dynToken, verzoek.accountId);
     if (!spUrl) { context.res = { status: 404, body: { error: "Voor deze cliënt is geen documentmap ingesteld." } }; return; }
     const { driveId, itemId } = await resolveFolder(appToken, spUrl);
