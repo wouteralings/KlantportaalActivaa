@@ -132,7 +132,7 @@ export default function BrievenAfzenderInstellingen() {
 
       {/* Bedrijfsgegevens — gedeeld tussen Brieven en de offertetool, zie doc-comment bovenaan dit bestand. */}
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>Bedrijfsgegevens (Brieven &amp; Offertes)</div>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>Bedrijfsgegevens</div>
         <p style={{ fontSize: 12, color: KLEUR.subtekst, margin: "0 0 14px", maxWidth: 720 }}>
           Bedrijfsnaam, kvk, adres, postcode en plaats staan op elke brief én op elke nieuwe offerte/
           opdrachtbevestiging. Wijzig je dit hier, dan verandert het overal mee.
