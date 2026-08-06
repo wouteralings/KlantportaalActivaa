@@ -269,9 +269,10 @@ function normaliseerBriefvelden(lijst) {
     const sleutel = maakId(v.sleutel || label);
     if (!label || !sleutel || gezien.has(sleutel)) continue;
     gezien.add(sleutel);
-    const type = v.type === "keuze" ? "keuze" : "tekst";
+    // "paragraaf" = keuzelijst waarvan elke optie een hele alinea invult (optie.tekst → {{sleutel}}).
+    const type = v.type === "keuze" ? "keuze" : v.type === "paragraaf" ? "paragraaf" : "tekst";
     const opties = [];
-    if (type === "keuze" && Array.isArray(v.opties)) {
+    if ((type === "keuze" || type === "paragraaf") && Array.isArray(v.opties)) {
       const gz = new Set();
       for (const o of v.opties.slice(0, 100)) {
         const ol = typeof o === "string" ? o.trim().slice(0, 80) : tekst(o && o.label, 80);
@@ -279,7 +280,9 @@ function normaliseerBriefvelden(lijst) {
         const os = maakId((o && o.sleutel) || ol);
         if (!os || gz.has(os)) continue;
         gz.add(os);
-        opties.push({ sleutel: os, label: ol });
+        const optie = { sleutel: os, label: ol };
+        if (type === "paragraaf") optie.tekst = langeTekst(o && o.tekst, 8000);
+        opties.push(optie);
       }
     }
     uit.push({ sleutel, label, type, opties });

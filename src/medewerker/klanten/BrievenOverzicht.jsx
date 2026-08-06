@@ -226,7 +226,9 @@ export default function BrievenOverzicht() {
     for (const v of (Array.isArray(sjabloon.velden) ? sjabloon.velden : [])) {
       const def = briefvelden.find((x) => x.sleutel === v);
       if (!def) continue;
-      start[v] = def.type === "keuze" && def.opties && def.opties[0] ? def.opties[0].label : "";
+      start[v] = def.type === "keuze" && def.opties && def.opties[0] ? def.opties[0].label
+               : def.type === "paragraaf" && def.opties && def.opties[0] ? (def.opties[0].tekst || "")
+               : "";
     }
     setVeldWaarden(start);
     setMelding(null);
@@ -496,6 +498,11 @@ export default function BrievenOverzicht() {
                       <select value={veldWaarden[v.sleutel] || ""} onChange={(e) => setVeldWaarden((w) => ({ ...w, [v.sleutel]: e.target.value }))} style={input}>
                         <option value="">—</option>
                         {(v.opties || []).map((o) => <option key={o.sleutel || o.label} value={o.label}>{o.label}</option>)}
+                      </select>
+                    ) : v.type === "paragraaf" ? (
+                      <select value={veldWaarden[v.sleutel] || ""} onChange={(e) => setVeldWaarden((w) => ({ ...w, [v.sleutel]: e.target.value }))} style={input}>
+                        <option value="">— kies een alinea —</option>
+                        {(v.opties || []).map((o) => <option key={o.sleutel || o.label} value={o.tekst || ""}>{o.label}</option>)}
                       </select>
                     ) : (
                       <input value={veldWaarden[v.sleutel] || ""} onChange={(e) => setVeldWaarden((w) => ({ ...w, [v.sleutel]: e.target.value }))} style={input} />

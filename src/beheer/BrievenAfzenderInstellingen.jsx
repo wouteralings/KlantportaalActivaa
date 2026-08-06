@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Save } from "lucide-react";
+import { CheckCircle2, Save, ChevronDown } from "lucide-react";
 
 /** Zelfde palet als de rest van het beheerdersportaal (bewust hier herhaald, zie BrievenBeheer.jsx). */
 const KLEUR = {
@@ -42,6 +42,8 @@ export default function BrievenAfzenderInstellingen() {
   const [fout, setFout] = useState("");
   const [papierBezig, setPapierBezig] = useState(false);
   const [papierFout, setPapierFout] = useState("");
+  const [openWordpapier, setOpenWordpapier] = useState(false); // inklapbaar
+  const [openBedrijf, setOpenBedrijf] = useState(false);       // inklapbaar
 
   useEffect(() => {
     fetch("/api/beheer-briefsjablonen")
@@ -113,8 +115,12 @@ export default function BrievenAfzenderInstellingen() {
     <div style={{ maxWidth: 1100 }}>
       {/* Word-briefpapier (.docx) — hoort inhoudelijk bij de Huisstijl-sectie hierboven op deze tab. */}
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>Word-briefpapier (.docx) — voor de Word-download</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <button onClick={() => setOpenWordpapier((v) => !v)} aria-expanded={openWordpapier} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: openWordpapier ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Word-briefpapier (.docx) — voor de Word-download</span>
+        </button>
+        {openWordpapier && (<>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
           {a.briefpapierDocx
             ? <span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: KLEUR.groen, fontSize: 12.5, fontWeight: 600 }}><CheckCircle2 size={15} /> Ingesteld</span>
             : <span style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Nog geen Word-briefpapier</span>}
@@ -130,12 +136,17 @@ export default function BrievenAfzenderInstellingen() {
           Word op jullie huisstijl.
         </div>
         {papierFout && <div style={{ fontSize: 11.5, color: KLEUR.rood, marginTop: 8 }}>{papierFout}</div>}
+        </>)}
       </div>
 
       {/* Bedrijfsgegevens — gedeeld tussen Brieven en de offertetool, zie doc-comment bovenaan dit bestand. */}
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>Bedrijfsgegevens</div>
-        <p style={{ fontSize: 12, color: KLEUR.subtekst, margin: "0 0 14px", maxWidth: 720 }}>
+        <button onClick={() => setOpenBedrijf((v) => !v)} aria-expanded={openBedrijf} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: openBedrijf ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Bedrijfsgegevens</span>
+        </button>
+        {openBedrijf && (<>
+        <p style={{ fontSize: 12, color: KLEUR.subtekst, margin: "10px 0 14px", maxWidth: 720 }}>
           Bedrijfsnaam, kvk, adres, postcode en plaats staan op elke brief én op elke nieuwe offerte/
           opdrachtbevestiging. Wijzig je dit hier, dan verandert het overal mee.
         </p>
@@ -173,6 +184,7 @@ export default function BrievenAfzenderInstellingen() {
           <span style={labelStijl}>Voetnoot</span>
           <input value={a.voetnoot || ""} onChange={(e) => zetAfzender("voetnoot", e.target.value)} placeholder="Leeg = automatisch (bedrijfsnaam · KvK · e-mail · website)" style={invoerStijl} />
         </div>
+        </>)}
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 20 }}>

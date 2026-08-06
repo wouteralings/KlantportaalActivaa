@@ -98,8 +98,9 @@ export default function BrievenBeheer() {
   const verplaatsVeld = (i, r) => { const j = i + r; if (!config || j < 0 || j >= config.briefvelden.length) return; setConfig((c) => { const v = c.briefvelden.slice(); [v[i], v[j]] = [v[j], v[i]]; return { ...c, briefvelden: v }; }); naVerplaats(setOpenVelden, i, j); };
   const verwijderVeld = (i) => { setConfig((c) => ({ ...c, briefvelden: c.briefvelden.filter((_, idx) => idx !== i) })); naVerwijder(setOpenVelden, i); };
   const nieuwVeld = () => { const idx = config.briefvelden.length; setConfig((c) => ({ ...c, briefvelden: [...c.briefvelden, { sleutel: "", label: "", type: "tekst", opties: [] }] })); setOpenVelden((s) => new Set([...s, idx])); };
-  const zetOptie = (vi, oi, label) => setConfig((c) => { const v = c.briefvelden.slice(); const o = (v[vi].opties || []).slice(); o[oi] = { sleutel: slug(label), label }; v[vi] = { ...v[vi], opties: o }; return { ...c, briefvelden: v }; });
-  const nieuweOptie = (vi) => setConfig((c) => { const v = c.briefvelden.slice(); v[vi] = { ...v[vi], opties: [...(v[vi].opties || []), { sleutel: "", label: "" }] }; return { ...c, briefvelden: v }; });
+  const zetOptie = (vi, oi, label) => setConfig((c) => { const v = c.briefvelden.slice(); const o = (v[vi].opties || []).slice(); o[oi] = { ...o[oi], sleutel: slug(label), label }; v[vi] = { ...v[vi], opties: o }; return { ...c, briefvelden: v }; });
+  const zetOptieTekst = (vi, oi, tekst) => setConfig((c) => { const v = c.briefvelden.slice(); const o = (v[vi].opties || []).slice(); o[oi] = { ...o[oi], tekst }; v[vi] = { ...v[vi], opties: o }; return { ...c, briefvelden: v }; });
+  const nieuweOptie = (vi) => setConfig((c) => { const v = c.briefvelden.slice(); v[vi] = { ...v[vi], opties: [...(v[vi].opties || []), { sleutel: "", label: "", tekst: "" }] }; return { ...c, briefvelden: v }; });
   const verwijderOptie = (vi, oi) => setConfig((c) => { const v = c.briefvelden.slice(); v[vi] = { ...v[vi], opties: (v[vi].opties || []).filter((_, idx) => idx !== oi) }; return { ...c, briefvelden: v }; });
 
   async function opslaan() {
@@ -222,7 +223,7 @@ export default function BrievenBeheer() {
                     {open ? <ChevronDown size={15} color={KLEUR.subtekst} /> : <ChevronRight size={15} color={KLEUR.subtekst} />}
                     <span style={{ fontWeight: 600, color: KLEUR.tekst }}>{v.label || "(zonder label)"}</span>
                     <span style={{ fontFamily: "monospace", fontSize: 11.5, color: KLEUR.mutedTekst }}>{v.sleutel ? `{{${v.sleutel}}}` : ""}</span>
-                    <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>· {v.type === "keuze" ? "keuzelijst" : "vrije tekst"}</span>
+                    <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>· {v.type === "keuze" ? "keuzelijst" : v.type === "paragraaf" ? "alinea-keuze" : "vrije tekst"}</span>
                   </button>
                   <button onClick={() => verplaatsVeld(i, -1)} disabled={i === 0} title="Omhoog" style={pijlStijl(i === 0)}><ArrowUp size={15} /></button>
                   <button onClick={() => verplaatsVeld(i, 1)} disabled={i === zichtbareVelden.length - 1} title="Omlaag" style={pijlStijl(i === zichtbareVelden.length - 1)}><ArrowDown size={15} /></button>
@@ -234,21 +235,41 @@ export default function BrievenBeheer() {
                       <div style={{ flex: "1 1 200px" }}><span style={labelStijl}>Label</span><input value={v.label || ""} onChange={(e) => zetVeld(i, "label", e.target.value)} placeholder="bijv. Periode" style={invoerStijl} /></div>
                       <div style={{ flex: "0 1 180px" }}><span style={labelStijl}>Sleutel ({"{{...}}"})</span><input value={v.sleutel || ""} onChange={(e) => zetVeldSleutel(i, e.target.value)} placeholder="periode" style={{ ...invoerStijl, fontFamily: "monospace" }} /></div>
                       <div style={{ flex: "0 1 140px" }}><span style={labelStijl}>Type</span>
-                        <select value={v.type || "tekst"} onChange={(e) => zetVeld(i, "type", e.target.value)} style={invoerStijl}><option value="tekst">Vrije tekst</option><option value="keuze">Keuzelijst</option></select>
+                        <select value={v.type || "tekst"} onChange={(e) => zetVeld(i, "type", e.target.value)} style={invoerStijl}><option value="tekst">Vrije tekst</option><option value="keuze">Keuzelijst</option><option value="paragraaf">Paragraaf (alinea kiezen)</option></select>
                       </div>
                     </div>
-                    {v.type === "keuze" && (
+                    {(v.type === "keuze" || v.type === "paragraaf") && (
                       <div style={{ marginTop: 10 }}>
-                        <span style={labelStijl}>Opties</span>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                          {(v.opties || []).map((o, oi) => (
-                            <div key={oi} style={{ display: "inline-flex", alignItems: "center", gap: 4, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "3px 6px 3px 9px", background: KLEUR.lichtblauw }}>
-                              <input value={o.label || ""} onChange={(e) => zetOptie(i, oi, e.target.value)} placeholder="optie" style={{ border: "none", background: "transparent", outline: "none", fontSize: 12.5, width: 100, color: KLEUR.tekst }} />
-                              <button onClick={() => verwijderOptie(i, oi)} style={{ border: "none", background: "none", cursor: "pointer", color: KLEUR.mutedTekst, display: "flex" }}><X size={13} /></button>
-                            </div>
-                          ))}
-                          <button onClick={() => nieuweOptie(i)} style={{ ...knopLichtStijl, padding: "5px 9px", fontSize: 12 }}><Plus size={13} /> optie</button>
-                        </div>
+                        <span style={labelStijl}>{v.type === "paragraaf" ? "Alinea-opties" : "Opties"}</span>
+                        {v.type === "paragraaf" ? (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            {(v.opties || []).map((o, oi) => (
+                              <div key={oi} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, background: "#fff" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                                  <input value={o.label || ""} onChange={(e) => zetOptie(i, oi, e.target.value)} placeholder="naam van de optie (bijv. Variant A)" style={{ ...invoerStijl, fontWeight: 600 }} />
+                                  <button onClick={() => verwijderOptie(i, oi)} title="Verwijderen" style={{ border: "none", background: "none", cursor: "pointer", color: KLEUR.rood, display: "flex" }}><X size={15} /></button>
+                                </div>
+                                <textarea value={o.tekst || ""} onChange={(e) => zetOptieTekst(i, oi, e.target.value)} rows={4} placeholder="De alinea die in de brief komt als deze optie gekozen wordt…" style={{ ...invoerStijl, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }} />
+                              </div>
+                            ))}
+                            <button onClick={() => nieuweOptie(i)} style={{ ...knopLichtStijl, padding: "5px 9px", fontSize: 12, alignSelf: "flex-start" }}><Plus size={13} /> alinea-optie</button>
+                          </div>
+                        ) : (
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                            {(v.opties || []).map((o, oi) => (
+                              <div key={oi} style={{ display: "inline-flex", alignItems: "center", gap: 4, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "3px 6px 3px 9px", background: KLEUR.lichtblauw }}>
+                                <input value={o.label || ""} onChange={(e) => zetOptie(i, oi, e.target.value)} placeholder="optie" style={{ border: "none", background: "transparent", outline: "none", fontSize: 12.5, width: 100, color: KLEUR.tekst }} />
+                                <button onClick={() => verwijderOptie(i, oi)} style={{ border: "none", background: "none", cursor: "pointer", color: KLEUR.mutedTekst, display: "flex" }}><X size={13} /></button>
+                              </div>
+                            ))}
+                            <button onClick={() => nieuweOptie(i)} style={{ ...knopLichtStijl, padding: "5px 9px", fontSize: 12 }}><Plus size={13} /> optie</button>
+                          </div>
+                        )}
+                        {v.type === "paragraaf" && (
+                          <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 6 }}>
+                            Zet <span style={{ fontFamily: "monospace" }}>{`{{${v.sleutel || "sleutel"}}}`}</span> in de brieftekst; de medewerker kiest een optie en die alinea komt op die plek in de brief.
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
