@@ -45,8 +45,6 @@ function veiligeBlobNaam(sleutel) {
 // willekeurige data onder een zelfgekozen sleutel weg te schrijven.
 const TOEGESTANE_SLEUTELS = new Set([
   "afzender",
-  "logo",
-  "favicon",
   "bijlage-algemeen",
   "bijlage-per-dienst",
   "bijlage-per-klant",
@@ -99,8 +97,15 @@ const TOEGESTANE_SLEUTELS = new Set([
 // binnen deze module. Een oude "medewerkers"-blob kan nog in de Storage-container staan;
 // die wordt door niets meer gelezen en is veilig te negeren of op te ruimen.
 //
+// Instellingensleutels "logo" en "favicon" zijn om dezelfde reden (05-08-2026, samenvoegen
+// met Instellingen) ook uit TOEGESTANE_SLEUTELS gehaald: de offertetool heeft geen eigen
+// logo/favicon-opslag meer en leest die nu rechtstreeks (read-only, buiten dit endpoint om)
+// via het publieke /api/instellingen — zie OffertetoolApp.jsx. De oude blobs "logo" en
+// "favicon" in deze Storage-container zijn op verzoek van Wouter definitief verwijderd
+// (niet slechts genegeerd, zoals bij "medewerkers" hierboven).
+//
 // Instellingensleutels die ook bij een GET (lezen) al beheerder vereisen — in tegenstelling
-// tot de meeste andere sleutels (dienstencatalogus, teksten, logo, enz.), die de hele app
+// tot de meeste andere sleutels (dienstencatalogus, teksten, enz.), die de hele app
 // nodig heeft om offertes/opdrachtbevestigingen te kunnen opstellen. Op dit moment leeg;
 // vul aan als een toekomstige sleutel ook bij het lezen al beheerder-only moet zijn.
 const BEHEERDER_ALLEEN_LEZEN_SLEUTELS = new Set([]);

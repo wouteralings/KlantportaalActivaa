@@ -24,7 +24,6 @@ import {
   PlusCircle,
   PenLine,
   BookOpen,
-  ImageUp,
   Milestone,
   List,
   FolderOpen,
@@ -470,25 +469,6 @@ async function opslagSet(sleutel, waarde, { keepalive = false } = {}) {
   }
 }
 
-async function opslagDelete(sleutel) {
-  if (typeof window !== "undefined" && window.storage) {
-    try {
-      await window.storage.delete(sleutel, false);
-    } catch (e) {
-      // niets opgeslagen om te verwijderen
-    }
-    return;
-  }
-  try {
-    await fetch(`/api/offertes-instellingen/${encodeURIComponent(sleutel)}`, {
-      method: "DELETE",
-      headers: { "X-Requested-With": "offertetool" },
-    });
-  } catch (e) {
-    // niets opgeslagen om te verwijderen
-  }
-}
-
 // Elke losse toetsaanslag in een instellingenveld (standaardteksten, dienstencatalogus,
 // afzendergegevens, enz.) zette voorheen via de "bewaar zodra er iets wijzigt"-useEffects
 // meteen een eigen PUT-verzoek naar /api/offertes-instellingen in gang. Bij vlot typen — of bij het
@@ -825,10 +805,6 @@ export const ACTIVAA_LOGO = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABIAAA
 // favicon is geüpload via "Favicon wijzigen" in de Afzender-instellingen.
 const ACTIVAA_FAVICON = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAA+gAAAPoCAMAAAB6fSTWAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyhpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDUuNi1jMTM4IDc5LjE1OTgyNCwgMjAxNi8wOS8xNC0wMTowOTowMSAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIENDIDIwMTcgKE1hY2ludG9zaCkiIHhtcE1NOkluc3RhbmNlSUQ9InhtcC5paWQ6RUEzNkU2OTFBQTY2MTFFNzk1OUZBODY2MDBFNTQ5REYiIHhtcE1NOkRvY3VtZW50SUQ9InhtcC5kaWQ6RUEzNkU2OTJBQTY2MTFFNzk1OUZBODY2MDBFNTQ5REYiPiA8eG1wTU06RGVyaXZlZEZyb20gc3RSZWY6aW5zdGFuY2VJRD0ieG1wLmlpZDpFQTM2RTY4RkFBNjYxMUU3OTU5RkE4NjYwMEU1NDlERiIgc3RSZWY6ZG9jdW1lbnRJRD0ieG1wLmRpZDpFQTM2RTY5MEFBNjYxMUU3OTU5RkE4NjYwMEU1NDlERiIvPiA8L3JkZjpEZXNjcmlwdGlvbj4gPC9yZGY6UkRGPiA8L3g6eG1wbWV0YT4gPD94cGFja2V0IGVuZD0iciI/PjTZGV0AAAKsUExURfH6/U+66KDa87vl9vz+/yqs4/3+//f8/iir4yut5C6u5Pr9/kG15vX7/jCv5DSw5e74/eb1/EC15uHz++r3/EW35zuz5jex5dvx+tXv+i+u5HfK7dDt+Uq56L/m95PV8brk9la96VG76GfE657Z8o3T8FC76IjR8GzG7Eu56HLI7a/g9ZnX8kK2567f9Mnq+Pv9/mrF7IXQ7/L6/V7A6rTi9Syt5FzA6vH5/TWw5dnw+i2t5PP6/crr+Dqz5ka3597y+zyz5uP0+yms46bc847T8LHh9ej2/Dqy5ajd9LLh9ev3/JHU8YfQ79Tu+X/N7t3y+5TV8YLP79zx+nvM7vn9/ky56OT0+/j8/jGv5HPJ7eL0+1W96WLC6+z4/ZvY8sXo97bj9lS86Vm+6YPP70i453nL7prY8onR8Mzr+HDH7GjE61u/6nrL7s/s+T205jax5ZzY8qzf9IHO72TD62DB6jiy5X3M7u34/W7H7NHt+TOw5e/5/and9Nbv+rXi9fb7/lq/6l3A6uf2/E266Ee451K86cPo9z605qLb877m92bD65jX8uz3/KHa89rx+kO25+n2/Kre9Mfp+Njw+nXJ7XzM7tLu+bzl9vD5/cDn9zKv5G3G7GvF7Fi+6aTb88bp+JfW8eX1/Em455LV8b3l9nTJ7X3N7kS25zWx5aTc89Pu+bDg9ZDU8XbK7cXp+ITP76Pb8/T7/jmy5WXD6z+05orS8Mvr+Mrq+I/U8ane9M3s+c7s+W/H7Fy/6oLO77jj9sHn95XW8WnF7Kve9Lfj9uDz+1/B6sTo98jq+IvS8FO86Z3Z8rPh9ZbW8WHC66Xc82HB6oDO74bQ75/a80666Lnk9njL7q3f9N/y+1e+6dfw+sLn94zS8H7N7nHI7WPC66fd9Cer4////6FlT5YAAADkdFJOU///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////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";
 
-function genereerStandaardLogo() {
-  return ACTIVAA_LOGO;
-}
-
 export default function OffertetoolApp({ modus = "medewerker" }) {
   // modus "medewerker" (standaard) = het echte werk in het medewerkersportaal: de wizard plus de
   // overzichten van offertes en opdrachtbevestigingen. modus "beheer" = het beheersportaal, waar
@@ -975,6 +951,36 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [echteGebruiker, afzenderGeladen]);
 
+  // Bedrijfsnaam/kvk/adres/postcode/plaats komen sinds 05-08-2026 uit de centrale
+  // Bedrijfsgegevens (Beheer → Instellingen — hetzelfde setje als de Brieven-module gebruikt,
+  // zie /api/brief-sjablonen) i.p.v. een eigen kopie binnen de offertetool (op verzoek van
+  // Wouter: één bedrijfsadres voor brieven én offertes samen). Overschrijft de eventueel lokaal
+  // (oud) opgeslagen waarden na het laden; ondertekenaar/geldigheid/inleiding blijven gewoon
+  // lokaal per de effects hierboven/hieronder.
+  useEffect(() => {
+    let actief = true;
+    fetch("/api/brief-sjablonen")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => {
+        if (!actief || !d.afzender) return;
+        const a = d.afzender;
+        setAfzender((prev) => ({
+          ...prev,
+          bedrijf: a.bedrijfsnaam || prev.bedrijf,
+          kvk: a.kvk || prev.kvk,
+          adres: a.adres || prev.adres,
+          postcode: a.postcode || prev.postcode,
+          plaats: a.plaats || prev.plaats,
+        }));
+      })
+      .catch(() => {
+        // niet op te halen — de eerder geladen/standaard bedrijfsgegevens blijven staan
+      });
+    return () => {
+      actief = false;
+    };
+  }, []);
+
   // Inleidende tekst op de opdrachtbevestiging — bewust LOS van afzender.inleiding (de
   // offerte-inleiding hierboven). Werd eerder 1-op-1 hergebruikt, maar de teksten moeten
   // per document kunnen verschillen. Te bewerken bij de stap "Bijlage" (samen met de
@@ -1008,93 +1014,35 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
     opslagSetDebounced("inleiding-opdrachtbevestiging", opdrachtbevestigingInleiding);
   }, [opdrachtbevestigingInleiding, opdrachtbevestigingInleidingGeladen]);
 
-  const [logo, setLogo] = useState(null); // base64/SVG data-URL van het logo, of null zolang het nog laadt
-  const [logoGeladen, setLogoGeladen] = useState(false);
+  // Logo + favicon komen sinds 05-08-2026 uit de centrale portaal-instellingen (Beheer →
+  // Instellingen → Huisstijl, /api/instellingen — publiek/anoniem, want ook het inlogscherm en de
+  // publieke tekenlink gebruiken 'm) i.p.v. een eigen, aparte upload binnen de offertetool. Op
+  // verzoek van Wouter (05-08-2026): "dit gedeelte samenvoegen onder instellingen met de gegevens
+  // logo en favicon daar." Zo verschijnt overal (portaalheader, inlogscherm, offertes,
+  // opdrachtbevestigingen) hetzelfde logo/favicon, en hoeft het maar op één plek ingesteld te
+  // worden. Geen eigen upload-/verwijderknoppen meer hier — dat gebeurt voortaan bij Instellingen.
+  const [logo, setLogo] = useState(null); // logoUrl uit /api/instellingen, of null zolang nog leeg/laadt
+  const [favicon, setFavicon] = useState(ACTIVAA_FAVICON); // faviconUrl uit /api/instellingen, anders het ingebakken Activaa-icoon
 
-  // Logo laden uit persistente opslag; anders eenmalig het echte standaardlogo opslaan.
   useEffect(() => {
     let actief = true;
-    (async () => {
-      try {
-        const waarde = await opslagGet("logo");
-        // Vóór deze versie werd bij het eerste gebruik automatisch een SVG met initialen
-        // ("OF") gegenereerd en opgeslagen als logo. Zo'n oude placeholder herkennen we
-        // aan het "data:image/svg+xml"-voorvoegsel — een echt geüpload logo is altijd een
-        // rasterafbeelding (PNG/JPG) en begint dus anders. Vinden we zo'n oude placeholder,
-        // dan vervangen we 'm stilzwijgend door het echte logo, voor iedereen.
-        const isOudePlaceholder = typeof waarde === "string" && waarde.startsWith("data:image/svg+xml");
-        if (actief && waarde && !isOudePlaceholder) {
-          setLogo(waarde);
-          setLogoGeladen(true);
-          return;
-        }
-      } catch (e) {
-        // nog geen logo opgeslagen, of opslag niet beschikbaar — dan vullen we de standaard in
-      }
-      if (!actief) return;
-      const standaard = genereerStandaardLogo(afzender.bedrijf);
-      setLogo(standaard);
-      setLogoGeladen(true);
-      try {
-        await opslagSet("logo", standaard);
-      } catch (e) {
-        console.error("Opslaan mislukt:", e); // logo blijft wel zichtbaar voor deze sessie
-      }
-    })();
-    return () => {
-      actief = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  function logoUploaden(bestand) {
-    if (!bestand) return;
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const dataUrl = e.target.result;
-      setLogo(dataUrl);
-      try {
-        await opslagSet("logo", dataUrl);
-      } catch (err) {
-        console.error("Opslaan mislukt:", err); // logo blijft wel zichtbaar voor deze sessie
-      }
-    };
-    reader.readAsDataURL(bestand);
-  }
-
-  async function logoVerwijderen() {
-    setLogo(null);
-    try {
-      await opslagDelete("logo");
-    } catch (e) {
-      // niets opgeslagen om te verwijderen
-    }
-  }
-
-  const [favicon, setFavicon] = useState(null); // base64 data-URL van de favicon, of null zolang het nog laadt
-
-  // Favicon laden uit persistente opslag; anders het ingebakken Activaa-favicon gebruiken.
-  useEffect(() => {
-    let actief = true;
-    (async () => {
-      try {
-        const waarde = await opslagGet("favicon");
-        if (actief && waarde) {
-          setFavicon(waarde);
-          return;
-        }
-      } catch (e) {
-        // nog geen favicon opgeslagen, of opslag niet beschikbaar — dan de standaard gebruiken
-      }
-      if (actief) setFavicon(ACTIVAA_FAVICON);
-    })();
+    fetch("/api/instellingen")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => {
+        if (!actief) return;
+        setLogo(d.logoUrl || null);
+        setFavicon(d.faviconUrl || ACTIVAA_FAVICON);
+      })
+      .catch(() => {
+        // instellingen niet op te halen — logo blijft leeg, favicon blijft het ingebakken standaardicoon
+      });
     return () => {
       actief = false;
     };
   }, []);
 
-  // Zodra de favicon bekend is (standaard of eigen upload), het <link rel="icon">-element
-  // in de <head> bijwerken, zodat 'm ook echt in de browsertab verschijnt.
+  // Zodra de favicon bekend is, het <link rel="icon">-element in de <head> bijwerken, zodat 'm
+  // ook echt in de browsertab verschijnt.
   useEffect(() => {
     if (!favicon) return;
     let link = document.querySelector('link[rel="icon"]');
@@ -1106,31 +1054,6 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
     link.type = favicon.startsWith("data:image/svg") ? "image/svg+xml" : "image/png";
     link.href = favicon;
   }, [favicon]);
-
-  function faviconUploaden(bestand) {
-    if (!bestand) return;
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const dataUrl = e.target.result;
-      setFavicon(dataUrl);
-      try {
-        await opslagSet("favicon", dataUrl);
-      } catch (err) {
-        console.error("Opslaan mislukt:", err); // favicon blijft wel zichtbaar voor deze sessie
-      }
-    };
-    reader.readAsDataURL(bestand);
-  }
-
-  async function faviconVerwijderen() {
-    setFavicon(ACTIVAA_FAVICON);
-    try {
-      await opslagDelete("favicon");
-    } catch (e) {
-      // niets opgeslagen om te verwijderen
-    }
-  }
-
   const [dienstenCatalogus, setDienstenCatalogus] = useState(INITIAL_CATALOGUS);
   const [catalogusGeladen, setCatalogusGeladen] = useState(false);
   // Vrij te beheren categorieën ("kolommen") waarin diensten worden ingedeeld — zie
@@ -3902,145 +3825,14 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
             ) : (
               <>
             <label className="ot-label" style={{ marginBottom: 2, display: "block", fontSize: 15, fontWeight: 700 }}>
-              Wie schrijven we aan namens?
+              Logo, favicon en bedrijfsgegevens
             </label>
             <p style={{ fontSize: 13.5, color: "#5B6259", marginTop: 4, marginBottom: 16 }}>
-              Deze gegevens komen op elke offerte te staan. Standaard ingevuld vanuit Activaa CRM - profiel — je kunt ze per offerte aanpassen.
+              Deze staan sinds kort centraal bij <strong>Beheer → Instellingen</strong> (logo/favicon
+              onder Huisstijl, bedrijfsnaam/kvk/adres/postcode/plaats onder Brieven — afzendergegevens)
+              — hetzelfde setje dat ook op elke offerte komt te staan. Wijzig je dat daar, dan verandert
+              het overal mee (portaal, brieven én offertes).
             </p>
-            <div className="ot-card" style={{ padding: 24, display: "grid", gap: 16 }}>
-              <div>
-                <label className="ot-label">Logo</label>
-                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                  <div
-                    style={{
-                      width: 64,
-                      height: 64,
-                      borderRadius: 10,
-                      border: "1px dashed #C8CDC5",
-                      background: "#FBFBF9",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      overflow: "hidden",
-                      flexShrink: 0,
-                    }}
-                  >
-                    {logo ? (
-                      <img src={logo} alt="Logo" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
-                    ) : (
-                      <Building2 size={24} color="#B4B9AE" />
-                    )}
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    <label className="ot-btn-secondary" style={{ width: "fit-content", cursor: "pointer" }}>
-                      <ImageUp size={15} />
-                      {logo ? "Ander logo kiezen" : "Logo kiezen"}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => logoUploaden(e.target.files?.[0])}
-                        style={{ display: "none" }}
-                      />
-                    </label>
-                    {logo && (
-                      <button className="ot-btn-ghost" style={{ width: "fit-content" }} onClick={logoVerwijderen}>
-                        Logo verwijderen
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <p style={{ fontSize: 11.5, color: "#8A9089", marginTop: 8 }}>
-                  Verschijnt in de menubalk en op elke offerte. Een PNG met transparante achtergrond werkt het best. Wordt automatisch bewaard, ook na herladen of opnieuw inloggen.
-                </p>
-              </div>
-              <div>
-                <label className="ot-label">Favicon (icoontje in de browsertab)</label>
-                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                  <div
-                    style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: 8,
-                      border: "1px dashed #C8CDC5",
-                      background: "#FBFBF9",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      overflow: "hidden",
-                      flexShrink: 0,
-                    }}
-                  >
-                    {favicon ? (
-                      <img src={favicon} alt="Favicon" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
-                    ) : (
-                      <ImageUp size={18} color="#B4B9AE" />
-                    )}
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    <label className="ot-btn-secondary" style={{ width: "fit-content", cursor: "pointer" }}>
-                      <ImageUp size={15} />
-                      Favicon wijzigen
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => faviconUploaden(e.target.files?.[0])}
-                        style={{ display: "none" }}
-                      />
-                    </label>
-                    {favicon && favicon !== ACTIVAA_FAVICON && (
-                      <button className="ot-btn-ghost" style={{ width: "fit-content" }} onClick={faviconVerwijderen}>
-                        Terugzetten naar standaard
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <p style={{ fontSize: 11.5, color: "#8A9089", marginTop: 8 }}>
-                  Los in te stellen van het logo, omdat een favicon vaak leesbaarder is als eenvoudig icoon. Wordt net als
-                  het logo automatisch bewaard voor iedereen.
-                </p>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                <div>
-                  <label className="ot-label">Bedrijfsnaam</label>
-                  <input className="ot-input" value={afzender.bedrijf} onChange={(e) => setAfzender({ ...afzender, bedrijf: e.target.value })} />
-                </div>
-                <div>
-                  <label className="ot-label">KvK-nummer</label>
-                  <input className="ot-input" value={afzender.kvk} onChange={(e) => setAfzender({ ...afzender, kvk: e.target.value })} />
-                </div>
-              </div>
-              <div>
-                <label className="ot-label">Adres (straat en huisnummer)</label>
-                <input className="ot-input" value={afzender.adres} onChange={(e) => setAfzender({ ...afzender, adres: e.target.value })} />
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 16 }}>
-                <div>
-                  <label className="ot-label">Postcode</label>
-                  <input className="ot-input" value={afzender.postcode} onChange={(e) => setAfzender({ ...afzender, postcode: e.target.value })} />
-                </div>
-                <div>
-                  <label className="ot-label">Plaats</label>
-                  <input className="ot-input" value={afzender.plaats} onChange={(e) => setAfzender({ ...afzender, plaats: e.target.value })} />
-                </div>
-              </div>
-              <div
-                style={{
-                  padding: "12px 14px",
-                  background: "#EAF2F8",
-                  borderRadius: 8,
-                  fontSize: 12.5,
-                  color: "#1C5D8C",
-                }}
-              >
-                <strong>Ondertekenaar (Namens):</strong> {huidigeGebruiker.naam}
-                {huidigeGebruiker.email && huidigeGebruiker.email !== huidigeGebruiker.naam
-                  ? ` · ${huidigeGebruiker.email}`
-                  : ""}
-                <div style={{ color: "#5B6259", marginTop: 2 }}>
-                  Dit wordt automatisch bepaald aan de hand van wie is ingelogd — elke collega ziet hier zichzelf staan.
-                </div>
-              </div>
-            </div>
 
             <div className="ot-card" style={{ padding: 24, marginTop: 16, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
               <div>

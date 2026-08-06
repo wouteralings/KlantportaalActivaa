@@ -11,7 +11,8 @@ const labelStijl = { display: "block", fontSize: 11.5, fontWeight: 700, color: K
 const knopLichtStijl = { display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.blauw, borderRadius: 8, padding: "8px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" };
 
 /**
- * Beheer → Instellingen: het Word-briefpapier (.docx) en de afzendergegevens van de Brieven-module.
+ * Beheer → Instellingen: het Word-briefpapier (.docx) en de bedrijfsgegevens (bedrijfsnaam, kvk,
+ * adres, postcode, plaats, telefoon, e-mail, website, afsluiting, ondertekenaar, voetnoot).
  *
  * Verplaatst hierheen op verzoek van Wouter (05-08-2026): "Tabblad brieven afzendergegevens
  * verplaatsen naar instellingen. ... WORD-BRIEFPAPIER (.DOCX) — VOOR DE WORD-DOWNLOAD verhuizen naar
@@ -22,8 +23,18 @@ const knopLichtStijl = { display: "inline-flex", alignItems: "center", gap: 6, b
  * geen velden te verliezen bij het opslaan haalt dit scherm — net als BrievenBeheer.jsx — steeds de
  * VOLLEDIGE configuratie op en stuurt die (met alleen afzender aangepast) ook weer volledig terug.
  *
+ * Sinds dezelfde 05-08-2026-sessie is dit ook de GEDEELDE bron voor de offertetool: Wouter koos
+ * expliciet "hergebruiken (één gedeeld setje)" toen gevraagd werd of de offertetool haar eigen,
+ * losse bedrijfsnaam/kvk/adres/postcode/plaats moest behouden of dit setje moest overnemen. De
+ * offertetool (OffertetoolApp.jsx) leest deze zelfde gegevens nu read-only via het publieke
+ * /api/brief-sjablonen (rol beheerder + medewerker) — wijzig je hier iets, dan verandert het dus
+ * ook op elke nieuwe offerte/opdrachtbevestiging, niet alleen in brieven.
+ *
  * De Brieven-logo en -achtergrond (los briefpapier als afbeelding) zijn hier bewust NIET
  * overgenomen — die zijn op hetzelfde verzoek uit de Brieven-module verwijderd, niet verplaatst.
+ * Het Logo/Favicon van de portaal-Huisstijl (hierboven op dit tabblad) worden sinds dezelfde
+ * sessie ook door de offertetool hergebruikt, via het publieke /api/instellingen — dat loopt
+ * buiten dit bestand om (geen wijziging hier nodig, staat al standaard in Instellingen).
  */
 export default function BrievenAfzenderInstellingen() {
   const [config, setConfig] = useState(null); // volledige config (afzender + sharepointMap + sjablonen + briefvelden)
@@ -119,9 +130,13 @@ export default function BrievenAfzenderInstellingen() {
         {papierFout && <div style={{ fontSize: 11.5, color: KLEUR.rood, marginTop: 8 }}>{papierFout}</div>}
       </div>
 
-      {/* Afzendergegevens */}
+      {/* Bedrijfsgegevens — gedeeld tussen Brieven en de offertetool, zie doc-comment bovenaan dit bestand. */}
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>Brieven — afzendergegevens</div>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>Bedrijfsgegevens (Brieven &amp; Offertes)</div>
+        <p style={{ fontSize: 12, color: KLEUR.subtekst, margin: "0 0 14px", maxWidth: 720 }}>
+          Bedrijfsnaam, kvk, adres, postcode en plaats staan op elke brief én op elke nieuwe offerte/
+          opdrachtbevestiging. Wijzig je dit hier, dan verandert het overal mee.
+        </p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
           {veld("bedrijfsnaam", "Bedrijfsnaam", { flex: "1 1 260px" })}{veld("kvk", "KvK-nummer", { flex: "1 1 160px" })}
         </div>
