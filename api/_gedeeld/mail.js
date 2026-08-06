@@ -107,9 +107,11 @@ async function verstuurMail({ ontvangers, onderwerp, tekst, afzender }) {
  * bijlagen: array van { naam, contentType, inhoud } — `inhoud` is een Buffer (bijv. het
  * resultaat van `genereerFactuurPdf`).
  */
-async function verstuurMailMetBijlage({ naar, cc, onderwerp, html, bijlagen }) {
-  const afzender = process.env.GRAPH_MAIL_SENDER;
-  if (!afzender) throw new Error("MISSING_MAIL_SENDER");
+async function verstuurMailMetBijlage({ naar, cc, onderwerp, html, bijlagen, afzender }) {
+  // Optioneel afzender-mailadres (bijv. het per-module instelbare adres); leeg = GRAPH_MAIL_SENDER.
+  // Het postvak moet in Entra Mail.Send-rechten hebben, anders weigert Graph het versturen.
+  const vanAdres = (afzender || "").trim() || process.env.GRAPH_MAIL_SENDER;
+  if (!vanAdres) throw new Error("MISSING_MAIL_SENDER");
 
   const ontvanger = String(naar || "").trim();
   if (!ontvanger) throw new Error("GEEN_ONTVANGERS");
@@ -143,7 +145,7 @@ async function verstuurMailMetBijlage({ naar, cc, onderwerp, html, bijlagen }) {
   }
 
   const res = await fetch(
-    `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(afzender)}/sendMail`,
+    `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(vanAdres)}/sendMail`,
     {
       method: "POST",
       headers: {
@@ -158,7 +160,7 @@ async function verstuurMailMetBijlage({ naar, cc, onderwerp, html, bijlagen }) {
     throw new Error(`Versturen e-mail mislukt (${res.status}): ${await res.text()}`);
   }
 
-  return { verzonden: true, van: afzender };
+  return { verzonden: true, van: vanAdres };
 }
 
 module.exports = { verstuurMail, verstuurMailMetBijlage, haalGraphToken };

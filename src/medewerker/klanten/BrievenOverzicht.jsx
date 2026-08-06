@@ -290,7 +290,14 @@ export default function BrievenOverzicht() {
     try {
       const payload = { actie, brief, bestandsnaamBasis, formaat: fmt || formaat };
       if (actie === "dossier") payload.accountId = klant.accountId;
-      if (actie === "mail") { payload.naar = naar.trim(); payload.cc = cc.split(/[,;]/).map((s) => s.trim()).filter(Boolean); }
+      if (actie === "mail") {
+        payload.naar = naar.trim();
+        payload.cc = cc.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+        // Begeleidende mail uit Beheer: placeholders ({{klantnaam}} enz.) invullen met dezelfde
+        // merge-velden als de brief; leeg = de backend valt terug op briefonderwerp/-tekst.
+        payload.mailOnderwerp = vulIn(veiligeStr(afzender.mailOnderwerp), mergeVelden);
+        payload.mailTekst = vulIn(veiligeStr(afzender.mailTekst), mergeVelden);
+      }
       if ((actie === "mail" || actie === "dossier") && bijlage) payload.bijlage = { naam: bijlage.naam, dataUrl: bijlage.dataUrl };
       const res = await fetch("/api/brieven", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await res.json().catch(() => ({}));

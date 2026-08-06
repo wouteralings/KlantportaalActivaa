@@ -100,7 +100,12 @@ async function verrijkMetLogo(brief) {
       if (afb && afb.buffer) brief.logo = { buffer: afb.buffer, contentType: afb.contentType };
     } catch { /* zonder logo verder */ }
   }
-  const achtergrondNaam = basisnaamUitMediaUrl(brief && brief.achtergrondUrl);
+  let achtergrondNaam = basisnaamUitMediaUrl(brief && brief.achtergrondUrl);
+  if (!achtergrondNaam) {
+    // Client stuurde geen achtergrond mee (bijv. een oude, nog-open portaalsessie): val terug op de
+    // in Beheer ingestelde achtergrond, zodat PDF/mail toch op het briefpapier komen.
+    try { const cfg = await haalConfig(); achtergrondNaam = basisnaamUitMediaUrl(cfg && cfg.afzender && cfg.afzender.achtergrondUrl); } catch { /* geen config */ }
+  }
   if (achtergrondNaam) {
     try {
       const afb = await haalAfbeelding(achtergrondNaam);
@@ -113,6 +118,19 @@ async function verrijkMetLogo(brief) {
 function escapeHtml(s) {
   return String(s == null ? "" : s)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+/** Rendert een (al ingevulde) begeleidende mailtekst als nette HTML: alinea's op lege regels, losse
+ *  regeleinden als <br>. Gebruikt wanneer in Beheer een eigen begeleidende mailtekst is ingesteld. */
+function mailHtmlVanTekst(mailTekst) {
+  const alineas = String(mailTekst || "")
+    .replace(/\r\n/g, "\n")
+    .split(/\n[ \t]*\n/)
+    .map((a) => escapeHtml(a).replace(/\n/g, "<br>"))
+    .filter((a) => a.trim() !== "")
+    .map((a) => `<p style="margin:0 0 12px">${a}</p>`)
+    .join("");
+  return `<div style="font-family:Calibri,Arial,sans-serif;font-size:14px;color:#1C2321;line-height:1.5">${alineas}</div>`;
 }
 
 /** Bouwt een leesbare HTML-mailtekst uit het brief-object (de brief staat óók als PDF in de bijlage). */
@@ -211,12 +229,19 @@ module.exports = async function (context, req) {
       const pdf = await genereerBriefPdf(brief);
       const bijlagen = [{ naam: veiligeBestandsnaam(body.bestandsnaamBasis, "pdf"), contentType: PDF_TYPE, inhoud: pdf }];
       if (bijlage) bijlagen.push({ naam: bijlage.naam, contentType: bijlage.contentType, inhoud: bijlage.buffer });
+      // Begeleidende mail + afzenderadres uit Beheer (config.afzender). De client stuurt de al-
+      // ingevulde mailOnderwerp/mailTekst mee (placeholders verwerkt met de klantgegevens); het
+      // afzenderadres pakken we server-side uit de config zodat de browser dat niet kan bepalen.
+      const mailAfzenderCfg = await haalConfig().then((c) => (c && c.afzender) || {}).catch(() => ({}));
+      const mailOnderwerp = String(body.mailOnderwerp || "").trim() || brief.onderwerp || `Brief van ${brief.afzenderNaam || "Activaa"}`;
+      const mailHtml = String(body.mailTekst || "").trim() ? mailHtmlVanTekst(body.mailTekst) : mailHtmlVan(brief);
       const resultaat = await verstuurMailMetBijlage({
         naar,
         cc: Array.isArray(body.cc) ? body.cc : (body.cc ? [body.cc] : []),
-        onderwerp: brief.onderwerp || "Brief van Activaa",
-        html: mailHtmlVan(brief),
+        onderwerp: mailOnderwerp,
+        html: mailHtml,
         bijlagen,
+        afzender: mailAfzenderCfg.mailAfzender || "",
       });
       context.res = { headers: { "Content-Type": "application/json" }, body: { verzonden: true, van: resultaat.van } };
       return;

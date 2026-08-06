@@ -52,9 +52,24 @@ const STANDAARD_AFZENDER = {
   logoGrootte: "normaal",  // "klein" | "normaal" | "groot"
   // Achtergrond (volledig briefpapier als afbeelding), wijst naar /api/media/briefachtergrond.
   achtergrondUrl: "",
+  // Begeleidende e-mail bij het mailen van een brief (Beheer → Instellingen → Brieven). mailAfzender
+  // leeg = val terug op GRAPH_MAIL_SENDER; mailOnderwerp leeg = onderwerp van de brief; mailTekst
+  // leeg = standaard begeleidende tekst. mailOnderwerp/mailTekst mogen {{placeholders}} bevatten die
+  // (net als brief-onderwerp/tekst) in de frontend met de klantgegevens worden ingevuld.
+  mailAfzender: "",
+  mailOnderwerp: "",
+  mailTekst: "",
 };
 
 const STANDAARD_SHAREPOINT_MAP = "Brieven";
+
+// Standaard begeleidende mailtekst (met placeholders) — startpunt in Beheer en terugval bij het
+// mailen wanneer er (nog) geen eigen tekst is ingesteld.
+const STANDAARD_MAIL_TEKST =
+  "Geachte heer/mevrouw,\n\n" +
+  "Bijgaand ontvangt u een brief van {{afzendernaam}}. Wij verzoeken u vriendelijk kennis te nemen van de inhoud.\n\n" +
+  "Heeft u vragen naar aanleiding van deze brief? Neem dan gerust contact met ons op.\n\n" +
+  "Met vriendelijke groet,\n{{afzendernaam}}";
 
 const STANDAARD_SJABLONEN = [
   {
@@ -170,6 +185,10 @@ function normaliseerAfzender(a) {
   const logoUrl = /^\/api\/media\/[a-z0-9_-]+(\?.*)?$/i.test(logoUrlRuw) ? logoUrlRuw : "";
   const achtergrondRuw = tekst(bron.achtergrondUrl, 300);
   const achtergrondUrl = /^\/api\/media\/[a-z0-9_-]+(\?.*)?$/i.test(achtergrondRuw) ? achtergrondRuw : "";
+  // Afzender-mailadres voor brieven: alleen een geldig ogend e-mailadres toestaan (anders leeg =
+  // terugval op GRAPH_MAIL_SENDER). Het postvak moet in Entra Mail.Send-rechten hebben.
+  const mailAfzenderRuw = tekst(bron.mailAfzender, 160);
+  const mailAfzender = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mailAfzenderRuw) ? mailAfzenderRuw : "";
   return {
     bedrijfsnaam: tekst(bron.bedrijfsnaam, 120) || STANDAARD_AFZENDER.bedrijfsnaam,
     adres: tekst(bron.adres, 160),
@@ -191,6 +210,9 @@ function normaliseerAfzender(a) {
     logoGrootte,
     achtergrondUrl,
     briefpapierDocx: bron.briefpapierDocx === true,
+    mailAfzender,
+    mailOnderwerp: tekst(bron.mailOnderwerp, 300),
+    mailTekst: langeTekst(bron.mailTekst, 20000),
   };
 }
 
@@ -308,4 +330,5 @@ module.exports = {
   STANDAARD_AFZENDER,
   STANDAARD_SJABLONEN,
   STANDAARD_SHAREPOINT_MAP,
+  STANDAARD_MAIL_TEKST,
 };

@@ -10,6 +10,14 @@ const invoerStijl = { boxSizing: "border-box", width: "100%", border: `1px solid
 const labelStijl = { display: "block", fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 5 };
 const knopLichtStijl = { display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.blauw, borderRadius: 8, padding: "8px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" };
 
+/** Standaard begeleidende mailtekst (spiegelt STANDAARD_MAIL_TEKST in api/_gedeeld/briefSjablonen.js);
+ *  voorgevuld zodat de beheerder meteen een bruikbare tekst heeft om aan te passen. */
+const STANDAARD_MAIL_TEKST =
+  "Geachte heer/mevrouw,\n\n" +
+  "Bijgaand ontvangt u een brief van {{afzendernaam}}. Wij verzoeken u vriendelijk kennis te nemen van de inhoud.\n\n" +
+  "Heeft u vragen naar aanleiding van deze brief? Neem dan gerust contact met ons op.\n\n" +
+  "Met vriendelijke groet,\n{{afzendernaam}}";
+
 /**
  * Beheer → Instellingen: het Word-briefpapier (.docx) en de bedrijfsgegevens (bedrijfsnaam, kvk,
  * adres, postcode, plaats, telefoon, e-mail, website, afsluiting, ondertekenaar, voetnoot).
@@ -47,7 +55,8 @@ export default function BrievenAfzenderInstellingen() {
     fetch("/api/beheer-briefsjablonen")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setConfig({
-        afzender: d.afzender || {},
+        // Begeleidende mailtekst voorvullen met de standaard als er nog niets is ingesteld.
+        afzender: { ...(d.afzender || {}), mailTekst: (d.afzender && d.afzender.mailTekst) || STANDAARD_MAIL_TEKST },
         sharepointMap: d.sharepointMap || "Brieven",
         sjablonen: Array.isArray(d.sjablonen) ? d.sjablonen : [],
         briefvelden: Array.isArray(d.briefvelden) ? d.briefvelden : [],
@@ -172,6 +181,37 @@ export default function BrievenAfzenderInstellingen() {
         <div style={{ marginTop: 12 }}>
           <span style={labelStijl}>Voetnoot</span>
           <input value={a.voetnoot || ""} onChange={(e) => zetAfzender("voetnoot", e.target.value)} placeholder="Leeg = automatisch (bedrijfsnaam · KvK · e-mail · website)" style={invoerStijl} />
+        </div>
+      </div>
+
+      {/* Begeleidende e-mail bij het mailen van een brief (Klantoverzicht → Brieven → Mailen). */}
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>Begeleidende e-mail (bij het mailen van een brief)</div>
+        <p style={{ fontSize: 12, color: KLEUR.subtekst, margin: "0 0 14px", maxWidth: 760 }}>
+          Mailt een medewerker een brief, dan gaat de brief als PDF-bijlage mee. Hieronder stel je in vanaf
+          welk adres verstuurd wordt en welke begeleidende tekst in de e-mail zelf komt. In het onderwerp en
+          de tekst mag je placeholders zoals <code>{"{{klantnaam}}"}</code>, <code>{"{{contactpersoon}}"}</code>,{" "}
+          <code>{"{{relatiebeheerder}}"}</code> en <code>{"{{afzendernaam}}"}</code> gebruiken; die worden per
+          klant automatisch ingevuld.
+        </p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+          {veld("mailAfzender", "Versturen vanaf (e-mailadres)", { flex: "1 1 280px", placeholder: "bijv. brieven@activaa.nl" })}
+          {veld("mailOnderwerp", "Onderwerp van de e-mail", { flex: "2 1 320px", placeholder: "Leeg = onderwerp van de brief" })}
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <span style={labelStijl}>Begeleidende tekst</span>
+          <textarea
+            value={a.mailTekst != null ? a.mailTekst : ""}
+            onChange={(e) => zetAfzender("mailTekst", e.target.value)}
+            rows={7}
+            placeholder="Tekst die in de e-mail zelf komt te staan…"
+            style={{ ...invoerStijl, resize: "vertical", fontFamily: "inherit", lineHeight: 1.5 }}
+          />
+        </div>
+        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8, maxWidth: 760 }}>
+          Let op: versturen kan alleen vanaf een postvak waarvoor de portaal-app in Entra{" "}
+          <strong>Mail.Send</strong>-rechten heeft. Een willekeurig adres invullen werkt niet — laat het veld
+          leeg om het standaard-afzenderadres van het portaal te gebruiken.
         </div>
       </div>
 

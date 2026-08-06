@@ -3,6 +3,8 @@ import OffertetoolApp from "../medewerker/offertes/OffertetoolApp";
 import UitvraagBeheer from "./UitvraagBeheer";
 import UrenTarievenBeheer from "./UrenTarievenBeheer";
 import DossierIndelingBeheer from "./DossierIndelingBeheer";
+import BrievenBeheer from "./BrievenBeheer";
+import BrievenAfzenderInstellingen from "./BrievenAfzenderInstellingen";
 import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Search, ArrowUp, ArrowDown, HelpCircle, ChevronDown, Plus, Pencil, Check, X, Clock } from "lucide-react";
 
 const KLEUR = {
@@ -1263,6 +1265,7 @@ export default function BeheerPortaal() {
           ["medewerkers", "Medewerkers"],
           ["facturatie", "Facturatie"],
           ["offertes", "Offertes"],
+          ["brieven", "Brieven"],
           ["aanleveren", "Uitvraag"],
           ["uren", "Uren"],
           ["dossiers", "Dossiers"],
@@ -2064,6 +2067,11 @@ export default function BeheerPortaal() {
       )}
 
       {tab === "instellingen" && (<>
+      {/* Word-briefpapier (.docx) hoort inhoudelijk bij Huisstijl; afzendergegevens (eigen kop
+          hieronder) idem verplaatst — beide beheren dezelfde Brieven-configuratie, zie
+          BrievenAfzenderInstellingen.jsx. */}
+      <BrievenAfzenderInstellingen />
+
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
         <button
           onClick={() => toggleRubriek("webhooks")}
@@ -3183,6 +3191,8 @@ export default function BeheerPortaal() {
           overzichten). Het component doet zijn eigen beheerderscheck via /api/ben-ik-beheerder,
           bovenop het feit dat dit hele portaal al achter de rol 'beheerder' zit. */}
       {tab === "offertes" && <OffertetoolApp modus="beheer" />}
+
+      {tab === "brieven" && <BrievenBeheer />}
 
     </div>
   );
