@@ -39,6 +39,15 @@ function slug(s) {
  * dicht — je ziet alleen de naam/label) met de aantalkeuze onderaan (25/50/100/250/500/Alle),
  * zoals elders in het portaal. Opslag via /api/beheer-briefsjablonen.
  */
+// Standaardteksten (spiegelen api/_gedeeld/briefSjablonen.js) — voorgevuld als de beheerder nog niks
+// heeft ingesteld, zodat de mail/taak meteen bruikbaar is.
+const STANDAARD_MAIL_TEKST =
+  "Geachte heer/mevrouw,\n\n" +
+  "Bijgaand ontvangt u een brief van {{afzendernaam}}. Wij verzoeken u vriendelijk kennis te nemen van de inhoud.\n\n" +
+  "Heeft u vragen naar aanleiding van deze brief? Neem dan gerust contact met ons op.\n\n" +
+  "Met vriendelijke groet,\n{{afzendernaam}}";
+const STANDAARD_BACKOFFICE_ONDERWERP = "Brief printen en versturen — {{klantnaam}}";
+
 export default function BrievenBeheer() {
   const [config, setConfig] = useState(null); // { afzender, sharepointMap, sjablonen, briefvelden }
   const [status, setStatus] = useState("rust");
@@ -53,7 +62,7 @@ export default function BrievenBeheer() {
     fetch("/api/beheer-briefsjablonen")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setConfig({
-        afzender: d.afzender || {},
+        afzender: { ...(d.afzender || {}), mailTekst: (d.afzender && d.afzender.mailTekst) || STANDAARD_MAIL_TEKST, backofficeOnderwerp: (d.afzender && d.afzender.backofficeOnderwerp) || STANDAARD_BACKOFFICE_ONDERWERP },
         sharepointMap: d.sharepointMap || "Brieven",
         sjablonen: Array.isArray(d.sjablonen) ? d.sjablonen : [],
         briefvelden: Array.isArray(d.briefvelden) ? d.briefvelden : [],
@@ -65,6 +74,7 @@ export default function BrievenBeheer() {
   const toggleSet = (setFn, i) => setFn((s) => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n; });
   const naVerplaats = (setFn, i, j) => setFn((s) => { const n = new Set(s); const hi = s.has(i), hj = s.has(j); hj ? n.add(i) : n.delete(i); hi ? n.add(j) : n.delete(j); return n; });
   const naVerwijder = (setFn, i) => setFn((s) => { const n = new Set(); for (const x of s) { if (x < i) n.add(x); else if (x > i) n.add(x - 1); } return n; });
+  const zetAfzender = (key, val) => setConfig((c) => ({ ...c, afzender: { ...c.afzender, [key]: val } }));
 
   // Standaardbrieven
   const zetSjabloon = (i, key, val) => setConfig((c) => { const s = c.sjablonen.slice(); s[i] = { ...s[i], [key]: val }; return { ...c, sjablonen: s }; });
@@ -98,12 +108,14 @@ export default function BrievenBeheer() {
       const res = await fetch("/api/beheer-briefsjablonen", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(config) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || "Opslaan mislukt.");
-      setConfig({ afzender: d.afzender || {}, sharepointMap: d.sharepointMap || "Brieven", sjablonen: d.sjablonen || [], briefvelden: d.briefvelden || [] });
+      setConfig({ afzender: { ...(d.afzender || {}), mailTekst: (d.afzender && d.afzender.mailTekst) || STANDAARD_MAIL_TEKST, backofficeOnderwerp: (d.afzender && d.afzender.backofficeOnderwerp) || STANDAARD_BACKOFFICE_ONDERWERP }, sharepointMap: d.sharepointMap || "Brieven", sjablonen: d.sjablonen || [], briefvelden: d.briefvelden || [] });
       setStatus("opgeslagen"); setTimeout(() => setStatus("rust"), 2500);
     } catch (e) { setStatus("fout"); setFout(String(e.message || e)); }
   }
 
   if (config === null) return <div style={{ fontSize: 13, color: KLEUR.mutedTekst, padding: "16px 0" }}>Brieven-instellingen laden…</div>;
+
+  const a = config.afzender || {};
 
   // Zoeken tussen de standaardbrieven (op naam/onderwerp/tekst), met behoud van de originele index
   // zodat bewerken/verplaatsen/verwijderen op de juiste brief blijft werken.
@@ -124,6 +136,67 @@ export default function BrievenBeheer() {
         kun je {"{{merge-velden}}"} gebruiken. Briefpapier (Word-briefpapier voor de Word-download)
         en de afzendergegevens staan sinds kort bij <strong>Beheer → Instellingen</strong>.
       </p>
+
+      {/* Standaardbrieven — per item inklapbaar + aantalkeuze onderaan */}
+      <Rubriek titel={`Standaardbrieven (${config.sjablonen.length})`}>
+        <div style={{ position: "relative", marginBottom: 10 }}>
+          <Search size={15} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+          <input value={zoek} onChange={(e) => setZoek(e.target.value)} placeholder="Zoek tussen de voorbeeldbrieven (naam, onderwerp of tekst)…" style={{ ...invoerStijl, padding: "8px 10px 8px 32px" }} />
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {zichtbareSjablonen.length === 0 && (
+            <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, padding: "10px 2px" }}>
+              {zoekTerm ? `Geen voorbeeldbrieven gevonden voor “${zoek.trim()}”.` : "Nog geen standaardbrieven."}
+            </div>
+          )}
+          {zichtbareSjablonen.map(({ s, i }) => {
+            const open = openBrieven.has(i);
+            return (
+              <div key={i} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden", background: s.actief === false ? "#F7F7F5" : "#fff" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px" }}>
+                  <button onClick={() => toggleSet(setOpenBrieven, i)} style={kopKnop}>
+                    {open ? <ChevronDown size={15} color={KLEUR.subtekst} /> : <ChevronRight size={15} color={KLEUR.subtekst} />}
+                    <span style={{ fontWeight: 700, color: KLEUR.tekst }}>{s.naam || "(zonder naam)"}</span>
+                    {s.actief === false && <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>· inactief</span>}
+                  </button>
+                  <button onClick={() => zetSjabloon(i, "actief", !(s.actief !== false))} title={s.actief === false ? "Inactief" : "Actief"} style={{ display: "inline-flex", alignItems: "center", gap: 5, border: `1px solid ${KLEUR.rand}`, background: "#fff", borderRadius: 7, padding: "6px 10px", fontSize: 12, fontWeight: 600, color: s.actief === false ? KLEUR.mutedTekst : KLEUR.groen, cursor: "pointer" }}>
+                    {s.actief === false ? <XCircle size={14} /> : <CheckCircle2 size={14} />} {s.actief === false ? "Inactief" : "Actief"}
+                  </button>
+                  <button onClick={() => verplaatsSjabloon(i, -1)} disabled={i === 0 || !!zoekTerm} title={zoekTerm ? "Wis eerst de zoekterm om te verplaatsen" : "Omhoog"} style={pijlStijl(i === 0 || !!zoekTerm)}><ArrowUp size={15} /></button>
+                  <button onClick={() => verplaatsSjabloon(i, 1)} disabled={i === config.sjablonen.length - 1 || !!zoekTerm} title={zoekTerm ? "Wis eerst de zoekterm om te verplaatsen" : "Omlaag"} style={pijlStijl(i === config.sjablonen.length - 1 || !!zoekTerm)}><ArrowDown size={15} /></button>
+                  <button onClick={() => verwijderSjabloon(i)} title="Verwijderen" style={{ ...pijlStijl(false), color: KLEUR.rood }}><Trash2 size={15} /></button>
+                </div>
+                {open && (
+                  <div style={{ padding: "12px", borderTop: `1px solid ${KLEUR.rand}` }}>
+                    <div style={{ marginBottom: 10 }}><span style={labelStijl}>Naam</span><input value={s.naam || ""} onChange={(e) => zetSjabloon(i, "naam", e.target.value)} placeholder="Naam van de brief" style={{ ...invoerStijl, fontWeight: 700 }} /></div>
+                    <div style={{ marginBottom: 10 }}><span style={labelStijl}>Onderwerp</span><input value={s.onderwerp || ""} onChange={(e) => zetSjabloon(i, "onderwerp", e.target.value)} placeholder="Betreft…" style={invoerStijl} /></div>
+                    <div style={{ marginBottom: 10 }}><span style={labelStijl}>Tekst</span><textarea value={s.tekst || ""} onChange={(e) => zetSjabloon(i, "tekst", e.target.value)} rows={6} style={{ ...invoerStijl, resize: "vertical", minHeight: 120, lineHeight: 1.5, fontFamily: "inherit" }} placeholder="Inhoud… (lege regel = nieuwe alinea, gebruik {{merge-velden}} en {{invulvelden}})" /></div>
+                    {config.briefvelden.length > 0 && (
+                      <div>
+                        <span style={labelStijl}>Invulvelden bij deze brief</span>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                          {config.briefvelden.map((v) => {
+                            const aan = Array.isArray(s.velden) && s.velden.includes(v.sleutel);
+                            return (
+                              <button key={v.sleutel || v.label} onClick={() => toggleSjabloonVeld(i, v.sleutel)} style={{ border: `1px solid ${aan ? KLEUR.blauw : KLEUR.rand}`, background: aan ? KLEUR.lichtblauw : "#fff", color: aan ? KLEUR.blauw : KLEUR.subtekst, borderRadius: 20, padding: "4px 11px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                                {aan ? "✓ " : ""}{v.label || v.sleutel} <span style={{ fontFamily: "monospace", opacity: 0.7 }}>{`{{${v.sleutel}}}`}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+          <button onClick={nieuwSjabloon} style={knopLichtStijl}><Plus size={15} /> Nieuwe brief</button>
+          <AantalKiezer aantal={aantal} setAantal={setAantal} getoond={zichtbareSjablonen.length} totaal={gefilterdeSjablonen.length} />
+        </div>
+      </Rubriek>
 
       {/* SharePoint-map */}
       <Rubriek titel="Opslaan in klantdossier">
@@ -190,73 +263,47 @@ export default function BrievenBeheer() {
         </div>
       </Rubriek>
 
-      {/* Standaardbrieven — per item inklapbaar + aantalkeuze onderaan */}
-      <Rubriek titel={`Standaardbrieven (${config.sjablonen.length})`}>
-        <div style={{ position: "relative", marginBottom: 10 }}>
-          <Search size={15} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
-          <input value={zoek} onChange={(e) => setZoek(e.target.value)} placeholder="Zoek tussen de voorbeeldbrieven (naam, onderwerp of tekst)…" style={{ ...invoerStijl, padding: "8px 10px 8px 32px" }} />
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {zichtbareSjablonen.length === 0 && (
-            <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, padding: "10px 2px" }}>
-              {zoekTerm ? `Geen voorbeeldbrieven gevonden voor “${zoek.trim()}”.` : "Nog geen standaardbrieven."}
-            </div>
-          )}
-          {zichtbareSjablonen.map(({ s, i }) => {
-            const open = openBrieven.has(i);
-            return (
-              <div key={i} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden", background: s.actief === false ? "#F7F7F5" : "#fff" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px" }}>
-                  <button onClick={() => toggleSet(setOpenBrieven, i)} style={kopKnop}>
-                    {open ? <ChevronDown size={15} color={KLEUR.subtekst} /> : <ChevronRight size={15} color={KLEUR.subtekst} />}
-                    <span style={{ fontWeight: 700, color: KLEUR.tekst }}>{s.naam || "(zonder naam)"}</span>
-                    {s.actief === false && <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>· inactief</span>}
-                  </button>
-                  <button onClick={() => zetSjabloon(i, "actief", !(s.actief !== false))} title={s.actief === false ? "Inactief" : "Actief"} style={{ display: "inline-flex", alignItems: "center", gap: 5, border: `1px solid ${KLEUR.rand}`, background: "#fff", borderRadius: 7, padding: "6px 10px", fontSize: 12, fontWeight: 600, color: s.actief === false ? KLEUR.mutedTekst : KLEUR.groen, cursor: "pointer" }}>
-                    {s.actief === false ? <XCircle size={14} /> : <CheckCircle2 size={14} />} {s.actief === false ? "Inactief" : "Actief"}
-                  </button>
-                  <button onClick={() => verplaatsSjabloon(i, -1)} disabled={i === 0 || !!zoekTerm} title={zoekTerm ? "Wis eerst de zoekterm om te verplaatsen" : "Omhoog"} style={pijlStijl(i === 0 || !!zoekTerm)}><ArrowUp size={15} /></button>
-                  <button onClick={() => verplaatsSjabloon(i, 1)} disabled={i === config.sjablonen.length - 1 || !!zoekTerm} title={zoekTerm ? "Wis eerst de zoekterm om te verplaatsen" : "Omlaag"} style={pijlStijl(i === config.sjablonen.length - 1 || !!zoekTerm)}><ArrowDown size={15} /></button>
-                  <button onClick={() => verwijderSjabloon(i)} title="Verwijderen" style={{ ...pijlStijl(false), color: KLEUR.rood }}><Trash2 size={15} /></button>
-                </div>
-                {open && (
-                  <div style={{ padding: "12px", borderTop: `1px solid ${KLEUR.rand}` }}>
-                    <div style={{ marginBottom: 10 }}><span style={labelStijl}>Naam</span><input value={s.naam || ""} onChange={(e) => zetSjabloon(i, "naam", e.target.value)} placeholder="Naam van de brief" style={{ ...invoerStijl, fontWeight: 700 }} /></div>
-                    <div style={{ marginBottom: 10 }}><span style={labelStijl}>Onderwerp</span><input value={s.onderwerp || ""} onChange={(e) => zetSjabloon(i, "onderwerp", e.target.value)} placeholder="Betreft…" style={invoerStijl} /></div>
-                    <div style={{ marginBottom: 10 }}><span style={labelStijl}>Tekst</span><textarea value={s.tekst || ""} onChange={(e) => zetSjabloon(i, "tekst", e.target.value)} rows={6} style={{ ...invoerStijl, resize: "vertical", minHeight: 120, lineHeight: 1.5, fontFamily: "inherit" }} placeholder="Inhoud… (lege regel = nieuwe alinea, gebruik {{merge-velden}} en {{invulvelden}})" /></div>
-                    {config.briefvelden.length > 0 && (
-                      <div>
-                        <span style={labelStijl}>Invulvelden bij deze brief</span>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                          {config.briefvelden.map((v) => {
-                            const aan = Array.isArray(s.velden) && s.velden.includes(v.sleutel);
-                            return (
-                              <button key={v.sleutel || v.label} onClick={() => toggleSjabloonVeld(i, v.sleutel)} style={{ border: `1px solid ${aan ? KLEUR.blauw : KLEUR.rand}`, background: aan ? KLEUR.lichtblauw : "#fff", color: aan ? KLEUR.blauw : KLEUR.subtekst, borderRadius: 20, padding: "4px 11px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                                {aan ? "✓ " : ""}{v.label || v.sleutel} <span style={{ fontFamily: "monospace", opacity: 0.7 }}>{`{{${v.sleutel}}}`}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
-          <button onClick={nieuwSjabloon} style={knopLichtStijl}><Plus size={15} /> Nieuwe brief</button>
-          <AantalKiezer aantal={aantal} setAantal={setAantal} getoond={zichtbareSjablonen.length} totaal={gefilterdeSjablonen.length} />
-        </div>
-      </Rubriek>
-
       {/* Merge-velden overzicht */}
       <Rubriek titel="Beschikbare klant-merge-velden">
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {PLACEHOLDERS.map(([code, uitleg]) => (
             <span key={code} title={uitleg} style={{ fontSize: 11.5, background: KLEUR.lichtblauw, color: KLEUR.blauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "3px 7px", fontFamily: "monospace" }}>{code}</span>
           ))}
+        </div>
+      </Rubriek>
+
+      {/* Begeleidende e-mail + backoffice-taak — instellingen voor het versturen, onderaan de Brieven-tab */}
+      <Rubriek titel="E-mail & backoffice bij het versturen">
+        <div style={{ fontSize: 12.5, color: KLEUR.subtekst, margin: "0 0 14px", maxWidth: 760 }}>
+          Instellingen voor <strong>Mailen naar klant</strong> en <strong>Naar backoffice</strong> in Klantoverzicht → Brieven.
+          In onderwerp/tekst mag je placeholders zoals <code>{"{{klantnaam}}"}</code>, <code>{"{{contactpersoon}}"}</code>,{" "}
+          <code>{"{{relatiebeheerder}}"}</code> en <code>{"{{afzendernaam}}"}</code> gebruiken; die worden per klant ingevuld.
+        </div>
+
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: KLEUR.tekst, margin: "4px 0 8px" }}>Begeleidende e-mail (bij “Mailen naar klant”)</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+          <div style={{ flex: "1 1 280px" }}><span style={labelStijl}>Versturen vanaf (e-mailadres)</span>
+            <input value={a.mailAfzender || ""} onChange={(e) => zetAfzender("mailAfzender", e.target.value)} placeholder="bijv. brieven@activaa.nl" style={invoerStijl} /></div>
+          <div style={{ flex: "2 1 320px" }}><span style={labelStijl}>Onderwerp van de e-mail</span>
+            <input value={a.mailOnderwerp || ""} onChange={(e) => zetAfzender("mailOnderwerp", e.target.value)} placeholder="Leeg = onderwerp van de brief" style={invoerStijl} /></div>
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <span style={labelStijl}>Begeleidende tekst</span>
+          <textarea value={a.mailTekst != null ? a.mailTekst : ""} onChange={(e) => zetAfzender("mailTekst", e.target.value)} rows={7} placeholder="Tekst die in de e-mail zelf komt te staan…" style={{ ...invoerStijl, resize: "vertical", fontFamily: "inherit", lineHeight: 1.5 }} />
+        </div>
+        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8, maxWidth: 760 }}>
+          Versturen kan alleen vanaf een postvak waarvoor de portaal-app in Entra <strong>Mail.Send</strong>-rechten heeft. Leeg = het standaard-afzenderadres van het portaal.
+        </div>
+
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: KLEUR.tekst, margin: "18px 0 8px", borderTop: `1px solid ${KLEUR.rand}`, paddingTop: 16 }}>Backoffice-taak (bij “Naar backoffice”)</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+          <div style={{ flex: "1 1 280px" }}><span style={labelStijl}>Taak naar (e-mailadres backoffice)</span>
+            <input value={a.backofficeEigenaarEmail || ""} onChange={(e) => zetAfzender("backofficeEigenaarEmail", e.target.value)} placeholder="bijv. backoffice@activaa.nl" style={invoerStijl} /></div>
+          <div style={{ flex: "2 1 320px" }}><span style={labelStijl}>Onderwerp van de taak</span>
+            <input value={a.backofficeOnderwerp || ""} onChange={(e) => zetAfzender("backofficeOnderwerp", e.target.value)} placeholder="Brief printen en versturen — {{klantnaam}}" style={invoerStijl} /></div>
+        </div>
+        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8, maxWidth: 760 }}>
+          Bij <strong>Naar backoffice</strong> wordt de brief in het klantdossier gezet én een interne taak aangemaakt om te printen en per post te versturen. Leeg e-mailadres = de taak gaat naar de manager/relatiebeheerder van de klant.
         </div>
       </Rubriek>
 

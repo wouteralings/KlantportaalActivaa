@@ -186,6 +186,50 @@ async function naarDossier({ accountId, submap, bestandsnaam, buffer, contentTyp
   }
 }
 
+// Dynamics-velden voor de backoffice-taak (zelfde defaults als _gedeeld/vervolgtaak.js).
+const TAAK_KLANT_VELD = process.env.DYNAMICS_TAAK_KLANT_VELD || "sk_client";
+const TAAK_MANAGER_VELD = process.env.DYNAMICS_RELATIEBEHEERDER_VELD || "cr283_manager";
+
+/**
+ * Maakt een interne Dynamics-taak "brief printen & versturen" voor de backoffice. Eigenaar = het in
+ * Beheer ingestelde backoffice-postvak (e-mail → systemuser), of anders de manager/relatiebeheerder
+ * van de klant. Best-effort — geeft { gedaan, reden, eigenaarGevonden }.
+ */
+async function maakBackofficeTaak({ context, accountId, klantnaam, onderwerp, eigenaarEmail, dossierGelukt, submap }) {
+  const resource = process.env.DYNAMICS_RESOURCE_URL;
+  if (!resource) return { gedaan: false, reden: "Dynamics-koppeling is nog niet geconfigureerd." };
+  const H = (token) => ({ Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json", "OData-MaxVersion": "4.0", "OData-Version": "4.0" });
+  try {
+    const token = await haalDynamicsToken();
+    let ownerId = "";
+    const email = String(eigenaarEmail || "").trim();
+    if (email) {
+      const q = `${resource}/api/data/v9.2/systemusers?$select=systemuserid&$filter=internalemailaddress eq '${email.replace(/'/g, "''")}' and isdisabled eq false`;
+      const r = await fetch(q, { headers: H(token) });
+      if (r.ok) { const j = await r.json(); ownerId = (j.value && j.value[0] && j.value[0].systemuserid) || ""; }
+    }
+    if (!ownerId) {
+      const r = await fetch(`${resource}/api/data/v9.2/accounts(${accountId})?$select=_${TAAK_MANAGER_VELD}_value`, { headers: H(token) });
+      if (r.ok) { const j = await r.json(); ownerId = j[`_${TAAK_MANAGER_VELD}_value`] || ""; }
+    }
+    const beschrijving = dossierGelukt
+      ? `De te versturen brief staat als PDF in het SharePoint-dossier van de klant (map "${submap || "Brieven"}"). Graag printen en per post versturen.`
+      : "Graag de brief printen en per post versturen. Let op: opslaan in het klantdossier is niet gelukt — vraag de behandelaar om de PDF.";
+    const taakBody = {
+      subject: (onderwerp || "").trim() || `Brief printen en versturen — ${klantnaam || ""}`.trim(),
+      description: beschrijving,
+      [`${TAAK_KLANT_VELD}@odata.bind`]: `/accounts(${accountId})`,
+    };
+    if (ownerId) taakBody["ownerid@odata.bind"] = `/systemusers(${ownerId})`;
+    const res = await fetch(`${resource}/api/data/v9.2/tasks`, { method: "POST", headers: H(token), body: JSON.stringify(taakBody) });
+    if (!res.ok) return { gedaan: false, reden: `Aanmaken backoffice-taak mislukt (${res.status}).` };
+    return { gedaan: true, eigenaarGevonden: !!ownerId };
+  } catch (e) {
+    if (context && context.log) context.log.error("Backoffice-brieftaak mislukt:", e);
+    return { gedaan: false, reden: String(e.message || e) };
+  }
+}
+
 module.exports = async function (context, req) {
   if ((req.method || "").toUpperCase() !== "POST") {
     context.res = { status: 405, headers: { "Content-Type": "application/json" }, body: { error: "Methode niet ondersteund." } };
@@ -268,7 +312,37 @@ module.exports = async function (context, req) {
       return;
     }
 
-    context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Onbekende actie. Kies 'genereer', 'mail' of 'dossier'." } };
+    if (actie === "backoffice") {
+      // Brief als PDF in het klantdossier zetten én een interne taak voor backoffice aanmaken om te
+      // printen en per post te versturen.
+      const accountId = String(body.accountId || "").trim();
+      if (!accountId) {
+        context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geen accountId meegegeven." } };
+        return;
+      }
+      const pdf = await genereerBriefPdf(brief);
+      const config = await haalConfig().catch(() => ({ sharepointMap: "Brieven", afzender: {} }));
+      const submap = config.sharepointMap || "Brieven";
+      const dossier = await naarDossier({
+        accountId, submap,
+        bestandsnaam: veiligeBestandsnaam(body.bestandsnaamBasis, "pdf"),
+        buffer: pdf, contentType: PDF_TYPE, bijlage,
+      });
+      const taak = await maakBackofficeTaak({
+        context, accountId,
+        klantnaam: String(body.klantnaam || "").trim(),
+        onderwerp: String(body.backofficeOnderwerp || "").trim(),
+        eigenaarEmail: (config.afzender && config.afzender.backofficeEigenaarEmail) || "",
+        dossierGelukt: dossier.gedaan, submap,
+      });
+      context.res = {
+        headers: { "Content-Type": "application/json" },
+        body: { taakGedaan: taak.gedaan === true, taakReden: taak.reden || "", eigenaarGevonden: taak.eigenaarGevonden === true, dossierGedaan: dossier.gedaan === true, dossierReden: dossier.reden || "" },
+      };
+      return;
+    }
+
+    context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Onbekende actie. Kies 'genereer', 'mail', 'dossier' of 'backoffice'." } };
   } catch (err) {
     if (err.code === "BIJLAGE_TE_GROOT") {
       context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "De bijlage is te groot (maximaal 20 MB)." } };

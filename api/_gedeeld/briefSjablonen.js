@@ -59,9 +59,16 @@ const STANDAARD_AFZENDER = {
   mailAfzender: "",
   mailOnderwerp: "",
   mailTekst: "",
+  // Backoffice-taak "brief printen & versturen": naar welk postvak de taak gaat (leeg = manager/
+  // relatiebeheerder van de klant) + het onderwerp-sjabloon van die taak.
+  backofficeEigenaarEmail: "",
+  backofficeOnderwerp: "",
 };
 
 const STANDAARD_SHAREPOINT_MAP = "Brieven";
+
+// Standaard onderwerp van de backoffice-taak (met placeholders) — startpunt in Beheer + terugval.
+const STANDAARD_BACKOFFICE_ONDERWERP = "Brief printen en versturen — {{klantnaam}}";
 
 // Standaard begeleidende mailtekst (met placeholders) — startpunt in Beheer en terugval bij het
 // mailen wanneer er (nog) geen eigen tekst is ingesteld.
@@ -189,6 +196,9 @@ function normaliseerAfzender(a) {
   // terugval op GRAPH_MAIL_SENDER). Het postvak moet in Entra Mail.Send-rechten hebben.
   const mailAfzenderRuw = tekst(bron.mailAfzender, 160);
   const mailAfzender = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mailAfzenderRuw) ? mailAfzenderRuw : "";
+  // Backoffice-taak: e-mailadres van het postvak dat de taak krijgt (leeg = manager van de klant).
+  const backofficeEigenaarRuw = tekst(bron.backofficeEigenaarEmail, 160);
+  const backofficeEigenaarEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(backofficeEigenaarRuw) ? backofficeEigenaarRuw : "";
   return {
     bedrijfsnaam: tekst(bron.bedrijfsnaam, 120) || STANDAARD_AFZENDER.bedrijfsnaam,
     adres: tekst(bron.adres, 160),
@@ -213,6 +223,8 @@ function normaliseerAfzender(a) {
     mailAfzender,
     mailOnderwerp: tekst(bron.mailOnderwerp, 300),
     mailTekst: langeTekst(bron.mailTekst, 20000),
+    backofficeEigenaarEmail,
+    backofficeOnderwerp: tekst(bron.backofficeOnderwerp, 300),
   };
 }
 
@@ -331,4 +343,5 @@ module.exports = {
   STANDAARD_SJABLONEN,
   STANDAARD_SHAREPOINT_MAP,
   STANDAARD_MAIL_TEKST,
+  STANDAARD_BACKOFFICE_ONDERWERP,
 };

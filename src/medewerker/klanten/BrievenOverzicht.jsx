@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Search, FileText, Download, FolderInput, Mail, RefreshCw, Loader2,
-  CheckCircle2, AlertTriangle, X, ChevronDown, Building2, User, Landmark, Paperclip, Upload,
+  CheckCircle2, AlertTriangle, X, ChevronDown, Building2, User, Landmark, Paperclip, Upload, Printer,
 } from "lucide-react";
 
 /**
@@ -131,6 +131,7 @@ export default function BrievenOverzicht() {
   const [zoek, setZoek] = useState("");
   const [klant, setKlant] = useState(null);
   const [sjabloonId, setSjabloonId] = useState("");
+  const [sjabloonZoek, setSjabloonZoek] = useState(""); // zoeken tussen de standaardbrieven i.p.v. dropdown
 
   // Geadresseerde
   const [geadType, setGeadType] = useState("klant"); // "klant" | "belastingkantoor" | "overig"
@@ -181,6 +182,11 @@ export default function BrievenOverzicht() {
   const sjablonen = (config && config.sjablonen) || [];
   const briefvelden = (config && config.briefvelden) || [];
   const sjabloon = sjablonen.find((s) => s.id === sjabloonId) || null;
+  const gefilterdeSjablonen = useMemo(() => {
+    const t = sjabloonZoek.trim().toLowerCase();
+    if (!t) return sjablonen;
+    return sjablonen.filter((s) => `${s.naam || ""} ${s.onderwerp || ""}`.toLowerCase().includes(t));
+  }, [sjablonen, sjabloonZoek]);
   const actieveVelddefs = useMemo(() => {
     const sleutels = (sjabloon && Array.isArray(sjabloon.velden)) ? sjabloon.velden : [];
     return sleutels.map((sl) => briefvelden.find((v) => v.sleutel === sl)).filter(Boolean);
@@ -302,6 +308,12 @@ export default function BrievenOverzicht() {
     try {
       const payload = { actie, brief, bestandsnaamBasis, formaat: fmt || formaat };
       if (actie === "dossier") payload.accountId = klant.accountId;
+      if (actie === "backoffice") {
+        payload.accountId = klant.accountId;
+        payload.klantnaam = veiligeStr(klant.klantnaam);
+        // Onderwerp van de backoffice-taak uit Beheer, placeholders ingevuld.
+        payload.backofficeOnderwerp = vulIn(veiligeStr(afzender.backofficeOnderwerp), mergeVelden);
+      }
       if (actie === "mail") {
         payload.naar = naar.trim();
         payload.cc = cc.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
@@ -310,7 +322,7 @@ export default function BrievenOverzicht() {
         payload.mailOnderwerp = vulIn(veiligeStr(afzender.mailOnderwerp), mergeVelden);
         payload.mailTekst = vulIn(veiligeStr(afzender.mailTekst), mergeVelden);
       }
-      if ((actie === "mail" || actie === "dossier") && bijlage) payload.bijlage = { naam: bijlage.naam, dataUrl: bijlage.dataUrl };
+      if ((actie === "mail" || actie === "dossier" || actie === "backoffice") && bijlage) payload.bijlage = { naam: bijlage.naam, dataUrl: bijlage.dataUrl };
       const res = await fetch("/api/brieven", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `Er ging iets mis (${res.status}).`);
@@ -318,6 +330,10 @@ export default function BrievenOverzicht() {
       if (actie === "genereer") { base64Download(data.base64, data.bestandsnaam, data.contentType); setMelding({ type: "ok", tekst: `${data.bestandsnaam} is gedownload.` }); }
       else if (actie === "mail") { setMelding({ type: "ok", tekst: `Brief gemaild naar ${naar.trim()}${metBijlage}.` }); }
       else if (actie === "dossier") { if (data.gedaan) setMelding({ type: "ok", tekst: `Brief opgeslagen in het SharePoint-dossier van de klant${metBijlage}.` }); else setMelding({ type: "fout", tekst: data.reden || "Opslaan in het dossier is niet gelukt." }); }
+      else if (actie === "backoffice") {
+        if (data.taakGedaan) setMelding({ type: "ok", tekst: `Taak voor backoffice aangemaakt${data.dossierGedaan ? " en de brief staat in het klantdossier" : ""}${metBijlage}.${data.eigenaarGevonden ? "" : " (Let op: geen eigenaar gevonden — controleer het backoffice-adres in Beheer.)"}` });
+        else setMelding({ type: "fout", tekst: data.taakReden || "Kon de backoffice-taak niet aanmaken." });
+      }
     } catch (e) { setMelding({ type: "fout", tekst: String(e.message || e) }); }
     finally { if (levend.current) setBezig(""); }
   }
@@ -410,16 +426,32 @@ export default function BrievenOverzicht() {
             )}
           </div>
 
-          {/* Sjabloon */}
+          {/* Sjabloon — zoekbaar keuzeveld (typen om te filteren i.p.v. alleen een dropdown) */}
           <div>
             <span style={label}>Standaardbrief</span>
-            <div style={{ position: "relative" }}>
-              <select value={sjabloonId} onChange={(e) => setSjabloonId(e.target.value)} style={{ ...input, appearance: "none", paddingRight: 32, cursor: "pointer" }}>
-                <option value="">— Kies een sjabloon —</option>
-                {sjablonen.map((s) => <option key={s.id} value={s.id}>{s.naam}</option>)}
-              </select>
-              <ChevronDown size={15} color={KLEUR.mutedTekst} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
-            </div>
+            {sjabloon ? (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "9px 12px", background: KLEUR.lichtblauw }}>
+                <span style={{ fontSize: 13.5, fontWeight: 700, color: KLEUR.tekst, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{veiligeStr(sjabloon.naam)}</span>
+                <button onClick={() => { setSjabloonId(""); setSjabloonZoek(""); }} style={{ ...knopLicht, padding: "6px 10px" }}><X size={14} /> Wijzig</button>
+              </div>
+            ) : (
+              <>
+                <div style={{ position: "relative" }}>
+                  <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+                  <input value={sjabloonZoek} onChange={(e) => setSjabloonZoek(e.target.value)} placeholder="Zoek een standaardbrief op naam of onderwerp…" style={{ ...input, padding: "8px 10px 8px 32px" }} />
+                </div>
+                <div style={{ marginTop: 6, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, maxHeight: 240, overflowY: "auto", background: "#fff" }}>
+                  {gefilterdeSjablonen.length === 0 ? (
+                    <div style={{ padding: "10px 12px", fontSize: 12.5, color: KLEUR.mutedTekst }}>Geen brieven gevonden.</div>
+                  ) : gefilterdeSjablonen.map((s) => (
+                    <button key={s.id} onClick={() => { setSjabloonId(s.id); setSjabloonZoek(""); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", border: "none", borderBottom: `1px solid ${KLEUR.rand}`, background: "#fff", cursor: "pointer" }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: KLEUR.tekst }}>{veiligeStr(s.naam)}</span>
+                      {veiligeStr(s.onderwerp) && <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{"   ·   "}{veiligeStr(s.onderwerp)}</span>}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Geadresseerde */}
@@ -543,6 +575,7 @@ export default function BrievenOverzicht() {
               <button style={knop(KLEUR.blauw, klaarVoorActie)} disabled={!klaarVoorActie || !!bezig} onClick={() => doeActie("genereer", "pdf")}>{bezig === "genereerpdf" ? <Loader2 size={15} className="spin" /> : <Download size={15} />} PDF downloaden</button>
               <button style={{ ...knopLicht, opacity: klaarVoorActie ? 1 : 0.5, cursor: klaarVoorActie ? "pointer" : "not-allowed" }} disabled={!klaarVoorActie || !!bezig} onClick={() => doeActie("genereer", "docx")}>{bezig === "genereerdocx" ? <Loader2 size={15} className="spin" /> : <FileText size={15} />} Word downloaden</button>
               <button style={{ ...knopLicht, opacity: klaarVoorActie ? 1 : 0.5, cursor: klaarVoorActie ? "pointer" : "not-allowed" }} disabled={!klaarVoorActie || !!bezig} onClick={() => doeActie("dossier")}>{bezig === "dossier" ? <Loader2 size={15} className="spin" /> : <FolderInput size={15} />} In klantdossier</button>
+              <button style={{ ...knopLicht, opacity: klaarVoorActie ? 1 : 0.5, cursor: klaarVoorActie ? "pointer" : "not-allowed" }} disabled={!klaarVoorActie || !!bezig} onClick={() => doeActie("backoffice")} title="Zet de brief in het klantdossier en maak een taak voor de backoffice om te printen en versturen">{bezig === "backoffice" ? <Loader2 size={15} className="spin" /> : <Printer size={15} />} Naar backoffice</button>
               <button style={knop(KLEUR.groen, klaarVoorActie && !!naar.trim())} disabled={!klaarVoorActie || !naar.trim() || !!bezig} onClick={openMailModal}>{bezig === "mail" ? <Loader2 size={15} className="spin" /> : <Mail size={15} />} Mailen naar klant</button>
             </div>
             <div style={{ marginTop: 8, fontSize: 11.5, color: KLEUR.mutedTekst, display: "flex", alignItems: "center", gap: 8 }}>
@@ -636,7 +669,7 @@ function BriefVoorbeeld({ brief }) {
   return (
     <div style={paginaStijl}>
       {heeftAcht ? (
-        b.afzenderMiniRegel ? <div style={{ textAlign: "center", color: KLEUR.mutedTekst, fontSize: 10, marginBottom: 18 }}>{b.afzenderMiniRegel}</div> : null
+        b.afzenderMiniRegel ? <div style={{ textAlign: "center", color: KLEUR.mutedTekst, fontSize: 10, marginTop: 24, marginBottom: 18 }}>{b.afzenderMiniRegel}</div> : null
       ) : (
         <>
           {b.logoUrl ? (
