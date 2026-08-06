@@ -3097,6 +3097,19 @@ export default function BeheerPortaal() {
                               Zet dit ook zelf op "niet zichtbaar" hierboven als de vervolgtaak niet voor de klant is bedoeld.
                             </span>
                           </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: "1 1 160px" }}>
+                            <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>Prioriteit</span>
+                            <select
+                              value={cfg.vervolgtaakPrioriteit ?? ""}
+                              onChange={(e) => wijzigTaaksoort(optie.waarde, "vervolgtaakPrioriteit", e.target.value, optie.label)}
+                              style={{ boxSizing: "border-box", width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 12.5, background: "#fff" }}
+                            >
+                              <option value="">— standaard (Normaal) —</option>
+                              <option value="0">Laag</option>
+                              <option value="1">Normaal</option>
+                              <option value="2">Hoog</option>
+                            </select>
+                          </div>
                         </div>
                       )}
                     </React.Fragment>

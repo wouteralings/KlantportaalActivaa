@@ -36,7 +36,8 @@ function vulVervolgtaakSjabloonIn(sjabloon, { klant, titel }) {
  * Onderwerp komt uit soortCfg.vervolgtaakOnderwerp (sjabloon met {klant}/{titel}); de "soort" van
  * de nieuwe taak is zelf ook weer een taaksoort (soortCfg.vervolgtaakSoort) — zo blijft die, mits
  * niet op "zichtbaar" gezet, vanzelf onzichtbaar voor klanten via hetzelfde bestaande mechanisme.
- * Eigenaar wordt de Manager/relatiebeheerder van het cliënt-account (cr283_manager op Account),
+ * Prioriteit komt uit soortCfg.vervolgtaakPrioriteit (0/1/2 = Laag/Normaal/Hoog); leeg = Dynamics-
+ * standaard. Eigenaar wordt de Manager/relatiebeheerder van het cliënt-account (cr283_manager op Account),
  * indien bekend — anders blijft de eigenaar op de Dynamics-standaardwaarde staan.
  *
  * Best-effort: gooit nooit door naar de aanroeper — een mislukte vervolgtaak mag het akkoord van
@@ -54,6 +55,12 @@ async function maakVervolgtaak({ context, resource, token, taak, klantnaam, soor
     if (SOORT_VELD && soortCfg.vervolgtaakSoort !== undefined && soortCfg.vervolgtaakSoort !== "") {
       const soortWaarde = Number(soortCfg.vervolgtaakSoort);
       if (Number.isFinite(soortWaarde)) taakBody[SOORT_VELD] = soortWaarde;
+    }
+    // Prioriteit (Task.prioritycode — standaard Dataverse-optieset 0=Laag/1=Normaal/2=Hoog);
+    // leeg/niet ingesteld = Dynamics-standaard (Normaal) laten staan.
+    if (soortCfg.vervolgtaakPrioriteit !== undefined && soortCfg.vervolgtaakPrioriteit !== "") {
+      const prioriteitWaarde = Number(soortCfg.vervolgtaakPrioriteit);
+      if (Number.isFinite(prioriteitWaarde)) taakBody.prioritycode = prioriteitWaarde;
     }
 
     // Eigenaar = Manager van het cliënt-account, indien ingevuld.
