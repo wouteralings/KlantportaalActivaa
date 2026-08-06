@@ -3072,7 +3072,7 @@ export default function BeheerPortaal() {
                         />
                       </div>
                       {cfg.vervolgtaakBackoffice && (
-                        <div style={{ gridColumn: "1 / -1", display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-end", padding: "0 0 14px", borderBottom: `1px solid ${KLEUR.rand}` }}>
+                        <div style={{ gridColumn: "1 / -1", display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-start", padding: "0 0 14px", borderBottom: `1px solid ${KLEUR.rand}` }}>
                           <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: "1 1 300px" }}>
                             <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>Onderwerp vervolgtaak</span>
                             <input
