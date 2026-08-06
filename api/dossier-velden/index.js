@@ -17,8 +17,16 @@
  */
 const { haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const { SOORTEN } = require("../_gedeeld/dossiers");
-const { vasteVeldenVoorSoort, metLabels } = require("../_gedeeld/dossierVelden");
+const { vasteVeldenVoorSoort, metLabels, standaardIndelingIB, standaardIndelingVPB, standaardIndelingOverig } = require("../_gedeeld/dossierVelden");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
+
+// De standaardindeling van een soort — zodat Beheer → Dossiers een nog niet geconfigureerde soort
+// (bijv. VPB voordat er iets is opgeslagen) tóch met de nette standaard-secties kan tonen i.p.v. leeg.
+function standaardIndelingVoor(soort) {
+  if (soort.key === "ib") return standaardIndelingIB();
+  if (soort.key === "vpb") return standaardIndelingVPB();
+  return standaardIndelingOverig(soort);
+}
 
 module.exports = async function (context, req) {
   const rollen = haalRollenUitPrincipal(req);
@@ -47,5 +55,5 @@ module.exports = async function (context, req) {
 
   const catalogusRuw = [...vasteVeldenVoorSoort(soort), ...(soort.catalogus || []), ...aangepasteVelden];
   const catalogus = metLabels(catalogusRuw, labels);
-  context.res = { headers: { "Content-Type": "application/json" }, body: { soort: soort.key, catalogus } };
+  context.res = { headers: { "Content-Type": "application/json" }, body: { soort: soort.key, catalogus, standaardIndeling: standaardIndelingVoor(soort) } };
 };

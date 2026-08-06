@@ -102,9 +102,10 @@ const SOORTEN_TABS = [
   { key: "vpb", label: "Vennootschapsbelasting", dynamicsTabel: "Vennootschapsbelasting" },
 ];
 
-export default function DossierIndelingBeheer() {
+// Eén zelfstandig, inklapbaar indeling-paneel voor één dossiersoort (ib of vpb). De pagina rendert er
+// twee onder elkaar (zie de default export onderaan), elk met exact dezelfde functies.
+function SoortIndelingPaneel({ soort }) {
   const [open, setOpen] = useState(false); // hele paneel dichtgeklapt bij openen van de pagina
-  const [soort, setSoort] = useState("ib"); // welke dossiersoort we indelen (ib | vpb)
   const [catalogus, setCatalogus] = useState(null); // null = laden
   const [dossierIndeling, setDossierIndeling] = useState(null); // volledig object uit instellingen (alle soorten)
   const [secties, setSecties] = useState(null); // werk-kopie van dossierIndeling.ib.secties (elk met optionele subsecties)
@@ -144,12 +145,11 @@ export default function DossierIndelingBeheer() {
   const [nieuwVeldBezig, setNieuwVeldBezig] = useState(false);
   const [nieuwVeldFout, setNieuwVeldFout] = useState("");
 
-  // Laadt de per-soort werk-kopie (secties/verborgen/…) uit het volledige dossierIndeling-object
-  // in de losse states. Gebruikt zowel bij de eerste keer laden als bij het wisselen van soort.
-  const pasIndelingToe = (huidigeIndeling, soortKey) => {
-    const eigen = (huidigeIndeling && huidigeIndeling[soortKey]) || {};
-    const eigenSecties = (eigen.secties) || [];
-    setSecties(eigenSecties.map((s) => ({ ...s, subsecties: s.subsecties || [] })));
+  // Zet de losse werk-states vanuit één (soort-)indelingsobject — de opgeslagen indeling, of de
+  // standaardindeling van de soort als er nog niets eigens is opgeslagen.
+  const zetWerkStaten = (ind) => {
+    const eigen = ind || {};
+    setSecties((eigen.secties || []).map((s) => ({ ...s, subsecties: s.subsecties || [] })));
     setVerborgen(eigen.verborgen || []);
     setVoorwaarden(eigen.voorwaarden || {});
     setAlleenLezen(eigen.alleenLezen || []);
@@ -158,30 +158,9 @@ export default function DossierIndelingBeheer() {
     setOnderwerpId(eigen.onderwerpId || "");
   };
 
-  // Wisselt de actieve dossiersoort: haalt de catalogus van die soort opnieuw op en laadt zijn
-  // opgeslagen indeling in de werk-states. dossierIndeling is na elke bewaar() up-to-date, dus we
-  // lezen de zojuist opgeslagen staat van de andere soort gewoon daaruit.
-  const wisselSoort = async (nieuweSoort) => {
-    if (nieuweSoort === soort) return;
-    setSoort(nieuweSoort);
-    setStatus("rust");
-    setFout("");
-    setCatalogus(null);
-    try {
-      const r = await fetch(`/api/dossier-velden?soort=${nieuweSoort}`);
-      if (!r.ok) throw new Error();
-      const data = await r.json();
-      setCatalogus(data.catalogus || []);
-    } catch {
-      setCatalogus([]);
-      setFout("Kon de veldcatalogus van deze soort niet laden.");
-    }
-    pasIndelingToe(dossierIndeling, nieuweSoort);
-  };
-
   useEffect(() => {
     Promise.all([
-      fetch("/api/dossier-velden?soort=ib").then((r) => (r.ok ? r.json() : Promise.reject())),
+      fetch(`/api/dossier-velden?soort=${soort}`).then((r) => (r.ok ? r.json() : Promise.reject())),
       fetch("/api/beheer-instellingen").then((r) => (r.ok ? r.json() : Promise.reject())),
       // Best-effort: de onderwerpen-catalogus (Beheer → Onderwerpen, zie "Uitvraag dynamisch") is
       // alleen nodig voor de koppel-dropdown hieronder — als die nog niet geconfigureerd is, mag
@@ -196,9 +175,12 @@ export default function DossierIndelingBeheer() {
         setCatalogus(veldenData.catalogus || []);
         const huidigeIndeling = instellingenData.dossierIndeling || {};
         setDossierIndeling(huidigeIndeling);
-        // Terugval voor secties die nog van vóór de subrubrieken-uitbreiding stammen — gebeurt in
-        // pasIndelingToe. Bij het eerste laden staat "soort" nog op de standaard ("ib").
-        pasIndelingToe(huidigeIndeling, "ib");
+        // Seed vanuit de opgeslagen indeling van DEZE soort; is die er (nog) niet, dan vanuit de
+        // standaardindeling die de server meegeeft — zo toont ook een nog niet geconfigureerde soort
+        // (bijv. VPB) meteen de nette standaard-secties i.p.v. een leeg paneel.
+        const eigen = huidigeIndeling[soort];
+        const heeftEigen = eigen && Array.isArray(eigen.secties) && eigen.secties.length;
+        zetWerkStaten(heeftEigen ? eigen : (veldenData.standaardIndeling || {}));
         setOnderwerpen(onderwerpenData.onderwerpen || []);
         setBestandsnaamTemplate(instellingenData.aangifteBestandsnaamTemplate || "");
         setMailOnderwerpTemplate(instellingenData.aangifteMailOnderwerpTemplate || "");
@@ -230,8 +212,16 @@ export default function DossierIndelingBeheer() {
     const volgendeAangepasteVelden = overrides.aangepasteVelden !== undefined ? overrides.aangepasteVelden : aangepasteVelden;
     const volgendeOnderwerpId = overrides.onderwerpId !== undefined ? overrides.onderwerpId : onderwerpId;
     try {
+      // Haal de meest recente dossierIndeling opnieuw op vóór het samenvoegen, zodat dit paneel
+      // alleen zijn eigen soort-sleutel wijzigt en NOOIT de (mogelijk net door het andere soort-
+      // paneel opgeslagen) indeling van de andere soort overschrijft.
+      let basis = dossierIndeling || {};
+      try {
+        const huidig = await fetch("/api/beheer-instellingen").then((x) => (x.ok ? x.json() : null));
+        if (huidig && huidig.dossierIndeling && typeof huidig.dossierIndeling === "object") basis = huidig.dossierIndeling;
+      } catch { /* val terug op de in-memory kopie */ }
       const volledigeIndeling = {
-        ...(dossierIndeling || {}),
+        ...basis,
         [soort]: {
           secties: volgendeSecties, verborgen: volgendeVerborgen, voorwaarden: volgendeVoorwaarden,
           alleenLezen: volgendeAlleenLezen, labels: volgendeLabels, aangepasteVelden: volgendeAangepasteVelden,
@@ -560,23 +550,6 @@ export default function DossierIndelingBeheer() {
       )}
 
       {open && (<>
-      {/* IB/VPB-schakelaar: dezelfde indeling-tools voor beide dossiersoorten. */}
-      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
-        {SOORTEN_TABS.map((s) => (
-          <button
-            key={s.key}
-            onClick={() => wisselSoort(s.key)}
-            style={{
-              padding: "6px 14px", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
-              border: `1px solid ${soort === s.key ? KLEUR.blauw : KLEUR.rand}`,
-              background: soort === s.key ? KLEUR.blauw : "#fff",
-              color: soort === s.key ? "#fff" : KLEUR.subtekst,
-            }}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
       <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 14, maxWidth: 760 }}>
         Bepaalt hoe het IB-dossier eruitziet op de dossierpagina van een cliënt in het
         medewerkersportaal (Klantoverzicht → Inkomstenbelasting → dossier openen) — óók de vaste
@@ -946,6 +919,18 @@ export default function DossierIndelingBeheer() {
         </div>
       </div>
       </>)}
+    </div>
+  );
+}
+
+// De pagina zelf: één indeling-paneel per dossiersoort onder elkaar (Inkomstenbelasting én
+// Vennootschapsbelasting), elk zelfstandig in- en uitklapbaar en met exact dezelfde functies.
+export default function DossierIndelingBeheer() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+      {SOORTEN_TABS.map((s) => (
+        <SoortIndelingPaneel key={s.key} soort={s.key} />
+      ))}
     </div>
   );
 }
