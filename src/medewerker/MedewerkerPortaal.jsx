@@ -2702,7 +2702,16 @@ function AangifteLog({ dossier, ververs }) {
             <div key={e.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "8px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, background: "#FAFBF9" }}>
               <CheckCircle2 size={14} color={e.mailVerzonden === false ? KLEUR.goud : KLEUR.groen} style={{ flexShrink: 0, marginTop: 1 }} />
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 12.5, color: KLEUR.tekst, fontWeight: 600 }}>{e.bestandsnaam || "Aangifte"}</div>
+                {e.documentUrl ? (
+                  <a
+                    href={e.documentUrl} target="_blank" rel="noopener noreferrer"
+                    style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, color: KLEUR.blauw, fontWeight: 600, textDecoration: "none" }}
+                  >
+                    {e.bestandsnaam || "Aangifte"} <ExternalLink size={11} />
+                  </a>
+                ) : (
+                  <div style={{ fontSize: 12.5, color: KLEUR.tekst, fontWeight: 600 }}>{e.bestandsnaam || "Aangifte"}</div>
+                )}
                 <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 1 }}>
                   {e.doelgroep === "partner" ? "Fiscaal partner" : "Cliënt"} — {e.klantnaam || "—"}{e.ontvangerEmail ? ` (${e.ontvangerEmail})` : ""}
                   {" · "}{new Date(e.tijd).toLocaleString("nl-NL", { dateStyle: "short", timeStyle: "short" })}
