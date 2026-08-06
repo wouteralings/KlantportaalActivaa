@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, CheckCircle2, ChevronDown, Clock, Loader2, Save, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, CheckCircle2, ChevronDown, Clock, GitMerge, Loader2, Save, Search, X } from "lucide-react";
 
 /** Zelfde palet als de rest van het beheerportaal (bewust hier herhaald, zie UrenTarievenBeheer.jsx). */
 const KLEUR = { blauw: "#1C5D8C", tekst: "#1C2321", subtekst: "#5B6259", mutedTekst: "#8A9089", rand: "#E2E4DF", lichtblauw: "#EAF2F8", rood: "#B23B3B", groen: "#2E7D46", goud: "#B98237" };
@@ -257,7 +257,8 @@ function RgsNaamVolgorde() {
                 <div style={{ borderTop: `1px solid ${KLEUR.rand}` }}>
                   {perCategorie[cat].map((r, i) => (
                     <RgsCodeRij key={r.rgsCode} r={r} isEerste={i === 0} isLaatste={i === perCategorie[cat].length - 1}
-                      onVerplaats={(richting) => verplaats(cat, i, richting)} onNaamOpgeslagen={laad} />
+                      onVerplaats={(richting) => verplaats(cat, i, richting)} onNaamOpgeslagen={laad}
+                      alleInCategorie={perCategorie[cat]} />
                   ))}
                 </div>
               )}
@@ -270,11 +271,19 @@ function RgsNaamVolgorde() {
   );
 }
 
-function RgsCodeRij({ r, isEerste, isLaatste, onVerplaats, onNaamOpgeslagen }) {
+function RgsCodeRij({ r, isEerste, isLaatste, onVerplaats, onNaamOpgeslagen, alleInCategorie }) {
   const [naam, setNaam] = useState(r.naam || "");
   const [bezig, setBezig] = useState(false);
   const [ok, setOk] = useState(false);
+  const [mergeBezig, setMergeBezig] = useState(false);
+  const [mergeFout, setMergeFout] = useState("");
   const gewijzigd = naam !== (r.naam || "");
+  const samengevoegd = !!r.samenvoegNaar;
+
+  // Mogelijke doelregels: andere codes in dezelfde categorie die zélf niet zijn samengevoegd
+  // (een samengevoegde code verdwijnt uit de rapportage en kan dus geen doel zijn).
+  const doelen = (alleInCategorie || []).filter((c) => c.rgsCode !== r.rgsCode && !c.samenvoegNaar);
+  const doel = (alleInCategorie || []).find((c) => c.rgsCode === r.samenvoegNaar);
 
   const opslaan = async () => {
     setBezig(true); setOk(false);
@@ -291,26 +300,78 @@ function RgsCodeRij({ r, isEerste, isLaatste, onVerplaats, onNaamOpgeslagen }) {
     finally { setBezig(false); }
   };
 
+  const zetSamenvoeging = async (samenvoegNaar) => {
+    setMergeBezig(true); setMergeFout("");
+    try {
+      const res = await fetch("/api/rgs-instellingen", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "samenvoegen", rgsCode: r.rgsCode, samenvoegNaar }),
+      });
+      if (!res.ok) throw new Error();
+      onNaamOpgeslagen();
+    } catch { setMergeFout("Samenvoegen is niet gelukt, probeer het nog eens."); }
+    finally { setMergeBezig(false); }
+  };
+
+  // Samengevoegde regel: compacter, ingesprongen, met een "ongedaan maken"-knop.
+  if (samengevoegd) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", borderTop: `1px solid ${KLEUR.rand}`, background: "#FBFAF6" }}>
+        <div style={{ flex: "0 0 190px", opacity: 0.75 }}>
+          <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>{r.naam || r.standaardNaam}</div>
+          <div style={{ fontSize: 10.5, color: KLEUR.mutedTekst, fontFamily: "monospace" }}>{r.rgsCode} · {r.groep}</div>
+        </div>
+        <div style={{ flex: 1, fontSize: 12, color: KLEUR.goud, display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <GitMerge size={13} />
+          <span>Samengevoegd met <strong>{doel ? doel.naam : r.samenvoegNaar}</strong> <span style={{ fontFamily: "monospace", color: KLEUR.mutedTekst }}>({r.samenvoegNaar})</span></span>
+        </div>
+        <button onClick={() => zetSamenvoeging("")} disabled={mergeBezig} style={{
+          display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 11px", background: "#fff", color: KLEUR.subtekst,
+          border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: mergeBezig ? "default" : "pointer",
+        }}>
+          {mergeBezig ? <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} /> : <X size={12} />}
+          Ongedaan maken
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", borderTop: `1px solid ${KLEUR.rand}` }}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-        <button onClick={() => onVerplaats(-1)} disabled={isEerste} style={{ background: "none", border: "none", cursor: isEerste ? "default" : "pointer", opacity: isEerste ? 0.3 : 1, padding: 0 }}><ArrowUp size={13} color={KLEUR.subtekst} /></button>
-        <button onClick={() => onVerplaats(1)} disabled={isLaatste} style={{ background: "none", border: "none", cursor: isLaatste ? "default" : "pointer", opacity: isLaatste ? 0.3 : 1, padding: 0 }}><ArrowDown size={13} color={KLEUR.subtekst} /></button>
+    <div style={{ padding: "8px 14px", borderTop: `1px solid ${KLEUR.rand}` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <button onClick={() => onVerplaats(-1)} disabled={isEerste} style={{ background: "none", border: "none", cursor: isEerste ? "default" : "pointer", opacity: isEerste ? 0.3 : 1, padding: 0 }}><ArrowUp size={13} color={KLEUR.subtekst} /></button>
+          <button onClick={() => onVerplaats(1)} disabled={isLaatste} style={{ background: "none", border: "none", cursor: isLaatste ? "default" : "pointer", opacity: isLaatste ? 0.3 : 1, padding: 0 }}><ArrowDown size={13} color={KLEUR.subtekst} /></button>
+        </div>
+        <div style={{ flex: "0 0 190px" }}>
+          <div style={{ fontSize: 12.5, color: KLEUR.tekst }}>{r.standaardNaam}</div>
+          <div style={{ fontSize: 10.5, color: KLEUR.mutedTekst, fontFamily: "monospace" }}>{r.rgsCode} · {r.groep}</div>
+        </div>
+        <input value={naam} onChange={(e) => setNaam(e.target.value)} placeholder={r.standaardNaam} style={{ ...veld, flex: 1 }} />
+        <button onClick={opslaan} disabled={!gewijzigd || bezig} style={{
+          display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 11px",
+          background: !gewijzigd ? "#fff" : ok ? KLEUR.groen : KLEUR.blauw, color: !gewijzigd ? KLEUR.mutedTekst : "#fff",
+          border: `1px solid ${!gewijzigd ? KLEUR.rand : "transparent"}`, borderRadius: 7, fontSize: 12, fontWeight: 600,
+          cursor: !gewijzigd || bezig ? "default" : "pointer",
+        }}>
+          {bezig ? <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} /> : ok ? <CheckCircle2 size={12} /> : <Save size={12} />}
+          {ok ? "Opgeslagen" : "Opslaan"}
+        </button>
       </div>
-      <div style={{ flex: "0 0 190px" }}>
-        <div style={{ fontSize: 12.5, color: KLEUR.tekst }}>{r.standaardNaam}</div>
-        <div style={{ fontSize: 10.5, color: KLEUR.mutedTekst, fontFamily: "monospace" }}>{r.rgsCode} · {r.groep}</div>
-      </div>
-      <input value={naam} onChange={(e) => setNaam(e.target.value)} placeholder={r.standaardNaam} style={{ ...veld, flex: 1 }} />
-      <button onClick={opslaan} disabled={!gewijzigd || bezig} style={{
-        display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 11px",
-        background: !gewijzigd ? "#fff" : ok ? KLEUR.groen : KLEUR.blauw, color: !gewijzigd ? KLEUR.mutedTekst : "#fff",
-        border: `1px solid ${!gewijzigd ? KLEUR.rand : "transparent"}`, borderRadius: 7, fontSize: 12, fontWeight: 600,
-        cursor: !gewijzigd || bezig ? "default" : "pointer",
-      }}>
-        {bezig ? <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} /> : ok ? <CheckCircle2 size={12} /> : <Save size={12} />}
-        {ok ? "Opgeslagen" : "Opslaan"}
-      </button>
+      {doelen.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 7, paddingLeft: 33 }}>
+          <span style={{ fontSize: 11, color: KLEUR.mutedTekst, display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+            <GitMerge size={11} /> Samenvoegen met:
+          </span>
+          <select value="" onChange={(e) => { if (e.target.value) zetSamenvoeging(e.target.value); }} disabled={mergeBezig}
+            style={{ ...veld, flex: "0 1 320px", cursor: mergeBezig ? "default" : "pointer" }}>
+            <option value="">— kies een doelregel —</option>
+            {doelen.map((d) => <option key={d.rgsCode} value={d.rgsCode}>{d.naam} ({d.rgsCode})</option>)}
+          </select>
+          {mergeBezig && <Loader2 size={12} style={{ animation: "spin 1s linear infinite", color: KLEUR.mutedTekst }} />}
+          {mergeFout && <span style={{ fontSize: 11, color: KLEUR.rood }}>{mergeFout}</span>}
+        </div>
+      )}
     </div>
   );
 }

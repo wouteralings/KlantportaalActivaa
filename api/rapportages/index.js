@@ -19,10 +19,31 @@ const { haalOverschrijvingen, pasToe } = require("../_gedeeld/rgsInstellingen");
 function bouwRapportage(codes, jaar, accountId) {
   const { saldi, omzetTotaal, kostenTotaal, resultaat, activaTotaal, passivaTotaal } = genereerDemoSaldi(accountId, jaar);
 
+  // RGS samenvoegen: het saldo van een code met 'samenvoegNaar' wordt opgeteld bij de doelcode (binnen
+  // dezelfde rapportage + categorie) en de bronregel verdwijnt. Ketens worden tot de wortel gevolgd.
+  // De categorietotalen (omzet/kosten/activa/passiva) blijven ongewijzigd — samenvoegen is puur presentatie.
+  const codePerCode = new Map(codes.map((c) => [c.rgsCode, c]));
+  const wortelVan = (code) => {
+    let cur = code, guard = 0;
+    while (cur && cur.samenvoegNaar && guard++ < 50) {
+      const doel = codePerCode.get(cur.samenvoegNaar);
+      if (doel && doel.rgsCode !== cur.rgsCode && doel.rapportage === code.rapportage && doel.categorie === code.categorie) cur = doel;
+      else break;
+    }
+    return cur;
+  };
+  const effSaldo = {};
+  const samengevoegd = new Set();
+  for (const c of codes) {
+    const wortel = wortelVan(c);
+    if (wortel.rgsCode !== c.rgsCode) samengevoegd.add(c.rgsCode);
+    effSaldo[wortel.rgsCode] = (effSaldo[wortel.rgsCode] || 0) + (saldi[c.rgsCode] || 0);
+  }
+
   const naarRegels = (rapportage, categorie) =>
     codes
-      .filter((c) => c.rapportage === rapportage && c.categorie === categorie)
-      .map((c) => ({ rgsCode: c.rgsCode, naam: c.naam, groep: c.groep, volgorde: c.volgorde, saldo: saldi[c.rgsCode] || 0 }));
+      .filter((c) => c.rapportage === rapportage && c.categorie === categorie && !samengevoegd.has(c.rgsCode))
+      .map((c) => ({ rgsCode: c.rgsCode, naam: c.naam, groep: c.groep, volgorde: c.volgorde, saldo: effSaldo[c.rgsCode] || 0 }));
 
   return {
     jaar,

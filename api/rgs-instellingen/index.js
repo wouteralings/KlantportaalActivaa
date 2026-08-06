@@ -1,5 +1,5 @@
 const { RGS_REFERENTIE } = require("../_gedeeld/rgsData");
-const { haalOverschrijvingen, zetNaam, zetVolgorde, pasToe } = require("../_gedeeld/rgsInstellingen");
+const { haalOverschrijvingen, zetNaam, zetVolgorde, zetSamenvoeging, pasToe } = require("../_gedeeld/rgsInstellingen");
 
 /**
  * Route is beveiligd via staticwebapp.config.json (alleen rol 'beheerder').
@@ -34,8 +34,14 @@ module.exports = async function (context, req) {
           return;
         }
         await zetVolgorde(body.rgsCodes);
+      } else if (body.actie === "samenvoegen") {
+        if (!body.rgsCode) {
+          context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'rgsCode' mee." } };
+          return;
+        }
+        await zetSamenvoeging(body.rgsCode, body.samenvoegNaar || "");
       } else {
-        context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Onbekende actie — gebruik 'naam' of 'volgorde'." } };
+        context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Onbekende actie — gebruik 'naam', 'volgorde' of 'samenvoegen'." } };
         return;
       }
       const overschrijvingen = await haalOverschrijvingen();

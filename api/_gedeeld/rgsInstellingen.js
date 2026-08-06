@@ -74,6 +74,20 @@ async function zetVolgorde(rgsCodesInVolgorde) {
   return overschrijvingen;
 }
 
+/** Voegt één RGS-code samen met een doelcode (samenvoegNaar = rgsCode van de doel-/hoofdregel).
+ *  De saldi van samengevoegde codes worden bij het doel opgeteld en de bronregel verdwijnt uit de
+ *  rapportage (zie bouwRapportage in api/rapportages). Leeg = samenvoeging opheffen (weer los). */
+async function zetSamenvoeging(rgsCode, samenvoegNaar) {
+  if (!rgsCode) throw new Error("VALIDATIE: rgsCode is verplicht.");
+  const doel = (samenvoegNaar || "").trim();
+  if (doel && doel === rgsCode) throw new Error("VALIDATIE: een code kan niet met zichzelf worden samengevoegd.");
+  const overschrijvingen = await haalOverschrijvingen();
+  const huidig = overschrijvingen[rgsCode] || {};
+  overschrijvingen[rgsCode] = doel ? { ...huidig, samenvoegNaar: doel } : { ...huidig, samenvoegNaar: undefined };
+  await bewaarOverschrijvingen(overschrijvingen);
+  return overschrijvingen[rgsCode];
+}
+
 async function bewaarOverschrijvingen(overschrijvingen) {
   const containerClient = await haalContainerClient();
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
@@ -91,9 +105,10 @@ function pasToe(rgsReferentie, overschrijvingen) {
         ...r,
         naam: o.naam || r.standaardNaam,
         volgorde: o.volgorde != null ? o.volgorde : r.standaardVolgorde,
+        samenvoegNaar: o.samenvoegNaar || null,
       };
     })
     .sort((a, b) => a.volgorde - b.volgorde);
 }
 
-module.exports = { haalOverschrijvingen, zetNaam, zetVolgorde, pasToe };
+module.exports = { haalOverschrijvingen, zetNaam, zetVolgorde, zetSamenvoeging, pasToe };
