@@ -1,0 +1,90 @@
+/**
+ * Logboek van verstuurde/gearchiveerde brieven, in Azure Blob Storage (container portaalcontent,
+ * blob brieven-log.json). Spiegelt _gedeeld/taakakkoorden.js.
+ *
+ * Elke keer dat een brief via /api/brieven wordt gemaild, in het dossier gezet of naar backoffice
+ * gestuurd, komt hier een record bij. Zo kan het medewerkersportaal per klant (en centraal,
+ * filterbaar) terugzien welke brieven zijn verstuurd, met een link naar de PDF in SharePoint.
+ */
+const { BlobServiceClient } = require("@azure/storage-blob");
+const crypto = require("crypto");
+
+const CONTAINER_NAAM = "portaalcontent";
+const BLOB_NAAM = "brieven-log.json";
+let cachedContainerClient = null;
+
+async function haalContainerClient() {
+  if (cachedContainerClient) return cachedContainerClient;
+  const connectionString = process.env.STORAGE_CONNECTION_STRING;
+  if (!connectionString) throw new Error("MISSING_CONFIG");
+  const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
+  const containerClient = blobServiceClient.getContainerClient(CONTAINER_NAAM);
+  await containerClient.createIfNotExists();
+  cachedContainerClient = containerClient;
+  return containerClient;
+}
+
+async function streamNaarTekst(readableStream) {
+  const stukken = [];
+  for await (const stuk of readableStream) stukken.push(Buffer.isBuffer(stuk) ? stuk : Buffer.from(stuk));
+  return Buffer.concat(stukken).toString("utf-8");
+}
+
+async function haalAlleBrieven() {
+  const containerClient = await haalContainerClient();
+  const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
+  if (!(await blobClient.exists())) return [];
+  const tekst = await streamNaarTekst((await blobClient.download()).readableStreamBody);
+  try {
+    const arr = JSON.parse(tekst);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+async function schrijfBrieven(brieven) {
+  const containerClient = await haalContainerClient();
+  const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
+  const buffer = Buffer.from(JSON.stringify(brieven, null, 2), "utf-8");
+  await blobClient.upload(buffer, buffer.length, { overwrite: true });
+}
+
+/**
+ * Voegt een verstuurde brief toe aan het logboek. Best-effort — gooit door zodat de aanroeper kan
+ * loggen, maar mag het versturen van de brief zelf niet blokkeren (aanroeper vangt af).
+ */
+async function voegBriefToe(record) {
+  const brieven = await haalAlleBrieven();
+  const nieuw = {
+    id: crypto.randomUUID(),
+    verzondenOp: new Date().toISOString(),
+    kenmerk: record.kenmerk || "",
+    actie: record.actie || "",
+    accountId: record.accountId || null,
+    klantnummer: record.klantnummer ?? null,
+    klantnaam: record.klantnaam || "",
+    sjabloonnaam: record.sjabloonnaam || "",
+    betreft: record.betreft || "",
+    geadType: record.geadType || "",
+    ontvangerNaam: record.ontvangerNaam || "",
+    naar: record.naar || "",
+    cc: record.cc || "",
+    medewerker: record.medewerker || "",
+    pdfUrl: record.pdfUrl || "",
+    bijlageNaam: record.bijlageNaam || "",
+  };
+  brieven.push(nieuw);
+  await schrijfBrieven(brieven);
+  return nieuw;
+}
+
+/** Alle brieven van één klant (op accountId), nieuwste eerst. */
+async function haalBrievenVoorKlant(accountId) {
+  const alle = await haalAlleBrieven();
+  return alle
+    .filter((b) => b.accountId === accountId)
+    .sort((a, b) => String(b.verzondenOp).localeCompare(String(a.verzondenOp)));
+}
+
+module.exports = { haalAlleBrieven, voegBriefToe, haalBrievenVoorKlant };

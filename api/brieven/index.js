@@ -24,9 +24,10 @@ const { vulBriefpapier } = require("../_gedeeld/briefWordpapier");
 const { verstuurMailMetBijlage } = require("../_gedeeld/mail");
 const { haalConfig } = require("../_gedeeld/briefSjablonen");
 const { haalAfbeelding } = require("../_gedeeld/media");
-const { haalDynamicsToken } = require("../_gedeeld/identiteit");
+const { haalDynamicsToken, haalEmailUitPrincipal } = require("../_gedeeld/identiteit");
 const { haalAppGraphToken } = require("../_gedeeld/graphApp");
 const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/sharepointUpload");
+const { voegBriefToe } = require("../_gedeeld/briefLog");
 
 const SHAREPOINT_VELD = process.env.DYNAMICS_KLANT_SHAREPOINT_VELD || "cr283_sharepoint";
 
@@ -40,6 +41,38 @@ function veiligeBestandsnaam(basis, ext) {
     .trim()
     .slice(0, 120) || "Brief";
   return `${schoon}.${ext}`;
+}
+
+/** Voegt (indien aanwezig) het kenmerk aan de bestandsnaam-basis toe, zodat gelijknamige brieven
+ *  elkaar niet overschrijven in het SharePoint-dossier (elk kenmerk is uniek). */
+function basisMetKenmerk(basis, brief) {
+  const kenmerk = String((brief && brief.kenmerk) || "").trim();
+  return kenmerk ? `${String(basis || "Brief")} - ${kenmerk}` : String(basis || "Brief");
+}
+
+/** Legt een verstuurde brief best-effort vast in het brievenlogboek (mag versturen nooit blokkeren). */
+async function logBrief(context, req, { actie, brief, body, naar, cc, pdfUrl, bijlage }) {
+  try {
+    const ontvangerNaam = Array.isArray(brief.ontvangerRegels) ? (brief.ontvangerRegels[0] || "") : "";
+    await voegBriefToe({
+      kenmerk: brief.kenmerk || "",
+      actie,
+      accountId: String((body && body.accountId) || "").trim() || null,
+      klantnummer: body && body.klantnummer != null ? body.klantnummer : null,
+      klantnaam: String((body && body.klantnaam) || "").trim(),
+      sjabloonnaam: String((body && body.sjabloonnaam) || "").trim(),
+      betreft: brief.onderwerp || "",
+      geadType: String((body && body.geadType) || "").trim(),
+      ontvangerNaam,
+      naar: naar || "",
+      cc: Array.isArray(cc) ? cc.join(", ") : (cc || ""),
+      medewerker: haalEmailUitPrincipal(req) || "",
+      pdfUrl: pdfUrl || "",
+      bijlageNaam: bijlage ? bijlage.naam : "",
+    });
+  } catch (e) {
+    if (context && context.log) context.log.error("Brief loggen mislukt:", e);
+  }
 }
 
 const MAX_BIJLAGE_BYTES = 20 * 1024 * 1024; // 20 MB (voor het dossier); e-mail is in de praktijk kleiner begrensd
@@ -175,9 +208,9 @@ async function naarDossier({ accountId, submap, bestandsnaam, buffer, contentTyp
     const appToken = await haalAppGraphToken();
     const map = await resolveFolder(appToken, basisUrl);
     const doelId = await ensureFolderPath(appToken, map.driveId, map.itemId, [submap || "Brieven"]);
-    await uploadBestand(appToken, map.driveId, doelId, bestandsnaam, buffer, contentType);
+    const geupload = await uploadBestand(appToken, map.driveId, doelId, bestandsnaam, buffer, contentType);
     if (bijlage && bijlage.buffer) await uploadBestand(appToken, map.driveId, doelId, bijlage.naam, bijlage.buffer, bijlage.contentType);
-    return { gedaan: true };
+    return { gedaan: true, url: (geupload && geupload.webUrl) || "" };
   } catch (e) {
     const reden = e && e.code === "APP_TOKEN_MISLUKT"
       ? "Kon geen app-toegang tot SharePoint krijgen (Graph-applicatiepermissie/admin-consent controleren)."
@@ -195,7 +228,7 @@ const TAAK_MANAGER_VELD = process.env.DYNAMICS_RELATIEBEHEERDER_VELD || "cr283_m
  * Beheer ingestelde backoffice-postvak (e-mail → systemuser), of anders de manager/relatiebeheerder
  * van de klant. Best-effort — geeft { gedaan, reden, eigenaarGevonden }.
  */
-async function maakBackofficeTaak({ context, accountId, klantnaam, onderwerp, eigenaarEmail, dossierGelukt, submap }) {
+async function maakBackofficeTaak({ context, accountId, klantnaam, onderwerp, eigenaarEmail, dossierGelukt, submap, briefUrl }) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   if (!resource) return { gedaan: false, reden: "Dynamics-koppeling is nog niet geconfigureerd." };
   const H = (token) => ({ Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json", "OData-MaxVersion": "4.0", "OData-Version": "4.0" });
@@ -212,9 +245,10 @@ async function maakBackofficeTaak({ context, accountId, klantnaam, onderwerp, ei
       const r = await fetch(`${resource}/api/data/v9.2/accounts(${accountId})?$select=_${TAAK_MANAGER_VELD}_value`, { headers: H(token) });
       if (r.ok) { const j = await r.json(); ownerId = j[`_${TAAK_MANAGER_VELD}_value`] || ""; }
     }
-    const beschrijving = dossierGelukt
+    const linkRegel = briefUrl ? `\n\nDirecte link naar de brief: ${briefUrl}` : "";
+    const beschrijving = (dossierGelukt
       ? `De te versturen brief staat als PDF in het SharePoint-dossier van de klant (map "${submap || "Brieven"}"). Graag printen en per post versturen.`
-      : "Graag de brief printen en per post versturen. Let op: opslaan in het klantdossier is niet gelukt — vraag de behandelaar om de PDF.";
+      : "Graag de brief printen en per post versturen. Let op: opslaan in het klantdossier is niet gelukt — vraag de behandelaar om de PDF.") + linkRegel;
     const taakBody = {
       subject: (onderwerp || "").trim() || `Brief printen en versturen — ${klantnaam || ""}`.trim(),
       description: beschrijving,
@@ -271,7 +305,7 @@ module.exports = async function (context, req) {
         return;
       }
       const pdf = await genereerBriefPdf(brief);
-      const bijlagen = [{ naam: veiligeBestandsnaam(body.bestandsnaamBasis, "pdf"), contentType: PDF_TYPE, inhoud: pdf }];
+      const bijlagen = [{ naam: veiligeBestandsnaam(basisMetKenmerk(body.bestandsnaamBasis, brief), "pdf"), contentType: PDF_TYPE, inhoud: pdf }];
       if (bijlage) bijlagen.push({ naam: bijlage.naam, contentType: bijlage.contentType, inhoud: bijlage.buffer });
       // Begeleidende mail + afzenderadres uit Beheer (config.afzender). De client stuurt de al-
       // ingevulde mailOnderwerp/mailTekst mee (placeholders verwerkt met de klantgegevens); het
@@ -287,6 +321,7 @@ module.exports = async function (context, req) {
         bijlagen,
         afzender: mailAfzenderCfg.mailAfzender || "",
       });
+      await logBrief(context, req, { actie: "mail", brief, body, naar, cc: body.cc, pdfUrl: "", bijlage });
       context.res = { headers: { "Content-Type": "application/json" }, body: { verzonden: true, van: resultaat.van } };
       return;
     }
@@ -303,11 +338,14 @@ module.exports = async function (context, req) {
       const resultaat = await naarDossier({
         accountId,
         submap: config.sharepointMap || "Brieven",
-        bestandsnaam: veiligeBestandsnaam(body.bestandsnaamBasis, ext),
+        bestandsnaam: veiligeBestandsnaam(basisMetKenmerk(body.bestandsnaamBasis, brief), ext),
         buffer,
         contentType,
         bijlage,
       });
+      if (resultaat.gedaan) {
+        await logBrief(context, req, { actie: "dossier", brief, body, naar: "", cc: "", pdfUrl: resultaat.url, bijlage });
+      }
       context.res = { headers: { "Content-Type": "application/json" }, body: resultaat };
       return;
     }
@@ -325,7 +363,7 @@ module.exports = async function (context, req) {
       const submap = config.sharepointMap || "Brieven";
       const dossier = await naarDossier({
         accountId, submap,
-        bestandsnaam: veiligeBestandsnaam(body.bestandsnaamBasis, "pdf"),
+        bestandsnaam: veiligeBestandsnaam(basisMetKenmerk(body.bestandsnaamBasis, brief), "pdf"),
         buffer: pdf, contentType: PDF_TYPE, bijlage,
       });
       const taak = await maakBackofficeTaak({
@@ -333,8 +371,9 @@ module.exports = async function (context, req) {
         klantnaam: String(body.klantnaam || "").trim(),
         onderwerp: String(body.backofficeOnderwerp || "").trim(),
         eigenaarEmail: (config.afzender && config.afzender.backofficeEigenaarEmail) || "",
-        dossierGelukt: dossier.gedaan, submap,
+        dossierGelukt: dossier.gedaan, submap, briefUrl: dossier.url,
       });
+      await logBrief(context, req, { actie: "backoffice", brief, body, naar: "", cc: "", pdfUrl: dossier.url, bijlage });
       context.res = {
         headers: { "Content-Type": "application/json" },
         body: { taakGedaan: taak.gedaan === true, taakReden: taak.reden || "", eigenaarGevonden: taak.eigenaarGevonden === true, dossierGedaan: dossier.gedaan === true, dossierReden: dossier.reden || "" },

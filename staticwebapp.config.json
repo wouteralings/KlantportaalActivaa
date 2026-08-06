@@ -221,6 +221,20 @@
       ]
     },
     {
+      "route": "/api/brief-kenmerk",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
+      "route": "/api/brief-log",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
       "route": "/api/brief-records",
       "allowedRoles": [
         "beheerder",

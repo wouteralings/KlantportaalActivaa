@@ -127,6 +127,7 @@ function bouwBody(brief) {
   k.push(para(run(""), { after: 400 })); // ruimte voor handtekening
   if (b.ondertekenaar) k.push(para(run(b.ondertekenaar), { after: 0 }));
   else for (const r of (b.ondertekenaarRegels || [])) k.push(para(run(r), { after: 0 }));
+  if (b.bijlageNaam) k.push(para(run(`Bijlage: ${b.bijlageNaam}`), { before: 120, after: 0 }));
   if (b.automatischGegenereerd) k.push(kleinCentraal("Deze brief is automatisch gegenereerd en daarom niet ondertekend", { before: 160, after: 0 }));
   return k.join("");
 }

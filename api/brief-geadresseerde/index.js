@@ -24,6 +24,9 @@
 const { haalDynamicsToken } = require("../_gedeeld/identiteit");
 
 const ATTR = process.env.DYNAMICS_KLANT_BELASTINGKANTOOR_VELD || "cr283_belastingkantoor";
+// Adresveld waar het Belastingdienst-/antwoordadres als tekst in staat. Kan op de klant (account)
+// staan of op het belastingkantoor-record; we proberen beide. Instelbaar via App Setting.
+const ANTWOORD_VELD = process.env.DYNAMICS_ANTWOORDADRES_VELD || "cr283_antwoordadres";
 const FV = "@OData.Community.Display.V1.FormattedValue";
 const LLN = "@Microsoft.Dynamics.CRM.lookuplogicalname";
 const GUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
@@ -122,6 +125,20 @@ function leesAdres(rec, labels) {
   };
 }
 
+/** Leest (best-effort) het antwoordadres-tekstveld rechtstreeks van het account. Bestaat het veld
+ *  niet (400) of is het leeg, dan een lege string. */
+async function leesAntwoordadresVanAccount(resource, token, accountId) {
+  try {
+    const res = await fetch(`${resource}/api/data/v9.2/accounts(${accountId})?$select=${ANTWOORD_VELD}`, { headers: baseHeaders(token, false) });
+    if (!res.ok) return "";
+    const j = await res.json();
+    const v = j[ANTWOORD_VELD];
+    return v == null ? "" : String(v).trim();
+  } catch {
+    return "";
+  }
+}
+
 module.exports = async function (context, req) {
   if ((req.method || "GET").toUpperCase() !== "GET") {
     context.res = { status: 405, headers: { "Content-Type": "application/json" }, body: { error: "Methode niet ondersteund." } };
@@ -146,6 +163,18 @@ module.exports = async function (context, req) {
     const res1 = await fetch(`${resource}/api/data/v9.2/accounts(${accountId})?$select=_${ATTR}_value`, { headers: baseHeaders(token, true) });
     if (!res1.ok) throw new Error(`Ophalen klant mislukt (${res1.status}): ${await res1.text()}`);
     const acc = await res1.json();
+
+    // Staat het antwoordadres rechtstreeks als tekst op de klant? Dan is dát het Belastingdienst-adres
+    // (ongeacht of er een belastingkantoor-lookup is). Als meerregelige tekst teruggegeven via adresTekst.
+    const accountAntwoord = await leesAntwoordadresVanAccount(resource, token, accountId);
+    if (accountAntwoord) {
+      context.res = {
+        headers: { "Content-Type": "application/json" },
+        body: { gekoppeld: true, naam: acc[`_${ATTR}_value${FV}`] || "Belastingdienst", adresTekst: accountAntwoord, adres: { straat: "", huisnummer: "", toevoeging: "", postcode: "", plaats: "" } },
+      };
+      return;
+    }
+
     const kantoorId = acc[`_${ATTR}_value`];
     if (!kantoorId) {
       context.res = { headers: { "Content-Type": "application/json" }, body: { gekoppeld: false } };
@@ -172,9 +201,12 @@ module.exports = async function (context, req) {
     if (!resR.ok) throw new Error(`Ophalen belastingkantoor mislukt (${resR.status}): ${await resR.text()}`);
     const rec = await resR.json();
     const naam = (primaryName && rec[primaryName]) || rec.name || naamFallback || "";
+    // Antwoordadres als tekstveld op het belastingkantoor-record? Dan dat gebruiken (via adresTekst).
+    const antwoordVanKantoor = rec[ANTWOORD_VELD] != null ? String(rec[ANTWOORD_VELD]).trim() : "";
     const adres = leesAdres(rec, labels);
 
     const body = { gekoppeld: true, naam, adres };
+    if (antwoordVanKantoor) body.adresTekst = antwoordVanKantoor;
     if (debug) {
       const scalair = {};
       for (const k of Object.keys(rec)) {
