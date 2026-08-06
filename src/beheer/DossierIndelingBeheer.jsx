@@ -145,6 +145,18 @@ function SoortIndelingPaneel({ soort }) {
   const [nieuwVeldBezig, setNieuwVeldBezig] = useState(false);
   const [nieuwVeldFout, setNieuwVeldFout] = useState("");
 
+  // De "Aangifte versturen"-sjablonen worden per soort apart bewaard: IB houdt de bestaande
+  // (legacy) instellingen-sleutels, VPB krijgt parallelle sleutels met een "_vpb"-achtervoegsel.
+  const aangSuffix = soort === "ib" ? "" : `_${soort}`;
+  const kBestandsnaam = `aangifteBestandsnaamTemplate${aangSuffix}`;
+  const kMailOnderwerp = `aangifteMailOnderwerpTemplate${aangSuffix}`;
+  const kMailTekst = `aangifteMailTekstTemplate${aangSuffix}`;
+  const kPad = `aangiftePadTemplate${aangSuffix}`;
+  const kTaakOnderwerp = `aangifteTaakOnderwerpTemplate${aangSuffix}`;
+  const kTaakSoort = `aangifteTaakSoort${aangSuffix}`;
+  const soortWoord = soort === "vpb" ? "vennootschapsbelasting" : "inkomstenbelasting";
+  const soortLabelKort = soort === "vpb" ? "VPB" : "IB";
+
   // Zet de losse werk-states vanuit één (soort-)indelingsobject — de opgeslagen indeling, of de
   // standaardindeling van de soort als er nog niets eigens is opgeslagen.
   const zetWerkStaten = (ind) => {
@@ -182,12 +194,12 @@ function SoortIndelingPaneel({ soort }) {
         const heeftEigen = eigen && Array.isArray(eigen.secties) && eigen.secties.length;
         zetWerkStaten(heeftEigen ? eigen : (veldenData.standaardIndeling || {}));
         setOnderwerpen(onderwerpenData.onderwerpen || []);
-        setBestandsnaamTemplate(instellingenData.aangifteBestandsnaamTemplate || "");
-        setMailOnderwerpTemplate(instellingenData.aangifteMailOnderwerpTemplate || "");
-        setMailTekstTemplate(instellingenData.aangifteMailTekstTemplate || "");
-        setPadTemplate(instellingenData.aangiftePadTemplate || "");
-        setTaakOnderwerpTemplate(instellingenData.aangifteTaakOnderwerpTemplate || "");
-        setTaakSoort(instellingenData.aangifteTaakSoort != null ? String(instellingenData.aangifteTaakSoort) : "");
+        setBestandsnaamTemplate(instellingenData[kBestandsnaam] || "");
+        setMailOnderwerpTemplate(instellingenData[kMailOnderwerp] || "");
+        setMailTekstTemplate(instellingenData[kMailTekst] || "");
+        setPadTemplate(instellingenData[kPad] || "");
+        setTaakOnderwerpTemplate(instellingenData[kTaakOnderwerp] || "");
+        setTaakSoort(instellingenData[kTaakSoort] != null ? String(instellingenData[kTaakSoort]) : "");
         setTaakSoortOpties((taaksoortenData && taaksoortenData.opties) || []);
       })
       .catch(() => { setCatalogus([]); setSecties([]); setFout("Kon de dossierindeling niet laden."); });
@@ -257,7 +269,7 @@ function SoortIndelingPaneel({ soort }) {
       const r = await fetch("/api/beheer-instellingen", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ aangifteBestandsnaamTemplate: bestandsnaamTemplate }),
+        body: JSON.stringify({ [kBestandsnaam]: bestandsnaamTemplate }),
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       setBestandsnaamStatus("opgeslagen");
@@ -274,7 +286,7 @@ function SoortIndelingPaneel({ soort }) {
       const r = await fetch("/api/beheer-instellingen", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ aangifteMailOnderwerpTemplate: mailOnderwerpTemplate, aangifteMailTekstTemplate: mailTekstTemplate }),
+        body: JSON.stringify({ [kMailOnderwerp]: mailOnderwerpTemplate, [kMailTekst]: mailTekstTemplate }),
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       setMailStatus("opgeslagen");
@@ -294,9 +306,9 @@ function SoortIndelingPaneel({ soort }) {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          aangiftePadTemplate: padTemplate,
-          aangifteTaakOnderwerpTemplate: taakOnderwerpTemplate,
-          aangifteTaakSoort: Number.isFinite(soortGetal) ? soortGetal : null,
+          [kPad]: padTemplate,
+          [kTaakOnderwerp]: taakOnderwerpTemplate,
+          [kTaakSoort]: Number.isFinite(soortGetal) ? soortGetal : null,
         }),
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -551,8 +563,8 @@ function SoortIndelingPaneel({ soort }) {
 
       {open && (<>
       <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 14, maxWidth: 760 }}>
-        Bepaalt hoe het IB-dossier eruitziet op de dossierpagina van een cliënt in het
-        medewerkersportaal (Klantoverzicht → Inkomstenbelasting → dossier openen) — óók de vaste
+        Bepaalt hoe het {soortLabelKort}-dossier eruitziet op de dossierpagina van een cliënt in het
+        medewerkersportaal (Klantoverzicht → {(SOORTEN_TABS.find((s) => s.key === soort) || {}).label || "dossier"} → dossier openen) — óók de vaste
         velden "Status van de aangifte", "URL dossier" en "Documentlink" staan hieronder gewoon
         tussen de rest en zijn vrij te verplaatsen/hernoemen. Standaard gelijk aan de tabbladen van
         het Dynamics-formulier — versleep een veld gerust naar een andere hoofd- of subrubriek,
@@ -586,13 +598,12 @@ function SoortIndelingPaneel({ soort }) {
         )}
       </div>
 
-      {/* De "Aangifte versturen"-sjablonen (bestandsnaam/mail/opslag+taak) horen bij de IB-aangifte-
-          dropzones in het IB-dossier — alleen tonen bij soort "ib". */}
-      {soort === "ib" && (<>
+      {/* De "Aangifte versturen"-sjablonen (bestandsnaam/mail/opslag+taak) horen bij de aangifte-
+          dropzones in het dossier — per soort apart in te stellen. */}
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14, marginBottom: 18, background: KLEUR.lichtblauw }}>
         <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Bestandsnaam — aangifte versturen</div>
         <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 10, maxWidth: 640 }}>
-          Naam waaronder een via het IB-dossier gedropte aangifte (cliënt of fiscaal partner) wordt
+          Naam waaronder een via het {soortLabelKort}-dossier gedropte aangifte ({soort === "ib" ? "cliënt of fiscaal partner" : "cliënt"}) wordt
           opgeslagen in de map "Correspondentie" van het SharePoint-dossier. Plaatshouders:{" "}
           <code>{"{klant}"}</code> (naam van de ontvanger) en <code>{"{jaar}"}</code> (dossierjaar).
         </div>
@@ -601,7 +612,7 @@ function SoortIndelingPaneel({ soort }) {
             value={bestandsnaamTemplate}
             onChange={(e) => { setBestandsnaamTemplate(e.target.value); setBestandsnaamStatus("rust"); }}
             onBlur={bewaarBestandsnaamTemplate}
-            placeholder="Aangifte inkomstenbelasting {jaar} - {klant}.pdf"
+            placeholder={`Aangifte ${soortWoord} {jaar} - {klant}.pdf`}
             style={{ ...invoerStijl, flex: "0 1 420px", background: "#fff" }}
           />
           {bestandsnaamStatus === "bezig" && <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>Opslaan…</span>}
@@ -613,8 +624,8 @@ function SoortIndelingPaneel({ soort }) {
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14, marginBottom: 18, background: KLEUR.lichtblauw }}>
         <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Mail — aangifte versturen</div>
         <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 10, maxWidth: 640 }}>
-          Standaard onderwerp en tekst van de mail die de ontvanger (cliënt of fiscaal partner) krijgt zodra een medewerker een
-          aangifte via het IB-dossier verstuurt. De medewerker ziet dit als voorstel in het voorbeeldscherm vlak vóór het
+          Standaard onderwerp en tekst van de mail die de ontvanger ({soort === "ib" ? "cliënt of fiscaal partner" : "cliënt"}) krijgt zodra een medewerker een
+          aangifte via het {soortLabelKort}-dossier verstuurt. De medewerker ziet dit als voorstel in het voorbeeldscherm vlak vóór het
           versturen en kan het per keer nog aanpassen — hier stel je alleen in wat daar standaard al staat. Plaatshouders:{" "}
           <code>{"{klant}"}</code> (naam van de ontvanger) en <code>{"{jaar}"}</code> (dossierjaar).
         </div>
@@ -623,7 +634,7 @@ function SoortIndelingPaneel({ soort }) {
           <input
             value={mailOnderwerpTemplate}
             onChange={(e) => { setMailOnderwerpTemplate(e.target.value); setMailStatus("rust"); }}
-            placeholder="Uw aangifte inkomstenbelasting {jaar} staat klaar in het portaal"
+            placeholder={`Uw aangifte ${soortWoord} {jaar} staat klaar in het portaal`}
             style={{ ...invoerStijl, width: "100%", maxWidth: 560, background: "#fff" }}
           />
         </div>
@@ -633,7 +644,7 @@ function SoortIndelingPaneel({ soort }) {
             value={mailTekstTemplate}
             onChange={(e) => { setMailTekstTemplate(e.target.value); setMailStatus("rust"); }}
             rows={8}
-            placeholder={"Beste {klant},\n\nUw aangifte inkomstenbelasting over {jaar} staat klaar ter beoordeling…"}
+            placeholder={`Beste {klant},\n\nUw aangifte ${soortWoord} over {jaar} staat klaar ter beoordeling…`}
             style={{ ...invoerStijl, width: "100%", maxWidth: 560, background: "#fff", resize: "vertical", fontFamily: "inherit" }}
           />
         </div>
@@ -675,7 +686,7 @@ function SoortIndelingPaneel({ soort }) {
           <input
             value={taakOnderwerpTemplate}
             onChange={(e) => { setTaakOnderwerpTemplate(e.target.value); setTaakInstellingStatus("rust"); }}
-            placeholder="Aangifte inkomstenbelasting {jaar} klaar ter beoordeling"
+            placeholder={`Aangifte ${soortWoord} {jaar} klaar ter beoordeling`}
             style={{ ...invoerStijl, width: "100%", maxWidth: 560, background: "#fff" }}
           />
         </div>
@@ -719,7 +730,6 @@ function SoortIndelingPaneel({ soort }) {
           {taakInstellingStatus === "fout" && <span style={{ fontSize: 11.5, color: KLEUR.rood }}>Opslaan mislukt</span>}
         </div>
       </div>
-      </>)}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 18 }}>
         {(secties || []).map((sectie, sectieIndex) => {

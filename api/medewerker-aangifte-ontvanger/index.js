@@ -15,8 +15,9 @@
  *       de doelgroep — het versturen zelf (POST) controleert dit nogmaals server-side.
  *
  * Route beveiligd via staticwebapp.config.json (rol 'medewerker'/'beheerder'); extra rolcheck hier.
- * Alleen voor IB — VPB heeft geen fiscaal-partner-concept en dit is expliciet gevraagd voor de
- * aangifte inkomstenbelasting (Wouter, 04-08-2026).
+ * Werkt voor IB én VPB (Wouter, 05-08-2026). VPB heeft geen fiscaal-partner-concept, dus daar geldt
+ * alleen doelgroep "client". De sjablonen (bestandsnaam/mail/pad/taak) worden per soort apart
+ * bewaard — IB op de bestaande sleutels, VPB op parallelle "_vpb"-sleutels (zie aangKey()).
  */
 const { haalDynamicsToken, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const { SOORTEN, haalEenDossier } = require("../_gedeeld/dossiers");
@@ -24,8 +25,13 @@ const { haalInstellingen } = require("../_gedeeld/instellingen");
 
 const SHAREPOINT_VELD = process.env.DYNAMICS_KLANT_SHAREPOINT_VELD || "cr283_sharepoint";
 
-function vulSjabloonIn(sjabloon, { klant, jaar }) {
-  const basis = (sjabloon || "").trim() || "Aangifte inkomstenbelasting {jaar} - {klant}.pdf";
+// Per-soort instellingsleutel: IB houdt de bestaande (legacy) sleutels, VPB krijgt "_vpb".
+function aangKey(basis, soortKey) {
+  return soortKey === "ib" ? basis : `${basis}_${soortKey}`;
+}
+
+function vulSjabloonIn(sjabloon, { klant, jaar, soortWoord }) {
+  const basis = (sjabloon || "").trim() || `Aangifte ${soortWoord || "aangifte"} {jaar} - {klant}.pdf`;
   const veiligeKlant = String(klant || "cliënt").replace(/[\\/:*?"<>|]/g, "-").trim();
   let naam = basis.replaceAll("{klant}", veiligeKlant).replaceAll("{jaar}", jaar != null ? String(jaar) : "");
   if (!/\.pdf$/i.test(naam)) naam += ".pdf";
@@ -51,14 +57,17 @@ module.exports = async function (context, req) {
   const soortKey = (req.query && req.query.soort) || "";
   const dossierId = (req.query && req.query.id) || "";
   const doelgroep = (req.query && req.query.doelgroep) || "";
-  if (soortKey !== "ib" || !dossierId || !["client", "partner"].includes(doelgroep)) {
-    context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'soort=ib', 'id' en 'doelgroep' (client/partner) mee." } };
+  const soort = SOORTEN.find((s) => s.key === soortKey);
+  // VPB kent geen fiscaal partner — daar geldt alleen doelgroep "client".
+  const geldigeDoelgroepen = soortKey === "ib" ? ["client", "partner"] : ["client"];
+  if (!soort || !dossierId || !geldigeDoelgroepen.includes(doelgroep)) {
+    context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef een geldige 'soort' (ib/vpb), 'id' en 'doelgroep' mee." } };
     return;
   }
+  const soortWoord = soort.label.toLowerCase();
 
   try {
     const token = await haalDynamicsToken();
-    const soort = SOORTEN.find((s) => s.key === "ib");
     const dossier = await haalEenDossier(resource, token, soort, dossierId);
     if (!dossier) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Dossier niet gevonden." } }; return; }
 
@@ -87,9 +96,9 @@ module.exports = async function (context, req) {
     else if (!email) reden = "Voor deze klant is geen e-mailadres bekend bij de hoofdcontactpersoon in Dynamics.";
 
     const instellingen = await haalInstellingen().catch(() => ({}));
-    const bestandsnaamStandaard = vulSjabloonIn(instellingen.aangifteBestandsnaamTemplate, { klant: naam, jaar: dossier.jaar });
-    const mailOnderwerpStandaard = vulMailSjabloonIn(instellingen.aangifteMailOnderwerpTemplate, { klant: naam, jaar: dossier.jaar });
-    const mailTekstStandaard = vulMailSjabloonIn(instellingen.aangifteMailTekstTemplate, { klant: naam, jaar: dossier.jaar });
+    const bestandsnaamStandaard = vulSjabloonIn(instellingen[aangKey("aangifteBestandsnaamTemplate", soortKey)], { klant: naam, jaar: dossier.jaar, soortWoord });
+    const mailOnderwerpStandaard = vulMailSjabloonIn(instellingen[aangKey("aangifteMailOnderwerpTemplate", soortKey)], { klant: naam, jaar: dossier.jaar });
+    const mailTekstStandaard = vulMailSjabloonIn(instellingen[aangKey("aangifteMailTekstTemplate", soortKey)], { klant: naam, jaar: dossier.jaar });
 
     context.res = {
       headers: { "Content-Type": "application/json" },
