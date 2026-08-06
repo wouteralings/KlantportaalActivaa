@@ -2704,7 +2704,7 @@ function AangifteLog({ dossier, ververs }) {
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 12.5, color: KLEUR.tekst, fontWeight: 600 }}>{e.bestandsnaam || "Aangifte"}</div>
                 <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 1 }}>
-                  Naar {e.doelgroep === "partner" ? "fiscaal partner" : "cliënt"}{e.ontvangerEmail ? ` (${e.ontvangerEmail})` : ""}
+                  {e.doelgroep === "partner" ? "Fiscaal partner" : "Cliënt"} — {e.klantnaam || "—"}{e.ontvangerEmail ? ` (${e.ontvangerEmail})` : ""}
                   {" · "}{new Date(e.tijd).toLocaleString("nl-NL", { dateStyle: "short", timeStyle: "short" })}
                   {e.door ? ` · ${e.door}` : ""}
                 </div>
@@ -2727,8 +2727,6 @@ function AangifteLog({ dossier, ververs }) {
  * "In afwachting reactie client", mail vanaf correspondentie@activaa.nl). Alleen voor IB — VPB
  * heeft geen fiscaal-partner-concept en dit is specifiek voor de aangifte inkomstenbelasting. */
 function AangifteVersturenKaart({ dossier, disabled }) {
-  const soortWoord = dossier.soort === "vpb" ? "vennootschapsbelasting" : "inkomstenbelasting";
-  const heeftPartner = dossier.soort === "ib"; // alleen IB kent een fiscaal partner
   const [modal, setModal] = useState(null); // { doelgroep, bestand, laden, ontvanger, bestandsnaam, mailOnderwerp, mailTekst }
   // Per doelgroep (client/partner) een eigen melding/resultaat bijhouden — anders verdwijnt de
   // bevestiging "verstuurd naar cliënt" zodra je daarna ook nog iets voor de partner verstuurt
@@ -2747,9 +2745,9 @@ function AangifteVersturenKaart({ dossier, disabled }) {
   // Terugval als /api/medewerker-aangifte-ontvanger onverhoopt geen mailOnderwerpStandaard/
   // mailTekstStandaard teruggeeft (bijv. instellingen.json nog niet bereikbaar) — normaal komt de
   // standaardtekst gewoon uit Beheer → Dossiers ("Mail — aangifte versturen").
-  const standaardOnderwerp = (jaar) => `Uw aangifte ${soortWoord}${jaar ? ` ${jaar}` : ""} staat klaar in het portaal`;
+  const standaardOnderwerp = (jaar) => `Uw aangifte inkomstenbelasting${jaar ? ` ${jaar}` : ""} staat klaar in het portaal`;
   const standaardTekst = (naam, jaar) =>
-    `Beste ${naam || "klant"},\n\nUw aangifte ${soortWoord}${jaar ? ` over ${jaar}` : ""} staat klaar ter beoordeling in het klantportaal.\n\nU kunt de aangifte inzien via het portaal, onder "Taken". Zodra u akkoord geeft, ronden wij de aangifte verder voor u af.\n\nHeeft u vragen? Neem gerust contact met ons op.\n\nMet vriendelijke groet,\nActivaa Accountants en Adviseurs`;
+    `Beste ${naam || "klant"},\n\nUw aangifte inkomstenbelasting${jaar ? ` over ${jaar}` : ""} staat klaar ter beoordeling in het klantportaal.\n\nU kunt de aangifte inzien via het portaal, onder "Taken". Zodra u akkoord geeft, ronden wij de aangifte verder voor u af.\n\nHeeft u vragen? Neem gerust contact met ons op.\n\nMet vriendelijke groet,\nActivaa Accountants en Adviseurs`;
 
   const gekozen = async (doelgroep, bestand, fout) => {
     setMeldingen((h) => ({ ...h, [doelgroep]: null }));
@@ -2758,7 +2756,7 @@ function AangifteVersturenKaart({ dossier, disabled }) {
     if (!bestand) return;
     setModal({ doelgroep, bestand, laden: true });
     try {
-      const r = await fetch(`/api/medewerker-aangifte-ontvanger?soort=${encodeURIComponent(dossier.soort)}&id=${encodeURIComponent(dossier.id)}&doelgroep=${doelgroep}`);
+      const r = await fetch(`/api/medewerker-aangifte-ontvanger?soort=ib&id=${encodeURIComponent(dossier.id)}&doelgroep=${doelgroep}`);
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
       if (!d.klaar) { setModal(null); setMeldingen((h) => ({ ...h, [doelgroep]: d.reden || "Versturen is nu niet mogelijk." })); return; }
@@ -2790,7 +2788,7 @@ function AangifteVersturenKaart({ dossier, disabled }) {
       const r = await fetch("/api/medewerker-aangifte-versturen", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          soort: dossier.soort, id: dossier.id, doelgroep: modal.doelgroep,
+          soort: "ib", id: dossier.id, doelgroep: modal.doelgroep,
           bestandsnaam: modal.bestandsnaam, bestandBase64,
           mailOnderwerp: modal.mailOnderwerp, mailTekst: modal.mailTekst,
         }),
@@ -2811,20 +2809,20 @@ function AangifteVersturenKaart({ dossier, disabled }) {
     <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
       <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Aangifte versturen</div>
       <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 14, maxWidth: 640 }}>
-        Sleep de aangifte {soortWoord} (PDF) hierheen — de ontvanger krijgt een mail en een
+        Sleep de aangifte inkomstenbelasting (PDF) hierheen — de ontvanger krijgt een mail en een
         taak "In afwachting reactie client" in het portaal, en kan het document daar inzien.
       </div>
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
         <AangifteDropzone label={`Cliënt — ${dossier.klantnaam || "—"}`} doelgroep="client" disabled={disabled} onGekozen={gekozen} />
-        {heeftPartner && (dossier.fiscaalPartnerAccountId ? (
+        {dossier.fiscaalPartnerAccountId ? (
           <AangifteDropzone label={`Fiscaal partner — ${dossier.fiscaalPartnerNaam || "—"}`} doelgroep="partner" disabled={disabled} onGekozen={gekozen} />
         ) : (
           <div style={{ flex: "1 1 220px", minWidth: 200, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "20px 14px", fontSize: 11.5, color: KLEUR.mutedTekst }}>
             Geen fiscaal partner bij dit dossier ingevuld.
           </div>
-        ))}
+        )}
       </div>
-      {(heeftPartner ? ["client", "partner"] : ["client"]).map((dg) => {
+      {["client", "partner"].map((dg) => {
         const doelgroepLabel = dg === "partner" ? "fiscaal partner" : "cliënt";
         const fout = meldingen[dg];
         const res = resultaten[dg];
@@ -3150,10 +3148,11 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "14px 24px" }}>
           <div><div style={label}>Cliënt</div><div style={waarde}>{dossier.klantnaam || "—"}</div></div>
+          {dossier.fiscaalPartnerAccountId && <div><div style={label}>Fiscaal partner</div><div style={waarde}>{dossier.fiscaalPartnerNaam || "—"}</div></div>}
           <div><div style={label}>{periodeLabel}</div><div style={waarde}>{periode(dossier) || "—"}</div></div>
           <div><div style={label}>Accountant</div><div style={waarde}>{dossier.accountant || "—"}</div></div>
-          <div><div style={label}>Assistent</div><div style={waarde}>{dossier.assistent || "—"}</div></div>
           {dossier.manager && <div><div style={label}>Manager</div><div style={waarde}>{dossier.manager}</div></div>}
+          <div><div style={label}>Assistent</div><div style={waarde}>{dossier.assistent || "—"}</div></div>
           {dossier.groepsnaam && <div><div style={label}>Groep</div><div style={waarde}>{dossier.groepsnaam}</div></div>}
         </div>
       </div>
@@ -3164,7 +3163,7 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
         </div>
       )}
 
-      {(dossier.soort === "ib" || dossier.soort === "vpb") && <AangifteVersturenKaart dossier={dossier} disabled={!bewerkbaar} />}
+      {dossier.soort === "ib" && <AangifteVersturenKaart dossier={dossier} disabled={!bewerkbaar} />}
 
       {uitvragen.length > 0 && uitvragen.map((u) => {
         const opengeklapt = uitvraagOpen[u.id] ?? (u.status !== "afgerond");
