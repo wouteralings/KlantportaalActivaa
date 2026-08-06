@@ -2651,6 +2651,72 @@ function AangifteDropzone({ label, doelgroep, disabled, onGekozen }) {
   );
 }
 
+/** Compacte lijst "eerder verstuurde aangiftes", direct onder de dropzones in AangifteVersturenKaart
+ * — zodat een medewerker in één oogopslag ziet welke bestanden al klaargezet/verstuurd zijn, zonder
+ * naar het volledige logboek van de cliënt te hoeven (dat toont ook koppelen/bewerken e.d., zie
+ * Logboek.jsx). Leest dezelfde klantlog terug (/api/medewerker-contactpersoon?logAccountId=, zie
+ * api/_gedeeld/klantlog.js), voor zowel de cliënt als — indien aanwezig — diens fiscaal partner
+ * (twee aparte Dynamics-accounts), gefilterd op actie "aangifte". `ververs` mag veranderen om een
+ * verse ophaal te forceren (na een geslaagde verzending in hetzelfde scherm). */
+function AangifteLog({ dossier, ververs }) {
+  const [log, setLog] = useState(null); // null = laden
+  const [fout, setFout] = useState(false);
+
+  useEffect(() => {
+    const accountIds = [dossier.accountId, dossier.fiscaalPartnerAccountId].filter(Boolean);
+    if (!accountIds.length) { setLog([]); return; }
+    let actief = true;
+    setLog(null);
+    setFout(false);
+    Promise.all(
+      accountIds.map((id) =>
+        fetch(`/api/medewerker-contactpersoon?logAccountId=${encodeURIComponent(id)}`)
+          .then((r) => (r.ok ? r.json() : Promise.reject()))
+          .then((d) => d.log || [])
+          .catch(() => [])
+      )
+    ).then((lijsten) => {
+      if (!actief) return;
+      const alles = lijsten.flat().filter((e) => e.actie === "aangifte");
+      alles.sort((a, b) => (String(a.tijd) < String(b.tijd) ? 1 : -1));
+      setLog(alles);
+    }).catch(() => { if (actief) { setLog([]); setFout(true); } });
+    return () => { actief = false; };
+  }, [dossier.accountId, dossier.fiscaalPartnerAccountId, ververs]);
+
+  if (log !== null && !fout && log.length === 0) return null; // nog nooit iets verstuurd — geen lege sectie tonen
+
+  return (
+    <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${KLEUR.rand}` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 8 }}>
+        <FileText size={14} color={KLEUR.subtekst} />
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: KLEUR.subtekst }}>Eerder verstuurde aangiftes</span>
+      </div>
+      {log === null ? (
+        <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Ophalen…</div>
+      ) : fout ? (
+        <div style={{ fontSize: 12, color: KLEUR.rood }}>Kon de verzendgeschiedenis niet ophalen.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {log.map((e) => (
+            <div key={e.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "8px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, background: "#FAFBF9" }}>
+              <CheckCircle2 size={14} color={e.mailVerzonden === false ? KLEUR.goud : KLEUR.groen} style={{ flexShrink: 0, marginTop: 1 }} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, color: KLEUR.tekst, fontWeight: 600 }}>{e.bestandsnaam || "Aangifte"}</div>
+                <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 1 }}>
+                  Naar {e.doelgroep === "partner" ? "fiscaal partner" : "cliënt"}{e.ontvangerEmail ? ` (${e.ontvangerEmail})` : ""}
+                  {" · "}{new Date(e.tijd).toLocaleString("nl-NL", { dateStyle: "short", timeStyle: "short" })}
+                  {e.door ? ` · ${e.door}` : ""}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** "Aangifte versturen" — twee dropzones (cliënt zelf en, indien ingevuld, diens fiscaal partner —
  * elk een eigen Dynamics-account met eigen SharePoint-dossier). Dropt de medewerker een PDF, dan
  * wordt eerst (GET /api/medewerker-aangifte-ontvanger) opgehaald wie de ontvanger is en of
@@ -2669,6 +2735,9 @@ function AangifteVersturenKaart({ dossier, disabled }) {
   const [versturenStatus, setVersturenStatus] = useState("rust"); // rust | bezig | klaar | fout
   const [versturenFout, setVersturenFout] = useState("");
   const [resultaten, setResultaten] = useState({}); // { client?: {...respons, naam}, partner?: {...respons, naam} }
+  // Verhoogd na een geslaagde verzending, zodat AangifteLog hieronder meteen een verse ophaal doet
+  // en het net verstuurde bestand direct in de lijst verschijnt (zonder de pagina te verversen).
+  const [logSleutel, setLogSleutel] = useState(0);
 
   const label = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3 };
   const veldStijl = { width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 10px", fontSize: 13, fontFamily: "inherit" };
@@ -2729,6 +2798,7 @@ function AangifteVersturenKaart({ dossier, disabled }) {
       setVersturenStatus("klaar");
       setResultaten((h) => ({ ...h, [modal.doelgroep]: { ...d, naam: modal.ontvanger?.naam || "" } }));
       setModal(null);
+      setLogSleutel((n) => n + 1);
     } catch (e) {
       setVersturenFout(e.message || "Versturen is mislukt.");
       setVersturenStatus("fout");
@@ -2772,6 +2842,8 @@ function AangifteVersturenKaart({ dossier, disabled }) {
           </div>
         );
       })}
+
+      <AangifteLog dossier={dossier} ververs={logSleutel} />
 
       {modal && (
         <div

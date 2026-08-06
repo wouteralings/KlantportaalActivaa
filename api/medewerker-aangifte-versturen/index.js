@@ -242,10 +242,15 @@ module.exports = async function (context, req) {
       context.log.error("medewerker-aangifte-versturen: mail versturen mislukt (upload/taak zijn al aangemaakt):", e);
     }
 
-    // ── 4. Loggen bij de cliënt (best-effort). ──
+    // ── 4. Loggen bij de cliënt (best-effort). Naast de leesbare `tekst` (voor het algemene
+    // logboek, zie Logboek.jsx) ook een paar losse velden erbij, zodat de "Eerder verstuurde
+    // aangiftes"-lijst direct onder de dropzones (AangifteLog in MedewerkerPortaal.jsx) niet uit
+    // de zin hoeft te parsen — bestandsnaam/doelgroep/ontvanger blijven zo ook bruikbaar als de
+    // tekst hierboven ooit verandert. ──
     await logGebeurtenis({
       door: email || "onbekend", actie: "aangifte", accountId, accountIds: [accountId],
       klantnaam: naam,
+      bestandsnaam: veiligeNaam, doelgroep, ontvangerEmail, mailVerzonden,
       tekst: `Aangifte inkomstenbelasting${dossier.jaar ? ` ${dossier.jaar}` : ""} verstuurd naar ${doelgroep === "partner" ? "fiscaal partner" : "cliënt"} ${naam} (${ontvangerEmail}) — bestand "${veiligeNaam}" opgeslagen in ${mapSegmenten.join("/")}, taak aangemaakt${mailVerzonden ? ", mail verzonden vanaf " + AFZENDER_MAILBOX : " — mail versturen is mislukt"}.`,
     });
 
