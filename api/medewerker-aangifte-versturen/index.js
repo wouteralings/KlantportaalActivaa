@@ -1,8 +1,8 @@
 /**
  * /api/medewerker-aangifte-versturen — verwerkt het daadwerkelijk "droppen" van een aangifte
- * inkomstenbelasting (cliënt of diens fiscaal partner) vanuit het IB-dossier in het
- * medewerkersportaal (zie AangifteVersturenModal in MedewerkerPortaal.jsx, en de voorbereidende
- * stap GET /api/medewerker-aangifte-ontvanger):
+ * (inkomstenbelasting of vennootschapsbelasting) vanuit het dossier in het medewerkersportaal (zie
+ * AangifteVersturenKaart in MedewerkerPortaal.jsx, en de voorbereidende stap GET
+ * /api/medewerker-aangifte-ontvanger):
  *
  *   1. Uploadt de PDF via app-only Graph naar de submap uit Beheer → Dossiers (standaard
  *      "Correspondentie", instelbaar via aangiftePadTemplate — mag submappen met "/" en de
@@ -12,14 +12,18 @@
  *   2. Maakt een Dynamics-taak gekoppeld aan de ontvanger, met de geüploade PDF als documentlink
  *      (zodat de klant 'm via /api/taken-document kan inzien). Onderwerp en soort (optiesetwaarde op
  *      cr283_soortactiecategorie, standaard 8006 "In afwachting reactie client") zijn óók instelbaar
- *      via Beheer → Dossiers (aangifteTaakOnderwerpTemplate / aangifteTaakSoort).
+ *      via Beheer → Dossiers (aangifteTaakOnderwerpTemplate / aangifteTaakSoort). De taak krijgt de
+ *      juiste rubriek (cr283_rubriek) per belastingsoort, en als eigenaar de manager van het dossier.
  *   3. Verstuurt een mail vanaf het vaste afzenderadres correspondentie@activaa.nl (zelfde opzet
  *      als /api/offertes-verstuur-mail) met de door de medewerker gecontroleerde/bewerkte tekst.
- *   4. Logt de actie bij de cliënt (klantlog).
+ *   4. Zet de dossierstatus op "Aangifte verzonden naar client".
+ *   5. Logt de actie bij de cliënt (klantlog).
  *
- *   POST { soort:"ib", id:<dossier-guid>, doelgroep:"client"|"partner", bestandsnaam,
+ *   POST { soort:"ib"|"vpb", id:<dossier-guid>, doelgroep:"client"|"partner", bestandsnaam,
  *          bestandBase64, mailOnderwerp, mailTekst }
  *     → { ok:true, taakId, bestandsnaam, mailVerzonden, mailFout?, waarschuwing? }
+ *   (VPB kent geen fiscaal partner — daar geldt alleen doelgroep "client". De sjablonen worden per
+ *   soort apart bewaard: IB op de bestaande sleutels, VPB op parallelle "_vpb"-sleutels, zie aangKey.)
  *
  * Mail-fout ná upload/taak wordt bewust NIET als harde fout teruggegeven (ok:true blijft, met
  * mailVerzonden:false) — anders zou een medewerker het opnieuw proberen en per ongeluk een tweede
@@ -39,27 +43,32 @@ const SHAREPOINT_VELD = process.env.DYNAMICS_KLANT_SHAREPOINT_VELD || "cr283_sha
 const KLANT_VELD = process.env.DYNAMICS_TAAK_KLANT_VELD || "sk_client";
 const SOORT_VELD = process.env.DYNAMICS_TAAK_SOORT_VELD || "";
 const DOCUMENT_VELD = process.env.DYNAMICS_TAAK_DOCUMENT_VELD || "";
+// Rubriek van de taak (Choice cr283_rubriek) — zodat de aangifte-taak in de juiste rubriek valt
+// i.p.v. de standaard "Overig". Per dossiersoort de bijbehorende optiesetwaarde (uit Dynamics):
+// Inkomstenbelasting 601280000, Vennootschapsbelasting 601280001. Veldnaam via env te overschrijven.
+const RUBRIEK_VELD = process.env.DYNAMICS_TAAK_RUBRIEK_VELD || "cr283_rubriek";
+const RUBRIEK_WAARDE = { ib: 601280000, vpb: 601280001 };
 // "In afwachting reactie client" — bestaande optiesetwaarde op Task.cr283_soortactiecategorie
 // (of het veld dat via DYNAMICS_TAAK_SOORT_VELD is ingesteld), al elders in gebruik. Dient nu als
 // terugval als er in Beheer → Dossiers (aangifteTaakSoort) nog niets is ingesteld.
 const SOORT_WAARDE_IN_AFWACHTING = 8006;
-// Terugval-onderwerp voor de taak als er in Beheer → Dossiers nog geen aangifteTaakOnderwerpTemplate is.
-const STANDAARD_TAAK_ONDERWERP = "Aangifte inkomstenbelasting {jaar} klaar ter beoordeling";
-
-// Optiesetwaarde op cr283_statusaangifte (IB) voor "Aangifte verzonden naar client" — zie
-// STATUS_OPTIES_IB in api/_gedeeld/dossiers.js. Deze route behandelt alleen soort "ib" (zie de
-// 400-check verderop), dus alleen de IB-waarde is hier nodig. Wordt gezet ongeacht doelgroep
-// (cliënt of fiscaal partner) — er is geen aparte status "verzonden naar fiscaal partner", en in
-// beide gevallen is de aangifte feitelijk de deur uit.
-const STATUS_AANGIFTE_VERZONDEN_NAAR_CLIENT = 601280003;
+// Optiesetwaarde op cr283_statusaangifte voor "Aangifte verzonden naar client" — verschilt per soort
+// (zie STATUS_OPTIES_IB/VPB in api/_gedeeld/dossiers.js): IB 601280003, VPB 601280004. Wordt gezet
+// ongeacht doelgroep (cliënt of fiscaal partner) — in beide gevallen is de aangifte de deur uit.
+const STATUS_VERZONDEN_NAAR_CLIENT = { ib: 601280003, vpb: 601280004 };
 
 const AFZENDER_MAILBOX = "correspondentie@activaa.nl";
 const MAX_BYTES = 15 * 1024 * 1024; // 15 MB — ruim voldoende voor een aangifte-PDF
 
+// Per-soort instellingsleutel: IB houdt de bestaande (legacy) sleutels, VPB krijgt "_vpb".
+function aangKey(basis, soortKey) {
+  return soortKey === "ib" ? basis : `${basis}_${soortKey}`;
+}
+
 function veiligeBestandsnaam(naam) {
   let n = String(naam || "").replace(/[\\/:*?"<>|]/g, "-").trim();
   n = n.replace(/^\.+/, "").slice(0, 150);
-  if (!n) n = "Aangifte inkomstenbelasting.pdf";
+  if (!n) n = "Aangifte.pdf";
   if (!/\.pdf$/i.test(n)) n += ".pdf";
   return n;
 }
@@ -133,10 +142,15 @@ module.exports = async function (context, req) {
   const email = haalEmailUitPrincipal(req);
 
   const { soort: soortKey, id: dossierId, doelgroep, bestandsnaam, bestandBase64, mailOnderwerp, mailTekst } = req.body || {};
-  if (soortKey !== "ib" || !dossierId || !["client", "partner"].includes(doelgroep)) {
-    context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'soort=ib', 'id' en 'doelgroep' (client/partner) mee." } };
+  const soort = SOORTEN.find((s) => s.key === soortKey);
+  // VPB kent geen fiscaal partner — daar geldt alleen doelgroep "client".
+  const geldigeDoelgroepen = soortKey === "ib" ? ["client", "partner"] : ["client"];
+  if (!soort || !dossierId || !geldigeDoelgroepen.includes(doelgroep)) {
+    context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef een geldige 'soort' (ib/vpb), 'id' en 'doelgroep' mee." } };
     return;
   }
+  const soortWoord = soort.label.toLowerCase();
+  const standaardTaakOnderwerp = `Aangifte ${soortWoord} {jaar} klaar ter beoordeling`;
   const onderwerp = String(mailOnderwerp || "").trim();
   const tekst = String(mailTekst || "").trim();
   if (!onderwerp || !tekst) {
@@ -149,7 +163,6 @@ module.exports = async function (context, req) {
 
   try {
     const token = await haalDynamicsToken();
-    const soort = SOORTEN.find((s) => s.key === "ib");
     const dossier = await haalEenDossier(resource, token, soort, dossierId);
     if (!dossier) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Dossier niet gevonden." } }; return; }
 
@@ -171,14 +184,14 @@ module.exports = async function (context, req) {
     if (!basisUrl) { context.res = { status: 409, headers: { "Content-Type": "application/json" }, body: { error: `Voor ${naam} is nog geen SharePoint-map ingesteld (${SHAREPOINT_VELD} in Dynamics).` } }; return; }
     if (!ontvangerEmail) { context.res = { status: 409, headers: { "Content-Type": "application/json" }, body: { error: `Voor ${naam} is geen e-mailadres bekend bij de hoofdcontactpersoon in Dynamics.` } }; return; }
 
-    // Instelbare waarden uit Beheer → Dossiers (pad, taak-onderwerp, taak-soort) — met terugval op de
-    // oude, hardcoded standaarden zodat het ook werkt vóórdat er iets is ingesteld.
+    // Instelbare waarden uit Beheer → Dossiers (pad, taak-onderwerp, taak-soort) — per soort apart
+    // (zie aangKey), met terugval op de standaarden zodat het ook werkt vóórdat er iets is ingesteld.
     const instellingen = await haalInstellingen().catch(() => ({}));
-    const mapSegmenten = bepaalMapSegmenten(instellingen.aangiftePadTemplate, { klant: naam, jaar: dossier.jaar });
+    const mapSegmenten = bepaalMapSegmenten(instellingen[aangKey("aangiftePadTemplate", soortKey)], { klant: naam, jaar: dossier.jaar });
     const taakOnderwerp =
-      vulSjabloonIn(instellingen.aangifteTaakOnderwerpTemplate || STANDAARD_TAAK_ONDERWERP, { klant: naam, jaar: dossier.jaar }) ||
-      vulSjabloonIn(STANDAARD_TAAK_ONDERWERP, { klant: naam, jaar: dossier.jaar });
-    const soortInstelling = Number(instellingen.aangifteTaakSoort);
+      vulSjabloonIn(instellingen[aangKey("aangifteTaakOnderwerpTemplate", soortKey)] || standaardTaakOnderwerp, { klant: naam, jaar: dossier.jaar }) ||
+      vulSjabloonIn(standaardTaakOnderwerp, { klant: naam, jaar: dossier.jaar });
+    const soortInstelling = Number(instellingen[aangKey("aangifteTaakSoort", soortKey)]);
     const taakSoortWaarde = Number.isFinite(soortInstelling) && soortInstelling > 0 ? soortInstelling : SOORT_WAARDE_IN_AFWACHTING;
 
     // ── 1. Uploaden naar SharePoint (app-only — de klant hoeft zelf geen SharePoint-rechten te
@@ -200,10 +213,11 @@ module.exports = async function (context, req) {
     const klantNav = await haalNavigatieNaam(resource, "task", KLANT_VELD, token);
     const taakBody = {
       subject: taakOnderwerp,
-      description: `Aangifte inkomstenbelasting${dossier.jaar ? ` ${dossier.jaar}` : ""} van ${naam} is via het klantportaal verstuurd naar ${ontvangerEmail} op ${new Date().toLocaleString("nl-NL", { timeZone: "Europe/Amsterdam" })} door ${email || "onbekend"}.`,
+      description: `Aangifte ${soortWoord}${dossier.jaar ? ` ${dossier.jaar}` : ""} van ${naam} is via het klantportaal verstuurd naar ${ontvangerEmail} op ${new Date().toLocaleString("nl-NL", { timeZone: "Europe/Amsterdam" })} door ${email || "onbekend"}.`,
       [`${klantNav}@odata.bind`]: `/accounts(${accountId})`,
     };
     if (SOORT_VELD) taakBody[SOORT_VELD] = taakSoortWaarde;
+    if (RUBRIEK_VELD && RUBRIEK_WAARDE[soortKey] != null) taakBody[RUBRIEK_VELD] = RUBRIEK_WAARDE[soortKey];
     if (DOCUMENT_VELD) taakBody[DOCUMENT_VELD] = upload.webUrl || null;
 
     const taakRes = await fetch(`${resource}/api/data/v9.2/tasks`, {
@@ -221,6 +235,30 @@ module.exports = async function (context, req) {
     if (!taakRes.ok) throw new Error(`Aanmaken taak mislukt: ${await taakRes.text()}`);
     const taak = await taakRes.json();
     const taakId = taak.activityid;
+
+    // ── 2b. Taak toewijzen aan de manager van het dossier (cr283_manager → systemuser). Best-effort
+    // ná het aanmaken (los van de create), zodat een ontbrekend recht om toe te wijzen de al
+    // geslaagde upload/taak niet ongedaan maakt — de taak bestaat dan gewoon met de app-user als
+    // eigenaar. Geen manager op het dossier → overslaan. ──
+    if (dossier.managerId) {
+      try {
+        const toewijsRes = await fetch(`${resource}/api/data/v9.2/tasks(${taakId})`, {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            "OData-MaxVersion": "4.0",
+            "OData-Version": "4.0",
+          },
+          body: JSON.stringify({ "ownerid@odata.bind": `/systemusers(${dossier.managerId})` }),
+        });
+        if (!toewijsRes.ok) throw new Error(`${toewijsRes.status}: ${await toewijsRes.text()}`);
+      } catch (e) {
+        waarschuwingen.push("De taak kon niet automatisch aan de manager worden toegewezen — controleer of de Application User het recht heeft om records toe te wijzen.");
+        context.log.error("medewerker-aangifte-versturen: taak toewijzen aan manager mislukt (taak is wel aangemaakt):", e);
+      }
+    }
 
     // ── 3. Mail versturen (best-effort ná dit punt — upload + taak staan al vast, dus een
     // mailfout hier mag niet als harde fout terugkomen, anders wordt bij een retry per ongeluk
@@ -253,7 +291,8 @@ module.exports = async function (context, req) {
     // de mail hierboven mag een fout hier de al geslaagde upload/taak niet ongedaan maken; de
     // medewerker kan de status zo nodig ook gewoon handmatig terugzetten in het dossier). ──
     try {
-      await werkDossierBij(resource, token, soort, dossierId, { status: STATUS_AANGIFTE_VERZONDEN_NAAR_CLIENT });
+      const statusWaarde = STATUS_VERZONDEN_NAAR_CLIENT[soortKey];
+      if (statusWaarde != null) await werkDossierBij(resource, token, soort, dossierId, { status: statusWaarde });
     } catch (e) {
       context.log.error("medewerker-aangifte-versturen: status bijwerken mislukt (upload/taak/mail zijn al verwerkt):", e);
     }
@@ -262,16 +301,12 @@ module.exports = async function (context, req) {
     // logboek, zie Logboek.jsx) ook een paar losse velden erbij, zodat de "Eerder verstuurde
     // aangiftes"-lijst direct onder de dropzones (AangifteLog in MedewerkerPortaal.jsx) niet uit
     // de zin hoeft te parsen — bestandsnaam/doelgroep/ontvanger blijven zo ook bruikbaar als de
-    // tekst hierboven ooit verandert. `documentUrl` is de rechtstreekse SharePoint-link (dezelfde
-    // die ook op de Dynamics-taak staat, zie DOCUMENT_VELD hierboven) — bewust de échte
-    // SharePoint-url en niet de /api/taken-document-proxy: die proxy is voor de klant (die zelf
-    // geen SharePoint-toegang tot deze map heeft), een medewerker mag/kan het bestand gewoon
-    // rechtstreeks openen. ──
+    // tekst hierboven ooit verandert. ──
     await logGebeurtenis({
       door: email || "onbekend", actie: "aangifte", accountId, accountIds: [accountId],
       klantnaam: naam,
-      bestandsnaam: veiligeNaam, doelgroep, ontvangerEmail, mailVerzonden, documentUrl: upload.webUrl || null,
-      tekst: `Aangifte inkomstenbelasting${dossier.jaar ? ` ${dossier.jaar}` : ""} verstuurd naar ${doelgroep === "partner" ? "fiscaal partner" : "cliënt"} ${naam} (${ontvangerEmail}) — bestand "${veiligeNaam}" opgeslagen in ${mapSegmenten.join("/")}, taak aangemaakt${mailVerzonden ? ", mail verzonden vanaf " + AFZENDER_MAILBOX : " — mail versturen is mislukt"}.`,
+      bestandsnaam: veiligeNaam, doelgroep, ontvangerEmail, mailVerzonden,
+      tekst: `Aangifte ${soortWoord}${dossier.jaar ? ` ${dossier.jaar}` : ""} verstuurd naar ${doelgroep === "partner" ? "fiscaal partner" : "cliënt"} ${naam} (${ontvangerEmail}) — bestand "${veiligeNaam}" opgeslagen in ${mapSegmenten.join("/")}, taak aangemaakt${mailVerzonden ? ", mail verzonden vanaf " + AFZENDER_MAILBOX : " — mail versturen is mislukt"}.`,
     });
 
     context.res = {
