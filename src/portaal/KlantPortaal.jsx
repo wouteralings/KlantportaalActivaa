@@ -380,10 +380,24 @@ export default function KlantPortaal() {
 
   const geefHandtekening = useCallback(async (taakId, gegevens) => {
     // gegevens = { naam, email, toelichting, handtekening (data-URL) }
-    const token = await haalApiToken(); // MSAL-token nodig voor de on-behalf-of-upload naar SharePoint
+    // Het MSAL-token is ALLEEN nodig voor de best-effort on-behalf-of-upload van het
+    // ondertekeningsbewijs naar SharePoint. Een klant logt in via de SWA-sessie (EasyAuth), niet
+    // via MSAL — voor een gastgebruiker (of bij een geblokkeerde popup) kan haalApiToken() daardoor
+    // falen. Dat mag de ondertekening zélf NIET blokkeren: de backend verwerkt het akkoord ook
+    // zonder gebruikerstoken (de SharePoint-upload is daar al best-effort en het bewijs wordt
+    // sowieso in blob-opslag bewaard voor de beheer-log). Dus: token best-effort ophalen en bij een
+    // fout gewoon zónder Authorization-header versturen.
+    let token = null;
+    try {
+      token = await haalApiToken();
+    } catch (tokenFout) {
+      token = null;
+    }
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers.Authorization = `Bearer ${token}`;
     const res = await fetch("/api/taken-ondertekenen", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers,
       body: JSON.stringify({ taakId, ...gegevens }),
     });
     if (!res.ok) throw new Error(await res.text());
