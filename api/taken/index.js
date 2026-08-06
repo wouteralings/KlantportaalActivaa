@@ -2,7 +2,6 @@ const { haalDynamicsToken, herleidAccounts, haalNaamUitPrincipal } = require("..
 const { haalInstellingen } = require("../_gedeeld/instellingen");
 const { voegAkkoordToe, haalAkkoordenVoorEmail } = require("../_gedeeld/taakakkoorden");
 const { webhookMetId } = require("../_gedeeld/webhook");
-const { maakVervolgtaak } = require("../_gedeeld/vervolgtaak");
 
 /**
  * Optionele eigen velden op Task; leeg laten als ze bij jullie niet bestaan (dan worden ze
@@ -119,12 +118,7 @@ async function haalZichtbareTaken(resource, token, accounts, soortConfig) {
       vereistHandtekening: soortConfig.vereistHandtekening.has(String(soortWaarde)),
       uploadLink: UPLOADLINK_VELD ? rij[UPLOADLINK_VELD] || null : null,
       uploadVerloopt: VERLOOPDATUM_VELD ? rij[VERLOOPDATUM_VELD] || null : null,
-      // De ruwe SharePoint-url wordt bewust NIET meer meegegeven aan de klant (die kan naar een
-      // map wijzen waar de klant zelf geen toegang toe heeft, bijv. de "Correspondentie"-map van
-      // Aangifte versturen) — het portaal haalt de inhoud altijd op via de eigen, met taak-
-      // eigendom gecontroleerde proxy /api/taken-document?taakId=<activityid>. Zie DocumentViewer/
-      // TabTaken in KlantPortaal.jsx.
-      heeftDocument: DOCUMENT_VELD ? !!rij[DOCUMENT_VELD] : false,
+      documentUrl: DOCUMENT_VELD ? rij[DOCUMENT_VELD] || null : null,
     });
   }
 
@@ -137,9 +131,7 @@ async function haalZichtbareTaken(resource, token, accounts, soortConfig) {
  */
 async function haalTaakVoorControle(resource, token, taakId, accountIds) {
   const select =
-    `$select=subject,description,_regardingobjectid_value,${KLANT_VALUE}` +
-    (SOORT_VELD ? "," + SOORT_VELD : "") +
-    (UPLOADLINK_VELD ? "," + UPLOADLINK_VELD : "");
+    `$select=subject,description,_regardingobjectid_value,${KLANT_VALUE}` + (SOORT_VELD ? "," + SOORT_VELD : "");
   const query = `${resource}/api/data/v9.2/tasks(${taakId})?${select}`;
   const res = await fetch(query, { headers: DYNAMICS_HEADERS(token) });
   if (!res.ok) return null;
@@ -152,15 +144,8 @@ async function haalTaakVoorControle(resource, token, taakId, accountIds) {
     description: data.description || "",
     soortWaarde: SOORT_VELD ? data[SOORT_VELD] : null,
     soortLabel: SOORT_VELD ? data[SOORT_VELD + FV] || "" : "",
-    // Alleen taken waar echt een uploadlink op stond mag de klant als "documenten aangeleverd"
-    // afmelden — zo kan niemand via een handmatige aanroep een willekeurige andere taak afronden.
-    heeftUploadLink: UPLOADLINK_VELD ? !!data[UPLOADLINK_VELD] : false,
   };
 }
-
-// vulVervolgtaakSjabloonIn/maakVervolgtaak zitten sinds 06-08-2026 in _gedeeld/vervolgtaak.js
-// (gedeeld met api/taken-ondertekenen, dat dezelfde per-taaksoort instelling gebruikt voor taken
-// die via ondertekenen worden afgehandeld, bijv. "Aangifte versturen").
 
 module.exports = async function (context, req) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
@@ -197,13 +182,10 @@ module.exports = async function (context, req) {
     if (req.method === "PATCH") {
       const taakId = req.query.id || req.body?.id;
       // Standaardactie is "akkoord". "niet-akkoord" (of "afwijzen") = klant wijst af met reden.
-      // "documenten-compleet" = klant vinkt aan dat alle gevraagde documenten zijn aangeleverd
-      // (bij taken met een uploadlink) — rondt de taak af, los van de "mag goedkeuren"-instelling.
       // "afhandelen" blijft bestaan voor terugwaartse compatibiliteit (rondt af zonder soort-controle).
       const actieRuw = req.body?.actie || req.query.actie || "akkoord";
       const isNietAkkoord = ["niet-akkoord", "niet_akkoord", "afwijzen"].includes(actieRuw);
       const isAkkoord = actieRuw === "akkoord";
-      const isDocumentenCompleet = actieRuw === "documenten-compleet";
       const isKlantReactie = isAkkoord || isNietAkkoord;
       const bericht = (req.body?.bericht || "").toString().trim();
 
@@ -237,19 +219,12 @@ module.exports = async function (context, req) {
           return;
         }
       }
-      // "Documenten compleet" mag alleen op een taak waar ook echt een uploadlink op stond —
-      // anders zou een handmatige aanroep elke willekeurige taak kunnen afronden.
-      if (isDocumentenCompleet && !taak.heeftUploadLink) {
-        context.res = { status: 403, body: { error: "Op deze taak kun je geen documenten afmelden." } };
-        return;
-      }
 
       const account = accounts.find((a) => a.accountId === taak.accountId) || {};
       const stempel = new Date().toLocaleString("nl-NL", { timeZone: "Europe/Amsterdam" });
 
-      // Dynamics bijwerken: akkoord / documenten-compleet => Voltooid (statecode 1/5);
-      // niet-akkoord => Geannuleerd (statecode 2/6). Steeds een notitie in de omschrijving
-      // zodat Activaa het (in de eigen takenlijst) terugziet.
+      // Dynamics bijwerken: akkoord => Voltooid (statecode 1/5); niet-akkoord => Geannuleerd
+      // (statecode 2/6). In beide gevallen een notitie in de omschrijving zodat Activaa het terugziet.
       let body;
       let notitie = "";
       if (isNietAkkoord) {
@@ -258,7 +233,6 @@ module.exports = async function (context, req) {
       } else {
         body = { statecode: 1, statuscode: 5 };
         if (isAkkoord) notitie = `\n\n[Akkoord gegeven door klant (${email}) via het klantportaal op ${stempel}]`;
-        if (isDocumentenCompleet) notitie = `\n\n[Documenten aangeleverd door klant (${email}) via het klantportaal op ${stempel} — klant geeft aan compleet te zijn]`;
       }
       if (notitie) body.description = (taak.description || "") + notitie;
 
@@ -268,16 +242,6 @@ module.exports = async function (context, req) {
         body: JSON.stringify(body),
       });
       if (!updateRes.ok) throw new Error(`Verwerken taak mislukt: ${await updateRes.text()}`);
-
-      // Alleen bij een écht akkoord (niet bij niet-akkoord of documenten-compleet) — en alleen als
-      // dat voor déze taaksoort in Beheer → Taken is aangezet — automatisch een interne
-      // vervolgtaak voor backoffice aanmaken. Best-effort, blokkeert het akkoord zelf niet.
-      if (isAkkoord && SOORT_VELD && taak.soortWaarde != null) {
-        const soortCfg = soortConfig.config[String(taak.soortWaarde)];
-        if (soortCfg?.vervolgtaakBackoffice) {
-          await maakVervolgtaak({ context, resource, token, taak, klantnaam: account.klantnaam, soortCfg });
-        }
-      }
 
       // Reactie vastleggen in de log zodat klantportaal én beheer het terugzien. Best-effort.
       let akkoord = null;
@@ -289,6 +253,7 @@ module.exports = async function (context, req) {
             klantnummer: account.klantnummer,
             klantnaam: account.klantnaam,
             taaktitel: taak.subject,
+            omschrijving: taak.description,
             soort: taak.soortLabel,
             aanvragerEmail: email,
             beslissing: isNietAkkoord ? "niet_akkoord" : "akkoord",

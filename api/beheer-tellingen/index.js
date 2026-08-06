@@ -13,6 +13,7 @@
  */
 const { haalReviews, haalReviewGezien, zetReviewGezien } = require("../_gedeeld/reviewopslag");
 const { haalAlleVerzoeken } = require("../_gedeeld/wijzigingen");
+const { haalAlleAkkoorden, haalReactiesGezien, zetReactiesGezien } = require("../_gedeeld/taakakkoorden");
 const aanleververzoeken = require("../_gedeeld/aanleververzoeken");
 
 module.exports = async function (context, req) {
@@ -28,19 +29,32 @@ module.exports = async function (context, req) {
         context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, laatstGezien: moment } };
         return;
       }
+      if (req.body?.actie === "reacties-gezien") {
+        const moment = await zetReactiesGezien(new Date().toISOString());
+        context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, laatstGezien: moment } };
+        return;
+      }
       context.res = { status: 400, body: { error: "Onbekende actie." } };
       return;
     }
 
-    const [verzoeken, reviews, laatstGezien, alleVragenlijsten, laatstGezienVragenlijsten] = await Promise.all([
+    const [verzoeken, reviews, laatstGezien, alleVragenlijsten, laatstGezienVragenlijsten, akkoorden, laatstGezienReacties] = await Promise.all([
       haalAlleVerzoeken().catch(() => []),
       haalReviews().catch(() => []),
       haalReviewGezien().catch(() => null),
       aanleververzoeken.haalAlle().catch(() => []),
       aanleververzoeken.haalLaatstGezien().catch(() => null),
+      haalAlleAkkoorden().catch(() => []),
+      haalReactiesGezien().catch(() => null),
     ]);
 
     const openWijzigingen = verzoeken.filter((v) => v.status === "open").length;
+    // Nieuwe klantreacties op taken (akkoord/niet-akkoord) sinds de medewerker de tab voor het
+    // laatst opende — voor de badge op "Log klantreacties".
+    const sindsReacties = laatstGezienReacties ? new Date(laatstGezienReacties) : null;
+    const nieuweReacties = sindsReacties
+      ? akkoorden.filter((a) => a.akkoordOp && new Date(a.akkoordOp) > sindsReacties).length
+      : akkoorden.length;
     const sinds = laatstGezien ? new Date(laatstGezien) : null;
     const nieuweReviews = sinds
       ? reviews.filter((r) => r.datum && new Date(r.datum) > sinds).length
@@ -53,7 +67,7 @@ module.exports = async function (context, req) {
 
     context.res = {
       headers: { "Content-Type": "application/json" },
-      body: { openWijzigingen, nieuweReviews, vragenlijstenAandacht, laatstGezien },
+      body: { openWijzigingen, nieuweReviews, vragenlijstenAandacht, nieuweReacties, laatstGezien },
     };
   } catch (err) {
     context.log.error(err);

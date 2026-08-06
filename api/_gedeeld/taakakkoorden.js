@@ -56,7 +56,7 @@ async function schrijfAkkoorden(akkoorden) {
  * Als voor dezelfde taak al een reactie bestaat wordt die bijgewerkt i.p.v. gedupliceerd
  * (idempotent bij dubbelklikken).
  */
-async function voegAkkoordToe({ taakId, accountId, klantnummer, klantnaam, taaktitel, soort, aanvragerEmail, beslissing, bericht }) {
+async function voegAkkoordToe({ taakId, accountId, klantnummer, klantnaam, taaktitel, omschrijving, soort, aanvragerEmail, beslissing, bericht }) {
   const akkoorden = await haalAlleAkkoorden();
   const nu = new Date().toISOString();
   const beslissingWaarde = beslissing === "niet_akkoord" ? "niet_akkoord" : "akkoord";
@@ -66,6 +66,8 @@ async function voegAkkoordToe({ taakId, accountId, klantnummer, klantnaam, taakt
     bestaand.aanvragerEmail = aanvragerEmail || bestaand.aanvragerEmail || "";
     bestaand.beslissing = beslissingWaarde;
     bestaand.bericht = bericht || "";
+    // Omschrijving (de body/toelichting van de taak) bijwerken zodat de log toont waar het om ging.
+    if (omschrijving !== undefined) bestaand.omschrijving = omschrijving || "";
     await schrijfAkkoorden(akkoorden);
     return bestaand;
   }
@@ -76,6 +78,9 @@ async function voegAkkoordToe({ taakId, accountId, klantnummer, klantnaam, taakt
     klantnummer: klantnummer ?? null,
     klantnaam: klantnaam || "",
     taaktitel: taaktitel || "",
+    // Omschrijving van de taak (Dynamics task.description) — zodat de medewerker in de log ziet
+    // om welke taak het ging, niet alleen de titel.
+    omschrijving: omschrijving || "",
     soort: soort || "",
     aanvragerEmail: aanvragerEmail || "",
     beslissing: beslissingWaarde,
@@ -87,10 +92,32 @@ async function voegAkkoordToe({ taakId, accountId, klantnummer, klantnaam, taakt
   return nieuw;
 }
 
+// "Gezien"-markering voor de badge op de tab "Log klantreacties" (zelfde idee als de reviews-gezien
+// in reviewopslag.js): één timestamp-blob; alle reacties die daarna binnenkomen tellen als "nieuw".
+const GEZIEN_BLOB = "reacties-gezien.json";
+async function haalReactiesGezien() {
+  const containerClient = await haalContainerClient();
+  const blobClient = containerClient.getBlockBlobClient(GEZIEN_BLOB);
+  if (!(await blobClient.exists())) return null;
+  const tekst = await streamNaarTekst((await blobClient.download()).readableStreamBody);
+  try {
+    return JSON.parse(tekst).gezienOp || null;
+  } catch {
+    return null;
+  }
+}
+async function zetReactiesGezien(moment) {
+  const containerClient = await haalContainerClient();
+  const blobClient = containerClient.getBlockBlobClient(GEZIEN_BLOB);
+  const buffer = Buffer.from(JSON.stringify({ gezienOp: moment }), "utf-8");
+  await blobClient.upload(buffer, buffer.length, { overwrite: true });
+  return moment;
+}
+
 async function haalAkkoordenVoorEmail(email) {
   const alle = await haalAlleAkkoorden();
   const laag = (email || "").toLowerCase();
   return alle.filter((a) => (a.aanvragerEmail || "").toLowerCase() === laag);
 }
 
-module.exports = { haalAlleAkkoorden, voegAkkoordToe, haalAkkoordenVoorEmail };
+module.exports = { haalAlleAkkoorden, voegAkkoordToe, haalAkkoordenVoorEmail, haalReactiesGezien, zetReactiesGezien };

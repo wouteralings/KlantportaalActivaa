@@ -369,8 +369,11 @@ function AkkoordenLog() {
                       {a.aanvragerEmail || "onbekend"} ·{" "}
                       {new Date(a.akkoordOp).toLocaleString("nl-NL", { dateStyle: "short", timeStyle: "short" })}
                     </div>
+                    {a.omschrijving && (
+                      <div style={{ fontSize: 12, color: KLEUR.subtekst, marginTop: 3, whiteSpace: "pre-wrap" }}>{a.omschrijving}</div>
+                    )}
                     {nietAkkoord && a.bericht && (
-                      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginTop: 3, whiteSpace: "pre-wrap" }}>“{a.bericht}”</div>
+                      <div style={{ fontSize: 12.5, color: nietAkkoord ? KLEUR.rood : KLEUR.subtekst, marginTop: 3, whiteSpace: "pre-wrap", fontWeight: 500 }}>Reactie klant: “{a.bericht}”</div>
                     )}
                   </div>
                 </div>
@@ -4075,7 +4078,7 @@ export default function MedewerkerPortaal() {
   // Stap 6, wanneer ContractenOverzicht.jsx zijn placeholder inruilt voor echte inhoud.
   const [magContracten, setMagContracten] = useState(false);
   const [tab, setTab] = useState("klantoverzicht"); // klantoverzicht | verzoeken | reacties | ondertekeningen | reviews | offertes | contracten | meekijken
-  const [tellingen, setTellingen] = useState({ openWijzigingen: 0, nieuweReviews: 0, vragenlijstenAandacht: 0 });
+  const [tellingen, setTellingen] = useState({ openWijzigingen: 0, nieuweReviews: 0, vragenlijstenAandacht: 0, nieuweReacties: 0 });
   const [logoUrl, setLogoUrl] = useState("");
 
   const laadTellingen = useCallback(() => {
@@ -4085,6 +4088,7 @@ export default function MedewerkerPortaal() {
         openWijzigingen: d.openWijzigingen || 0,
         nieuweReviews: d.nieuweReviews || 0,
         vragenlijstenAandacht: d.vragenlijstenAandacht || 0,
+        nieuweReacties: d.nieuweReacties || 0,
       }))
       .catch(() => {});
   }, []);
@@ -4123,7 +4127,7 @@ export default function MedewerkerPortaal() {
   // "gezien" gemarkeerd (badge naar 0) en daarna worden de tellingen ververst.
   useEffect(() => {
     if (status !== "klaar") return;
-    const gezienActie = tab === "reviews" ? "reviews-gezien" : tab === "vragenlijsten" ? "vragenlijsten-gezien" : null;
+    const gezienActie = tab === "reviews" ? "reviews-gezien" : tab === "vragenlijsten" ? "vragenlijsten-gezien" : tab === "reacties" ? "reacties-gezien" : null;
     if (gezienActie) {
       fetch("/api/beheer-tellingen", {
         method: "POST",
@@ -4179,7 +4183,7 @@ export default function MedewerkerPortaal() {
     ["vragenlijsten", "Vragenlijsten", tellingen.vragenlijstenAandacht],
     ["uren", "Uren", 0],
     ["verzoeken", "Wijzigingsverzoeken", tellingen.openWijzigingen],
-    ["reacties", "Log klantreacties", 0],
+    ["reacties", "Log klantreacties", tellingen.nieuweReacties],
     ["ondertekeningen", "Ondertekeningen", 0],
     ["reviews", "Reviews", tellingen.nieuweReviews],
     ...(magOffertes || isBeheerder ? [["offertes", "Offertes", 0]] : []),
