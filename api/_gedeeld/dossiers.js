@@ -7,7 +7,7 @@
  * Zie het projectdoc "Dossiers (IB-VPB) — Dynamics-schema" voor de volledige veldenlijst en de
  * exacte option-set-waarden (die per tabel verschillen).
  */
-const { IB_VELDEN, IB_DYNAMISCHE_PICKLISTS } = require("./dossierVelden");
+const { IB_VELDEN, IB_DYNAMISCHE_PICKLISTS, VPB_VELDEN, VPB_DYNAMISCHE_PICKLISTS } = require("./dossierVelden");
 
 const FV = "@OData.Community.Display.V1.FormattedValue";
 const STATUS_VELD = "cr283_statusaangifte";
@@ -81,14 +81,30 @@ const SOORTEN = [
     entiteit: "cr283_vennootschapsbelasting",
     idVeld: "cr283_vennootschapsbelastingid",
     statusOpties: STATUS_OPTIES_VPB,
+    // Volledige, door Beheer → Dossiers zelf in te delen veldencatalogus (zie dossierVelden.js) —
+    // uit de Dynamics-metadata van cr283_vennootschapsbelasting (05-08-2026).
+    catalogus: VPB_VELDEN,
+    dynamischePicklists: VPB_DYNAMISCHE_PICKLISTS,
     optioneel: {
+      // Periode/boekjaar (getoond als dossierperiode, niet als bewerkbaar detailveld — net als
+      // "jaar" bij IB). VPB heeft zowel een jaar als een begin/einddatum voor het (afwijkende) boekjaar.
+      jaar: "cr283_jaar",
       begindatum: "cr283_begindatum",
       einddatum: "cr283_einddatum",
+      // Lookups: alleen-lezen naam getoond (zelfde als IB).
       accountant: "_cr283_accountant_value",
       assistent: "_cr283_assistent_value",
+      manager: "_cr283_manager_value",
+      groepsnaam: "_cr283_groepsnaam_value",
+      // Review-notitie + reactie: de review-/reactieflow (klant mag reactie geven, zie klantportaal).
       reviewnotitie: "cr283_reviewnotitie",
       reactie: "cr283_reviewnotitiereactie",
+      // Vaste dossierlinks.
+      urlDossier: "cr283_urldossier",
       documentUrl: "cr283_urluitgaandedocumenten",
+      // De volledige catalogus erbij: key → Dynamics-kolomnaam, zodat haalRuweRijen/haalEenDossier
+      // ze meeselecteren (met dezelfde defensieve terugval bij een onbekende/foute kolomnaam).
+      ...Object.fromEntries(VPB_VELDEN.map((v) => [v.key, v.veld])),
     },
   },
 ];

@@ -117,6 +117,94 @@ const IB_VELDEN = [
 // (metadata-endpoint, met dezelfde cache-aanpak als haalEntitySetNaam in dossiers.js).
 const IB_DYNAMISCHE_PICKLISTS = IB_VELDEN.filter((v) => v.type === "picklist").map((v) => v.veld);
 
+/**
+ * Volledige veldencatalogus voor Vennootschapsbelasting (tabel cr283_vennootschapsbelasting).
+ * Zelfde opzet als IB_VELDEN hierboven, config-gedreven en door Beheer → Dossiers zelf in te delen.
+ *
+ * Bron: rechtstreeks uit de Dynamics Web-API-metadata gehaald
+ * (EntityDefinitions(LogicalName='cr283_vennootschapsbelasting')/Attributes, 05-08-2026) — alle
+ * custom, bewerkbare kolommen. Bewust NIET in deze vrije catalogus (lopen al via een eigen, vast
+ * pad in dossiers.js — SOORTEN.vpb):
+ *   - cr283_statusaangifte  → de vaste "Status van de aangifte" (__status)
+ *   - cr283_urldossier      → de vaste "URL dossier" (__urlDossier)
+ *   - cr283_urluitgaandedocumenten → de vaste "Documentlink" (__documentUrl)
+ *   - cr283_client / cr283_accountant / cr283_assistent / cr283_manager / cr283_groepsnaam
+ *                           → lookups, getoond als alleen-lezen naam (SOORTEN.vpb.optioneel)
+ *   - cr283_jaar / cr283_begindatum / cr283_einddatum → de periode/boekjaar (SOORTEN.vpb.optioneel),
+ *                           net als "jaar" bij IB geen bewerkbaar detailveld maar de dossierperiode
+ *   - cr283_dossier         → de primaire "Dossier"-tekstkolom (via metDossiernaam)
+ *   - cr283_nieuwekolom     → verouderd/dubbel (label "Onderwerp"), overgeslagen net als bij IB
+ */
+const VPB_VELDEN = [
+  // Algemeen
+  { key: "isboekjaarafwijkend", veld: "cr283_isboekjaarafwijkend", type: "boolean", label: "Is boekjaar afwijkend?", sectie: "algemeen" },
+  { key: "bijzonderhedenboekjaar", veld: "cr283_bijzonderhedenboekjaar", type: "memo", label: "Bijzonderheden boekjaar", sectie: "algemeen" },
+  { key: "jaarrekeningdefinitief", veld: "cr283_jaarrekeningdefinitief", type: "boolean", label: "Jaarrekening definitief", sectie: "algemeen" },
+  { key: "specificatiesontvangen", veld: "cr283_specificatiesontvangen", type: "boolean", label: "Specificaties ontvangen", sectie: "algemeen" },
+  { key: "isactienodigvanklant", veld: "cr283_isactienodigvanklant", type: "boolean", label: "Is actie nodig van klant?", sectie: "algemeen" },
+  { key: "isaangiftegereedvoorreview", veld: "cr283_isaangiftegereedvoorreview", type: "boolean", label: "Is aangifte gereed voor review?", sectie: "algemeen" },
+  { key: "urlpermanentdossier", veld: "cr283_urlpermanentdossier", type: "vast-url", label: "URL permanent dossier", sectie: "algemeen" },
+
+  // Fiscale winst & berekening
+  { key: "resultaatvoorbelasting", veld: "cr283_resultaatvoorbelasting", type: "integer", label: "Resultaat voor belasting", sectie: "winst" },
+  { key: "fiscalewinst", veld: "cr283_fiscalewinst", type: "integer", label: "Fiscale winst", sectie: "winst" },
+  { key: "vpbberekend", veld: "cr283_vpbberekend", type: "integer", label: "VPB berekend", sectie: "winst" },
+  { key: "zijnercompensabeleverliezen", veld: "cr283_zijnercompensabeleverliezen", type: "boolean", label: "Zijn er compensabele verliezen?", sectie: "winst" },
+  { key: "hoogteverrekenbareverliezen", veld: "cr283_hoogteverrekenbareverliezen", type: "integer", label: "Hoogte verrekenbare verliezen", sectie: "winst" },
+  { key: "hoeveelverliesverrekeningtoegepast", veld: "cr283_hoeveelverliesverrekeningtoegepast", type: "integer", label: "Hoeveel verliesverrekening toegepast?", sectie: "winst" },
+  { key: "nominalewaardeafgewaardeerdevorderingen", veld: "cr283_nominalewaardeafgewaardeerdevorderingen", type: "integer", label: "Nominale waarde afgewaardeerde vorderingen", sectie: "winst" },
+
+  // Fiscale correcties & posities
+  { key: "afschrijvingencorrecttoegepast", veld: "cr283_afschrijvingencorrecttoegepast", type: "boolean", label: "Afschrijvingen correct toegepast?", sectie: "correcties" },
+  { key: "zijnerfiscaalbedrijfseconomischeverschillen", veld: "cr283_zijnerfiscaalbedrijfseconomischeverschillen", type: "boolean", label: "Zijn er fiscaal/bedrijfseconomische verschillen?", sectie: "correcties" },
+  { key: "zijnernietaftrekbarekosten", veld: "cr283_zijnernietaftrekbarekosten", type: "boolean", label: "Zijn er niet-aftrekbare kosten?", sectie: "correcties" },
+  { key: "zijnerincidentelebatenlasten", veld: "cr283_zijnerincidentelebatenlasten", type: "boolean", label: "Zijn er incidentele baten/lasten?", sectie: "correcties" },
+  { key: "zijnerfiscalevoorzieningen", veld: "cr283_zijnerfiscalevoorzieningen", type: "boolean", label: "Zijn er fiscale voorzieningen?", sectie: "correcties" },
+  { key: "zijneronttrekkingenstortingen", veld: "cr283_zijneronttrekkingenstortingen", type: "boolean", label: "Zijn er onttrekkingen / stortingen?", sectie: "correcties" },
+  { key: "investeringsaftrek", veld: "cr283_investeringsaftrek", type: "boolean", label: "Investeringsaftrek", sectie: "correcties" },
+  { key: "desinvesteringsaftrek", veld: "cr283_desinvesteringsaftrek", type: "boolean", label: "Desinvesteringsaftrek", sectie: "correcties" },
+  { key: "miaeiaaftrek", veld: "cr283_miaeiaaftrek", type: "boolean", label: "MIA/EIA aftrek", sectie: "correcties" },
+  { key: "miaeia", veld: "cr283_miaeia", type: "string", label: "MIA/EIA", sectie: "correcties" },
+  { key: "isdeelnemingsvrijstellingtoegepast", veld: "cr283_isdeelnemingsvrijstellingtoegepast", type: "boolean", label: "Is deelnemingsvrijstelling toegepast?", sectie: "correcties" },
+  { key: "isgebruikelijkloontoegepast", veld: "cr283_isgebruikelijkloontoegepast", type: "boolean", label: "Is gebruikelijk loon toegepast?", sectie: "correcties" },
+  { key: "iserinnovatieboxsubsidies", veld: "cr283_iserinnovatieboxsubsidies", type: "boolean", label: "Is er innovatiebox / subsidies?", sectie: "correcties" },
+  { key: "isfiscalepositiejaarrekeninggelijkaanvpb", veld: "cr283_isfiscalepositiejaarrekeninggelijkaanvpb", type: "boolean", label: "Is fiscale positie jaarrekening gelijk aan vpb?", sectie: "correcties" },
+  { key: "toelichtingafwijkingfiscalepositie", veld: "cr283_toelichtingafwijkingfiscalepositie", type: "memo", label: "Toelichting afwijking fiscale positie", sectie: "correcties" },
+  { key: "toelichtingfiscalecorrecties", veld: "cr283_toelichtingfiscalecorrecties", type: "memo", label: "Toelichting fiscale correcties", sectie: "correcties" },
+  { key: "fiscalerisicosgeidentificeerd", veld: "cr283_fiscalerisicosgeidentificeerdtekstveld", type: "memo", label: "Fiscale risico's geïdentificeerd", sectie: "correcties" },
+  { key: "adviesgegevenaanklant", veld: "cr283_adviesgegevenaanklanttekstveld", type: "memo", label: "Advies gegeven aan klant", sectie: "correcties" },
+
+  // Deelnemingen & structuur
+  { key: "isersprakevandeelnemingen", veld: "cr283_isersprakevandeelnemingen", type: "boolean", label: "Is er sprake van deelnemingen?", sectie: "deelnemingen" },
+  { key: "zijnerresultatenuitdeelnemingen", veld: "cr283_zijnerresultatenuitdeelnemingen", type: "boolean", label: "Zijn er resultaten uit deelnemingen?", sectie: "deelnemingen" },
+  { key: "issprakevanafgewaardeerdedeelnemingsvordering", veld: "cr283_issprakevanafgewaardeerdedeelnemingsvordering", type: "boolean", label: "Is sprake van afgewaardeerde deelnemingsvordering?", sectie: "deelnemingen" },
+  { key: "isersprakevaneenfiscaleeenheid", veld: "cr283_isersprakevaneenfiscaleeenheid", type: "boolean", label: "Is er sprake van een fiscale eenheid?", sectie: "deelnemingen" },
+  { key: "zijnerbuitenlandseactiviteiten", veld: "cr283_zijnerbuitenlandseactiviteiten", type: "boolean", label: "Zijn er buitenlandse activiteiten?", sectie: "deelnemingen" },
+
+  // DGA
+  { key: "isereendga", veld: "cr283_isereendga", type: "boolean", label: "Is er een DGA?", sectie: "dga" },
+  { key: "zijnerleningenaandga", veld: "cr283_zijnerleningenaandga", type: "boolean", label: "Zijn er leningen aan DGA?", sectie: "dga" },
+  { key: "isrekeningcourantdgaaanwezig", veld: "cr283_isrekeningcourantdgaaanwezig", type: "boolean", label: "Is rekening-courant DGA aanwezig?", sectie: "dga" },
+  { key: "iserdividenduitgekeerdinditjaar", veld: "cr283_iserdividenduitgekeerdinditjaar", type: "boolean", label: "Is er dividend uitgekeerd in dit jaar?", sectie: "dga" },
+
+  // Review
+  { key: "reviewnotitie", veld: "cr283_reviewnotitie", type: "memo", label: "Review-notitie (aan de klant)", sectie: "review" },
+  { key: "reviewnotitiedatum", veld: "cr283_reviewnotitiedatum", type: "datetime", label: "Review-notitie - datum", sectie: "review" },
+  { key: "reactiereviewnotitie", veld: "cr283_reviewnotitiereactie", type: "memo", label: "Reactie op review-notitie (van de klant)", sectie: "review" },
+];
+
+const VPB_DYNAMISCHE_PICKLISTS = VPB_VELDEN.filter((v) => v.type === "picklist").map((v) => v.veld);
+
+const VPB_SECTIE_TITELS_STANDAARD = {
+  algemeen: "Algemeen",
+  winst: "Fiscale winst & berekening",
+  correcties: "Fiscale correcties & posities",
+  deelnemingen: "Deelnemingen & structuur",
+  dga: "DGA",
+  review: "Review",
+};
+const VPB_SECTIE_VOLGORDE_STANDAARD = ["algemeen", "winst", "correcties", "deelnemingen", "dga", "review"];
+
 const SECTIE_TITELS_STANDAARD = {
   algemeen: "Algemeen",
   boxi: "Box I - Inkomen en eigen woning",
@@ -190,6 +278,29 @@ function standaardIndelingIB() {
   };
 }
 
+/** Standaardindeling voor Vennootschapsbelasting — spiegelt de VPB-secties (Algemeen / Fiscale
+ * winst / Correcties / Deelnemingen / DGA / Review). Zelfde structuur als standaardIndelingIB():
+ * de vaste velden (Status/URL dossier/Documentlink) staan vooraan in "Algemeen". Startpunt zolang
+ * Wouter in Beheer → Dossiers voor VPB nog niets eigens heeft opgeslagen. */
+function standaardIndelingVPB() {
+  return {
+    secties: VPB_SECTIE_VOLGORDE_STANDAARD.map((sleutel, i) => ({
+      sleutel,
+      titel: VPB_SECTIE_TITELS_STANDAARD[sleutel],
+      velden: i === 0
+        ? ["__status", "__urlDossier", "__documentUrl", ...VPB_VELDEN.filter((v) => v.sectie === sleutel).map((v) => v.key)]
+        : VPB_VELDEN.filter((v) => v.sectie === sleutel).map((v) => v.key),
+      subsecties: [],
+    })),
+    verborgen: [],
+    voorwaarden: {},
+    alleenLezen: [],
+    labels: {},
+    aangepasteVelden: [],
+    onderwerpId: "",
+  };
+}
+
 /** Minimale standaardindeling voor soorten zonder eigen veldencatalogus (vooralsnog VPB) — alleen
  * de vaste velden die voor die soort gelden, in één "Algemeen"-sectie. Zorgt dat Status/links
  * gewoon blijven verschijnen ook al heeft VPB (nog) geen eigen Beheer-indeling. */
@@ -215,13 +326,16 @@ function metLabels(catalogus, labels) {
 }
 
 function veldOpKey(key) {
-  return IB_VELDEN.find((v) => v.key === key);
+  return IB_VELDEN.find((v) => v.key === key) || VPB_VELDEN.find((v) => v.key === key);
 }
 
 module.exports = {
   IB_VELDEN,
   IB_DYNAMISCHE_PICKLISTS,
+  VPB_VELDEN,
+  VPB_DYNAMISCHE_PICKLISTS,
   standaardIndelingIB,
+  standaardIndelingVPB,
   standaardIndelingOverig,
   vasteVeldenVoorSoort,
   metLabels,

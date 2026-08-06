@@ -97,8 +97,14 @@ function VeldRij({ veldKey, veld, weergaveLabel, pad, padOpties, index, laatsteI
  * eigen endpoint nodig voor de indeling zelf. Alleen de "ib"-sleutel wordt hier gelezen/
  * geschreven; eventuele latere andere soorten (bijv. straks vpb) blijven met rust (zie bewaar()).
  */
+const SOORTEN_TABS = [
+  { key: "ib", label: "Inkomstenbelasting", dynamicsTabel: "Inkomstenbelasting" },
+  { key: "vpb", label: "Vennootschapsbelasting", dynamicsTabel: "Vennootschapsbelasting" },
+];
+
 export default function DossierIndelingBeheer() {
   const [open, setOpen] = useState(false); // hele paneel dichtgeklapt bij openen van de pagina
+  const [soort, setSoort] = useState("ib"); // welke dossiersoort we indelen (ib | vpb)
   const [catalogus, setCatalogus] = useState(null); // null = laden
   const [dossierIndeling, setDossierIndeling] = useState(null); // volledig object uit instellingen (alle soorten)
   const [secties, setSecties] = useState(null); // werk-kopie van dossierIndeling.ib.secties (elk met optionele subsecties)
@@ -138,6 +144,41 @@ export default function DossierIndelingBeheer() {
   const [nieuwVeldBezig, setNieuwVeldBezig] = useState(false);
   const [nieuwVeldFout, setNieuwVeldFout] = useState("");
 
+  // Laadt de per-soort werk-kopie (secties/verborgen/…) uit het volledige dossierIndeling-object
+  // in de losse states. Gebruikt zowel bij de eerste keer laden als bij het wisselen van soort.
+  const pasIndelingToe = (huidigeIndeling, soortKey) => {
+    const eigen = (huidigeIndeling && huidigeIndeling[soortKey]) || {};
+    const eigenSecties = (eigen.secties) || [];
+    setSecties(eigenSecties.map((s) => ({ ...s, subsecties: s.subsecties || [] })));
+    setVerborgen(eigen.verborgen || []);
+    setVoorwaarden(eigen.voorwaarden || {});
+    setAlleenLezen(eigen.alleenLezen || []);
+    setLabels(eigen.labels || {});
+    setAangepasteVelden(eigen.aangepasteVelden || []);
+    setOnderwerpId(eigen.onderwerpId || "");
+  };
+
+  // Wisselt de actieve dossiersoort: haalt de catalogus van die soort opnieuw op en laadt zijn
+  // opgeslagen indeling in de werk-states. dossierIndeling is na elke bewaar() up-to-date, dus we
+  // lezen de zojuist opgeslagen staat van de andere soort gewoon daaruit.
+  const wisselSoort = async (nieuweSoort) => {
+    if (nieuweSoort === soort) return;
+    setSoort(nieuweSoort);
+    setStatus("rust");
+    setFout("");
+    setCatalogus(null);
+    try {
+      const r = await fetch(`/api/dossier-velden?soort=${nieuweSoort}`);
+      if (!r.ok) throw new Error();
+      const data = await r.json();
+      setCatalogus(data.catalogus || []);
+    } catch {
+      setCatalogus([]);
+      setFout("Kon de veldcatalogus van deze soort niet laden.");
+    }
+    pasIndelingToe(dossierIndeling, nieuweSoort);
+  };
+
   useEffect(() => {
     Promise.all([
       fetch("/api/dossier-velden?soort=ib").then((r) => (r.ok ? r.json() : Promise.reject())),
@@ -155,15 +196,9 @@ export default function DossierIndelingBeheer() {
         setCatalogus(veldenData.catalogus || []);
         const huidigeIndeling = instellingenData.dossierIndeling || {};
         setDossierIndeling(huidigeIndeling);
-        const eigenSecties = (huidigeIndeling.ib && huidigeIndeling.ib.secties) || [];
-        // Terugval voor secties die nog van vóór de subrubrieken-uitbreiding stammen.
-        setSecties(eigenSecties.map((s) => ({ ...s, subsecties: s.subsecties || [] })));
-        setVerborgen((huidigeIndeling.ib && huidigeIndeling.ib.verborgen) || []);
-        setVoorwaarden((huidigeIndeling.ib && huidigeIndeling.ib.voorwaarden) || {});
-        setAlleenLezen((huidigeIndeling.ib && huidigeIndeling.ib.alleenLezen) || []);
-        setLabels((huidigeIndeling.ib && huidigeIndeling.ib.labels) || {});
-        setAangepasteVelden((huidigeIndeling.ib && huidigeIndeling.ib.aangepasteVelden) || []);
-        setOnderwerpId((huidigeIndeling.ib && huidigeIndeling.ib.onderwerpId) || "");
+        // Terugval voor secties die nog van vóór de subrubrieken-uitbreiding stammen — gebeurt in
+        // pasIndelingToe. Bij het eerste laden staat "soort" nog op de standaard ("ib").
+        pasIndelingToe(huidigeIndeling, "ib");
         setOnderwerpen(onderwerpenData.onderwerpen || []);
         setBestandsnaamTemplate(instellingenData.aangifteBestandsnaamTemplate || "");
         setMailOnderwerpTemplate(instellingenData.aangifteMailOnderwerpTemplate || "");
@@ -197,7 +232,7 @@ export default function DossierIndelingBeheer() {
     try {
       const volledigeIndeling = {
         ...(dossierIndeling || {}),
-        ib: {
+        [soort]: {
           secties: volgendeSecties, verborgen: volgendeVerborgen, voorwaarden: volgendeVoorwaarden,
           alleenLezen: volgendeAlleenLezen, labels: volgendeLabels, aangepasteVelden: volgendeAangepasteVelden,
           onderwerpId: volgendeOnderwerpId,
@@ -436,7 +471,8 @@ export default function DossierIndelingBeheer() {
   const maakNieuwVeld = async () => {
     const labelTekst = nieuwVeldLabel.trim();
     if (!labelTekst) return;
-    if (!confirm(`Nieuw veld "${labelTekst}" aanmaken? Dit voegt een echte nieuwe kolom toe aan de tabel Inkomstenbelasting in Dynamics.`)) return;
+    const dynamicsTabel = (SOORTEN_TABS.find((s) => s.key === soort) || {}).dynamicsTabel || "Inkomstenbelasting";
+    if (!confirm(`Nieuw veld "${labelTekst}" aanmaken? Dit voegt een echte nieuwe kolom toe aan de tabel ${dynamicsTabel} in Dynamics.`)) return;
     setNieuwVeldBezig(true);
     setNieuwVeldFout("");
     try {
@@ -449,7 +485,7 @@ export default function DossierIndelingBeheer() {
       const r = await fetch("/api/dossier-kolom-aanmaken", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-requested-with": "klantportaal" },
-        body: JSON.stringify({ soort: "ib", key, label: labelTekst, type: nieuwVeldType }),
+        body: JSON.stringify({ soort, key, label: labelTekst, type: nieuwVeldType }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d.ok) throw new Error(d.error || `HTTP ${r.status}`);
@@ -515,7 +551,7 @@ export default function DossierIndelingBeheer() {
         style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700, marginBottom: open ? 6 : 0, width: "100%", background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left", color: KLEUR.tekst }}
       >
         {open ? <ChevronDown size={16} color={KLEUR.mutedTekst} /> : <ChevronRight size={16} color={KLEUR.mutedTekst} />}
-        <FolderKanban size={16} color={KLEUR.blauw} /> Dossiers — indeling Inkomstenbelasting
+        <FolderKanban size={16} color={KLEUR.blauw} /> Dossiers — indeling {(SOORTEN_TABS.find((s) => s.key === soort) || {}).label || "Inkomstenbelasting"}
       </button>
       {!open && (
         <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginTop: 4 }}>
@@ -524,6 +560,23 @@ export default function DossierIndelingBeheer() {
       )}
 
       {open && (<>
+      {/* IB/VPB-schakelaar: dezelfde indeling-tools voor beide dossiersoorten. */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        {SOORTEN_TABS.map((s) => (
+          <button
+            key={s.key}
+            onClick={() => wisselSoort(s.key)}
+            style={{
+              padding: "6px 14px", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+              border: `1px solid ${soort === s.key ? KLEUR.blauw : KLEUR.rand}`,
+              background: soort === s.key ? KLEUR.blauw : "#fff",
+              color: soort === s.key ? "#fff" : KLEUR.subtekst,
+            }}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
       <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 14, maxWidth: 760 }}>
         Bepaalt hoe het IB-dossier eruitziet op de dossierpagina van een cliënt in het
         medewerkersportaal (Klantoverzicht → Inkomstenbelasting → dossier openen) — óók de vaste
@@ -546,9 +599,9 @@ export default function DossierIndelingBeheer() {
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14, marginBottom: 18, background: KLEUR.lichtblauw }}>
         <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Gekoppelde uitvraaglijst</div>
         <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 10, maxWidth: 640 }}>
-          Kies het onderwerp (uit Beheer → Onderwerpen) dat bij Inkomstenbelasting hoort. Uitvraaglijsten
+          Kies het onderwerp (uit Beheer → Onderwerpen) dat bij {(SOORTEN_TABS.find((s) => s.key === soort) || {}).label || "deze soort"} hoort. Uitvraaglijsten
           (aanleververzoeken) met dit onderwerp verschijnen dan automatisch — bij dezelfde cliënt en,
-          als het dossier een jaar heeft, hetzelfde jaar — in het IB-dossier zelf.
+          als het dossier een jaar heeft, hetzelfde jaar — in het dossier zelf.
         </div>
         {onderwerpen.length === 0 ? (
           <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Nog geen onderwerpen ingericht — stel die eerst in via Beheer → Onderwerpen.</div>
@@ -560,6 +613,9 @@ export default function DossierIndelingBeheer() {
         )}
       </div>
 
+      {/* De "Aangifte versturen"-sjablonen (bestandsnaam/mail/opslag+taak) horen bij de IB-aangifte-
+          dropzones in het IB-dossier — alleen tonen bij soort "ib". */}
+      {soort === "ib" && (<>
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14, marginBottom: 18, background: KLEUR.lichtblauw }}>
         <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Bestandsnaam — aangifte versturen</div>
         <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 10, maxWidth: 640 }}>
@@ -690,6 +746,7 @@ export default function DossierIndelingBeheer() {
           {taakInstellingStatus === "fout" && <span style={{ fontSize: 11.5, color: KLEUR.rood }}>Opslaan mislukt</span>}
         </div>
       </div>
+      </>)}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 18 }}>
         {(secties || []).map((sectie, sectieIndex) => {

@@ -47,7 +47,7 @@
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const { SOORTEN, haalEenDossier, werkDossierBij, verwijderDossier, haalDynamischePicklistOpties, metAangepasteVelden } = require("../_gedeeld/dossiers");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
-const { standaardIndelingIB, standaardIndelingOverig, vasteVeldenVoorSoort, metLabels } = require("../_gedeeld/dossierVelden");
+const { standaardIndelingIB, standaardIndelingVPB, standaardIndelingOverig, vasteVeldenVoorSoort, metLabels } = require("../_gedeeld/dossierVelden");
 const { haalVoorAccounts, haalLaatstGezien, verrijkVerzoek } = require("../_gedeeld/aanleververzoeken");
 const { haalOnderwerpen } = require("../_gedeeld/aanleveronderwerpen");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
@@ -60,7 +60,7 @@ const { magVerwijderIb, magVerwijderVpb } = require("../_gedeeld/wijzigrechten")
  * krijgen een minimale standaardindeling met alleen de vaste velden (Status/links), zodat die
  * blijven verschijnen ook zonder Beheer-indeling. */
 async function haalIndeling(soort) {
-  const standaard = soort.key === "ib" ? standaardIndelingIB() : standaardIndelingOverig(soort);
+  const standaard = soort.key === "ib" ? standaardIndelingIB() : soort.key === "vpb" ? standaardIndelingVPB() : standaardIndelingOverig(soort);
   try {
     const { dossierIndeling } = await haalInstellingen();
     const eigen = dossierIndeling && dossierIndeling[soort.key];
