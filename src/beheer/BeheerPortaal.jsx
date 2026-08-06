@@ -2,7 +2,11 @@ import React, { useCallback, useEffect, useState } from "react";
 import OffertetoolApp from "../medewerker/offertes/OffertetoolApp";
 import UitvraagBeheer from "./UitvraagBeheer";
 import UrenTarievenBeheer from "./UrenTarievenBeheer";
+import VerlofBeheer from "./VerlofBeheer";
 import DossierIndelingBeheer from "./DossierIndelingBeheer";
+import ContractenTypesBeheer from "./ContractenTypesBeheer";
+import ContractenDossierInstellingen from "./ContractenDossierInstellingen";
+import ContractenMailInstellingen from "./ContractenMailInstellingen";
 import BrievenBeheer from "./BrievenBeheer";
 import BrievenAfzenderInstellingen from "./BrievenAfzenderInstellingen";
 import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Search, ArrowUp, ArrowDown, HelpCircle, ChevronDown, Plus, Pencil, Check, X, Clock } from "lucide-react";
@@ -160,7 +164,7 @@ function StandaardartikelFormulierRij({ form, setForm, bezig, onOpslaan, onAnnul
 export default function BeheerPortaal() {
   const [status, setStatus] = useState("laden"); // laden | nietIngelogd | geenRol | klaar
   const [gebruiker, setGebruiker] = useState(null);
-  const [tab, setTab] = useState("uitstraling"); // uitstraling | content | faq | taken | instellingen
+  const [tab, setTab] = useState("content"); // content(Berichten) | faq | taken | instellingen | …
   // Open/dicht per rubriek-kaart (zelfde patroon als de taaksoorten-sectie onder "Taken");
   // undefined/true = open (standaard), false = ingeklapt. Eén gedeelde state i.p.v. een
   // aparte useState per rubriek.
@@ -1258,8 +1262,7 @@ export default function BeheerPortaal() {
 
       <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap", borderBottom: `1px solid ${KLEUR.rand}` }}>
         {[
-          ["uitstraling", "Huisstijl"],
-          ["content", "Content"],
+          ["content", "Berichten"],
           ["faq", "FAQ"],
           ["taken", "Taken"],
           ["medewerkers", "Medewerkers"],
@@ -1297,7 +1300,10 @@ export default function BeheerPortaal() {
       </div>
 
       {tab === "aanleveren" && <UitvraagBeheer />}
-      {tab === "uren" && <UrenTarievenBeheer />}
+      {tab === "uren" && (<>
+        <UrenTarievenBeheer />
+        <VerlofBeheer />
+      </>)}
       {tab === "dossiers" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div style={{ fontSize: 13, color: KLEUR.subtekst, maxWidth: 760 }}>
@@ -1309,251 +1315,7 @@ export default function BeheerPortaal() {
         </div>
       )}
 
-      {tab === "uitstraling" && (<>
-      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
-        <button
-          onClick={() => toggleRubriek("logo")}
-          aria-expanded={rubriekIsOpen("logo")}
-          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
-        >
-          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("logo") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
-          <span style={{ fontSize: 15, fontWeight: 700 }}>Logo</span>
-        </button>
-        {rubriekIsOpen("logo") && (<>
-        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 18px" }}>
-          Verschijnt op het inlogscherm en bovenaan het klantportaal.
-        </div>
-
-        {logoUrl && (
-          <div style={{ marginBottom: 18, padding: 16, background: KLEUR.lichtblauw, borderRadius: 8, display: "flex", justifyContent: "center" }}>
-            <img src={logoUrl} alt="Huidig logo" style={{ maxHeight: 70, maxWidth: 280, objectFit: "contain" }} />
-          </div>
-        )}
-
-        <label
-          style={{
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px 16px",
-            border: `1.5px dashed ${KLEUR.rand}`, borderRadius: 8, cursor: "pointer", fontSize: 13.5,
-            fontWeight: 600, color: KLEUR.blauw,
-          }}
-        >
-          <Upload size={16} />
-          {uploadStatus === "bezig" ? "Bezig met uploaden..." : "Nieuw logo kiezen"}
-          <input
-            type="file"
-            accept="image/*"
-            style={{ display: "none" }}
-            onChange={(e) => uploadLogo(e.target.files?.[0])}
-          />
-        </label>
-
-        {uploadStatus === "gelukt" && (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, fontSize: 12.5, color: KLEUR.blauw }}>
-            <CheckCircle2 size={14} /> Logo bijgewerkt.
-          </div>
-        )}
-        {uploadStatus === "fout" && (
-          <div style={{ marginTop: 12, fontSize: 12.5, color: KLEUR.rood }}>Uploaden is niet gelukt, probeer het nog eens.</div>
-        )}
-        </>)}
-      </div>
-
-      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <button
-          onClick={() => toggleRubriek("favicon")}
-          aria-expanded={rubriekIsOpen("favicon")}
-          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
-        >
-          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("favicon") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
-          <span style={{ fontSize: 15, fontWeight: 700 }}>Favicon</span>
-        </button>
-        {rubriekIsOpen("favicon") && (<>
-        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 18px" }}>
-          Het kleine icoon in de browsertab. Gebruik bij voorkeur een vierkante afbeelding (PNG of SVG).
-        </div>
-
-        {faviconUrl && (
-          <div style={{ marginBottom: 18, padding: 16, background: KLEUR.lichtblauw, borderRadius: 8, display: "flex", justifyContent: "center" }}>
-            <img src={faviconUrl} alt="Huidige favicon" style={{ height: 48, width: 48, objectFit: "contain" }} />
-          </div>
-        )}
-
-        <label
-          style={{
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px 16px",
-            border: `1.5px dashed ${KLEUR.rand}`, borderRadius: 8, cursor: "pointer", fontSize: 13.5,
-            fontWeight: 600, color: KLEUR.blauw,
-          }}
-        >
-          <Upload size={16} />
-          {faviconUploadStatus === "bezig" ? "Bezig met uploaden..." : "Nieuwe favicon kiezen"}
-          <input
-            type="file"
-            accept="image/*"
-            style={{ display: "none" }}
-            onChange={(e) => uploadFavicon(e.target.files?.[0])}
-          />
-        </label>
-
-        {faviconUploadStatus === "gelukt" && (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, fontSize: 12.5, color: KLEUR.blauw }}>
-            <CheckCircle2 size={14} /> Favicon bijgewerkt.
-          </div>
-        )}
-        {faviconUploadStatus === "fout" && (
-          <div style={{ marginTop: 12, fontSize: 12.5, color: KLEUR.rood }}>Uploaden is niet gelukt, probeer het nog eens.</div>
-        )}
-        </>)}
-      </div>
-
-      </>)}
-
       {tab === "content" && (<>
-      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <button
-          onClick={() => toggleRubriek("snellinks")}
-          aria-expanded={rubriekIsOpen("snellinks")}
-          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
-        >
-          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("snellinks") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
-          <span style={{ fontSize: 15, fontWeight: 700 }}>Snellinks</span>
-        </button>
-        {rubriekIsOpen("snellinks") && (<>
-        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 18px" }}>
-          Knoppen die op home boven de mededelingen staan. Kies eventueel voor welke klantgroepen
-          een link zichtbaar is — niets aanvinken = voor iedereen.
-        </div>
-
-        <input
-          type="text"
-          value={nieuweLinkTitel}
-          onChange={(e) => setNieuweLinkTitel(e.target.value)}
-          placeholder="Titel (bijv. MijnActivaa)"
-          style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13.5, marginBottom: 10, boxSizing: "border-box" }}
-        />
-        <input
-          type="url"
-          value={nieuweLinkUrl}
-          onChange={(e) => setNieuweLinkUrl(e.target.value)}
-          placeholder="https://..."
-          style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13.5, marginBottom: 14, boxSizing: "border-box" }}
-        />
-
-        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 10 }}>
-          <Users size={13} /> Klantgroepen (uit Dataverse)
-        </div>
-
-        {categorieen === null ? (
-          <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, marginBottom: 14 }}>Categorieën ophalen...</div>
-        ) : categorieen.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, marginBottom: 14 }}>
-            Geen categorieën gevonden. Controleer <code>DYNAMICS_KLANTCATEGORIE_VELD</code>.
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
-            {categorieen.map((c) => {
-              const actief = gekozenLinkCategorieen.includes(c.waarde);
-              return (
-                <button
-                  key={c.waarde}
-                  onClick={() => toggleLinkCategorie(c.waarde)}
-                  style={{
-                    padding: "6px 12px", borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
-                    border: `1px solid ${actief ? KLEUR.blauw : KLEUR.rand}`,
-                    background: actief ? KLEUR.blauw : "#fff",
-                    color: actief ? "#fff" : KLEUR.tekst,
-                  }}
-                >
-                  {c.label}
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        <button
-          onClick={verstuurSnellink}
-          disabled={!nieuweLinkTitel.trim() || !nieuweLinkUrl.trim() || linkVerzendStatus === "bezig"}
-          style={{
-            display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: KLEUR.blauw,
-            color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer",
-            opacity: !nieuweLinkTitel.trim() || !nieuweLinkUrl.trim() ? 0.5 : 1,
-          }}
-        >
-          <LayoutGrid size={14} /> {linkVerzendStatus === "bezig" ? "Toevoegen..." : "Snellink toevoegen"}
-        </button>
-        {linkVerzendStatus === "fout" && (
-          <div style={{ marginTop: 10, fontSize: 12.5, color: KLEUR.rood }}>Toevoegen is niet gelukt, probeer het nog eens.</div>
-        )}
-
-        {snellinks && snellinks.length > 0 && (
-          <div style={{ marginTop: 24, paddingTop: 18, borderTop: `1px solid ${KLEUR.rand}` }}>
-            <button
-              onClick={() => setSnellinksOpen((v) => !v)}
-              aria-expanded={snellinksOpen}
-              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
-            >
-              <ChevronDown size={15} color={KLEUR.mutedTekst} style={{ transform: snellinksOpen ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
-              <span style={{ fontSize: 12, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".04em" }}>
-                Actieve snellinks
-              </span>
-              <span style={{ fontSize: 12, fontWeight: 600, color: KLEUR.mutedTekst }}>({snellinks.length})</span>
-            </button>
-            {snellinksOpen && (<>
-            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, margin: "8px 0 12px" }}>
-              De volgorde hieronder is ook de volgorde waarin klanten de knoppen zien. Gebruik de pijltjes om te rangschikken.
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {snellinks.map((s, i) => (
-                <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "10px 0", borderTop: `1px solid ${KLEUR.rand}` }}>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700 }}>
-                      <LayoutGrid size={13} color={KLEUR.blauw} /> {s.titel}
-                    </div>
-                    <a href={s.url} target="_blank" rel="noopener noreferrer" title={s.url} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: KLEUR.subtekst, marginTop: 2, textDecoration: "none", maxWidth: "100%" }}>
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{s.url}</span>
-                      <ExternalLink size={11} style={{ flexShrink: 0 }} />
-                    </a>
-                    <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 6 }}>
-                      {s.klantcategorieen?.length > 0
-                        ? s.klantcategorieen.map(labelVoorWaarde).join(", ")
-                        : "Alle klanten"}
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                    <button
-                      onClick={() => herschikSnellink(i, -1)}
-                      disabled={i === 0}
-                      title="Omhoog"
-                      style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: i === 0 ? KLEUR.rand : KLEUR.subtekst, cursor: i === 0 ? "default" : "pointer" }}
-                    >
-                      <ArrowUp size={14} />
-                    </button>
-                    <button
-                      onClick={() => herschikSnellink(i, 1)}
-                      disabled={i === snellinks.length - 1}
-                      title="Omlaag"
-                      style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: i === snellinks.length - 1 ? KLEUR.rand : KLEUR.subtekst, cursor: i === snellinks.length - 1 ? "default" : "pointer" }}
-                    >
-                      <ArrowDown size={14} />
-                    </button>
-                    <button
-                      onClick={() => verwijderSnellink(s.id)}
-                      title="Verwijderen"
-                      style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: KLEUR.rood, cursor: "pointer" }}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-            </>)}
-          </div>
-        )}
-        </>)}
-      </div>
-
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
         <button
           onClick={() => toggleRubriek("mededeling")}
@@ -2067,6 +1829,102 @@ export default function BeheerPortaal() {
       )}
 
       {tab === "instellingen" && (<>
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
+        <button
+          onClick={() => toggleRubriek("logo")}
+          aria-expanded={rubriekIsOpen("logo")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("logo") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Logo</span>
+        </button>
+        {rubriekIsOpen("logo") && (<>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 18px" }}>
+          Verschijnt op het inlogscherm en bovenaan het klantportaal.
+        </div>
+
+        {logoUrl && (
+          <div style={{ marginBottom: 18, padding: 16, background: KLEUR.lichtblauw, borderRadius: 8, display: "flex", justifyContent: "center" }}>
+            <img src={logoUrl} alt="Huidig logo" style={{ maxHeight: 70, maxWidth: 280, objectFit: "contain" }} />
+          </div>
+        )}
+
+        <label
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px 16px",
+            border: `1.5px dashed ${KLEUR.rand}`, borderRadius: 8, cursor: "pointer", fontSize: 13.5,
+            fontWeight: 600, color: KLEUR.blauw,
+          }}
+        >
+          <Upload size={16} />
+          {uploadStatus === "bezig" ? "Bezig met uploaden..." : "Nieuw logo kiezen"}
+          <input
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={(e) => uploadLogo(e.target.files?.[0])}
+          />
+        </label>
+
+        {uploadStatus === "gelukt" && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, fontSize: 12.5, color: KLEUR.blauw }}>
+            <CheckCircle2 size={14} /> Logo bijgewerkt.
+          </div>
+        )}
+        {uploadStatus === "fout" && (
+          <div style={{ marginTop: 12, fontSize: 12.5, color: KLEUR.rood }}>Uploaden is niet gelukt, probeer het nog eens.</div>
+        )}
+        </>)}
+      </div>
+
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+        <button
+          onClick={() => toggleRubriek("favicon")}
+          aria-expanded={rubriekIsOpen("favicon")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("favicon") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Favicon</span>
+        </button>
+        {rubriekIsOpen("favicon") && (<>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 18px" }}>
+          Het kleine icoon in de browsertab. Gebruik bij voorkeur een vierkante afbeelding (PNG of SVG).
+        </div>
+
+        {faviconUrl && (
+          <div style={{ marginBottom: 18, padding: 16, background: KLEUR.lichtblauw, borderRadius: 8, display: "flex", justifyContent: "center" }}>
+            <img src={faviconUrl} alt="Huidige favicon" style={{ height: 48, width: 48, objectFit: "contain" }} />
+          </div>
+        )}
+
+        <label
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px 16px",
+            border: `1.5px dashed ${KLEUR.rand}`, borderRadius: 8, cursor: "pointer", fontSize: 13.5,
+            fontWeight: 600, color: KLEUR.blauw,
+          }}
+        >
+          <Upload size={16} />
+          {faviconUploadStatus === "bezig" ? "Bezig met uploaden..." : "Nieuwe favicon kiezen"}
+          <input
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={(e) => uploadFavicon(e.target.files?.[0])}
+          />
+        </label>
+
+        {faviconUploadStatus === "gelukt" && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, fontSize: 12.5, color: KLEUR.blauw }}>
+            <CheckCircle2 size={14} /> Favicon bijgewerkt.
+          </div>
+        )}
+        {faviconUploadStatus === "fout" && (
+          <div style={{ marginTop: 12, fontSize: 12.5, color: KLEUR.rood }}>Uploaden is niet gelukt, probeer het nog eens.</div>
+        )}
+        </>)}
+      </div>
+
       {/* Word-briefpapier (.docx) hoort inhoudelijk bij Huisstijl; afzendergegevens (eigen kop
           hieronder) idem verplaatst — beide beheren dezelfde Brieven-configuratie, zie
           BrievenAfzenderInstellingen.jsx. */}
@@ -2342,6 +2200,152 @@ export default function BeheerPortaal() {
         )}
         {koStatus === "fout" && (
           <span style={{ marginLeft: 12, fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
+        )}
+        </>)}
+      </div>
+
+
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+        <button
+          onClick={() => toggleRubriek("snellinks")}
+          aria-expanded={rubriekIsOpen("snellinks")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("snellinks") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Snellinks</span>
+        </button>
+        {rubriekIsOpen("snellinks") && (<>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 18px" }}>
+          Knoppen die op home boven de mededelingen staan. Kies eventueel voor welke klantgroepen
+          een link zichtbaar is — niets aanvinken = voor iedereen.
+        </div>
+
+        <input
+          type="text"
+          value={nieuweLinkTitel}
+          onChange={(e) => setNieuweLinkTitel(e.target.value)}
+          placeholder="Titel (bijv. MijnActivaa)"
+          style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13.5, marginBottom: 10, boxSizing: "border-box" }}
+        />
+        <input
+          type="url"
+          value={nieuweLinkUrl}
+          onChange={(e) => setNieuweLinkUrl(e.target.value)}
+          placeholder="https://..."
+          style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13.5, marginBottom: 14, boxSizing: "border-box" }}
+        />
+
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 10 }}>
+          <Users size={13} /> Klantgroepen (uit Dataverse)
+        </div>
+
+        {categorieen === null ? (
+          <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, marginBottom: 14 }}>Categorieën ophalen...</div>
+        ) : categorieen.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, marginBottom: 14 }}>
+            Geen categorieën gevonden. Controleer <code>DYNAMICS_KLANTCATEGORIE_VELD</code>.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+            {categorieen.map((c) => {
+              const actief = gekozenLinkCategorieen.includes(c.waarde);
+              return (
+                <button
+                  key={c.waarde}
+                  onClick={() => toggleLinkCategorie(c.waarde)}
+                  style={{
+                    padding: "6px 12px", borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+                    border: `1px solid ${actief ? KLEUR.blauw : KLEUR.rand}`,
+                    background: actief ? KLEUR.blauw : "#fff",
+                    color: actief ? "#fff" : KLEUR.tekst,
+                  }}
+                >
+                  {c.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <button
+          onClick={verstuurSnellink}
+          disabled={!nieuweLinkTitel.trim() || !nieuweLinkUrl.trim() || linkVerzendStatus === "bezig"}
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: KLEUR.blauw,
+            color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer",
+            opacity: !nieuweLinkTitel.trim() || !nieuweLinkUrl.trim() ? 0.5 : 1,
+          }}
+        >
+          <LayoutGrid size={14} /> {linkVerzendStatus === "bezig" ? "Toevoegen..." : "Snellink toevoegen"}
+        </button>
+        {linkVerzendStatus === "fout" && (
+          <div style={{ marginTop: 10, fontSize: 12.5, color: KLEUR.rood }}>Toevoegen is niet gelukt, probeer het nog eens.</div>
+        )}
+
+        {snellinks && snellinks.length > 0 && (
+          <div style={{ marginTop: 24, paddingTop: 18, borderTop: `1px solid ${KLEUR.rand}` }}>
+            <button
+              onClick={() => setSnellinksOpen((v) => !v)}
+              aria-expanded={snellinksOpen}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+            >
+              <ChevronDown size={15} color={KLEUR.mutedTekst} style={{ transform: snellinksOpen ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+              <span style={{ fontSize: 12, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".04em" }}>
+                Actieve snellinks
+              </span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: KLEUR.mutedTekst }}>({snellinks.length})</span>
+            </button>
+            {snellinksOpen && (<>
+            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, margin: "8px 0 12px" }}>
+              De volgorde hieronder is ook de volgorde waarin klanten de knoppen zien. Gebruik de pijltjes om te rangschikken.
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {snellinks.map((s, i) => (
+                <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "10px 0", borderTop: `1px solid ${KLEUR.rand}` }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700 }}>
+                      <LayoutGrid size={13} color={KLEUR.blauw} /> {s.titel}
+                    </div>
+                    <a href={s.url} target="_blank" rel="noopener noreferrer" title={s.url} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: KLEUR.subtekst, marginTop: 2, textDecoration: "none", maxWidth: "100%" }}>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{s.url}</span>
+                      <ExternalLink size={11} style={{ flexShrink: 0 }} />
+                    </a>
+                    <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 6 }}>
+                      {s.klantcategorieen?.length > 0
+                        ? s.klantcategorieen.map(labelVoorWaarde).join(", ")
+                        : "Alle klanten"}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                    <button
+                      onClick={() => herschikSnellink(i, -1)}
+                      disabled={i === 0}
+                      title="Omhoog"
+                      style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: i === 0 ? KLEUR.rand : KLEUR.subtekst, cursor: i === 0 ? "default" : "pointer" }}
+                    >
+                      <ArrowUp size={14} />
+                    </button>
+                    <button
+                      onClick={() => herschikSnellink(i, 1)}
+                      disabled={i === snellinks.length - 1}
+                      title="Omlaag"
+                      style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: i === snellinks.length - 1 ? KLEUR.rand : KLEUR.subtekst, cursor: i === snellinks.length - 1 ? "default" : "pointer" }}
+                    >
+                      <ArrowDown size={14} />
+                    </button>
+                    <button
+                      onClick={() => verwijderSnellink(s.id)}
+                      title="Verwijderen"
+                      style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: KLEUR.rood, cursor: "pointer" }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            </>)}
+          </div>
         )}
         </>)}
       </div>
@@ -2987,6 +2991,15 @@ export default function BeheerPortaal() {
         )}
         </>)}
       </div>
+      {/* Contracten-beheer (per ongeluk losgeraakt in b072dcc — hersteld) */}
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+        <ContractenDossierInstellingen />
+        <ContractenMailInstellingen />
+      </div>
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+        <ContractenTypesBeheer />
+      </div>
+
       </>)}
 
       {tab === "taken" && (<>
