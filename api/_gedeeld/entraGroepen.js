@@ -49,7 +49,12 @@ async function haalAlles(url, token, max) {
   const alles = [];
   let volgende = url;
   while (volgende && alles.length < max) {
-    const res = await fetch(volgende, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } });
+    // ConsistencyLevel: eventual is verplicht voor "advanced queries" op directory-objecten —
+    // o.a. $orderby (+ groot $top) op /groups en de type-cast op /transitiveMembers. Zonder deze
+    // header (samen met $count=true in de URL) geeft Graph een 400 Request_UnsupportedQuery.
+    const res = await fetch(volgende, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json", ConsistencyLevel: "eventual" },
+    });
     if (!res.ok) {
       const fout = new Error(`Graph-aanroep mislukt (${res.status}): ${await res.text()}`);
       fout.status = res.status;
@@ -69,7 +74,7 @@ async function haalAlles(url, token, max) {
 async function haalGroepen() {
   const token = await haalGraphToken();
   const rijen = await haalAlles(
-    `${GRAPH}/groups?$select=id,displayName,mail&$top=999&$orderby=displayName`,
+    `${GRAPH}/groups?$select=id,displayName,mail&$top=999&$orderby=displayName&$count=true`,
     token,
     2000
   );
@@ -93,7 +98,7 @@ async function haalGroepEmails(groepId) {
   const token = await haalGraphToken();
   const leden = await haalAlles(
     `${GRAPH}/groups/${encodeURIComponent(groepId)}/transitiveMembers/microsoft.graph.user` +
-      `?$select=id,mail,userPrincipalName,otherMails&$top=999`,
+      `?$select=id,mail,userPrincipalName,otherMails&$top=999&$count=true`,
     token,
     5000
   );
