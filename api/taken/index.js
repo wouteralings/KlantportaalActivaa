@@ -2,6 +2,7 @@ const { haalDynamicsToken, herleidAccounts, haalNaamUitPrincipal } = require("..
 const { haalInstellingen } = require("../_gedeeld/instellingen");
 const { voegAkkoordToe, haalAkkoordenVoorEmail } = require("../_gedeeld/taakakkoorden");
 const { webhookMetId } = require("../_gedeeld/webhook");
+const { maakVervolgtaak } = require("../_gedeeld/vervolgtaak");
 
 /**
  * Optionele eigen velden op Task; leeg laten als ze bij jullie niet bestaan (dan worden ze
@@ -25,12 +26,6 @@ const SOORT_VELD = process.env.DYNAMICS_TAAK_SOORT_VELD || "";
 // via Application Setting DYNAMICS_TAAK_KLANT_VELD als het bij jullie anders heet.
 const KLANT_VELD = process.env.DYNAMICS_TAAK_KLANT_VELD || "sk_client";
 const KLANT_VALUE = `_${KLANT_VELD}_value`;
-
-// Manager/relatiebeheerder op het Account (Beheer → Klanten toont 'm ook al) — gebruikt om de
-// eigenaar van een automatisch aangemaakte vervolgtaak (zie maakVervolgtaak hieronder) te bepalen.
-// Zelfde Application Setting als api/beheer-klanten, zodat een eventuele aanpassing daar hier ook
-// meteen goed staat.
-const RELATIEBEHEERDER_VELD = process.env.DYNAMICS_RELATIEBEHEERDER_VELD || "cr283_manager";
 
 const EXTRA_TAAK_VELDEN = [UPLOADLINK_VELD, VERLOOPDATUM_VELD, SOORT_VELD, DOCUMENT_VELD].filter(Boolean).join(",");
 const FV = "@OData.Community.Display.V1.FormattedValue";
@@ -163,55 +158,9 @@ async function haalTaakVoorControle(resource, token, taakId, accountIds) {
   };
 }
 
-function vulVervolgtaakSjabloonIn(sjabloon, { klant, titel }) {
-  const basis = (sjabloon || "").trim() || "Vervolgactie n.a.v. akkoord: {titel}";
-  return basis.replaceAll("{klant}", klant || "").replaceAll("{titel}", titel || "");
-}
-
-/**
- * Maakt, ná een akkoord van de klant, automatisch een interne vervolgtaak aan voor backoffice —
- * alleen als dat voor déze taaksoort in Beheer → Taken aan staat (soortCfg.vervolgtaakBackoffice).
- * Onderwerp komt uit soortCfg.vervolgtaakOnderwerp (sjabloon met {klant}/{titel}); de "soort" van
- * de nieuwe taak is zelf ook weer een taaksoort (soortCfg.vervolgtaakSoort) — zo blijft die, mits
- * niet op "zichtbaar" gezet, vanzelf onzichtbaar voor klanten via hetzelfde bestaande mechanisme.
- * Eigenaar wordt de Manager/relatiebeheerder van het cliënt-account (cr283_manager op Account),
- * indien bekend — anders blijft de eigenaar op de Dynamics-standaardwaarde staan.
- *
- * Best-effort: gooit nooit door naar de aanroeper — een mislukte vervolgtaak mag het akkoord van
- * de klant zelf niet blokkeren. Fouten gaan alleen naar context.log.
- */
-async function maakVervolgtaak({ context, resource, token, taak, klantnaam, soortCfg }) {
-  try {
-    const taakBody = {
-      subject: vulVervolgtaakSjabloonIn(soortCfg.vervolgtaakOnderwerp, { klant: klantnaam, titel: taak.subject }),
-      description: `Automatisch aangemaakt na akkoord van de cliënt op taak "${taak.subject}".`,
-      [`${KLANT_VELD}@odata.bind`]: `/accounts(${taak.accountId})`,
-    };
-    if (SOORT_VELD && soortCfg.vervolgtaakSoort !== undefined && soortCfg.vervolgtaakSoort !== "") {
-      const soortWaarde = Number(soortCfg.vervolgtaakSoort);
-      if (Number.isFinite(soortWaarde)) taakBody[SOORT_VELD] = soortWaarde;
-    }
-
-    // Eigenaar = Manager van het cliënt-account, indien ingevuld.
-    const accRes = await fetch(`${resource}/api/data/v9.2/accounts(${taak.accountId})?$select=_${RELATIEBEHEERDER_VELD}_value`, {
-      headers: DYNAMICS_HEADERS(token),
-    });
-    if (accRes.ok) {
-      const acc = await accRes.json();
-      const managerId = acc[`_${RELATIEBEHEERDER_VELD}_value`];
-      if (managerId) taakBody["ownerid@odata.bind"] = `/systemusers(${managerId})`;
-    }
-
-    const res = await fetch(`${resource}/api/data/v9.2/tasks`, {
-      method: "POST",
-      headers: DYNAMICS_HEADERS(token),
-      body: JSON.stringify(taakBody),
-    });
-    if (!res.ok) throw new Error(`Aanmaken vervolgtaak mislukt (${res.status}): ${await res.text()}`);
-  } catch (err) {
-    context.log.error("Vervolgtaak voor backoffice aanmaken mislukt (akkoord van de klant zelf is wél verwerkt):", err);
-  }
-}
+// vulVervolgtaakSjabloonIn/maakVervolgtaak zitten sinds 06-08-2026 in _gedeeld/vervolgtaak.js
+// (gedeeld met api/taken-ondertekenen, dat dezelfde per-taaksoort instelling gebruikt voor taken
+// die via ondertekenen worden afgehandeld, bijv. "Aangifte versturen").
 
 module.exports = async function (context, req) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;

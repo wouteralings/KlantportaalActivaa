@@ -269,6 +269,11 @@ export default function BeheerPortaal() {
   const [taaksoortenSectieOpen, setTaaksoortenSectieOpen] = useState(false);
   const [taaksoortenZoek, setTaaksoortenZoek] = useState("");
 
+  // Submap voor het ondertekeningsbewijs (api/taken-ondertekenen) — geldt voor élke taaksoort met
+  // "Vereist handtekening" hierboven, dus los van een specifieke taaksoort ingesteld.
+  const [ondertekeningPadTemplate, setOndertekeningPadTemplate] = useState("");
+  const [ondertekeningPadStatus, setOndertekeningPadStatus] = useState("idle"); // idle | bezig | gelukt | fout
+
   // Webhooks (Power Automate), onderhoudbaar onder Instellingen.
   const [taakAfwijzingWebhookUrl, setTaakAfwijzingWebhookUrl] = useState("");
   const [reviewWebhookUrl, setReviewWebhookUrl] = useState("");
@@ -362,6 +367,7 @@ export default function BeheerPortaal() {
         setCopilotEmbedUrl(d.copilotEmbedUrl || "");
         setTaakAfwijzingWebhookUrl(d.taakAfwijzingWebhookUrl || "");
         setReviewWebhookUrl(d.reviewWebhookUrl || "");
+        setOndertekeningPadTemplate(d.ondertekeningsbewijsPadTemplate || "");
         setFacturatiemodulePrijs(d.facturatiemodulePrijs != null ? String(d.facturatiemodulePrijs) : "5");
         setUrenmodulePrijs(d.urenmodulePrijs != null ? String(d.urenmodulePrijs) : "2.5");
         setKoExtra((d.klantoverzicht && d.klantoverzicht.extraKolommen) || []);
@@ -1101,6 +1107,23 @@ export default function BeheerPortaal() {
       setTaaksoortenOpslaanStatus("fout");
     }
   }, [taaksoortenConfig]);
+
+  /** Los van slaTaaksoortenOp hierboven — de submap voor het ondertekeningsbewijs is een simpele
+   *  top-level instelling (geldt voor élke taaksoort met "Vereist handtekening", niet per soort). */
+  const slaOndertekeningPadOp = useCallback(async () => {
+    setOndertekeningPadStatus("bezig");
+    try {
+      const res = await fetch("/api/beheer-instellingen", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ondertekeningsbewijsPadTemplate: ondertekeningPadTemplate }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setOndertekeningPadStatus("gelukt");
+    } catch {
+      setOndertekeningPadStatus("fout");
+    }
+  }, [ondertekeningPadTemplate]);
 
   const toggleLinkCategorie = useCallback((waarde) => {
     setGekozenLinkCategorieen((huidig) =>
@@ -2973,6 +2996,9 @@ export default function BeheerPortaal() {
             Bepaal per soort taak of klanten hem in het portaal zien, en of ze hem zelf mogen
             goedkeuren. Bij goedkeuren wordt de taak in Dynamics afgerond, met een notitie dat de
             klant akkoord gaf. Soorten die niet zijn aangevinkt blijven voor de klant verborgen.
+            Zet "Vervolgtaak backoffice" aan om na een akkoord (via de akkoord-knop, of via
+            ondertekenen bij "Vereist handtekening") automatisch een interne taak voor backoffice
+            klaar te zetten — bijv. "versturen aangifte" na een geaccordeerde aangifte.
           </div>
 
           {taaksoortenOpties === null ? (
@@ -2999,19 +3025,21 @@ export default function BeheerPortaal() {
                   style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px 8px 32px", fontSize: 13 }}
                 />
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: "0 18px", alignItems: "center" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto", gap: "0 18px", alignItems: "center" }}>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}` }}>Soort</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Zichtbaar</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Mag goedkeuren</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Vereist handtekening</div>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Vervolgtaak backoffice</div>
                 {filterTaaksoorten(taaksoortenOpties, taaksoortenZoek)
                   .slice(0, taaksoortToonAantal)
                   .map((optie) => {
                   const cfg = taaksoortenConfig[String(optie.waarde)] || {};
+                  const rijRand = cfg.vervolgtaakBackoffice ? "none" : `1px solid ${KLEUR.rand}`;
                   return (
                     <React.Fragment key={optie.waarde}>
-                      <div style={{ fontSize: 13, padding: "10px 0", borderBottom: `1px solid ${KLEUR.rand}` }}>{optie.label}</div>
-                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: `1px solid ${KLEUR.rand}` }}>
+                      <div style={{ fontSize: 13, padding: "10px 0", borderBottom: rijRand }}>{optie.label}</div>
+                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: rijRand }}>
                         <input
                           type="checkbox"
                           checked={!!cfg.zichtbaar}
@@ -3019,7 +3047,7 @@ export default function BeheerPortaal() {
                           style={{ width: 16, height: 16, cursor: "pointer" }}
                         />
                       </div>
-                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: `1px solid ${KLEUR.rand}` }}>
+                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: rijRand }}>
                         <input
                           type="checkbox"
                           checked={!!cfg.magGoedkeuren}
@@ -3027,7 +3055,7 @@ export default function BeheerPortaal() {
                           style={{ width: 16, height: 16, cursor: "pointer" }}
                         />
                       </div>
-                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: `1px solid ${KLEUR.rand}` }}>
+                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: rijRand }}>
                         <input
                           type="checkbox"
                           checked={!!cfg.vereistHandtekening}
@@ -3035,6 +3063,42 @@ export default function BeheerPortaal() {
                           style={{ width: 16, height: 16, cursor: "pointer" }}
                         />
                       </div>
+                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: rijRand }}>
+                        <input
+                          type="checkbox"
+                          checked={!!cfg.vervolgtaakBackoffice}
+                          onChange={(e) => wijzigTaaksoort(optie.waarde, "vervolgtaakBackoffice", e.target.checked, optie.label)}
+                          style={{ width: 16, height: 16, cursor: "pointer" }}
+                        />
+                      </div>
+                      {cfg.vervolgtaakBackoffice && (
+                        <div style={{ gridColumn: "1 / -1", display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-end", padding: "0 0 14px", borderBottom: `1px solid ${KLEUR.rand}` }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: "1 1 300px" }}>
+                            <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>Onderwerp vervolgtaak</span>
+                            <input
+                              value={cfg.vervolgtaakOnderwerp || ""}
+                              onChange={(e) => wijzigTaaksoort(optie.waarde, "vervolgtaakOnderwerp", e.target.value, optie.label)}
+                              placeholder="Vervolgactie n.a.v. akkoord: {titel}"
+                              style={{ boxSizing: "border-box", width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 12.5, background: "#fff" }}
+                            />
+                            <span style={{ fontSize: 10.5, color: KLEUR.mutedTekst }}>Plaatshouders <code>{"{klant}"}</code> en <code>{"{titel}"}</code> mogen hierin.</span>
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: "1 1 240px" }}>
+                            <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>Soort van de vervolgtaak</span>
+                            <select
+                              value={cfg.vervolgtaakSoort ?? ""}
+                              onChange={(e) => wijzigTaaksoort(optie.waarde, "vervolgtaakSoort", e.target.value, optie.label)}
+                              style={{ boxSizing: "border-box", width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 12.5, background: "#fff" }}
+                            >
+                              <option value="">— geen wijziging (Dynamics-standaard) —</option>
+                              {taaksoortenOpties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
+                            </select>
+                            <span style={{ fontSize: 10.5, color: KLEUR.mutedTekst }}>
+                              Zet dit ook zelf op "niet zichtbaar" hierboven als de vervolgtaak niet voor de klant is bedoeld.
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </React.Fragment>
                   );
                 })}
@@ -3061,6 +3125,42 @@ export default function BeheerPortaal() {
             </>
           )}
           </>)}
+        </div>
+
+        <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20, background: KLEUR.lichtblauw }}>
+          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Opslag — ondertekeningsbewijs</div>
+          <div style={{ fontSize: 12.5, color: KLEUR.subtekst, margin: "6px 0 14px", lineHeight: 1.6, maxWidth: 640 }}>
+            Submap waarin het ondertekeningsbewijs (de PDF met naam, handtekening en tijdstip) wordt
+            opgeslagen — geldt voor élke taaksoort met "Vereist handtekening" hierboven, niet alleen
+            "Aangifte versturen". De map staat onder de dossiermap van de klant (<code>cr283_sharepoint</code>);
+            met een <code>/</code> maak je submappen. Plaatshouder <code>{"{klant}"}</code> mag ook.
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 12 }}>
+            <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>Submap in het SharePoint-dossier</span>
+            <input
+              value={ondertekeningPadTemplate}
+              onChange={(e) => { setOndertekeningPadTemplate(e.target.value); setOndertekeningPadStatus("idle"); }}
+              placeholder="1. Intern/0. Permanent dossier"
+              style={{ boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 13, width: "100%", maxWidth: 420, background: "#fff" }}
+            />
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button
+              onClick={slaOndertekeningPadOp}
+              disabled={ondertekeningPadStatus === "bezig"}
+              style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+            >
+              {ondertekeningPadStatus === "bezig" ? "Opslaan..." : "Opslaan"}
+            </button>
+            {ondertekeningPadStatus === "gelukt" && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: KLEUR.blauw }}>
+                <CheckCircle2 size={14} /> Opgeslagen.
+              </span>
+            )}
+            {ondertekeningPadStatus === "fout" && (
+              <span style={{ fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
+            )}
+          </div>
         </div>
       </>)}
 

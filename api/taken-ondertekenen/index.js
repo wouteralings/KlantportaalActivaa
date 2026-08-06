@@ -3,7 +3,23 @@ const { haalInstellingen } = require("../_gedeeld/instellingen");
 const { haalGebruikersToken, wisselVoorGraphToken } = require("../_gedeeld/graphObo");
 const { voegHandtekeningToe, bewaarPdfBlob } = require("../_gedeeld/handtekeningen");
 const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/sharepointUpload");
+const { maakVervolgtaak } = require("../_gedeeld/vervolgtaak");
 const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
+
+// Submap onder de SharePoint-basismap (cr283_sharepoint) van de klant waarin het ondertekenings-
+// bewijs terechtkomt — geldt voor ELKE taak die een handtekening vereist (vereistHandtekening),
+// dus niet alleen "Aangifte versturen". Instelbaar via Beheer → Taken (ondertekeningsbewijsPad-
+// Template in instellingen.js); leeg/niet ingesteld = deze terugval. Mag submappen bevatten
+// (scheiding met "/") en de plaatshouder {klant}.
+const STANDAARD_ONDERTEKENING_PAD = "1. Intern/0. Permanent dossier";
+
+function bepaalOndertekeningPad(sjabloon, { klant }) {
+  const segmenten = String(sjabloon == null || sjabloon === "" ? STANDAARD_ONDERTEKENING_PAD : sjabloon)
+    .split(/[\\/]+/)
+    .map((deel) => deel.replaceAll("{klant}", klant || "").replace(/[\\/:*?"<>|]/g, "-").trim())
+    .filter(Boolean);
+  return segmenten.length ? segmenten : STANDAARD_ONDERTEKENING_PAD.split("/");
+}
 
 const SOORT_VELD = process.env.DYNAMICS_TAAK_SOORT_VELD || "";
 const KLANT_VELD = process.env.DYNAMICS_TAAK_KLANT_VELD || "sk_client";
@@ -137,7 +153,8 @@ module.exports = async function (context, req) {
       if (!basisUrl) throw new Error(`Geen ${SHAREPOINT_VELD} op de klant ingevuld.`);
       const graphToken = await wisselVoorGraphToken(gebruikersToken, WRITE_SCOPE);
       const map = await resolveFolder(graphToken, basisUrl);
-      const doelId = await ensureFolderPath(graphToken, map.driveId, map.itemId, ["1. Intern", "0. Permanent dossier"]);
+      const padSegmenten = bepaalOndertekeningPad(instellingen.ondertekeningsbewijsPadTemplate, { klant: account.klantnaam });
+      const doelId = await ensureFolderPath(graphToken, map.driveId, map.itemId, padSegmenten);
       const geupload = await uploadBestand(graphToken, map.driveId, doelId, bestandsnaam, pdf);
       sharepointUrl = geupload.webUrl || null;
     } catch (spFout) {
@@ -168,6 +185,19 @@ module.exports = async function (context, req) {
       method: "PATCH", headers: DYN(token), body: JSON.stringify(updateBody),
     });
     if (!upd.ok) throw new Error(`Afronden taak mislukt: ${await upd.text()}`);
+
+    // Zelfde automatische vervolgtaak-mechanisme als bij een gewoon akkoord via /api/taken (zie
+    // maakVervolgtaak in _gedeeld/vervolgtaak.js) — hier ook nodig omdat taken die een handtekening
+    // vereisen (vereistHandtekening, bijv. "Aangifte versturen") via déze route worden afgehandeld
+    // i.p.v. via de losse akkoord-knop. Zelfde per-taaksoort instelling in Beheer → Taken
+    // (vervolgtaakBackoffice) stuurt dus allebei. Best-effort, blokkeert de ondertekening zelf niet.
+    if (soortCfg.vervolgtaakBackoffice) {
+      await maakVervolgtaak({
+        context, resource, token, soortCfg,
+        taak: { accountId, subject: taak.subject },
+        klantnaam: account.klantnaam,
+      });
+    }
 
     context.res = {
       status: 200,

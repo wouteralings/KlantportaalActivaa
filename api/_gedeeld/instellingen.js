@@ -24,6 +24,13 @@ const STANDAARD_AANGIFTE_TAAK_ONDERWERP = "Aangifte inkomstenbelasting {jaar} kl
 // "In afwachting reactie client" — bestaande optiesetwaarde op Task.cr283_soortactiecategorie.
 const STANDAARD_AANGIFTE_TAAK_SOORT = 8006;
 
+// Standaard-submap (onder cr283_sharepoint) waarin het ondertekeningsbewijs (de PDF die
+// api/taken-ondertekenen genereert bij een klant-handtekening) terechtkomt — geldt voor ELKE
+// taaksoort met vereistHandtekening, dus niet alleen "Aangifte versturen". Tot 06-08-2026
+// hardcoded in api/taken-ondertekenen, nu instelbaar via Beheer → Taken. Ondersteunt submappen
+// (scheiding met "/") en de plaatshouder {klant}.
+const STANDAARD_ONDERTEKENING_PAD = "1. Intern/0. Permanent dossier";
+
 async function haalContainerClient() {
   if (cachedContainerClient) return cachedContainerClient;
   const connectionString = process.env.STORAGE_CONNECTION_STRING;
@@ -50,7 +57,7 @@ async function haalInstellingen() {
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
 
   const bestaat = await blobClient.exists();
-  if (!bestaat) return { medewerkersGroepId: "", medewerkersGroepNaam: "", googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "", reviewWebhookUrl: "", facturatiemodulePrijs: 5, urenmodulePrijs: 2.5, rapportagesmodulePrijs: 7.5, bezittingenmodulePrijs: 5, rittenmodulePrijs: 1.5, contractenmodulePrijs: 2.5, contractenSharepointOpslag: false, contractenSharepointMap: "Contracten", contractenReminderAfzender: "", contractenReminderOnderwerp: "", contractenReminderTekst: "", klantoverzicht: { extraKolommen: [], standaardVerborgen: [] }, dossierIndeling: { ib: standaardIndelingIB() }, aangifteBestandsnaamTemplate: "Aangifte inkomstenbelasting {jaar} - {klant}.pdf", aangifteMailOnderwerpTemplate: STANDAARD_AANGIFTE_MAIL_ONDERWERP, aangifteMailTekstTemplate: STANDAARD_AANGIFTE_MAIL_TEKST, aangiftePadTemplate: STANDAARD_AANGIFTE_PAD, aangifteTaakOnderwerpTemplate: STANDAARD_AANGIFTE_TAAK_ONDERWERP, aangifteTaakSoort: STANDAARD_AANGIFTE_TAAK_SOORT, dossierExtraKolommen: { ib: [], vpb: [] }, contactpersonenExtraKolommen: [] };
+  if (!bestaat) return { medewerkersGroepId: "", medewerkersGroepNaam: "", googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "", reviewWebhookUrl: "", facturatiemodulePrijs: 5, urenmodulePrijs: 2.5, rapportagesmodulePrijs: 7.5, bezittingenmodulePrijs: 5, rittenmodulePrijs: 1.5, contractenmodulePrijs: 2.5, contractenSharepointOpslag: false, contractenSharepointMap: "Contracten", contractenReminderAfzender: "", contractenReminderOnderwerp: "", contractenReminderTekst: "", klantoverzicht: { extraKolommen: [], standaardVerborgen: [] }, dossierIndeling: { ib: standaardIndelingIB() }, aangifteBestandsnaamTemplate: "Aangifte inkomstenbelasting {jaar} - {klant}.pdf", aangifteMailOnderwerpTemplate: STANDAARD_AANGIFTE_MAIL_ONDERWERP, aangifteMailTekstTemplate: STANDAARD_AANGIFTE_MAIL_TEKST, aangiftePadTemplate: STANDAARD_AANGIFTE_PAD, aangifteTaakOnderwerpTemplate: STANDAARD_AANGIFTE_TAAK_ONDERWERP, aangifteTaakSoort: STANDAARD_AANGIFTE_TAAK_SOORT, ondertekeningsbewijsPadTemplate: STANDAARD_ONDERTEKENING_PAD, dossierExtraKolommen: { ib: [], vpb: [] }, contactpersonenExtraKolommen: [] };
 
   const downloadResponse = await blobClient.download();
   const tekst = await streamNaarTekst(downloadResponse.readableStreamBody);
@@ -146,6 +153,11 @@ async function haalInstellingen() {
     aangiftePadTemplate: STANDAARD_AANGIFTE_PAD,
     aangifteTaakOnderwerpTemplate: STANDAARD_AANGIFTE_TAAK_ONDERWERP,
     aangifteTaakSoort: STANDAARD_AANGIFTE_TAAK_SOORT,
+    // Submap onder de SharePoint-basismap (cr283_sharepoint) van de klant waarin het ondertekenings-
+    // bewijs (api/taken-ondertekenen) wordt opgeslagen — geldt voor élke taaksoort met
+    // vereistHandtekening, dus breder dan alleen "Aangifte versturen" hierboven. Instelbaar via
+    // Beheer → Taken. Mag submappen bevatten (scheiding met "/") en de plaatshouder {klant}.
+    ondertekeningsbewijsPadTemplate: STANDAARD_ONDERTEKENING_PAD,
     // Extra (door Beheer zelf toegevoegde) Dynamics-velden als kolom in de hoofdtabellen
     // Inkomstenbelasting/Vennootschapsbelasting — zelfde vorm als klantoverzicht.extraKolommen
     // hierboven, maar per dossiersoort (andere entiteit/velden per soort, zie api/_gedeeld/dossiers.js).
