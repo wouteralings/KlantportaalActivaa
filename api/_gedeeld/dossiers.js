@@ -278,6 +278,9 @@ function naarBuiten(rij, soort) {
     accountant: o.accountant ? (rij[o.accountant + FV] || "") : "",
     assistent: o.assistent ? (rij[o.assistent + FV] || "") : "",
     manager: o.manager ? (rij[o.manager + FV] || "") : "",
+    // Ruwe id (GUID) van de manager-lookup (systemuser) — o.a. gebruikt om de aangifte-taak aan de
+    // manager toe te wijzen (zie api/medewerker-aangifte-versturen). Leeg als er geen manager is.
+    managerId: o.manager ? (rij[o.manager] || null) : null,
     groepsnaam: o.groepsnaam ? (rij[o.groepsnaam + FV] || "") : "",
     fiscaalPartnerAccountId: o.fiscaalpartner ? (rij[o.fiscaalpartner] || null) : null,
     fiscaalPartnerNaam: o.fiscaalpartner ? (rij[o.fiscaalpartner + FV] || "") : "",
