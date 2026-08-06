@@ -4,6 +4,8 @@ import UitvraagBeheer from "./UitvraagBeheer";
 import UrenTarievenBeheer from "./UrenTarievenBeheer";
 import VerlofBeheer from "./VerlofBeheer";
 import DossierIndelingBeheer from "./DossierIndelingBeheer";
+import RapportagesBeheer from "./RapportagesBeheer";
+import BezittingenBeheer from "./BezittingenBeheer";
 import ContractenTypesBeheer from "./ContractenTypesBeheer";
 import ContractenDossierInstellingen from "./ContractenDossierInstellingen";
 import ContractenMailInstellingen from "./ContractenMailInstellingen";
@@ -3019,6 +3021,10 @@ export default function BeheerPortaal() {
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
         <ContractenTypesBeheer />
       </div>
+
+      {/* Rapportages (met RGS) + Bezittingen — losgeraakt in a6f1271, hersteld */}
+      <RapportagesBeheer />
+      <BezittingenBeheer />
 
       </>)}
 
