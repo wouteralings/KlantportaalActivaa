@@ -60,7 +60,11 @@ const WIJZIG_VELD_LABELS = {
   iban: "IBAN", ibanTenaamstelling: "Tenaamstelling IBAN",
   // Bezittingenmodule → "niet meer in bezit" (type "bezitting_niet_meer_in_bezit").
   bezitting: "Bezitting", reden: "Reden",
+  // Fiscaal dossier (type "dossier") — de klant reageert op de review-notitie van de accountant.
+  reactie: "Reactie op review-notitie",
 };
+
+const DOSSIER_SOORT_LABEL = { ib: "Inkomstenbelasting", vpb: "Vennootschapsbelasting" };
 
 function StatusBadge({ status }) {
   const kleuren = {
@@ -214,6 +218,17 @@ function WijzigingsverzoekBeheer({ onAfgehandeld }) {
                   </div>
                   <StatusBadge status={v.status} />
                 </div>
+
+                {v.type === "dossier" && (
+                  <div style={{ marginBottom: 10, padding: "9px 12px", background: "#FBF6EC", border: `1px solid ${KLEUR.goud}44`, borderRadius: 8 }}>
+                    <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.goud, marginBottom: 3 }}>
+                      Reactie op {DOSSIER_SOORT_LABEL[v.soort] || "dossier"}{v.huidig?.reviewNotitie ? " — opmerking van de accountant:" : ""}
+                    </div>
+                    {v.huidig?.reviewNotitie && (
+                      <div style={{ fontSize: 12.5, color: KLEUR.subtekst }} dangerouslySetInnerHTML={{ __html: v.huidig.reviewNotitie }} />
+                    )}
+                  </div>
+                )}
 
                 <div style={{ overflowX: "auto" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>

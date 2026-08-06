@@ -30,6 +30,7 @@ import {
   Users,
   Bot,
   MessageCircle,
+  MessageSquare,
   Clock,
   BarChart3,
   Boxes,
@@ -268,6 +269,20 @@ export default function KlantPortaal() {
       body: JSON.stringify({ accountId, voorstel }),
     });
     if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    haalVerzoekenOp();
+    return data;
+  }, [haalVerzoekenOp]);
+
+  // Reactie op een fiscaal dossier (IB/VPB) indienen — loopt via dezelfde goedkeuringssystematiek
+  // als NAW (wijzigingsverzoek van type "dossier"; medewerker keurt goed → naar Dynamics).
+  const dienDossierReactieIn = useCallback(async (soort, dossierId, accountId, reactie) => {
+    const res = await fetch("/api/wijzigingsverzoek", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "dossier", soort, dossierId, accountId, reactie }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || (await res.text().catch(() => "")) || `HTTP ${res.status}`);
     const data = await res.json();
     haalVerzoekenOp();
     return data;
@@ -682,7 +697,7 @@ export default function KlantPortaal() {
         <DocumentenTab toonAanleververzoeken={false} />
         </>
       )}
-      {tab === "dossiers" && <TabDossiers />}
+      {tab === "dossiers" && <TabDossiers mijnVerzoeken={mijnVerzoeken} onReactieIndienen={dienDossierReactieIn} alleenLezen={!!meekijkSessie} />}
       {tab === "facturen" && <FacturatieModule accounts={alleAccounts} prijs={facturatiemodulePrijs} urenPrijs={urenmodulePrijs} alleenLezen={!!meekijkSessie} initieelSubtab={adminInitieelSubtab} />}
       {tab === "ritten" && <RittenModule accounts={alleAccounts} prijs={rittenmodulePrijs} alleenLezen={!!meekijkSessie} />}
       {tab === "rapportages" && <RapportagesModule accounts={alleAccounts} prijs={rapportagesmodulePrijs} alleenLezen={!!meekijkSessie} />}
@@ -2570,7 +2585,28 @@ function dossierBehandelaar(d) {
   return delen.join("  ·  ");
 }
 
-function DossierRij({ dossier: d, eerste }) {
+function DossierRij({ dossier: d, eerste, pendingVerzoek, onReactieIndienen, alleenLezen }) {
+  const [open, setOpen] = useState(false); // reactie-invoer open?
+  const [tekst, setTekst] = useState("");
+  const [bezig, setBezig] = useState(false);
+  const [fout, setFout] = useState("");
+  const [gelukt, setGelukt] = useState(false);
+
+  const heeftPending = !!pendingVerzoek;
+  const versturen = async () => {
+    const schoon = tekst.trim();
+    if (!schoon) { setFout("Je reactie is leeg."); return; }
+    setBezig(true); setFout("");
+    try {
+      await onReactieIndienen(d.soort, d.id, d.accountId, schoon);
+      setGelukt(true); setOpen(false); setTekst("");
+    } catch (e) {
+      setFout(String(e.message || e) || "Versturen is niet gelukt.");
+    } finally {
+      setBezig(false);
+    }
+  };
+
   return (
     <div style={{ padding: "14px 18px", borderTop: eerste ? "none" : `1px solid ${KLEUR.rand}` }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
@@ -2601,16 +2637,57 @@ function DossierRij({ dossier: d, eerste }) {
           <div style={{ fontSize: 13, color: KLEUR.tekst }} dangerouslySetInnerHTML={{ __html: d.reactie }} />
         </div>
       )}
-      {d.documentUrl && (
-        <a href={d.documentUrl} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10, fontSize: 12.5, fontWeight: 600, color: KLEUR.blauw, textDecoration: "none" }}>
-          <ExternalLink size={13} /> Documenten bekijken
-        </a>
+      {/* Ingediende, nog niet goedgekeurde reactie (wijzigingsverzoek van type "dossier"). */}
+      {heeftPending && (
+        <div style={{ marginTop: 8, padding: "10px 12px", background: "#FFFBEB", border: `1px solid ${KLEUR.goud}55`, borderRadius: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 700, color: KLEUR.goud, marginBottom: 4 }}>
+            <Clock size={13} /> Je reactie wacht op goedkeuring door Activaa
+          </div>
+          {pendingVerzoek.voorstelReactie && (
+            <div style={{ fontSize: 13, color: KLEUR.tekst, whiteSpace: "pre-wrap" }}>{pendingVerzoek.voorstelReactie}</div>
+          )}
+        </div>
+      )}
+      <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 10, flexWrap: "wrap" }}>
+        {d.documentUrl && (
+          <a href={d.documentUrl} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, color: KLEUR.blauw, textDecoration: "none" }}>
+            <ExternalLink size={13} /> Documenten bekijken
+          </a>
+        )}
+        {!alleenLezen && !heeftPending && !open && (
+          <button onClick={() => { setOpen(true); setGelukt(false); setTekst(d.reactie ? d.reactie.replace(/<[^>]*>/g, "") : ""); }} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", padding: 0, fontSize: 12.5, fontWeight: 600, color: KLEUR.blauw, cursor: "pointer" }}>
+            <MessageSquare size={13} /> {d.reactie ? "Reactie aanpassen" : "Reageren / wijziging voorstellen"}
+          </button>
+        )}
+        {gelukt && !heeftPending && (
+          <span style={{ fontSize: 12, color: KLEUR.groen, fontWeight: 600 }}>Je reactie is ingediend.</span>
+        )}
+      </div>
+      {open && (
+        <div style={{ marginTop: 10 }}>
+          <textarea
+            value={tekst}
+            onChange={(e) => setTekst(e.target.value)}
+            rows={4}
+            placeholder="Typ hier je reactie of je voorgestelde wijziging. Een medewerker van Activaa beoordeelt deze en verwerkt hem in je dossier."
+            style={{ width: "100%", boxSizing: "border-box", fontFamily: "inherit", fontSize: 13, padding: "9px 11px", borderRadius: 8, border: `1px solid ${KLEUR.rand}`, resize: "vertical" }}
+          />
+          {fout && <div style={{ fontSize: 12, color: KLEUR.rood, marginTop: 6 }}>{fout}</div>}
+          <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+            <button onClick={versturen} disabled={bezig} style={{ ...knopStijlPrimair, opacity: bezig ? 0.6 : 1 }}>
+              {bezig ? "Versturen…" : "Reactie indienen"}
+            </button>
+            <button onClick={() => { setOpen(false); setFout(""); }} disabled={bezig} style={{ background: "none", border: "none", fontSize: 12.5, fontWeight: 600, color: KLEUR.subtekst, cursor: "pointer" }}>
+              Annuleren
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
-function TabDossiers() {
+function TabDossiers({ mijnVerzoeken = [], onReactieIndienen, alleenLezen }) {
   const [status, setStatus] = useState("laden"); // laden | klaar | fout
   const [dossiers, setDossiers] = useState([]);
 
@@ -2622,6 +2699,9 @@ function TabDossiers() {
       .catch(() => { if (actief) setStatus("fout"); });
     return () => { actief = false; };
   }, []);
+
+  // Open (nog niet goedgekeurde) dossier-reactie per dossier, om een "wacht op goedkeuring" te tonen.
+  const pendingVoor = (d) => mijnVerzoeken.find((v) => v.type === "dossier" && v.status === "open" && v.dossierId === d.id && v.soort === d.soort);
 
   if (status === "laden") {
     return (
@@ -2650,7 +2730,7 @@ function TabDossiers() {
         <div key={groep.label} style={{ marginBottom: 28 }}>
           <Kopje tekst={groep.label} />
           <div style={{ ...kaartStijl, padding: 0, overflow: "hidden" }}>
-            {groep.items.map((d, i) => <DossierRij key={d.id || i} dossier={d} eerste={i === 0} />)}
+            {groep.items.map((d, i) => <DossierRij key={d.id || i} dossier={d} eerste={i === 0} pendingVerzoek={pendingVoor(d)} onReactieIndienen={onReactieIndienen} alleenLezen={alleenLezen} />)}
           </div>
         </div>
       ))}

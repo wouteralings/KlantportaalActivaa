@@ -11,6 +11,9 @@
  *   - "bedrijfsgegevens_facturatie" — de eigen afzendergegevens/logo-gegevens van de
  *     facturatiemodule (dbo.bedrijfsgegevens_klanten), wordt bij goedkeuring in die SQL-tabel
  *     weggeschreven (geen Dynamics bij betrokken).
+ *   - "dossier" — een reactie/opmerking die de klant op een fiscaal dossier (IB/VPB) indient;
+ *     wordt bij goedkeuring naar het reactie-veld van dat dossier in Dynamics weggeschreven (zie
+ *     api/beheer-wijzigingen). Draagt daarvoor extra `soort` (ib/vpb) en `dossierId` mee.
  */
 const { BlobServiceClient } = require("@azure/storage-blob");
 const crypto = require("crypto");
@@ -57,13 +60,17 @@ async function schrijfVerzoeken(verzoeken) {
   await blobClient.upload(buffer, buffer.length, { overwrite: true });
 }
 
-async function voegVerzoekToe({ accountId, contactId, klantnummer, klantnaam, aanvragerEmail, huidig, voorstel, type }) {
+async function voegVerzoekToe({ accountId, contactId, klantnummer, klantnaam, aanvragerEmail, huidig, voorstel, type, soort, dossierId }) {
   const verzoeken = await haalAlleVerzoeken();
   const nieuw = {
     id: crypto.randomUUID(),
     type: type || "naw",
     accountId,
     contactId: contactId || null,
+    // Alleen gevuld bij type "dossier": welke fiscale dossiersoort (ib/vpb) en welk Dynamics-record
+    // de klantreactie betreft, zodat de goedkeuring bij het juiste dossier terechtkomt.
+    soort: soort || null,
+    dossierId: dossierId || null,
     klantnummer: klantnummer ?? null,
     klantnaam: klantnaam || "",
     aanvragerEmail: aanvragerEmail || "",

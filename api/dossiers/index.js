@@ -15,6 +15,29 @@ function sorteerSleutel(d) {
   return 0;
 }
 
+// De klant ziet het dossier ALLEEN-LEZEN en beperkt: periode, behandelaars, status, de opmerking
+// van de accountant (review-notitie), zijn eigen reactie en de documentlink. Bewust NIET alle
+// interne dossiervelden (`velden`), permanente-dossier-URL's e.d. — die horen bij het
+// medewerkersscherm. Daarom een expliciete projectie i.p.v. het hele naarBuiten()-object.
+function naarKlant(d) {
+  return {
+    id: d.id,
+    soort: d.soort,
+    soortLabel: d.soortLabel,
+    accountId: d.accountId,
+    klantnaam: d.klantnaam,
+    jaar: d.jaar,
+    begindatum: d.begindatum,
+    einddatum: d.einddatum,
+    statusLabel: d.statusLabel,
+    accountant: d.accountant,
+    assistent: d.assistent,
+    reviewNotitie: d.reviewNotitie,
+    reactie: d.reactie,
+    documentUrl: d.documentUrl,
+  };
+}
+
 module.exports = async function (context, req) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   if (!resource) {
@@ -45,7 +68,7 @@ module.exports = async function (context, req) {
     const dossiers = perSoort.flat().sort((a, b) => {
       if (a.soort !== b.soort) return a.soort < b.soort ? -1 : 1;
       return sorteerSleutel(b) - sorteerSleutel(a);
-    });
+    }).map(naarKlant);
 
     context.res = { headers: { "Content-Type": "application/json" }, body: { dossiers } };
   } catch (err) {

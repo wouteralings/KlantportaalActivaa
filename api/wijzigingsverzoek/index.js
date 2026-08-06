@@ -2,6 +2,7 @@ const { haalDynamicsToken, herleidAccounts, haalEmailUitPrincipal, IBAN_VELD, IB
 const { voegVerzoekToe, haalVerzoekenVoorEmail } = require("../_gedeeld/wijzigingen");
 const { verstuurMail } = require("../_gedeeld/mail");
 const { isIngeschakeld } = require("../_gedeeld/facturatieInstellingen");
+const { SOORTEN, haalEenDossier } = require("../_gedeeld/dossiers");
 const { haalGegevens: haalBedrijfsgegevens, zetGegevens: zetBedrijfsgegevens } = require("../_gedeeld/bedrijfsgegevensKlanten");
 
 const INFO_EMAIL = process.env.REVIEW_INFO_EMAIL || "info@activaa.nl";
@@ -71,6 +72,10 @@ module.exports = async function (context, req) {
           verzoeken: eigen.map((v) => ({
             id: v.id, accountId: v.accountId, status: v.status, aangevraagdOp: v.aangevraagdOp,
             type: v.type || "naw",
+            // Alleen bij dossier-verzoeken: zodat het portaal per dossier een "wacht op goedkeuring"
+            // kan tonen én de al ingediende (nog niet goedgekeurde) reactie kan laten zien.
+            soort: v.soort || null, dossierId: v.dossierId || null,
+            voorstelReactie: v.type === "dossier" ? (v.voorstel && v.voorstel.reactie) || "" : undefined,
           })),
         },
       };
@@ -89,6 +94,62 @@ module.exports = async function (context, req) {
     const account = accounts.find((a) => a.accountId === accountId);
     if (!account) {
       context.res = { status: 403, body: { error: "Dit account hoort niet bij jouw gegevens." } };
+      return;
+    }
+
+    // Dossier-reactie — de klant dient een reactie/opmerking op een fiscaal dossier (IB/VPB) in.
+    // Loopt via dezelfde goedkeuringssystematiek: wordt bij akkoord door een medewerker naar het
+    // reactie-veld van het dossier in Dynamics weggeschreven (zie api/beheer-wijzigingen).
+    if (req.body?.type === "dossier") {
+      const soort = SOORTEN.find((s) => s.key === req.body?.soort);
+      const dossierId = req.body?.dossierId;
+      const reactie = typeof req.body?.reactie === "string" ? req.body.reactie.trim() : "";
+      if (!soort || !dossierId) {
+        context.res = { status: 400, body: { error: "Geef een geldige dossiersoort en dossier mee." } };
+        return;
+      }
+      if (!reactie) {
+        context.res = { status: 400, body: { error: "Je reactie is leeg." } };
+        return;
+      }
+      // Controleer dat dit dossier écht bij het (geverifieerde) account van de klant hoort — anders
+      // zou een klant via een geraden id op een ander dossier kunnen reageren.
+      const dossier = await haalEenDossier(resource, token, soort, dossierId).catch(() => null);
+      if (!dossier || dossier.accountId !== account.accountId) {
+        context.res = { status: 403, body: { error: "Dit dossier hoort niet bij jouw gegevens." } };
+        return;
+      }
+      const huidig = { reactie: dossier.reactie || "", reviewNotitie: dossier.reviewNotitie || "" };
+      const voorstel = { reactie };
+      const verzoek = await voegVerzoekToe({
+        type: "dossier",
+        accountId: account.accountId,
+        soort: soort.key,
+        dossierId,
+        klantnummer: account.klantnummer,
+        klantnaam: account.klantnaam,
+        aanvragerEmail: email,
+        huidig,
+        voorstel,
+      });
+      // Best-effort melding aan Activaa.
+      try {
+        const periode = dossier.jaar != null && dossier.jaar !== "" ? ` ${dossier.jaar}` : "";
+        await verstuurMail({
+          ontvangers: [INFO_EMAIL, account.relatiebeheerder?.email],
+          onderwerp: `Reactie op ${soort.label}-dossier — ${account.klantnaam}`,
+          tekst:
+            `Een klant heeft via het portaal een reactie op een fiscaal dossier ingediend.\n\n` +
+            `Klant: ${account.klantnaam} (klantnr ${account.klantnummer ?? "-"})\n` +
+            `Dossier: ${soort.label}${periode}\n` +
+            `Ingediend door: ${email}\n\n` +
+            `Reactie van de klant:\n${reactie}\n\n` +
+            `Keur het verzoek goed of af in de beheeromgeving onder "Wijzigingsverzoeken".`,
+        });
+      } catch (mailFout) {
+        context.log.error("Melding dossier-wijzigingsverzoek mislukt:", mailFout);
+      }
+      context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, id: verzoek.id, status: verzoek.status } };
       return;
     }
 

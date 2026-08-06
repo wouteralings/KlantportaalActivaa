@@ -395,6 +395,12 @@ async function werkDossierBij(resource, token, soort, id, velden) {
   if (velden.documentUrl !== undefined) {
     body[soort.optioneel.documentUrl] = velden.documentUrl ? String(velden.documentUrl).slice(0, 2000) : null;
   }
+  // Reactie op de review-notitie (van de klant). Gebruikt door de goedkeuring van een klant-
+  // wijzigingsverzoek van type "dossier" (zie api/beheer-wijzigingen) — schrijft naar het
+  // reactie-veld van de soort (cr283_reactiereviewnotitie bij IB, cr283_reviewnotitiereactie bij VPB).
+  if (velden.reactie !== undefined && soort.optioneel.reactie) {
+    body[soort.optioneel.reactie] = velden.reactie ? String(velden.reactie) : null;
+  }
   if (velden.velden && typeof velden.velden === "object" && Array.isArray(soort.catalogus)) {
     for (const [key, waarde] of Object.entries(velden.velden)) {
       const veldDef = soort.catalogus.find((v) => v.key === key);

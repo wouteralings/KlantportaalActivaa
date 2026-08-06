@@ -1,6 +1,7 @@
 const { haalDynamicsToken, haalEmailUitPrincipal, IBAN_VELD, IBAN_TENAAMSTELLING_VELD } = require("../_gedeeld/identiteit");
 const { haalAlleVerzoeken, werkVerzoekBij } = require("../_gedeeld/wijzigingen");
 const { zetGegevens: zetBedrijfsgegevens } = require("../_gedeeld/bedrijfsgegevensKlanten");
+const { SOORTEN, werkDossierBij } = require("../_gedeeld/dossiers");
 
 const DYN_HEADERS = (token) => ({
   Authorization: `Bearer ${token}`,
@@ -163,12 +164,7 @@ module.exports = async function (context, req) {
       // keer misgaat maar IBAN via Dynamics wél lukt, komt de waarde alsnog bij de klant terecht.
       let verwerkingsfout = null;
       try {
-        if (verzoek.type === "bezitting_niet_meer_in_bezit") {
-          // Geen geautomatiseerd doelsysteem: de "niet meer in bezit"-vlag staat al (direct bij
-          // het indienen) in bezittingenStatus.js. Goedkeuren betekent hier alleen dat een
-          // medewerker heeft gezien dat dit nog handmatig verwerkt moet worden (bijv. afvoeren in
-          // Exact Online) — er is dus niets om automatisch weg te schrijven.
-        } else if (verzoek.type === "bedrijfsgegevens_facturatie") {
+        if (verzoek.type === "bedrijfsgegevens_facturatie") {
           const sqlFout = await zetBedrijfsgegevens(verzoek.accountId, verzoek.voorstel, beheerder)
             .then(() => null)
             .catch((fout) => fout);
@@ -204,6 +200,13 @@ module.exports = async function (context, req) {
             // hier alleen best-effort, dus een foutje daarin hoeft dit verzoek niet te laten mislukken.
             context.log.error("Wegschrijven van IBAN naar Dynamics (best effort) mislukt:", dynFout);
           }
+        } else if (verzoek.type === "dossier") {
+          // Klantreactie op een fiscaal dossier → naar het reactie-veld van dat dossier in Dynamics.
+          const soort = SOORTEN.find((s) => s.key === verzoek.soort);
+          if (!soort || !verzoek.dossierId) throw new Error("Dossier-verzoek zonder geldige soort/dossierId; kan niet verwerken.");
+          const resource = process.env.DYNAMICS_RESOURCE_URL;
+          const token = await haalDynamicsToken();
+          await werkDossierBij(resource, token, soort, verzoek.dossierId, { reactie: verzoek.voorstel?.reactie ?? "" });
         } else {
           const resource = process.env.DYNAMICS_RESOURCE_URL;
           const token = await haalDynamicsToken();
