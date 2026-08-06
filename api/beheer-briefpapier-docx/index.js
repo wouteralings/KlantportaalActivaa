@@ -7,14 +7,16 @@
  *   POST   { dataUrl: "data:...docx;base64,..." }  → { briefpapierDocx: true }
  *   DELETE                                          → { briefpapierDocx: false }
  */
-const { slaBriefpapier, verwijderBriefpapier } = require("../_gedeeld/briefWordpapier");
+const { slaBriefpapier, verwijderBriefpapier, extraheerAchtergrond } = require("../_gedeeld/briefWordpapier");
+const { slaBriefachtergrondOp } = require("../_gedeeld/media");
 const { haalConfig, zetConfig } = require("../_gedeeld/briefSjablonen");
 
-async function zetVlag(waarde) {
+/** Zet één of meer afzender-velden (briefpapierDocx / achtergrondUrl) in de Brieven-config. */
+async function zetAfzenderVelden(velden) {
   const config = await haalConfig();
-  config.afzender = { ...config.afzender, briefpapierDocx: waarde };
+  config.afzender = { ...config.afzender, ...velden };
   const opgeslagen = await zetConfig(config);
-  return opgeslagen.afzender.briefpapierDocx === true;
+  return opgeslagen.afzender;
 }
 
 module.exports = async function (context, req) {
@@ -22,8 +24,9 @@ module.exports = async function (context, req) {
   try {
     if (methode === "DELETE") {
       await verwijderBriefpapier();
-      const vlag = await zetVlag(false);
-      context.res = { headers: { "Content-Type": "application/json" }, body: { briefpapierDocx: vlag } };
+      // Ook de uit het briefpapier afgeleide achtergrond (voor voorbeeld/PDF) loskoppelen.
+      const afz = await zetAfzenderVelden({ briefpapierDocx: false, achtergrondUrl: "" });
+      context.res = { headers: { "Content-Type": "application/json" }, body: { briefpapierDocx: afz.briefpapierDocx === true } };
       return;
     }
     if (methode !== "POST") {
@@ -43,8 +46,16 @@ module.exports = async function (context, req) {
       return;
     }
     await slaBriefpapier(buffer);
-    const vlag = await zetVlag(true);
-    context.res = { headers: { "Content-Type": "application/json" }, body: { briefpapierDocx: vlag } };
+    // Volledige-pagina-achtergrond uit het briefpapier halen zodat het live voorbeeld + de PDF
+    // dezelfde huisstijl tonen als de Word-download. Best-effort: mislukt dit, dan blijft het
+    // briefpapier gewoon ingesteld (alleen zonder achtergrond in voorbeeld/PDF).
+    let achtergrondUrl = "";
+    try {
+      const dataUrl = await extraheerAchtergrond(buffer);
+      if (dataUrl) achtergrondUrl = await slaBriefachtergrondOp(dataUrl);
+    } catch (e) { context.log.warn && context.log.warn("Achtergrond uit briefpapier halen mislukt:", String(e && e.message || e)); }
+    const afz = await zetAfzenderVelden({ briefpapierDocx: true, ...(achtergrondUrl ? { achtergrondUrl } : {}) });
+    context.res = { headers: { "Content-Type": "application/json" }, body: { briefpapierDocx: afz.briefpapierDocx === true, achtergrondUrl: afz.achtergrondUrl || "" } };
   } catch (err) {
     if (err.message === "MISSING_CONFIG") {
       context.res = { status: 501, headers: { "Content-Type": "application/json" }, body: { error: "Opslag is nog niet geconfigureerd." } };

@@ -82,6 +82,27 @@ function ondertekenaarDefault(klant, afzender) {
   if (a.ondertekenaarBron === "vast") return veiligeStr(a.ondertekenaarVast);
   return veiligeStr(klant && klant.relatiebeheerder);
 }
+/** Standaard "Behandeld door": de relatiebeheerder/manager van de klant (anders de accountant). */
+function behandelaarVan(klant) {
+  const k = klant || {};
+  return veiligeStr(k.manager && k.manager.naam) || veiligeStr(k.relatiebeheerder) || veiligeStr(k.accountant);
+}
+/** Driekoloms voettekst uit de afzendergegevens (bedrijf/adres · contact · BTW/KvK/IBAN). */
+function footerKolommenVan(a) {
+  a = a || {};
+  const pcp = [veiligeStr(a.postcode), veiligeStr(a.plaats)].filter(Boolean).join(" ");
+  return [
+    [veiligeStr(a.bedrijfsnaam) || "Activaa", veiligeStr(a.adres), pcp].filter(Boolean),
+    [veiligeStr(a.telefoon), veiligeStr(a.website), veiligeStr(a.email)].filter(Boolean),
+    [veiligeStr(a.btw) && `BTW ${veiligeStr(a.btw)}`, veiligeStr(a.kvk) && `KvK ${veiligeStr(a.kvk)}`, veiligeStr(a.iban) && `IBAN ${veiligeStr(a.iban)}`].filter(Boolean),
+  ];
+}
+/** Kleine afzender-adresregel (onder het logo, gecentreerd) — alleen zichtbaar met briefpapier/achtergrond. */
+function afzenderMiniRegelVan(a) {
+  a = a || {};
+  const pcp = [veiligeStr(a.postcode), veiligeStr(a.plaats)].filter(Boolean).join(" ");
+  return [veiligeStr(a.adres), pcp].filter(Boolean).join("  ");
+}
 
 function base64Download(base64, bestandsnaam, contentType) {
   const bin = atob(base64), arr = new Uint8Array(bin.length);
@@ -114,6 +135,13 @@ export default function BrievenOverzicht() {
   const [tekst, setTekst] = useState("");
   const [afsluiting, setAfsluiting] = useState("");
   const [ondertekenaar, setOndertekenaar] = useState("");
+  // Kopvelden (huisstijl-layout): VERTROUWELIJK, Kenmerk, Behandeld door, Telefoonnummer + de
+  // "automatisch gegenereerd"-regel. Vooringevuld waar mogelijk, maar aanpasbaar.
+  const [vertrouwelijk, setVertrouwelijk] = useState(false);
+  const [kenmerk, setKenmerk] = useState("");
+  const [behandeldDoor, setBehandeldDoor] = useState("");
+  const [telefoonnummer, setTelefoonnummer] = useState("");
+  const [autoGegenereerd, setAutoGegenereerd] = useState(true);
   const [veldWaarden, setVeldWaarden] = useState({}); // sleutel → waarde (invulvelden)
   const [naar, setNaar] = useState("");
   const [cc, setCc] = useState("");
@@ -169,6 +197,11 @@ export default function BrievenOverzicht() {
     setAanhef(aanhefVan(klant));
     setAfsluiting(veiligeStr(afzender.afsluiting) || "Met vriendelijke groet,");
     setOndertekenaar(ondertekenaarDefault(klant, afzender));
+    setVertrouwelijk(!!sjabloon.vertrouwelijk);
+    setKenmerk("");
+    setBehandeldDoor(behandelaarVan(klant));
+    setTelefoonnummer(veiligeStr(afzender.telefoon));
+    setAutoGegenereerd(true);
     setNaar(veiligeStr(klant && klant.contact && klant.contact.email) || veiligeStr(klant && klant.emailKlant));
     // invulveld-defaults
     const start = {};
@@ -215,15 +248,25 @@ export default function BrievenOverzicht() {
   const brief = useMemo(() => ({
     afzenderNaam: veiligeStr(afzender.bedrijfsnaam) || "Activaa",
     afzenderRegels: afzenderRegelsVan(afzender),
+    afzenderMiniRegel: afzenderMiniRegelVan(afzender),
     plaatsDatum: plaatsBrief ? `${plaatsBrief}, ${vandaagLang()}` : vandaagLang(),
+    vertrouwelijk,
     ontvangerRegels,
+    kenmerk: vulIn(kenmerk, mergeVelden),
+    beconnummer: veiligeStr(afzender.beconnummer),
     onderwerp: vulIn(onderwerp, mergeVelden),
+    behandeldDoor: veiligeStr(behandeldDoor),
+    telefoonnummer: veiligeStr(telefoonnummer),
     aanhef, tekst: vulIn(tekst, mergeVelden), afsluiting,
+    ondertekeningBedrijf: veiligeStr(afzender.bedrijfsnaam) || "Activaa",
+    ondertekenaar: veiligeStr(ondertekenaar),
     ondertekenaarRegels: [ondertekenaar, veiligeStr(afzender.bedrijfsnaam) || "Activaa"].filter(Boolean),
+    automatischGegenereerd: !!autoGegenereerd,
+    footerKolommen: footerKolommenVan(afzender),
     voetnoot: voetnootVan(afzender),
     logoUrl: veiligeStr(afzender.logoUrl), logoUitlijning: afzender.logoUitlijning || "links", logoGrootte: afzender.logoGrootte || "normaal",
     achtergrondUrl: veiligeStr(afzender.achtergrondUrl),
-  }), [afzender, ontvangerRegels, onderwerp, aanhef, tekst, afsluiting, ondertekenaar, plaatsBrief, mergeVelden]);
+  }), [afzender, ontvangerRegels, onderwerp, aanhef, tekst, afsluiting, ondertekenaar, plaatsBrief, mergeVelden, vertrouwelijk, kenmerk, behandeldDoor, telefoonnummer, autoGegenereerd]);
 
   const bestandsnaamBasis = `${(sjabloon && sjabloon.naam) || "Brief"}${klant ? " - " + veiligeStr(klant.klantnaam) : ""}`;
   const geadresseerdeOk = geadType !== "belastingkantoor" || bk.status === "ok";
@@ -377,6 +420,21 @@ export default function BrievenOverzicht() {
             </div>
           )}
 
+          {/* Kopgegevens (huisstijl-layout) */}
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 160px" }}><span style={label}>Kenmerk</span><input value={kenmerk} onChange={(e) => setKenmerk(e.target.value)} style={input} placeholder="bijv. dossier/kenmerk" /></div>
+            <div style={{ flex: "1 1 180px" }}><span style={label}>Behandeld door</span><input value={behandeldDoor} onChange={(e) => setBehandeldDoor(e.target.value)} style={input} placeholder="naam behandelaar" /></div>
+            <div style={{ flex: "1 1 150px" }}><span style={label}>Telefoonnummer</span><input value={telefoonnummer} onChange={(e) => setTelefoonnummer(e.target.value)} style={input} /></div>
+          </div>
+          <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center" }}>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: 12.5, color: KLEUR.subtekst, fontWeight: 600 }}>
+              <input type="checkbox" checked={vertrouwelijk} onChange={(e) => setVertrouwelijk(e.target.checked)} /> VERTROUWELIJK tonen
+            </label>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: 12.5, color: KLEUR.subtekst, fontWeight: 600 }}>
+              <input type="checkbox" checked={autoGegenereerd} onChange={(e) => setAutoGegenereerd(e.target.checked)} /> Regel “automatisch gegenereerd”
+            </label>
+          </div>
+
           {/* Bewerkbare velden */}
           <div><span style={label}>Onderwerp</span><input value={onderwerp} onChange={(e) => setOnderwerp(e.target.value)} style={input} placeholder="Betreft…" /></div>
           <div><span style={label}>Aanhef</span><input value={aanhef} onChange={(e) => setAanhef(e.target.value)} style={input} /></div>
@@ -471,23 +529,29 @@ function Banner({ type, tekst }) {
   );
 }
 
-/** Live weergave van de brief. Met een achtergrond (briefpapier) wordt die als A4-achtergrond
- *  getoond en vallen de eigen logo/afzenderkop + voetnoot weg (zit al in het briefpapier). */
+/** Live weergave van de brief in huisstijl-layout. Met een achtergrond (briefpapier) wordt die als
+ *  A4-achtergrond getoond; het eigen logo/afzenderkop valt dan weg (zit al in het briefpapier) en
+ *  onderaan komt de driekoloms voettekst over de footer-vorm van het briefpapier. */
 function BriefVoorbeeld({ brief }) {
   const b = brief || {};
   const alineas = String(b.tekst || "").replace(/\r\n/g, "\n").split(/\n[ \t]*\n/);
   const heeftAcht = !!b.achtergrondUrl;
   const paginaStijl = {
     background: KLEUR.papier, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, boxShadow: "0 6px 24px rgba(0,0,0,0.07)",
-    color: KLEUR.tekst, fontFamily: "Helvetica, Arial, sans-serif", fontSize: 13, lineHeight: 1.5,
+    color: KLEUR.tekst, fontFamily: "Helvetica, Arial, sans-serif", fontSize: 12.5, lineHeight: 1.5,
     aspectRatio: "1 / 1.414", position: "relative", overflow: "hidden",
     ...(heeftAcht
-      ? { backgroundImage: `url("${b.achtergrondUrl}")`, backgroundSize: "100% 100%", backgroundRepeat: "no-repeat", padding: "16% 12% 12%" }
+      ? { backgroundImage: `url("${b.achtergrondUrl}")`, backgroundSize: "100% 100%", backgroundRepeat: "no-repeat", padding: "15% 12% 9%" }
       : { padding: "48px 52px" }),
   };
+  const vetLabel = (labelTekst, waarde) => (
+    <div style={{ marginBottom: 2 }}><span style={{ fontWeight: 700 }}>{labelTekst}:</span> {waarde}</div>
+  );
   return (
     <div style={paginaStijl}>
-      {!heeftAcht && (
+      {heeftAcht ? (
+        b.afzenderMiniRegel ? <div style={{ textAlign: "center", color: KLEUR.mutedTekst, fontSize: 10, marginBottom: 18 }}>{b.afzenderMiniRegel}</div> : null
+      ) : (
         <>
           {b.logoUrl ? (
             <div style={{ textAlign: b.logoUitlijning === "midden" ? "center" : b.logoUitlijning === "rechts" ? "right" : "left", marginBottom: 6 }}>
@@ -500,15 +564,28 @@ function BriefVoorbeeld({ brief }) {
           <div style={{ borderTop: `1px solid ${KLEUR.rand}`, margin: "16px 0 20px" }} />
         </>
       )}
-      <div style={{ textAlign: "right", color: KLEUR.subtekst, marginBottom: 22 }}>{b.plaatsDatum}</div>
-      <div style={{ marginBottom: 26 }}>{(b.ontvangerRegels || []).map((r, i) => <div key={i}>{r}</div>)}</div>
-      {b.onderwerp && <div style={{ fontWeight: 700, marginBottom: 18 }}>Betreft: {b.onderwerp}</div>}
-      {b.aanhef && <div style={{ marginBottom: 14 }}>{b.aanhef}</div>}
-      {alineas.map((a, i) => <div key={i} style={{ marginBottom: 12, whiteSpace: "pre-wrap" }}>{a}</div>)}
-      {b.afsluiting && <div style={{ marginTop: 20 }}>{b.afsluiting}</div>}
-      <div style={{ height: 44 }} />
-      <div>{(b.ondertekenaarRegels || []).map((r, i) => <div key={i}>{r}</div>)}</div>
-      {!heeftAcht && b.voetnoot && <div style={{ marginTop: 40, paddingTop: 12, borderTop: `1px solid ${KLEUR.rand}`, textAlign: "center", color: KLEUR.mutedTekst, fontSize: 10.5 }}>{b.voetnoot}</div>}
+
+      {b.vertrouwelijk && <div style={{ fontWeight: 700, marginBottom: 6 }}>VERTROUWELIJK</div>}
+      <div style={{ marginBottom: 16 }}>{(b.ontvangerRegels || []).map((r, i) => <div key={i}>{r}</div>)}</div>
+      <div style={{ textAlign: heeftAcht ? "left" : "right", color: KLEUR.subtekst, marginBottom: 12 }}>{b.plaatsDatum}</div>
+      {b.kenmerk && vetLabel("Kenmerk", b.kenmerk)}
+      {b.beconnummer && vetLabel("Beconnummer", b.beconnummer)}
+      {b.onderwerp && vetLabel("Betreft", b.onderwerp)}
+      {(b.behandeldDoor || b.telefoonnummer) && <div style={{ height: 12 }} />}
+      {b.behandeldDoor && vetLabel("Behandeld door", b.behandeldDoor)}
+      {b.telefoonnummer && vetLabel("Telefoonnummer", b.telefoonnummer)}
+      <div style={{ height: 12 }} />
+      {b.aanhef && <div style={{ marginBottom: 12 }}>{b.aanhef}</div>}
+      {alineas.map((a, i) => <div key={i} style={{ marginBottom: 10, whiteSpace: "pre-wrap" }}>{a}</div>)}
+      {b.afsluiting && <div style={{ marginTop: 14 }}>{b.afsluiting}</div>}
+      {b.ondertekeningBedrijf && <div>{b.ondertekeningBedrijf}</div>}
+      <div style={{ height: 38 }} />
+      {b.ondertekenaar && <div>{b.ondertekenaar}</div>}
+      {b.automatischGegenereerd && <div style={{ marginTop: 10, fontSize: 10, color: KLEUR.mutedTekst }}>Deze brief is automatisch gegenereerd en daarom niet ondertekend</div>}
+
+      {/* De driekoloms voettekst zit al ín het geüploade briefpapier/achtergrond; zonder achtergrond
+          tonen we de eigen voetnoot. */}
+      {!heeftAcht && b.voetnoot ? <div style={{ marginTop: 40, paddingTop: 12, borderTop: `1px solid ${KLEUR.rand}`, textAlign: "center", color: KLEUR.mutedTekst, fontSize: 10.5 }}>{b.voetnoot}</div> : null}
     </div>
   );
 }

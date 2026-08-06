@@ -82,21 +82,49 @@ function para(runsXml, opts = {}) {
   return `<w:p><w:pPr>${sp}${jc}</w:pPr>${runsXml}</w:p>`;
 }
 
-/** Bouwt de body-alinea's (zelfde volgorde als de PDF/Word-renderer, maar zonder eigen briefkop/voet). */
+/** "Label: waarde"-alinea met vet label + normale waarde. */
+function labelParaXml(label, waarde, after = 40) {
+  const runs =
+    `<w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">${esc(label)}: </w:t></w:r>` +
+    `<w:r><w:rPr></w:rPr><w:t xml:space="preserve">${esc(waarde)}</w:t></w:r>`;
+  return para(runs, { after });
+}
+/** Kleine, gecentreerde grijze regel (afzenderadres / automatisch-gegenereerd). */
+function kleinCentraal(tekst, opts = {}) {
+  const before = opts.before != null ? `w:before="${opts.before}" ` : "";
+  const jc = opts.center ? '<w:jc w:val="center"/>' : "";
+  return `<w:p><w:pPr><w:spacing ${before}w:after="${opts.after != null ? opts.after : 0}"/>${jc}</w:pPr>` +
+    `<w:r><w:rPr><w:color w:val="8A9089"/><w:sz w:val="${opts.sz || 16}"/></w:rPr>` +
+    `<w:t xml:space="preserve">${esc(tekst)}</w:t></w:r></w:p>`;
+}
+
+/** Bouwt de body-alinea's in huisstijl-layout (zonder eigen briefkop/voet — die zitten in het
+ *  briefpapier): afzenderadres, VERTROUWELIJK, geadresseerde, plaats/datum, Kenmerk/Beconnummer/
+ *  Betreft, Behandeld door/Telefoonnummer, aanhef, tekst, groet + ondertekening, automatisch-regel. */
 function bouwBody(brief) {
   const b = brief || {};
   const k = [];
-  if (b.plaatsDatum) k.push(para(run(b.plaatsDatum), { jc: "right", after: 240 }));
+  if (b.afzenderMiniRegel) k.push(kleinCentraal(b.afzenderMiniRegel, { center: true, sz: 14, after: 200 }));
+  if (b.vertrouwelijk) k.push(para(run("VERTROUWELIJK", { b: true }), { after: 80 }));
   for (const r of (b.ontvangerRegels || [])) k.push(para(run(r), { after: 0 }));
   k.push(para(run(""), { after: 160 }));
-  if (b.onderwerp) k.push(para(run(`Betreft: ${b.onderwerp}`, { b: true }), { after: 200 }));
+  if (b.plaatsDatum) k.push(para(run(b.plaatsDatum), { after: 160 })); // links uitgelijnd
+  if (b.kenmerk) k.push(labelParaXml("Kenmerk", b.kenmerk));
+  if (b.beconnummer) k.push(labelParaXml("Beconnummer", b.beconnummer));
+  if (b.onderwerp) k.push(labelParaXml("Betreft", b.onderwerp, (b.behandeldDoor || b.telefoonnummer) ? 160 : 200));
+  if (b.behandeldDoor) k.push(labelParaXml("Behandeld door", b.behandeldDoor));
+  if (b.telefoonnummer) k.push(labelParaXml("Telefoonnummer", b.telefoonnummer));
+  if (b.behandeldDoor || b.telefoonnummer) k.push(para(run(""), { after: 120 }));
   if (b.aanhef) k.push(para(run(b.aanhef), { after: 160 }));
   for (const alinea of String(b.tekst || "").replace(/\r\n/g, "\n").split(/\n[ \t]*\n/)) {
     k.push(para(alineaRuns(alinea), { after: 160 }));
   }
   if (b.afsluiting) k.push(para(run(b.afsluiting), { after: 0 }));
+  if (b.ondertekeningBedrijf) k.push(para(run(b.ondertekeningBedrijf), { after: 0 }));
   k.push(para(run(""), { after: 400 })); // ruimte voor handtekening
-  for (const r of (b.ondertekenaarRegels || [])) k.push(para(run(r), { after: 0 }));
+  if (b.ondertekenaar) k.push(para(run(b.ondertekenaar), { after: 0 }));
+  else for (const r of (b.ondertekenaarRegels || [])) k.push(para(run(r), { after: 0 }));
+  if (b.automatischGegenereerd) k.push(kleinCentraal("Deze brief is automatisch gegenereerd en daarom niet ondertekend", { before: 160, after: 0 }));
   return k.join("");
 }
 
@@ -122,4 +150,56 @@ async function vulBriefpapier(brief) {
   return zip.generateAsync({ type: "nodebuffer" });
 }
 
-module.exports = { slaBriefpapier, haalBriefpapier, verwijderBriefpapier, heeftBriefpapier, vulBriefpapier };
+/** Pixelafmetingen + (JPEG) aantal kleurkanalen uit een afbeelding-buffer (dependency-vrij). */
+function beeldInfo(buffer, naam) {
+  const isPng = /\.png$/i.test(naam);
+  try {
+    if (isPng) {
+      if (buffer.length >= 24 && buffer[12] === 0x49 && buffer[13] === 0x48 && buffer[14] === 0x44 && buffer[15] === 0x52) {
+        return { type: "image/png", w: buffer.readUInt32BE(16), h: buffer.readUInt32BE(20), comp: 3 };
+      }
+      return { type: "image/png", w: 0, h: 0, comp: 3 };
+    }
+    let o = 2;
+    while (o + 9 < buffer.length) {
+      if (buffer[o] !== 0xff) { o++; continue; }
+      const marker = buffer[o + 1];
+      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+        return { type: "image/jpeg", h: buffer.readUInt16BE(o + 5), w: buffer.readUInt16BE(o + 7), comp: buffer[o + 9] };
+      }
+      o += 2 + buffer.readUInt16BE(o + 2);
+    }
+  } catch { /* val terug */ }
+  return { type: isPng ? "image/png" : "image/jpeg", w: 0, h: 0, comp: 3 };
+}
+
+/**
+ * Zoekt in een .docx-briefpapier de volledige-pagina-achtergrondafbeelding en geeft die terug als
+ * data-URL (voor het live voorbeeld + de PDF). Kiest de grootste A4-vormige afbeelding, slaat kleine
+ * logo's/iconen over en negeert CMYK-JPEG's (die kunnen pdf-lib en de browser niet weergeven).
+ * Geeft null als er geen geschikte achtergrond in het briefpapier zit.
+ */
+async function extraheerAchtergrond(docxBuffer) {
+  try {
+    const zip = await JSZip.loadAsync(docxBuffer);
+    const paden = [];
+    zip.forEach((pad, entry) => { if (/^word\/media\/.*\.(jpe?g|png)$/i.test(pad) && !entry.dir) paden.push(pad); });
+    let beste = null;
+    for (const pad of paden) {
+      const buf = await zip.file(pad).async("nodebuffer");
+      const info = beeldInfo(buf, pad);
+      const w = info.w || 0, h = info.h || 0, aspect = w ? h / w : 0;
+      const volledigePagina = w >= 1000 && h >= 1400 && aspect >= 1.2 && aspect <= 1.6; // A4-vormig, staand
+      if (!volledigePagina) continue;   // logo's/iconen overslaan
+      if (info.comp === 4) continue;     // CMYK kan pdf-lib/preview niet aan
+      const area = w * h;
+      if (!beste || area > beste.area) beste = { buf, type: info.type, area };
+    }
+    if (!beste) return null;
+    return `data:${beste.type};base64,${beste.buf.toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
+
+module.exports = { slaBriefpapier, haalBriefpapier, verwijderBriefpapier, heeftBriefpapier, vulBriefpapier, extraheerAchtergrond };

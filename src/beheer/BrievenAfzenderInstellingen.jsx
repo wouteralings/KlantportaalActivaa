@@ -68,7 +68,9 @@ export default function BrievenAfzenderInstellingen() {
         const res = await fetch("/api/beheer-briefpapier-docx", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dataUrl: lezer.result }) });
         const d = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(d.error || "Uploaden mislukt.");
-        zetAfzender("briefpapierDocx", d.briefpapierDocx === true);
+        // Ook de uit het briefpapier afgeleide achtergrond bijhouden, zodat een latere "Opslaan"
+        // (die de hele config terugstuurt) die niet per ongeluk wist.
+        setConfig((c) => ({ ...c, afzender: { ...c.afzender, briefpapierDocx: d.briefpapierDocx === true, achtergrondUrl: d.achtergrondUrl || "" } }));
       } catch (e) { setPapierFout(String(e.message || e)); }
       finally { setPapierBezig(false); }
     };
@@ -81,7 +83,7 @@ export default function BrievenAfzenderInstellingen() {
       const res = await fetch("/api/beheer-briefpapier-docx", { method: "DELETE" });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || "Verwijderen mislukt.");
-      zetAfzender("briefpapierDocx", false);
+      setConfig((c) => ({ ...c, afzender: { ...c.afzender, briefpapierDocx: false, achtergrondUrl: "" } }));
     } catch (e) { setPapierFout(String(e.message || e)); }
     finally { setPapierBezig(false); }
   }
@@ -146,6 +148,10 @@ export default function BrievenAfzenderInstellingen() {
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 12 }}>
           {veld("telefoon", "Telefoon", { flex: "1 1 160px" })}{veld("email", "E-mail", { flex: "1 1 200px" })}{veld("website", "Website", { flex: "1 1 200px" })}
         </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 12 }}>
+          {veld("btw", "BTW-nummer", { flex: "1 1 200px", placeholder: "NL8529.21.743.B01" })}{veld("iban", "IBAN", { flex: "1 1 220px", placeholder: "NL34 INGB 0100 9652 53" })}{veld("beconnummer", "Beconnummer", { flex: "1 1 160px", placeholder: "632.788" })}
+        </div>
+        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 6, maxWidth: 720 }}>Beconnummer komt in de briefkop (bij Kenmerk/Betreft). De voettekst met adres/contact/BTW/KvK/IBAN zit al ín het geüploade briefpapier/achtergrond zelf — deze waarden hier zijn ter registratie.</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 12, alignItems: "flex-end" }}>
           {veld("afsluiting", "Afsluiting", { flex: "1 1 220px", placeholder: "Met vriendelijke groet," })}
           <div style={{ flex: "1 1 240px", minWidth: 200 }}>

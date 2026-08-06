@@ -38,6 +38,9 @@ const STANDAARD_AFZENDER = {
   email: "info@activaa.nl",
   website: "www.activaa.nl",
   kvk: "",
+  btw: "",
+  iban: "",
+  beconnummer: "",
   afsluiting: "Met vriendelijke groet,",
   // Wie ondertekent standaard: "relatiebeheerder" | "accountant" | "vast" (dan ondertekenaarVast).
   ondertekenaarBron: "relatiebeheerder",
@@ -94,11 +97,14 @@ const STANDAARD_SJABLONEN = [
   {
     id: "wijziging-aangiftetijdvak",
     naam: "Belastingdienst — wijziging aangiftetijdvak",
-    onderwerp: "Wijziging aangiftetijdvak",
+    onderwerp: "Wijziging aangiftetijdvak {{soortbelasting}} {{klantnaam}}",
     tekst:
-      "Namens onze cliënt {{klantnaam}} verzoeken wij om het aangiftetijdvak van de {{soortbelasting}} om te zetten naar {{periode}}.\n\n" +
-      "Wij verzoeken u dit per de eerstvolgende mogelijke periode te wijzigen en ontvangen graag een schriftelijke bevestiging.",
+      "Namens onze cliënt {{klantnaam}} verzoeken wij om het aangiftetijdvak van de {{soortbelasting}} om te zetten naar {{periode}} aangifte.\n\n" +
+      "Wij verzoeken u om het aangiftetijdvak te wijzigen per eerstvolgende mogelijke periode.\n\n" +
+      "Graag ontvangen wij een schriftelijke bevestiging van het doorgeven van deze wijziging.\n\n" +
+      "Wij vertrouwen erop u hiermee voldoende te hebben geïnformeerd en zijn uiteraard bereid tot nadere toelichting.",
     actief: true,
+    vertrouwelijk: true,
     velden: ["soortbelasting", "periode"],
   },
 ];
@@ -173,6 +179,9 @@ function normaliseerAfzender(a) {
     email: tekst(bron.email, 120),
     website: tekst(bron.website, 120),
     kvk: tekst(bron.kvk, 40),
+    btw: tekst(bron.btw, 40),
+    iban: tekst(bron.iban, 40),
+    beconnummer: tekst(bron.beconnummer, 40),
     afsluiting: tekst(bron.afsluiting, 120) || STANDAARD_AFZENDER.afsluiting,
     ondertekenaarBron,
     ondertekenaarVast: tekst(bron.ondertekenaarVast, 120),
@@ -208,6 +217,7 @@ function normaliseerSjablonen(sjablonen) {
       onderwerp: tekst(s && s.onderwerp, 300),
       tekst: langeTekst(s && s.tekst),
       actief: s && s.actief === false ? false : true,
+      vertrouwelijk: s && s.vertrouwelijk === true,
       velden,
     });
   }
