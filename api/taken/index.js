@@ -118,7 +118,10 @@ async function haalZichtbareTaken(resource, token, accounts, soortConfig) {
       vereistHandtekening: soortConfig.vereistHandtekening.has(String(soortWaarde)),
       uploadLink: UPLOADLINK_VELD ? rij[UPLOADLINK_VELD] || null : null,
       uploadVerloopt: VERLOOPDATUM_VELD ? rij[VERLOOPDATUM_VELD] || null : null,
-      documentUrl: DOCUMENT_VELD ? rij[DOCUMENT_VELD] || null : null,
+      // Alleen een boolean naar de klant: staat er een document op de taak? De echte SharePoint-url
+      // wordt NOOIT prijsgegeven; de inhoud loopt via de gecontroleerde proxy /api/taken-document.
+      // De frontend (TaakDocumentViewer) rendert op basis van taak.heeftDocument — vandaar deze sleutel.
+      heeftDocument: DOCUMENT_VELD ? Boolean(rij[DOCUMENT_VELD]) : false,
     });
   }
 

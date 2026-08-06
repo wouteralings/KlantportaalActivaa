@@ -5,7 +5,6 @@ import UrenTarievenBeheer from "./UrenTarievenBeheer";
 import VerlofBeheer from "./VerlofBeheer";
 import DossierIndelingBeheer from "./DossierIndelingBeheer";
 import RapportagesBeheer from "./RapportagesBeheer";
-import BezittingenBeheer from "./BezittingenBeheer";
 import ContractenTypesBeheer from "./ContractenTypesBeheer";
 import ContractenDossierInstellingen from "./ContractenDossierInstellingen";
 import ContractenMailInstellingen from "./ContractenMailInstellingen";
@@ -3022,9 +3021,8 @@ export default function BeheerPortaal() {
         <ContractenTypesBeheer />
       </div>
 
-      {/* Rapportages (met RGS) + Bezittingen — losgeraakt in a6f1271, hersteld */}
+      {/* RGS-configuratie voor de Rapportages-module (de per-klant aan/uit staat al in Functies). */}
       <RapportagesBeheer />
-      <BezittingenBeheer />
 
       </>)}
 

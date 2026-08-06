@@ -50,12 +50,9 @@ function datum(d) {
  * zijn eigen data op.
  */
 export default function RapportagesBeheer() {
-  return (
-    <>
-      <KlantenToggle />
-      <RgsNaamVolgorde />
-    </>
-  );
+  // De "per klant aan/uit"-toggle staat al in de Functies-tabel (BeheerPortaal.jsx); hier daarom
+  // alleen nog de RGS-naam/volgorde-configuratie, zodat het niet dubbel getoond wordt.
+  return <RgsNaamVolgorde />;
 }
 
 function KlantenToggle() {
