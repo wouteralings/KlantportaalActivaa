@@ -2,13 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import OffertetoolApp from "../medewerker/offertes/OffertetoolApp";
 import UitvraagBeheer from "./UitvraagBeheer";
 import UrenTarievenBeheer from "./UrenTarievenBeheer";
-import ContractenTypesBeheer from "./ContractenTypesBeheer";
-import ContractenDossierInstellingen from "./ContractenDossierInstellingen";
-import ContractenMailInstellingen from "./ContractenMailInstellingen";
-import VerlofBeheer from "./VerlofBeheer";
 import DossierIndelingBeheer from "./DossierIndelingBeheer";
-import BrievenBeheer from "./BrievenBeheer";
-import BrievenAfzenderInstellingen from "./BrievenAfzenderInstellingen";
 import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Search, ArrowUp, ArrowDown, HelpCircle, ChevronDown, Plus, Pencil, Check, X, Clock } from "lucide-react";
 
 const KLEUR = {
@@ -96,45 +90,6 @@ function ModuleToggle({ label, aan, bezig, uitgeschakeld, titel, onClick }) {
   );
 }
 
-/** Eén rij in de prijzentabel "Betaalde functionaliteiten": module-naam, €-invoer en een eigen
- *  Opslaan-knop met statusindicator — elke module heeft zijn eigen prijs, los in te stellen. */
-function PrijsRij({ label, waarde, setWaarde, status, opslaan }) {
-  return (
-    <tr>
-      <td style={{ fontSize: 12.5, fontWeight: 600, padding: "8px 10px", borderTop: `1px solid ${KLEUR.rand}` }}>{label}</td>
-      <td style={{ padding: "8px 10px", borderTop: `1px solid ${KLEUR.rand}` }}>
-        <div style={{ position: "relative", maxWidth: 130 }}>
-          <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", fontSize: 12.5, color: KLEUR.mutedTekst }}>€</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={waarde}
-            onChange={(e) => setWaarde(e.target.value)}
-            style={{ width: "100%", boxSizing: "border-box", padding: "6px 8px 6px 22px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 7 }}
-          />
-        </div>
-      </td>
-      <td style={{ padding: "8px 10px", borderTop: `1px solid ${KLEUR.rand}` }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <button
-            onClick={opslaan}
-            disabled={status === "bezig"}
-            style={{ padding: "6px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-          >
-            {status === "bezig" ? "Opslaan..." : "Opslaan"}
-          </button>
-          {status === "gelukt" && (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: KLEUR.blauw }}>
-              <CheckCircle2 size={13} /> Opgeslagen
-            </span>
-          )}
-          {status === "fout" && <span style={{ fontSize: 12, color: KLEUR.rood }}>Ongeldig bedrag</span>}
-        </div>
-      </td>
-    </tr>
-  );
-}
-
 /** Filtert taaksoorten op de zoekterm — op één plek, zodat de lijst en de teller niet uiteenlopen. */
 function filterTaaksoorten(opties, zoek) {
   const q = (zoek || "").trim().toLowerCase();
@@ -196,75 +151,6 @@ function StandaardartikelFormulierRij({ form, setForm, bezig, onOpslaan, onAnnul
         <button onClick={onOpslaan} disabled={bezig} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.blauw, display: "flex" }} title="Opslaan"><Check size={15} /></button>
         <button onClick={onAnnuleren} disabled={bezig} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.subtekst, display: "flex" }} title="Annuleren"><X size={15} /></button>
       </div>
-    </div>
-  );
-}
-
-/** Herbruikbaar rubriek-blok "extra kolommen (Dynamics-velden)" — zelfde opzet als de bestaande
- *  Klantoverzicht-kolommen hierboven (koExtra/voegExtraKolomToe/slaKlantoverzichtOp), maar dan
- *  generiek gemaakt zodat dezelfde UI voor Inkomstenbelasting, Vennootschapsbelasting én
- *  Contactpersonen gebruikt kan worden zonder de logica driemaal te herhalen. `extra` en
- *  `onWijzig` houden de lijst bij in de state van de aanroeper (nog niet opgeslagen); `onOpslaan`
- *  schrijft die pas echt weg naar /api/beheer-instellingen wanneer op "Opslaan" wordt geklikt. */
-function ExtraKolommenBeheer({ titel, uitleg, extra, onWijzig, onOpslaan, status }) {
-  const [nieuwVeld, setNieuwVeld] = useState("");
-  const [nieuwLabel, setNieuwLabel] = useState("");
-  const [nieuwType, setNieuwType] = useState("tekst"); // tekst | keuze | lookup
-
-  const voegToe = () => {
-    const veld = nieuwVeld.trim();
-    if (!veld) return;
-    if (extra.some((c) => c.veld === veld)) return;
-    onWijzig([...extra, { veld, label: nieuwLabel.trim() || veld, type: nieuwType }]);
-    setNieuwVeld(""); setNieuwLabel(""); setNieuwType("tekst");
-  };
-
-  return (
-    <div>
-      {titel && <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{titel}</div>}
-      <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 14px" }}>{uitleg}</div>
-
-      {extra.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
-          {extra.map((c) => (
-            <div key={c.veld} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12.5 }}>
-              <span style={{ fontWeight: 600 }}>{c.label || c.veld}</span>
-              <code style={{ color: KLEUR.subtekst }}>{c.veld}</code>
-              <span style={{ color: KLEUR.mutedTekst }}>({c.type})</span>
-              <button onClick={() => onWijzig(extra.filter((x) => x.veld !== c.veld))} title="Verwijderen" style={{ marginLeft: "auto", display: "flex", alignItems: "center", justifyContent: "center", width: 26, height: 26, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: KLEUR.rood, cursor: "pointer" }}>
-                <Trash2 size={13} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 16 }}>
-        <input value={nieuwVeld} onChange={(e) => setNieuwVeld(e.target.value)} placeholder="logische veldnaam (bijv. cr283_iban)" style={{ flex: "1 1 220px", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5 }} />
-        <input value={nieuwLabel} onChange={(e) => setNieuwLabel(e.target.value)} placeholder="kolomtitel (bijv. IBAN)" style={{ flex: "1 1 180px", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5 }} />
-        <select value={nieuwType} onChange={(e) => setNieuwType(e.target.value)} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, background: "#fff" }}>
-          <option value="tekst">Tekst/getal</option>
-          <option value="keuze">Keuzelijst</option>
-          <option value="lookup">Lookup (verwijzing)</option>
-        </select>
-        <button onClick={voegToe} style={{ padding: "8px 14px", background: "#fff", color: KLEUR.blauw, border: `1px solid ${KLEUR.blauw}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Toevoegen</button>
-      </div>
-
-      <button
-        onClick={onOpslaan}
-        disabled={status === "bezig"}
-        style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-      >
-        {status === "bezig" ? "Opslaan..." : "Opslaan"}
-      </button>
-      {status === "gelukt" && (
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 12, fontSize: 12.5, color: KLEUR.blauw }}>
-          <CheckCircle2 size={14} /> Opgeslagen.
-        </span>
-      )}
-      {status === "fout" && (
-        <span style={{ marginLeft: 12, fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
-      )}
     </div>
   );
 }
@@ -343,17 +229,6 @@ export default function BeheerPortaal() {
   // Offertes-recht: lijst met e-mailadressen die offertes/opdrachtbevestigingen mogen maken.
   // Let op: leeg = niemand (net als bulk en als-klant); beheerders mogen altijd.
   const [offertes, setOffertes] = useState([]);
-  // Contracten-recht: lijst met e-mailadressen die de tab "Contracten" in het medewerkersportaal
-  // mogen zien (Contractmanagement-plan, Stap 3). Let op: leeg = niemand; beheerders mogen altijd.
-  const [contracten, setContracten] = useState([]);
-  // Verwijder-rechten: wie mag Inkomstenbelasting-/Vennootschapsbelasting-dossiers, contactpersonen
-  // resp. dividendbelasting-aangiftes verwijderen. Let op: leeg = niemand; beheerders mogen altijd.
-  // Dividendbelasting heeft nog geen eigen medewerkerskant (placeholder-tab) — dit recht staat alvast
-  // klaar voor als die er komt.
-  const [verwijderIb, setVerwijderIb] = useState([]);
-  const [verwijderVpb, setVerwijderVpb] = useState([]);
-  const [verwijderContactpersonen, setVerwijderContactpersonen] = useState([]);
-  const [verwijderDividendbelasting, setVerwijderDividendbelasting] = useState([]);
   const [wijzigrechtenStatus, setWijzigrechtenStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [medewerkers, setMedewerkers] = useState(null); // null = laden; alle Activaa-medewerkers
   const [medewerkerZoek, setMedewerkerZoek] = useState("");
@@ -385,15 +260,6 @@ export default function BeheerPortaal() {
   const [koNieuwType, setKoNieuwType] = useState("tekst"); // tekst | keuze | lookup
   const [koStatus, setKoStatus] = useState("idle"); // idle | bezig | gelukt | fout
 
-  // Extra kolommen (Dynamics-velden) voor de hoofdtabellen Inkomstenbelasting/Vennootschapsbelasting
-  // en Contactpersonen — zelfde idee als koExtra hierboven, zie ExtraKolommenBeheer.
-  const [dossierExtraIb, setDossierExtraIb] = useState([]);
-  const [dossierExtraVpb, setDossierExtraVpb] = useState([]);
-  const [dossierExtraIbStatus, setDossierExtraIbStatus] = useState("idle");
-  const [dossierExtraVpbStatus, setDossierExtraVpbStatus] = useState("idle");
-  const [contactExtra, setContactExtra] = useState([]);
-  const [contactExtraStatus, setContactExtraStatus] = useState("idle");
-
   // Taaksoorten: welke soorten klanten zien én mogen goedkeuren.
   const [taaksoortenOpties, setTaaksoortenOpties] = useState(null); // null = laden
   const [taaksoortenConfig, setTaaksoortenConfig] = useState({});
@@ -409,11 +275,10 @@ export default function BeheerPortaal() {
   const [webhookOpslaanStatus, setWebhookOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
 
   // Facturatiemodule: per klant-account aan/uit (tab "Facturatie").
-  const [facturatieKlanten, setFacturatieKlanten] = useState(null); // null = laden; [{accountId, klantnaam, klantnummer, groepsnaam}]
+  const [facturatieKlanten, setFacturatieKlanten] = useState(null); // null = laden; [{accountId, klantnaam, klantnummer}]
   const [facturatieStatussen, setFacturatieStatussen] = useState({}); // accountId -> { ingeschakeld, gewijzigdOp, gewijzigdDoor }
   const [facturatieZoek, setFacturatieZoek] = useState("");
   const [facturatieStatusFilter, setFacturatieStatusFilter] = useState("alle"); // "alle" | "aan" | "uit"
-  const [facturatieGroepFilter, setFacturatieGroepFilter] = useState("alle"); // "alle" of een groepsnaam
   const [facturatieBezig, setFacturatieBezig] = useState({}); // accountId -> bool
   const [facturatieFout, setFacturatieFout] = useState("");
   // Losse urenregistratie-schakelaar (€2,50), naast de facturatiemodule — zelfde lijst klanten.
@@ -424,13 +289,6 @@ export default function BeheerPortaal() {
   const [prijsOpslaanStatus, setPrijsOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [urenmodulePrijs, setUrenmodulePrijs] = useState("2.5");
   const [urenPrijsOpslaanStatus, setUrenPrijsOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
-  // Prijzen van de overige betaalde modules — zelfde contract, samen met facturatie/uren getoond
-  // in één prijzentabel bovenaan "Betaalde functionaliteiten".
-  const [bezittingenmodulePrijs, setBezittingenmodulePrijs] = useState("5");
-  const [rapportagesmodulePrijs, setRapportagesmodulePrijs] = useState("7.5");
-  const [rittenmodulePrijs, setRittenmodulePrijs] = useState("1.5");
-  const [contractenmodulePrijs, setContractenmodulePrijs] = useState("2.5");
-  const [overigePrijsStatus, setOverigePrijsStatus] = useState({}); // veldnaam -> idle | bezig | gelukt | fout
   // Overige betaalde modules per klant aan/uit — zelfde contract als facturatie/uren
   // (GET { statussen } / PUT { accountId, ingeschakeld }). Samengebracht in één tabel.
   const [bezittingenStatussen, setBezittingenStatussen] = useState({});
@@ -439,8 +297,6 @@ export default function BeheerPortaal() {
   const [rapportagesBezig, setRapportagesBezig] = useState({});
   const [rittenStatussen, setRittenStatussen] = useState({});
   const [rittenBezig, setRittenBezig] = useState({});
-  const [contractenStatussen, setContractenStatussen] = useState({});
-  const [contractenBezig, setContractenBezig] = useState({});
 
   // BTW-tarieven met geldigheidsperiode (Facturatie → BTW-tarieven) — zelfde bewerk-per-rij
   // patroon als Standaardartikelen: "nieuw" voegt een tarief toe (sluit het vorige van die
@@ -508,15 +364,8 @@ export default function BeheerPortaal() {
         setReviewWebhookUrl(d.reviewWebhookUrl || "");
         setFacturatiemodulePrijs(d.facturatiemodulePrijs != null ? String(d.facturatiemodulePrijs) : "5");
         setUrenmodulePrijs(d.urenmodulePrijs != null ? String(d.urenmodulePrijs) : "2.5");
-        setBezittingenmodulePrijs(d.bezittingenmodulePrijs != null ? String(d.bezittingenmodulePrijs) : "5");
-        setRapportagesmodulePrijs(d.rapportagesmodulePrijs != null ? String(d.rapportagesmodulePrijs) : "7.5");
-        setRittenmodulePrijs(d.rittenmodulePrijs != null ? String(d.rittenmodulePrijs) : "1.5");
-        setContractenmodulePrijs(d.contractenmodulePrijs != null ? String(d.contractenmodulePrijs) : "2.5");
         setKoExtra((d.klantoverzicht && d.klantoverzicht.extraKolommen) || []);
         setKoVerborgen((d.klantoverzicht && d.klantoverzicht.standaardVerborgen) || []);
-        setDossierExtraIb((d.dossierExtraKolommen && d.dossierExtraKolommen.ib) || []);
-        setDossierExtraVpb((d.dossierExtraKolommen && d.dossierExtraKolommen.vpb) || []);
-        setContactExtra(d.contactpersonenExtraKolommen || []);
       })
       .catch(() => {});
     fetch("/api/beheer-klantcategorieen")
@@ -525,17 +374,7 @@ export default function BeheerPortaal() {
       .catch(() => setCategorieen([]));
     fetch("/api/beheer-wijzigrechten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => {
-        setNiveaus(d.niveaus || {});
-        setBulk(Array.isArray(d.bulk) ? d.bulk : []);
-        setAlsKlant(Array.isArray(d.alsKlant) ? d.alsKlant : []);
-        setOffertes(Array.isArray(d.offertes) ? d.offertes : []);
-        setContracten(Array.isArray(d.contracten) ? d.contracten : []);
-        setVerwijderIb(Array.isArray(d.verwijderIb) ? d.verwijderIb : []);
-        setVerwijderVpb(Array.isArray(d.verwijderVpb) ? d.verwijderVpb : []);
-        setVerwijderContactpersonen(Array.isArray(d.verwijderContactpersonen) ? d.verwijderContactpersonen : []);
-        setVerwijderDividendbelasting(Array.isArray(d.verwijderDividendbelasting) ? d.verwijderDividendbelasting : []);
-      })
+      .then((d) => { setNiveaus(d.niveaus || {}); setBulk(Array.isArray(d.bulk) ? d.bulk : []); setAlsKlant(Array.isArray(d.alsKlant) ? d.alsKlant : []); setOffertes(Array.isArray(d.offertes) ? d.offertes : []); })
       .catch(() => {});
     fetch("/api/beheer-entra-groepen")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
@@ -566,7 +405,7 @@ export default function BeheerPortaal() {
     fetch("/api/beheer-klanten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setFacturatieKlanten(
-        (d.klanten || []).map((k) => ({ accountId: k.accountId, klantnaam: k.klantnaam, klantnummer: k.klantnummer, groepsnaam: k.groepsnaam || "" }))
+        (d.klanten || []).map((k) => ({ accountId: k.accountId, klantnaam: k.klantnaam, klantnummer: k.klantnummer }))
       ))
       .catch(() => setFacturatieKlanten([]));
     fetch("/api/beheer-facturatie-klanten")
@@ -585,10 +424,6 @@ export default function BeheerPortaal() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setRapportagesStatussen(d.statussen || {}))
       .catch(() => setRapportagesStatussen({}));
-    fetch("/api/beheer-contracten-klanten")
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => setContractenStatussen(d.statussen || {}))
-      .catch(() => setContractenStatussen({}));
     fetch("/api/beheer-ritten-klanten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setRittenStatussen(d.statussen || {}))
@@ -948,29 +783,6 @@ export default function BeheerPortaal() {
     }
   }, [urenmodulePrijs]);
 
-  // Generieke prijs-opslaan voor de overige betaalde modules (bezittingen/rapportages/ritten) —
-  // zelfde contract als facturatie/uren hierboven, maar met meegegeven veldnaam/waarde/setter.
-  const slaOverigePrijsOp = useCallback(async (veldNaam, waardeStr, setWaarde) => {
-    const bedrag = Number(String(waardeStr).replace(",", "."));
-    if (!Number.isFinite(bedrag) || bedrag < 0) {
-      setOverigePrijsStatus((h) => ({ ...h, [veldNaam]: "fout" }));
-      return;
-    }
-    setOverigePrijsStatus((h) => ({ ...h, [veldNaam]: "bezig" }));
-    try {
-      const res = await fetch("/api/beheer-instellingen", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ [veldNaam]: bedrag }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      setWaarde(String(bedrag));
-      setOverigePrijsStatus((h) => ({ ...h, [veldNaam]: "gelukt" }));
-    } catch {
-      setOverigePrijsStatus((h) => ({ ...h, [veldNaam]: "fout" }));
-    }
-  }, []);
-
   // Facturatiemodule per klant aan/uit — direct opslaan (geen aparte "Opslaan"-knop), met
   // optimistische update en terugdraaien bij een fout.
   const zetFacturatieStatus = useCallback(async (accountId, ingeschakeld) => {
@@ -1045,22 +857,7 @@ export default function BeheerPortaal() {
     !!(urenStatussen[accountId] && urenStatussen[accountId].ingeschakeld) ||
     !!(bezittingenStatussen[accountId] && bezittingenStatussen[accountId].ingeschakeld) ||
     !!(rapportagesStatussen[accountId] && rapportagesStatussen[accountId].ingeschakeld) ||
-    !!(rittenStatussen[accountId] && rittenStatussen[accountId].ingeschakeld) ||
-    !!(contractenStatussen[accountId] && contractenStatussen[accountId].ingeschakeld);
-
-  // Heeft deze klant bij minstens één module een openstaande aanvraag (nog uit, wel aangevraagd)?
-  // Gebruikt voor het "aanvragen bovenaan"-sorteren van de tabel en de teller erboven.
-  const heeftOpenstaandeAanvraag = (accountId) => {
-    const open = (s) => !!(s && !s.ingeschakeld && s.aangevraagdOp);
-    return (
-      open(facturatieStatussen[accountId]) ||
-      open(urenStatussen[accountId]) ||
-      open(bezittingenStatussen[accountId]) ||
-      open(rapportagesStatussen[accountId]) ||
-      open(rittenStatussen[accountId]) ||
-      open(contractenStatussen[accountId])
-    );
-  };
+    !!(rittenStatussen[accountId] && rittenStatussen[accountId].ingeschakeld);
 
   // BTW-tarieven — "nieuw" voegt een tarief toe (de server sluit automatisch het vorige
   // tarief van diezelfde code af); een bestaand tarief bewerken corrigeert dat ene tarief
@@ -1210,46 +1007,13 @@ export default function BeheerPortaal() {
     setWijzigrechtenStatus("idle");
   }, []);
 
-  const zetContracten = useCallback((email, aan) => {
-    const laag = String(email).toLowerCase();
-    setContracten((h) => (aan ? [...new Set([...h, laag])] : h.filter((e) => e !== laag)));
-    setWijzigrechtenStatus("idle");
-  }, []);
-
-  const zetVerwijderIb = useCallback((email, aan) => {
-    const laag = String(email).toLowerCase();
-    setVerwijderIb((h) => (aan ? [...new Set([...h, laag])] : h.filter((e) => e !== laag)));
-    setWijzigrechtenStatus("idle");
-  }, []);
-
-  const zetVerwijderVpb = useCallback((email, aan) => {
-    const laag = String(email).toLowerCase();
-    setVerwijderVpb((h) => (aan ? [...new Set([...h, laag])] : h.filter((e) => e !== laag)));
-    setWijzigrechtenStatus("idle");
-  }, []);
-
-  const zetVerwijderContactpersonen = useCallback((email, aan) => {
-    const laag = String(email).toLowerCase();
-    setVerwijderContactpersonen((h) => (aan ? [...new Set([...h, laag])] : h.filter((e) => e !== laag)));
-    setWijzigrechtenStatus("idle");
-  }, []);
-
-  const zetVerwijderDividendbelasting = useCallback((email, aan) => {
-    const laag = String(email).toLowerCase();
-    setVerwijderDividendbelasting((h) => (aan ? [...new Set([...h, laag])] : h.filter((e) => e !== laag)));
-    setWijzigrechtenStatus("idle");
-  }, []);
-
   const slaWijzigrechtenOp = useCallback(async () => {
     setWijzigrechtenStatus("bezig");
     try {
       const res = await fetch("/api/beheer-wijzigrechten", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          niveaus, bulk, alsKlant, offertes, contracten,
-          verwijderIb, verwijderVpb, verwijderContactpersonen, verwijderDividendbelasting,
-        }),
+        body: JSON.stringify({ niveaus, bulk, alsKlant, offertes }),
       });
       if (!res.ok) throw new Error(await res.text());
       const d = await res.json();
@@ -1257,16 +1021,11 @@ export default function BeheerPortaal() {
       setBulk(Array.isArray(d.bulk) ? d.bulk : []);
       setAlsKlant(Array.isArray(d.alsKlant) ? d.alsKlant : []);
       setOffertes(Array.isArray(d.offertes) ? d.offertes : []);
-      setContracten(Array.isArray(d.contracten) ? d.contracten : []);
-      setVerwijderIb(Array.isArray(d.verwijderIb) ? d.verwijderIb : []);
-      setVerwijderVpb(Array.isArray(d.verwijderVpb) ? d.verwijderVpb : []);
-      setVerwijderContactpersonen(Array.isArray(d.verwijderContactpersonen) ? d.verwijderContactpersonen : []);
-      setVerwijderDividendbelasting(Array.isArray(d.verwijderDividendbelasting) ? d.verwijderDividendbelasting : []);
       setWijzigrechtenStatus("gelukt");
     } catch {
       setWijzigrechtenStatus("fout");
     }
-  }, [niveaus, bulk, alsKlant, offertes, contracten, verwijderIb, verwijderVpb, verwijderContactpersonen, verwijderDividendbelasting]);
+  }, [niveaus, bulk, alsKlant, offertes]);
 
   const slaEntraGroepOp = useCallback(async () => {
     setEntraStatus("bezig");
@@ -1314,54 +1073,15 @@ export default function BeheerPortaal() {
     setKoNieuwVeld(""); setKoNieuwLabel(""); setKoNieuwType("tekst");
   }, [koNieuwVeld, koNieuwLabel, koNieuwType]);
 
-  // Extra kolommen IB/VPB: allebei de soorten staan samen onder ÉÉN instelling
-  // (dossierExtraKolommen: { ib, vpb }) — bij het opslaan dus altijd beide meesturen, anders
-  // overschrijft het opslaan van de ene soort de andere (zie werkInstellingenBij: shallow merge).
-  const slaDossierExtraOp = useCallback(async (soort) => {
-    const setStatus = soort === "ib" ? setDossierExtraIbStatus : setDossierExtraVpbStatus;
-    setStatus("bezig");
-    try {
-      const schoon = (lijst) => lijst.filter((c) => c && c.veld).map((c) => ({ veld: c.veld.trim(), label: (c.label || c.veld).trim(), type: c.type || "tekst" }));
-      const res = await fetch("/api/beheer-instellingen", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dossierExtraKolommen: { ib: schoon(dossierExtraIb), vpb: schoon(dossierExtraVpb) } }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      setStatus("gelukt");
-    } catch {
-      setStatus("fout");
-    }
-  }, [dossierExtraIb, dossierExtraVpb]);
-
-  const slaContactExtraOp = useCallback(async () => {
-    setContactExtraStatus("bezig");
-    try {
-      const schoon = contactExtra.filter((c) => c && c.veld).map((c) => ({ veld: c.veld.trim(), label: (c.label || c.veld).trim(), type: c.type || "tekst" }));
-      const res = await fetch("/api/beheer-instellingen", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contactpersonenExtraKolommen: schoon }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      setContactExtraStatus("gelukt");
-    } catch {
-      setContactExtraStatus("fout");
-    }
-  }, [contactExtra]);
-
   const wijzigTaaksoort = useCallback((waarde, veld, aan, label) => {
     setTaaksoortenConfig((huidig) => {
       const key = String(waarde);
       const bestaand = huidig[key] || {};
       const nieuw = { ...bestaand, [veld]: aan, label: label ?? bestaand.label };
-      // Goedkeuren én ondertekenen kunnen alleen bij een zichtbare soort. Een vervolgtaak bij
-      // akkoord heeft alleen zin als de soort ook echt goedgekeurd kán worden.
-      if (veld === "zichtbaar" && !aan) { nieuw.magGoedkeuren = false; nieuw.vereistHandtekening = false; nieuw.vervolgtaakBackoffice = false; }
+      // Goedkeuren én ondertekenen kunnen alleen bij een zichtbare soort.
+      if (veld === "zichtbaar" && !aan) { nieuw.magGoedkeuren = false; nieuw.vereistHandtekening = false; }
       if (veld === "magGoedkeuren" && aan) nieuw.zichtbaar = true;
-      if (veld === "magGoedkeuren" && !aan) nieuw.vervolgtaakBackoffice = false;
       if (veld === "vereistHandtekening" && aan) nieuw.zichtbaar = true;
-      if (veld === "vervolgtaakBackoffice" && aan) { nieuw.zichtbaar = true; nieuw.magGoedkeuren = true; }
       return { ...huidig, [key]: nieuw };
     });
     setTaaksoortenOpslaanStatus("idle");
@@ -1513,13 +1233,13 @@ export default function BeheerPortaal() {
 
       <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap", borderBottom: `1px solid ${KLEUR.rand}` }}>
         {[
+          ["uitstraling", "Huisstijl"],
           ["content", "Content"],
           ["faq", "FAQ"],
           ["taken", "Taken"],
-          ["medewerkers", "Toegang"],
-          ["facturatie", "Functies"],
+          ["medewerkers", "Medewerkers"],
+          ["facturatie", "Facturatie"],
           ["offertes", "Offertes"],
-          ["brieven", "Brieven"],
           ["aanleveren", "Uitvraag"],
           ["uren", "Uren"],
           ["dossiers", "Dossiers"],
@@ -1551,15 +1271,116 @@ export default function BeheerPortaal() {
       </div>
 
       {tab === "aanleveren" && <UitvraagBeheer />}
-      {tab === "uren" && (<>
-        <UrenTarievenBeheer />
-        <VerlofBeheer />
-      </>)}
+      {tab === "uren" && <UrenTarievenBeheer />}
       {tab === "dossiers" && (
-        <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ fontSize: 13, color: KLEUR.subtekst, maxWidth: 760 }}>
+            Bepaal hier hoe de fiscale dossiers eruitzien in het medewerkersportaal — per belastingsoort
+            een eigen indeling. Klap een kaart open om de secties, subrubrieken, zichtbaarheid,
+            alleen-lezen velden, labels en gekoppelde uitvraag in te stellen.
+          </div>
           <DossierIndelingBeheer />
         </div>
       )}
+
+      {tab === "uitstraling" && (<>
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
+        <button
+          onClick={() => toggleRubriek("logo")}
+          aria-expanded={rubriekIsOpen("logo")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("logo") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Logo</span>
+        </button>
+        {rubriekIsOpen("logo") && (<>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 18px" }}>
+          Verschijnt op het inlogscherm en bovenaan het klantportaal.
+        </div>
+
+        {logoUrl && (
+          <div style={{ marginBottom: 18, padding: 16, background: KLEUR.lichtblauw, borderRadius: 8, display: "flex", justifyContent: "center" }}>
+            <img src={logoUrl} alt="Huidig logo" style={{ maxHeight: 70, maxWidth: 280, objectFit: "contain" }} />
+          </div>
+        )}
+
+        <label
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px 16px",
+            border: `1.5px dashed ${KLEUR.rand}`, borderRadius: 8, cursor: "pointer", fontSize: 13.5,
+            fontWeight: 600, color: KLEUR.blauw,
+          }}
+        >
+          <Upload size={16} />
+          {uploadStatus === "bezig" ? "Bezig met uploaden..." : "Nieuw logo kiezen"}
+          <input
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={(e) => uploadLogo(e.target.files?.[0])}
+          />
+        </label>
+
+        {uploadStatus === "gelukt" && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, fontSize: 12.5, color: KLEUR.blauw }}>
+            <CheckCircle2 size={14} /> Logo bijgewerkt.
+          </div>
+        )}
+        {uploadStatus === "fout" && (
+          <div style={{ marginTop: 12, fontSize: 12.5, color: KLEUR.rood }}>Uploaden is niet gelukt, probeer het nog eens.</div>
+        )}
+        </>)}
+      </div>
+
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+        <button
+          onClick={() => toggleRubriek("favicon")}
+          aria-expanded={rubriekIsOpen("favicon")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("favicon") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Favicon</span>
+        </button>
+        {rubriekIsOpen("favicon") && (<>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 18px" }}>
+          Het kleine icoon in de browsertab. Gebruik bij voorkeur een vierkante afbeelding (PNG of SVG).
+        </div>
+
+        {faviconUrl && (
+          <div style={{ marginBottom: 18, padding: 16, background: KLEUR.lichtblauw, borderRadius: 8, display: "flex", justifyContent: "center" }}>
+            <img src={faviconUrl} alt="Huidige favicon" style={{ height: 48, width: 48, objectFit: "contain" }} />
+          </div>
+        )}
+
+        <label
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px 16px",
+            border: `1.5px dashed ${KLEUR.rand}`, borderRadius: 8, cursor: "pointer", fontSize: 13.5,
+            fontWeight: 600, color: KLEUR.blauw,
+          }}
+        >
+          <Upload size={16} />
+          {faviconUploadStatus === "bezig" ? "Bezig met uploaden..." : "Nieuwe favicon kiezen"}
+          <input
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={(e) => uploadFavicon(e.target.files?.[0])}
+          />
+        </label>
+
+        {faviconUploadStatus === "gelukt" && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, fontSize: 12.5, color: KLEUR.blauw }}>
+            <CheckCircle2 size={14} /> Favicon bijgewerkt.
+          </div>
+        )}
+        {faviconUploadStatus === "fout" && (
+          <div style={{ marginTop: 12, fontSize: 12.5, color: KLEUR.rood }}>Uploaden is niet gelukt, probeer het nog eens.</div>
+        )}
+        </>)}
+      </div>
+
+      </>)}
 
       {tab === "content" && (<>
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
@@ -2220,111 +2041,6 @@ export default function BeheerPortaal() {
       )}
 
       {tab === "instellingen" && (<>
-      {/* Huisstijl — hierheen verplaatst (was een los tabblad) op verzoek van Wouter, 05-08-2026.
-          Word-briefpapier (.docx) hoort er inhoudelijk ook bij (zie hieronder) en staat sinds
-          hetzelfde verzoek niet meer bij de tab Brieven. */}
-      <div style={{ fontSize: 15, fontWeight: 700, color: KLEUR.tekst, margin: "4px 0 2px" }}>Huisstijl</div>
-      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 16 }}>
-        <button
-          onClick={() => toggleRubriek("logo")}
-          aria-expanded={rubriekIsOpen("logo")}
-          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
-        >
-          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("logo") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
-          <span style={{ fontSize: 15, fontWeight: 700 }}>Logo</span>
-        </button>
-        {rubriekIsOpen("logo") && (<>
-        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 18px" }}>
-          Verschijnt op het inlogscherm en bovenaan het klantportaal.
-        </div>
-
-        {logoUrl && (
-          <div style={{ marginBottom: 18, padding: 16, background: KLEUR.lichtblauw, borderRadius: 8, display: "flex", justifyContent: "center" }}>
-            <img src={logoUrl} alt="Huidig logo" style={{ maxHeight: 70, maxWidth: 280, objectFit: "contain" }} />
-          </div>
-        )}
-
-        <label
-          style={{
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px 16px",
-            border: `1.5px dashed ${KLEUR.rand}`, borderRadius: 8, cursor: "pointer", fontSize: 13.5,
-            fontWeight: 600, color: KLEUR.blauw,
-          }}
-        >
-          <Upload size={16} />
-          {uploadStatus === "bezig" ? "Bezig met uploaden..." : "Nieuw logo kiezen"}
-          <input
-            type="file"
-            accept="image/*"
-            style={{ display: "none" }}
-            onChange={(e) => uploadLogo(e.target.files?.[0])}
-          />
-        </label>
-
-        {uploadStatus === "gelukt" && (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, fontSize: 12.5, color: KLEUR.blauw }}>
-            <CheckCircle2 size={14} /> Logo bijgewerkt.
-          </div>
-        )}
-        {uploadStatus === "fout" && (
-          <div style={{ marginTop: 12, fontSize: 12.5, color: KLEUR.rood }}>Uploaden is niet gelukt, probeer het nog eens.</div>
-        )}
-        </>)}
-      </div>
-
-      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <button
-          onClick={() => toggleRubriek("favicon")}
-          aria-expanded={rubriekIsOpen("favicon")}
-          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
-        >
-          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("favicon") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
-          <span style={{ fontSize: 15, fontWeight: 700 }}>Favicon</span>
-        </button>
-        {rubriekIsOpen("favicon") && (<>
-        <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 18px" }}>
-          Het kleine icoon in de browsertab. Gebruik bij voorkeur een vierkante afbeelding (PNG of SVG).
-        </div>
-
-        {faviconUrl && (
-          <div style={{ marginBottom: 18, padding: 16, background: KLEUR.lichtblauw, borderRadius: 8, display: "flex", justifyContent: "center" }}>
-            <img src={faviconUrl} alt="Huidige favicon" style={{ height: 48, width: 48, objectFit: "contain" }} />
-          </div>
-        )}
-
-        <label
-          style={{
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px 16px",
-            border: `1.5px dashed ${KLEUR.rand}`, borderRadius: 8, cursor: "pointer", fontSize: 13.5,
-            fontWeight: 600, color: KLEUR.blauw,
-          }}
-        >
-          <Upload size={16} />
-          {faviconUploadStatus === "bezig" ? "Bezig met uploaden..." : "Nieuwe favicon kiezen"}
-          <input
-            type="file"
-            accept="image/*"
-            style={{ display: "none" }}
-            onChange={(e) => uploadFavicon(e.target.files?.[0])}
-          />
-        </label>
-
-        {faviconUploadStatus === "gelukt" && (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, fontSize: 12.5, color: KLEUR.blauw }}>
-            <CheckCircle2 size={14} /> Favicon bijgewerkt.
-          </div>
-        )}
-        {faviconUploadStatus === "fout" && (
-          <div style={{ marginTop: 12, fontSize: 12.5, color: KLEUR.rood }}>Uploaden is niet gelukt, probeer het nog eens.</div>
-        )}
-        </>)}
-      </div>
-
-      {/* Word-briefpapier (.docx) hoort inhoudelijk bij Huisstijl; afzendergegevens (eigen kop
-          hieronder) idem verplaatst — beide beheren dezelfde Brieven-configuratie, zie
-          BrievenAfzenderInstellingen.jsx. */}
-      <BrievenAfzenderInstellingen />
-
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
         <button
           onClick={() => toggleRubriek("webhooks")}
@@ -2599,69 +2315,6 @@ export default function BeheerPortaal() {
         </>)}
       </div>
 
-      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <button
-          onClick={() => toggleRubriek("dossierKolommenIb")}
-          aria-expanded={rubriekIsOpen("dossierKolommenIb")}
-          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
-        >
-          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("dossierKolommenIb") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
-          <span style={{ fontSize: 15, fontWeight: 700 }}>Inkomstenbelasting — extra kolommen (medewerkersportaal)</span>
-        </button>
-        {rubriekIsOpen("dossierKolommenIb") && (
-          <ExtraKolommenBeheer
-            titel=""
-            uitleg="Voeg extra Dynamics-velden (van cr283_inkomstenbelasting) toe als kolom in de hoofdtabel Inkomstenbelasting. Medewerkers zetten ze zelf aan via 'Kolommen'."
-            extra={dossierExtraIb}
-            onWijzig={setDossierExtraIb}
-            onOpslaan={() => slaDossierExtraOp("ib")}
-            status={dossierExtraIbStatus}
-          />
-        )}
-      </div>
-
-      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <button
-          onClick={() => toggleRubriek("dossierKolommenVpb")}
-          aria-expanded={rubriekIsOpen("dossierKolommenVpb")}
-          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
-        >
-          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("dossierKolommenVpb") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
-          <span style={{ fontSize: 15, fontWeight: 700 }}>Vennootschapsbelasting — extra kolommen (medewerkersportaal)</span>
-        </button>
-        {rubriekIsOpen("dossierKolommenVpb") && (
-          <ExtraKolommenBeheer
-            titel=""
-            uitleg="Voeg extra Dynamics-velden (van cr283_vennootschapsbelasting) toe als kolom in de hoofdtabel Vennootschapsbelasting. Medewerkers zetten ze zelf aan via 'Kolommen'."
-            extra={dossierExtraVpb}
-            onWijzig={setDossierExtraVpb}
-            onOpslaan={() => slaDossierExtraOp("vpb")}
-            status={dossierExtraVpbStatus}
-          />
-        )}
-      </div>
-
-      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <button
-          onClick={() => toggleRubriek("contactpersonenKolommen")}
-          aria-expanded={rubriekIsOpen("contactpersonenKolommen")}
-          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
-        >
-          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("contactpersonenKolommen") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
-          <span style={{ fontSize: 15, fontWeight: 700 }}>Contactpersonen — extra kolommen (medewerkersportaal)</span>
-        </button>
-        {rubriekIsOpen("contactpersonenKolommen") && (
-          <ExtraKolommenBeheer
-            titel=""
-            uitleg="Voeg extra Dynamics-velden (van contacts) toe als kolom in het contactpersonen-overzicht. Medewerkers zetten ze zelf aan via 'Kolommen'."
-            extra={contactExtra}
-            onWijzig={setContactExtra}
-            onOpslaan={slaContactExtraOp}
-            status={contactExtraStatus}
-          />
-        )}
-      </div>
-
       </>)}
 
       {tab === "medewerkers" && (
@@ -2748,16 +2401,10 @@ export default function BeheerPortaal() {
           <strong> niveau</strong> (wijzigen van klantgegevens), vink aan wie <strong>bulk-aanpassingen</strong>
           {" "}op meerdere klanten tegelijk mag doen, en vink aan wie <strong>als klant mag meekijken</strong>
           {" "}(alleen-lezen het klantportaal bekijken namens een gekozen klant, via de tab "Meekijken als klant"
-          {" "}in het medewerkersportaal), vink aan wie <strong>offertes</strong> mag maken (de tab "Offertes":
-          {" "}offertes en opdrachtbevestigingen opstellen en versturen), en vink aan wie de tab <strong>Contracten</strong>
-          {" "}mag zien (toont vooralsnog alleen de placeholder van de Contractenmodule, die krijgt pas in een
-          {" "}latere stap echte inhoud). Vink onder <strong>Verwijderen</strong> per tab aan wie
-          {" "}<strong>Inkomstenbelasting</strong>- en/of <strong>Vennootschapsbelasting</strong>-dossiers definitief
-          {" "}mag verwijderen, en wie <strong>contactpersonen</strong> mag verwijderen (zet ze op inactief en
-          {" "}ontkoppelt ze van cliënten — omkeerbaar in Dynamics). <strong>Dividendbelasting</strong> staat er
-          {" "}alvast bij voor als die tab later een eigen verwijderfunctie krijgt. Beheerders mogen dit alle
-          {" "}negen sowieso altijd. Wie het offertes-recht niet heeft, ziet de tab niet en kan de bijbehorende
-          {" "}API ook niet aanroepen.
+          {" "}in het medewerkersportaal), en vink aan wie <strong>offertes</strong> mag maken (de tab "Offertes":
+          {" "}offertes en opdrachtbevestigingen opstellen en versturen). Beheerders mogen dit alle vier sowieso
+          {" "}altijd. Wie het offertes-recht niet heeft, ziet de tab niet en kan de bijbehorende API ook niet
+          {" "}aanroepen.
         </div>
 
         {medewerkers === null ? (
@@ -2778,7 +2425,7 @@ export default function BeheerPortaal() {
               />
             </div>
             <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 8 }}>
-              {Object.values(niveaus).filter((n) => n === "manager" || n === "beheerder").length} met wijzig-recht · {bulk.length} met bulk-recht · {alsKlant.length} met als-klant-recht · {offertes.length} met offertes-recht · {contracten.length} met contracten-recht · {new Set([...verwijderIb, ...verwijderVpb, ...verwijderContactpersonen, ...verwijderDividendbelasting]).size} met een verwijder-recht · {medewerkers.length} medewerkers
+              {Object.values(niveaus).filter((n) => n === "manager" || n === "beheerder").length} met wijzig-recht · {bulk.length} met bulk-recht · {alsKlant.length} met als-klant-recht · {offertes.length} met offertes-recht · {medewerkers.length} medewerkers
             </div>
             {(() => {
             const gefilterdeMedewerkers = medewerkers
@@ -2789,7 +2436,7 @@ export default function BeheerPortaal() {
               {gefilterdeMedewerkers
                 .slice(0, medewerkerToonAantal)
                 .map((m, i) => (
-                  <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, flexWrap: "wrap" }}>
+                  <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}` }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 600 }}>{m.naam || m.email}</div>
                       <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{m.functie ? m.functie + " · " : ""}{m.email}</div>
@@ -2828,49 +2475,6 @@ export default function BeheerPortaal() {
                       />
                       Offertes
                     </label>
-                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: KLEUR.subtekst, cursor: "pointer", whiteSpace: "nowrap" }} title="Mag de tab 'Contracten' zien in het medewerkersportaal">
-                      <input
-                        type="checkbox"
-                        checked={contracten.includes(String(m.email).toLowerCase())}
-                        onChange={(e) => zetContracten(m.email, e.target.checked)}
-                      />
-                      Contracten
-                    </label>
-                    <div style={{ display: "inline-flex", alignItems: "center", gap: 8, paddingLeft: 8, borderLeft: `1px solid ${KLEUR.rand}` }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".02em", whiteSpace: "nowrap" }}>Verwijderen</span>
-                      <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: KLEUR.subtekst, cursor: "pointer", whiteSpace: "nowrap" }} title="Mag Inkomstenbelasting-dossiers definitief verwijderen">
-                        <input
-                          type="checkbox"
-                          checked={verwijderIb.includes(String(m.email).toLowerCase())}
-                          onChange={(e) => zetVerwijderIb(m.email, e.target.checked)}
-                        />
-                        IB
-                      </label>
-                      <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: KLEUR.subtekst, cursor: "pointer", whiteSpace: "nowrap" }} title="Mag Vennootschapsbelasting-dossiers definitief verwijderen">
-                        <input
-                          type="checkbox"
-                          checked={verwijderVpb.includes(String(m.email).toLowerCase())}
-                          onChange={(e) => zetVerwijderVpb(m.email, e.target.checked)}
-                        />
-                        VPB
-                      </label>
-                      <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: KLEUR.subtekst, cursor: "pointer", whiteSpace: "nowrap" }} title="Mag contactpersonen verwijderen (op inactief zetten en ontkoppelen van cliënten)">
-                        <input
-                          type="checkbox"
-                          checked={verwijderContactpersonen.includes(String(m.email).toLowerCase())}
-                          onChange={(e) => zetVerwijderContactpersonen(m.email, e.target.checked)}
-                        />
-                        Contactp.
-                      </label>
-                      <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: KLEUR.subtekst, cursor: "pointer", whiteSpace: "nowrap" }} title="Mag dividendbelasting-aangiftes verwijderen (alvast klaargezet — de tab bestaat nog niet)">
-                        <input
-                          type="checkbox"
-                          checked={verwijderDividendbelasting.includes(String(m.email).toLowerCase())}
-                          onChange={(e) => zetVerwijderDividendbelasting(m.email, e.target.checked)}
-                        />
-                        Dividendb.
-                      </label>
-                    </div>
                     <select
                       value={niveaus[m.email] || "medewerker"}
                       onChange={(e) => zetNiveau(m.email, e.target.value)}
@@ -2991,35 +2595,75 @@ export default function BeheerPortaal() {
         <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 14px" }}>
           Alle betaalde modules staan standaard <strong>uit</strong> voor elke klant. Zet per klant aan wat die klant mag
           gebruiken — de bijbehorende tab verschijnt dan meteen in het klantportaal. Modules: <strong>Facturen</strong>,
-          <strong> Uren</strong> (werkt bovenop Facturen), <strong>Bezittingen</strong>, <strong>Rapportages</strong>, <strong>Ritten</strong> en
-          <strong> Contracten</strong>.
+          <strong> Uren</strong> (werkt bovenop Facturen), <strong>Bezittingen</strong>, <strong>Rapportages</strong> en <strong>Ritten</strong>.
         </div>
 
-        <div style={{ marginBottom: 18, padding: 14, background: KLEUR.lichtblauw, borderRadius: 8 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 10 }}>Prijzen per maand, per klantaccount</div>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ borderCollapse: "collapse", minWidth: 380 }}>
-              <tbody>
-                <PrijsRij label="Facturatie" waarde={facturatiemodulePrijs} setWaarde={setFacturatiemodulePrijs} status={prijsOpslaanStatus} opslaan={slaFacturatiemodulePrijsOp} />
-                <PrijsRij label="Uren" waarde={urenmodulePrijs} setWaarde={setUrenmodulePrijs} status={urenPrijsOpslaanStatus} opslaan={slaUrenmodulePrijsOp} />
-                <PrijsRij label="Bezittingen" waarde={bezittingenmodulePrijs} setWaarde={setBezittingenmodulePrijs} status={overigePrijsStatus.bezittingenmodulePrijs} opslaan={() => slaOverigePrijsOp("bezittingenmodulePrijs", bezittingenmodulePrijs, setBezittingenmodulePrijs)} />
-                <PrijsRij label="Rapportages" waarde={rapportagesmodulePrijs} setWaarde={setRapportagesmodulePrijs} status={overigePrijsStatus.rapportagesmodulePrijs} opslaan={() => slaOverigePrijsOp("rapportagesmodulePrijs", rapportagesmodulePrijs, setRapportagesmodulePrijs)} />
-                <PrijsRij label="Ritten" waarde={rittenmodulePrijs} setWaarde={setRittenmodulePrijs} status={overigePrijsStatus.rittenmodulePrijs} opslaan={() => slaOverigePrijsOp("rittenmodulePrijs", rittenmodulePrijs, setRittenmodulePrijs)} />
-                <PrijsRij label="Contracten" waarde={contractenmodulePrijs} setWaarde={setContractenmodulePrijs} status={overigePrijsStatus.contractenmodulePrijs} opslaan={() => slaOverigePrijsOp("contractenmodulePrijs", contractenmodulePrijs, setContractenmodulePrijs)} />
-              </tbody>
-            </table>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 10, flexWrap: "wrap", marginBottom: 18, padding: 14, background: KLEUR.lichtblauw, borderRadius: 8 }}>
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Prijs per maand, per klantaccount</div>
+            <div style={{ position: "relative", maxWidth: 160 }}>
+              <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: KLEUR.mutedTekst }}>€</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={facturatiemodulePrijs}
+                onChange={(e) => setFacturatiemodulePrijs(e.target.value)}
+                style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 24px", fontSize: 13, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}
+              />
+            </div>
           </div>
-          <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 10 }}>
-            Deze prijzen worden getoond aan klanten bij wie de betreffende module nog niet actief is. Uren werkt bovenop
-            Facturatie; de overige modules staan los van elkaar.
+          <button
+            onClick={slaFacturatiemodulePrijsOp}
+            disabled={prijsOpslaanStatus === "bezig"}
+            style={{ padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+          >
+            {prijsOpslaanStatus === "bezig" ? "Opslaan..." : "Opslaan"}
+          </button>
+          {prijsOpslaanStatus === "gelukt" && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: KLEUR.blauw }}>
+              <CheckCircle2 size={14} /> Opgeslagen.
+            </span>
+          )}
+          {prijsOpslaanStatus === "fout" && (
+            <span style={{ fontSize: 12.5, color: KLEUR.rood }}>Ongeldig bedrag of opslaan mislukt.</span>
+          )}
+          <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, width: "100%" }}>
+            Deze prijs wordt getoond aan klanten bij wie de module nog niet actief is (klantportaal, tab "Facturen").
           </div>
-
-          <ContractenDossierInstellingen />
-          <ContractenMailInstellingen />
         </div>
 
-        <div style={{ marginBottom: 18, padding: 14, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
-          <ContractenTypesBeheer />
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 10, flexWrap: "wrap", marginBottom: 18, padding: 14, background: KLEUR.lichtblauw, borderRadius: 8 }}>
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Prijs urenregistratie per maand, per klantaccount</div>
+            <div style={{ position: "relative", maxWidth: 160 }}>
+              <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: KLEUR.mutedTekst }}>€</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={urenmodulePrijs}
+                onChange={(e) => setUrenmodulePrijs(e.target.value)}
+                style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 24px", fontSize: 13, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}
+              />
+            </div>
+          </div>
+          <button
+            onClick={slaUrenmodulePrijsOp}
+            disabled={urenPrijsOpslaanStatus === "bezig"}
+            style={{ padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+          >
+            {urenPrijsOpslaanStatus === "bezig" ? "Opslaan..." : "Opslaan"}
+          </button>
+          {urenPrijsOpslaanStatus === "gelukt" && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: KLEUR.blauw }}>
+              <CheckCircle2 size={14} /> Opgeslagen.
+            </span>
+          )}
+          {urenPrijsOpslaanStatus === "fout" && (
+            <span style={{ fontSize: 12.5, color: KLEUR.rood }}>Ongeldig bedrag of opslaan mislukt.</span>
+          )}
+          <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, width: "100%" }}>
+            De losse urenregistratie-module (werkt samen met de facturatiemodule). Deze prijs wordt getoond aan klanten bij wie de urenregistratie nog niet actief is.
+          </div>
         </div>
 
         {facturatieFout && (
@@ -3060,25 +2704,11 @@ export default function BeheerPortaal() {
                   </button>
                 ))}
               </div>
-              {(() => {
-                const groepen = [...new Set(facturatieKlanten.map((k) => k.groepsnaam).filter(Boolean))].sort((a, b) => a.localeCompare(b, "nl"));
-                if (groepen.length === 0) return null;
-                return (
-                  <select
-                    value={facturatieGroepFilter}
-                    onChange={(e) => setFacturatieGroepFilter(e.target.value)}
-                    style={{ padding: "7px 10px", borderRadius: 6, fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.subtekst, cursor: "pointer" }}
-                  >
-                    <option value="alle">Alle groepen</option>
-                    {groepen.map((g) => <option key={g} value={g}>{g}</option>)}
-                  </select>
-                );
-              })()}
             </div>
             <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 8 }}>
               {facturatieKlanten.filter((k) => anyModuleAan(k.accountId)).length} van {facturatieKlanten.length} klanten met minstens één module aan
               {(() => {
-                const nAanvragen = facturatieKlanten.filter((k) => heeftOpenstaandeAanvraag(k.accountId)).length;
+                const nAanvragen = Object.values(facturatieStatussen).filter((s) => s && !s.ingeschakeld && s.aangevraagdOp).length;
                 return nAanvragen > 0 ? ` — ${nAanvragen} ${nAanvragen === 1 ? "aanvraag" : "aanvragen"} open` : "";
               })()}
             </div>
@@ -3093,12 +2723,13 @@ export default function BeheerPortaal() {
                   const aan = anyModuleAan(k.accountId);
                   return facturatieStatusFilter === "aan" ? aan : !aan;
                 })
-                .filter((k) => facturatieGroepFilter === "alle" || k.groepsnaam === facturatieGroepFilter)
                 .slice()
                 .sort((a, b) => {
-                  // Klanten met een openstaande aanvraag bij minstens één module (nog uit, wel
-                  // aangevraagd) bovenaan, zodat een beheerder die niet over het hoofd ziet.
-                  return (heeftOpenstaandeAanvraag(b.accountId) ? 1 : 0) - (heeftOpenstaandeAanvraag(a.accountId) ? 1 : 0);
+                  // Klanten met een openstaande aanvraag (module nog uit, wel aangevraagd) bovenaan,
+                  // zodat een beheerder die niet over het hoofd ziet tussen alle andere klanten.
+                  const aanvraag = (k) => !(facturatieStatussen[k.accountId] && facturatieStatussen[k.accountId].ingeschakeld)
+                    && !!(facturatieStatussen[k.accountId] && facturatieStatussen[k.accountId].aangevraagdOp);
+                  return (aanvraag(b) ? 1 : 0) - (aanvraag(a) ? 1 : 0);
                 });
               const zichtbareFacturatie = gefilterdFacturatie.slice(0, facturatieToonAantal);
               return (
@@ -3113,26 +2744,14 @@ export default function BeheerPortaal() {
                       const urenAan = !!urenStatus.ingeschakeld;
                       const urenBezigRow = !!urenBezig[k.accountId];
                       const urenAangevraagd = !urenAan && !!urenStatus.aangevraagdOp;
-                      const bezStatus = bezittingenStatussen[k.accountId] || {};
-                      const bezAan = !!bezStatus.ingeschakeld;
-                      const bezAangevraagd = !bezAan && !!bezStatus.aangevraagdOp;
-                      const rapStatus = rapportagesStatussen[k.accountId] || {};
-                      const rapAan = !!rapStatus.ingeschakeld;
-                      const rapAangevraagd = !rapAan && !!rapStatus.aangevraagdOp;
-                      const ritStatus = rittenStatussen[k.accountId] || {};
-                      const ritAan = !!ritStatus.ingeschakeld;
-                      const ritAangevraagd = !ritAan && !!ritStatus.aangevraagdOp;
-                      const conStatus = contractenStatussen[k.accountId] || {};
-                      const conAan = !!conStatus.ingeschakeld;
-                      const conAangevraagd = !conAan && !!conStatus.aangevraagdOp;
-                      const heeftAanvraag = aangevraagd || urenAangevraagd || bezAangevraagd || rapAangevraagd || ritAangevraagd || conAangevraagd;
+                      const bezAan = !!(bezittingenStatussen[k.accountId] && bezittingenStatussen[k.accountId].ingeschakeld);
+                      const rapAan = !!(rapportagesStatussen[k.accountId] && rapportagesStatussen[k.accountId].ingeschakeld);
+                      const ritAan = !!(rittenStatussen[k.accountId] && rittenStatussen[k.accountId].ingeschakeld);
                       return (
-                        <div key={k.accountId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, background: heeftAanvraag ? KLEUR.lichtblauw : "transparent" }}>
+                        <div key={k.accountId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, background: (aangevraagd || urenAangevraagd) ? KLEUR.lichtblauw : "transparent" }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 13, fontWeight: 600 }}>{k.klantnaam || "(geen naam)"}</div>
-                            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>
-                              Cliëntnr {k.klantnummer || "—"}{k.groepsnaam ? ` · ${k.groepsnaam}` : ""}
-                            </div>
+                            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>Cliëntnr {k.klantnummer || "—"}</div>
                             {aangevraagd && (
                               <div style={{ fontSize: 11, fontWeight: 600, color: KLEUR.blauw, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
                                 <Clock size={11} /> Facturen aangevraagd op {new Date(status.aangevraagdOp).toLocaleDateString("nl-NL")}
@@ -3145,30 +2764,6 @@ export default function BeheerPortaal() {
                                 {urenStatus.aangevraagdDoor ? ` door ${urenStatus.aangevraagdDoor}` : ""}
                               </div>
                             )}
-                            {bezAangevraagd && (
-                              <div style={{ fontSize: 11, fontWeight: 600, color: KLEUR.blauw, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
-                                <Clock size={11} /> Bezittingen aangevraagd op {new Date(bezStatus.aangevraagdOp).toLocaleDateString("nl-NL")}
-                                {bezStatus.aangevraagdDoor ? ` door ${bezStatus.aangevraagdDoor}` : ""}
-                              </div>
-                            )}
-                            {rapAangevraagd && (
-                              <div style={{ fontSize: 11, fontWeight: 600, color: KLEUR.blauw, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
-                                <Clock size={11} /> Rapportages aangevraagd op {new Date(rapStatus.aangevraagdOp).toLocaleDateString("nl-NL")}
-                                {rapStatus.aangevraagdDoor ? ` door ${rapStatus.aangevraagdDoor}` : ""}
-                              </div>
-                            )}
-                            {ritAangevraagd && (
-                              <div style={{ fontSize: 11, fontWeight: 600, color: KLEUR.blauw, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
-                                <Clock size={11} /> Ritten aangevraagd op {new Date(ritStatus.aangevraagdOp).toLocaleDateString("nl-NL")}
-                                {ritStatus.aangevraagdDoor ? ` door ${ritStatus.aangevraagdDoor}` : ""}
-                              </div>
-                            )}
-                            {conAangevraagd && (
-                              <div style={{ fontSize: 11, fontWeight: 600, color: KLEUR.blauw, marginTop: 3, display: "flex", alignItems: "center", gap: 4 }}>
-                                <Clock size={11} /> Contracten aangevraagd op {new Date(conStatus.aangevraagdOp).toLocaleDateString("nl-NL")}
-                                {conStatus.aangevraagdDoor ? ` door ${conStatus.aangevraagdDoor}` : ""}
-                              </div>
-                            )}
                           </div>
                           <div style={{ display: "flex", gap: 10, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
                             <ModuleToggle label="Facturen" aan={aan} bezig={bezig} titel={aan ? "Facturatiemodule uitzetten" : "Facturatiemodule aanzetten"} onClick={() => zetFacturatieStatus(k.accountId, !aan)} />
@@ -3176,7 +2771,6 @@ export default function BeheerPortaal() {
                             <ModuleToggle label="Bezittingen" aan={bezAan} bezig={!!bezittingenBezig[k.accountId]} titel={bezAan ? "Bezittingen uitzetten" : "Bezittingen aanzetten"} onClick={() => zetModuleStatus("/api/beheer-bezittingen-klanten", setBezittingenStatussen, setBezittingenBezig, k.accountId, !bezAan)} />
                             <ModuleToggle label="Rapportages" aan={rapAan} bezig={!!rapportagesBezig[k.accountId]} titel={rapAan ? "Rapportages uitzetten" : "Rapportages aanzetten"} onClick={() => zetModuleStatus("/api/beheer-rapportages-klanten", setRapportagesStatussen, setRapportagesBezig, k.accountId, !rapAan)} />
                             <ModuleToggle label="Ritten" aan={ritAan} bezig={!!rittenBezig[k.accountId]} titel={ritAan ? "Ritten uitzetten" : "Ritten aanzetten"} onClick={() => zetModuleStatus("/api/beheer-ritten-klanten", setRittenStatussen, setRittenBezig, k.accountId, !ritAan)} />
-                            <ModuleToggle label="Contracten" aan={conAan} bezig={!!contractenBezig[k.accountId]} titel={conAan ? "Contracten uitzetten" : "Contracten aanzetten"} onClick={() => zetModuleStatus("/api/beheer-contracten-klanten", setContractenStatussen, setContractenBezig, k.accountId, !conAan)} />
                           </div>
                         </div>
                       );
@@ -3379,8 +2973,6 @@ export default function BeheerPortaal() {
             Bepaal per soort taak of klanten hem in het portaal zien, en of ze hem zelf mogen
             goedkeuren. Bij goedkeuren wordt de taak in Dynamics afgerond, met een notitie dat de
             klant akkoord gaf. Soorten die niet zijn aangevinkt blijven voor de klant verborgen.
-            Met "Vervolgtaak backoffice" maak je bij akkoord automatisch een nieuwe interne taak
-            aan (bijv. voor verwerking door backoffice).
           </div>
 
           {taaksoortenOpties === null ? (
@@ -3407,20 +2999,19 @@ export default function BeheerPortaal() {
                   style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px 8px 32px", fontSize: 13 }}
                 />
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto", gap: "0 18px", alignItems: "center" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: "0 18px", alignItems: "center" }}>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}` }}>Soort</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Zichtbaar</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Mag goedkeuren</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Vereist handtekening</div>
-                <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Vervolgtaak backoffice</div>
                 {filterTaaksoorten(taaksoortenOpties, taaksoortenZoek)
                   .slice(0, taaksoortToonAantal)
                   .map((optie) => {
                   const cfg = taaksoortenConfig[String(optie.waarde)] || {};
                   return (
                     <React.Fragment key={optie.waarde}>
-                      <div style={{ fontSize: 13, padding: "10px 0", borderBottom: cfg.vervolgtaakBackoffice ? "none" : `1px solid ${KLEUR.rand}` }}>{optie.label}</div>
-                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: cfg.vervolgtaakBackoffice ? "none" : `1px solid ${KLEUR.rand}` }}>
+                      <div style={{ fontSize: 13, padding: "10px 0", borderBottom: `1px solid ${KLEUR.rand}` }}>{optie.label}</div>
+                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: `1px solid ${KLEUR.rand}` }}>
                         <input
                           type="checkbox"
                           checked={!!cfg.zichtbaar}
@@ -3428,7 +3019,7 @@ export default function BeheerPortaal() {
                           style={{ width: 16, height: 16, cursor: "pointer" }}
                         />
                       </div>
-                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: cfg.vervolgtaakBackoffice ? "none" : `1px solid ${KLEUR.rand}` }}>
+                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: `1px solid ${KLEUR.rand}` }}>
                         <input
                           type="checkbox"
                           checked={!!cfg.magGoedkeuren}
@@ -3436,7 +3027,7 @@ export default function BeheerPortaal() {
                           style={{ width: 16, height: 16, cursor: "pointer" }}
                         />
                       </div>
-                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: cfg.vervolgtaakBackoffice ? "none" : `1px solid ${KLEUR.rand}` }}>
+                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: `1px solid ${KLEUR.rand}` }}>
                         <input
                           type="checkbox"
                           checked={!!cfg.vereistHandtekening}
@@ -3444,49 +3035,6 @@ export default function BeheerPortaal() {
                           style={{ width: 16, height: 16, cursor: "pointer" }}
                         />
                       </div>
-                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: cfg.vervolgtaakBackoffice ? "none" : `1px solid ${KLEUR.rand}` }}>
-                        <input
-                          type="checkbox"
-                          checked={!!cfg.vervolgtaakBackoffice}
-                          onChange={(e) => wijzigTaaksoort(optie.waarde, "vervolgtaakBackoffice", e.target.checked, optie.label)}
-                          title="Maakt automatisch een interne vervolgtaak aan zodra de klant akkoord geeft"
-                          style={{ width: 16, height: 16, cursor: "pointer" }}
-                        />
-                      </div>
-                      {cfg.vervolgtaakBackoffice && (
-                        <div style={{ gridColumn: "1 / -1", padding: "0 0 14px", borderBottom: `1px solid ${KLEUR.rand}` }}>
-                          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", background: "#FAFBF9", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 12 }}>
-                            <div style={{ flex: "1 1 260px" }}>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 4 }}>Onderwerp van de vervolgtaak</div>
-                              <input
-                                type="text"
-                                value={cfg.vervolgtaakOnderwerp || ""}
-                                onChange={(e) => wijzigTaaksoort(optie.waarde, "vervolgtaakOnderwerp", e.target.value, optie.label)}
-                                placeholder="Bijv. Akkoord verwerkt — {klant} ({titel})"
-                                style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 12.5 }}
-                              />
-                              <div style={{ fontSize: 10.5, color: KLEUR.mutedTekst, marginTop: 3 }}>Plaatshouders: {"{klant}"} en {"{titel}"} (onderwerp van de oorspronkelijke taak).</div>
-                            </div>
-                            <div style={{ flex: "1 1 220px" }}>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 4 }}>Soort van de vervolgtaak</div>
-                              <select
-                                value={cfg.vervolgtaakSoort ?? ""}
-                                onChange={(e) => wijzigTaaksoort(optie.waarde, "vervolgtaakSoort", e.target.value, optie.label)}
-                                style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 12.5, background: "#fff" }}
-                              >
-                                <option value="">— geen soort —</option>
-                                {taaksoortenOpties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
-                              </select>
-                              <div style={{ fontSize: 10.5, color: KLEUR.mutedTekst, marginTop: 3 }}>
-                                Zet bij voorkeur een soort die hierboven niet op "Zichtbaar" staat, zodat dit een interne taak blijft.
-                              </div>
-                            </div>
-                            <div style={{ flex: "1 1 100%", fontSize: 10.5, color: KLEUR.mutedTekst }}>
-                              Eigenaar wordt automatisch de Manager/relatiebeheerder van de cliënt (zoals bij Beheer → Klanten), indien bekend — anders blijft de standaardeigenaar staan.
-                            </div>
-                          </div>
-                        </div>
-                      )}
                     </React.Fragment>
                   );
                 })}
@@ -3522,8 +3070,6 @@ export default function BeheerPortaal() {
           overzichten). Het component doet zijn eigen beheerderscheck via /api/ben-ik-beheerder,
           bovenop het feit dat dit hele portaal al achter de rol 'beheerder' zit. */}
       {tab === "offertes" && <OffertetoolApp modus="beheer" />}
-
-      {tab === "brieven" && <BrievenBeheer />}
 
     </div>
   );

@@ -534,7 +534,7 @@ function SoortIndelingPaneel({ soort }) {
   });
 
   return (
-    <div>
+    <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 16 }}>
       <button
         onClick={() => setOpen((h) => !h)}
         aria-expanded={open}
