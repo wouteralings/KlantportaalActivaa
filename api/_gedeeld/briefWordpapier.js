@@ -114,7 +114,10 @@ function bouwBody(brief) {
   if (b.onderwerp) k.push(labelParaXml("Betreft", b.onderwerp, (b.behandeldDoor || b.telefoonnummer) ? 160 : 200));
   if (b.behandeldDoor) k.push(labelParaXml("Behandeld door", b.behandeldDoor));
   if (b.telefoonnummer) k.push(labelParaXml("Telefoonnummer", b.telefoonnummer));
-  if (b.behandeldDoor || b.telefoonnummer) k.push(para(run(""), { after: 120 }));
+  if (b.behandeldDoor || b.telefoonnummer) {
+    k.push(para(run(""), { after: 120 }));
+    k.push(para(run(""), { after: 0 })); // extra witregel tussen Telefoonnummer en aanhef
+  }
   if (b.aanhef) k.push(para(run(b.aanhef), { after: 160 }));
   for (const alinea of String(b.tekst || "").replace(/\r\n/g, "\n").split(/\n[ \t]*\n/)) {
     k.push(para(alineaRuns(alinea), { after: 160 }));

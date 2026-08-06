@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Save, Trash2, ArrowUp, ArrowDown, CheckCircle2, XCircle, Mail, ChevronDown, ChevronRight, X } from "lucide-react";
+import { Plus, Save, Trash2, ArrowUp, ArrowDown, CheckCircle2, XCircle, Mail, ChevronDown, ChevronRight, X, Search } from "lucide-react";
 
 /** Zelfde palet als de rest van het beheerdersportaal (bewust hier herhaald zodat dit bestand op
  *  zichzelf staat, zie bijv. ContractenTypesBeheer.jsx). */
@@ -47,6 +47,7 @@ export default function BrievenBeheer() {
   const [veldAantal, setVeldAantal] = useState(25);
   const [openBrieven, setOpenBrieven] = useState(() => new Set()); // indices van opengeklapte brieven
   const [openVelden, setOpenVelden] = useState(() => new Set());   // indices van opengeklapte invulvelden
+  const [zoek, setZoek] = useState(""); // zoekterm om tussen de standaardbrieven te filteren
 
   useEffect(() => {
     fetch("/api/beheer-briefsjablonen")
@@ -104,7 +105,13 @@ export default function BrievenBeheer() {
 
   if (config === null) return <div style={{ fontSize: 13, color: KLEUR.mutedTekst, padding: "16px 0" }}>Brieven-instellingen laden…</div>;
 
-  const zichtbareSjablonen = aantal === Infinity ? config.sjablonen : config.sjablonen.slice(0, aantal);
+  // Zoeken tussen de standaardbrieven (op naam/onderwerp/tekst), met behoud van de originele index
+  // zodat bewerken/verplaatsen/verwijderen op de juiste brief blijft werken.
+  const zoekTerm = zoek.trim().toLowerCase();
+  const gefilterdeSjablonen = config.sjablonen
+    .map((s, i) => ({ s, i }))
+    .filter(({ s }) => !zoekTerm || `${s.naam || ""} ${s.onderwerp || ""} ${s.tekst || ""}`.toLowerCase().includes(zoekTerm));
+  const zichtbareSjablonen = aantal === Infinity ? gefilterdeSjablonen : gefilterdeSjablonen.slice(0, aantal);
   const zichtbareVelden = veldAantal === Infinity ? config.briefvelden : config.briefvelden.slice(0, veldAantal);
 
   return (
@@ -185,8 +192,17 @@ export default function BrievenBeheer() {
 
       {/* Standaardbrieven — per item inklapbaar + aantalkeuze onderaan */}
       <Rubriek titel={`Standaardbrieven (${config.sjablonen.length})`}>
+        <div style={{ position: "relative", marginBottom: 10 }}>
+          <Search size={15} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+          <input value={zoek} onChange={(e) => setZoek(e.target.value)} placeholder="Zoek tussen de voorbeeldbrieven (naam, onderwerp of tekst)…" style={{ ...invoerStijl, padding: "8px 10px 8px 32px" }} />
+        </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {zichtbareSjablonen.map((s, i) => {
+          {zichtbareSjablonen.length === 0 && (
+            <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, padding: "10px 2px" }}>
+              {zoekTerm ? `Geen voorbeeldbrieven gevonden voor “${zoek.trim()}”.` : "Nog geen standaardbrieven."}
+            </div>
+          )}
+          {zichtbareSjablonen.map(({ s, i }) => {
             const open = openBrieven.has(i);
             return (
               <div key={i} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden", background: s.actief === false ? "#F7F7F5" : "#fff" }}>
@@ -199,8 +215,8 @@ export default function BrievenBeheer() {
                   <button onClick={() => zetSjabloon(i, "actief", !(s.actief !== false))} title={s.actief === false ? "Inactief" : "Actief"} style={{ display: "inline-flex", alignItems: "center", gap: 5, border: `1px solid ${KLEUR.rand}`, background: "#fff", borderRadius: 7, padding: "6px 10px", fontSize: 12, fontWeight: 600, color: s.actief === false ? KLEUR.mutedTekst : KLEUR.groen, cursor: "pointer" }}>
                     {s.actief === false ? <XCircle size={14} /> : <CheckCircle2 size={14} />} {s.actief === false ? "Inactief" : "Actief"}
                   </button>
-                  <button onClick={() => verplaatsSjabloon(i, -1)} disabled={i === 0} title="Omhoog" style={pijlStijl(i === 0)}><ArrowUp size={15} /></button>
-                  <button onClick={() => verplaatsSjabloon(i, 1)} disabled={i === zichtbareSjablonen.length - 1} title="Omlaag" style={pijlStijl(i === zichtbareSjablonen.length - 1)}><ArrowDown size={15} /></button>
+                  <button onClick={() => verplaatsSjabloon(i, -1)} disabled={i === 0 || !!zoekTerm} title={zoekTerm ? "Wis eerst de zoekterm om te verplaatsen" : "Omhoog"} style={pijlStijl(i === 0 || !!zoekTerm)}><ArrowUp size={15} /></button>
+                  <button onClick={() => verplaatsSjabloon(i, 1)} disabled={i === config.sjablonen.length - 1 || !!zoekTerm} title={zoekTerm ? "Wis eerst de zoekterm om te verplaatsen" : "Omlaag"} style={pijlStijl(i === config.sjablonen.length - 1 || !!zoekTerm)}><ArrowDown size={15} /></button>
                   <button onClick={() => verwijderSjabloon(i)} title="Verwijderen" style={{ ...pijlStijl(false), color: KLEUR.rood }}><Trash2 size={15} /></button>
                 </div>
                 {open && (
@@ -231,7 +247,7 @@ export default function BrievenBeheer() {
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
           <button onClick={nieuwSjabloon} style={knopLichtStijl}><Plus size={15} /> Nieuwe brief</button>
-          <AantalKiezer aantal={aantal} setAantal={setAantal} getoond={zichtbareSjablonen.length} totaal={config.sjablonen.length} />
+          <AantalKiezer aantal={aantal} setAantal={setAantal} getoond={zichtbareSjablonen.length} totaal={gefilterdeSjablonen.length} />
         </div>
       </Rubriek>
 

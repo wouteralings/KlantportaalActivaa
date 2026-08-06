@@ -114,6 +114,14 @@ function base64Download(base64, bestandsnaam, contentType) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
+// Standaard begeleidende mailtekst (spiegelt STANDAARD_MAIL_TEKST in api/_gedeeld/briefSjablonen.js);
+// gebruikt in de verstuur-preview als de beheerder (nog) geen eigen mailtekst heeft ingesteld.
+const STANDAARD_MAIL_TEKST =
+  "Geachte heer/mevrouw,\n\n" +
+  "Bijgaand ontvangt u een brief van {{afzendernaam}}. Wij verzoeken u vriendelijk kennis te nemen van de inhoud.\n\n" +
+  "Heeft u vragen naar aanleiding van deze brief? Neem dan gerust contact met ons op.\n\n" +
+  "Met vriendelijke groet,\n{{afzendernaam}}";
+
 export default function BrievenOverzicht() {
   const [config, setConfig] = useState(null); // { afzender, sharepointMap, sjablonen, briefvelden }
   const [configFout, setConfigFout] = useState("");
@@ -145,6 +153,10 @@ export default function BrievenOverzicht() {
   const [veldWaarden, setVeldWaarden] = useState({}); // sleutel → waarde (invulvelden)
   const [naar, setNaar] = useState("");
   const [cc, setCc] = useState("");
+  // Verstuur-preview: vóór het mailen eerst het onderwerp + de begeleidende tekst laten zien/bewerken
+  // (zoals bij "Aangifte versturen"). null = dicht; anders { naar, cc, onderwerp, tekst }.
+  const [mailModal, setMailModal] = useState(null);
+  const [mailFout, setMailFout] = useState("");
   const [formaat, setFormaat] = useState("pdf");
   const [bijlage, setBijlage] = useState(null); // { naam, dataUrl, grootte } of null
   const [sleepBijlage, setSleepBijlage] = useState(false);
@@ -307,6 +319,41 @@ export default function BrievenOverzicht() {
       else if (actie === "mail") { setMelding({ type: "ok", tekst: `Brief gemaild naar ${naar.trim()}${metBijlage}.` }); }
       else if (actie === "dossier") { if (data.gedaan) setMelding({ type: "ok", tekst: `Brief opgeslagen in het SharePoint-dossier van de klant${metBijlage}.` }); else setMelding({ type: "fout", tekst: data.reden || "Opslaan in het dossier is niet gelukt." }); }
     } catch (e) { setMelding({ type: "fout", tekst: String(e.message || e) }); }
+    finally { if (levend.current) setBezig(""); }
+  }
+
+  // "Mailen naar klant" opent eerst de preview-modal met vooringevuld onderwerp + begeleidende tekst
+  // (uit Beheer → Brieven, placeholders ingevuld). Pas op "Versturen" in de modal gaat de mail weg.
+  function openMailModal() {
+    if (!klaarVoorActie) { setMelding({ type: "fout", tekst: "Kies eerst een klant, een brief en een geldige geadresseerde." }); return; }
+    if (!naar.trim()) { setMelding({ type: "fout", tekst: "Vul eerst het e-mailadres van de ontvanger in." }); return; }
+    const onderwerp = vulIn(veiligeStr(afzender.mailOnderwerp), mergeVelden).trim()
+      || veiligeStr(brief.onderwerp) || `Brief van ${veiligeStr(brief.afzenderNaam) || "Activaa"}`;
+    const tekst = vulIn(veiligeStr(afzender.mailTekst), mergeVelden).trim() || vulIn(STANDAARD_MAIL_TEKST, mergeVelden);
+    setMelding(null); setMailFout("");
+    setMailModal({ naar, cc, onderwerp, tekst });
+  }
+
+  async function verstuurBriefMail() {
+    const m = mailModal; if (!m) return;
+    const naarTrim = String(m.naar || "").trim();
+    if (!naarTrim) { setMailFout("Vul het e-mailadres van de ontvanger in."); return; }
+    if (!String(m.onderwerp || "").trim() || !String(m.tekst || "").trim()) { setMailFout("Onderwerp en berichttekst mogen niet leeg zijn."); return; }
+    setMailFout(""); setBezig("mail");
+    try {
+      const payload = {
+        actie: "mail", brief, bestandsnaamBasis, formaat: "pdf",
+        naar: naarTrim,
+        cc: String(m.cc || "").split(/[,;]/).map((s) => s.trim()).filter(Boolean),
+        mailOnderwerp: m.onderwerp, mailTekst: m.tekst,
+      };
+      if (bijlage) payload.bijlage = { naam: bijlage.naam, dataUrl: bijlage.dataUrl };
+      const res = await fetch("/api/brieven", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Er ging iets mis (${res.status}).`);
+      setMailModal(null);
+      setMelding({ type: "ok", tekst: `Brief gemaild naar ${naarTrim}${bijlage ? " (met bijlage)" : ""}.` });
+    } catch (e) { setMailFout(String(e.message || e)); }
     finally { if (levend.current) setBezig(""); }
   }
 
@@ -496,7 +543,7 @@ export default function BrievenOverzicht() {
               <button style={knop(KLEUR.blauw, klaarVoorActie)} disabled={!klaarVoorActie || !!bezig} onClick={() => doeActie("genereer", "pdf")}>{bezig === "genereerpdf" ? <Loader2 size={15} className="spin" /> : <Download size={15} />} PDF downloaden</button>
               <button style={{ ...knopLicht, opacity: klaarVoorActie ? 1 : 0.5, cursor: klaarVoorActie ? "pointer" : "not-allowed" }} disabled={!klaarVoorActie || !!bezig} onClick={() => doeActie("genereer", "docx")}>{bezig === "genereerdocx" ? <Loader2 size={15} className="spin" /> : <FileText size={15} />} Word downloaden</button>
               <button style={{ ...knopLicht, opacity: klaarVoorActie ? 1 : 0.5, cursor: klaarVoorActie ? "pointer" : "not-allowed" }} disabled={!klaarVoorActie || !!bezig} onClick={() => doeActie("dossier")}>{bezig === "dossier" ? <Loader2 size={15} className="spin" /> : <FolderInput size={15} />} In klantdossier</button>
-              <button style={knop(KLEUR.groen, klaarVoorActie && !!naar.trim())} disabled={!klaarVoorActie || !naar.trim() || !!bezig} onClick={() => doeActie("mail")}>{bezig === "mail" ? <Loader2 size={15} className="spin" /> : <Mail size={15} />} Mailen naar klant</button>
+              <button style={knop(KLEUR.groen, klaarVoorActie && !!naar.trim())} disabled={!klaarVoorActie || !naar.trim() || !!bezig} onClick={openMailModal}>{bezig === "mail" ? <Loader2 size={15} className="spin" /> : <Mail size={15} />} Mailen naar klant</button>
             </div>
             <div style={{ marginTop: 8, fontSize: 11.5, color: KLEUR.mutedTekst, display: "flex", alignItems: "center", gap: 8 }}>
               <span>Opslaan in dossier als:</span>
@@ -521,6 +568,38 @@ export default function BrievenOverzicht() {
           <BriefVoorbeeld brief={brief} />
         </div>
       </div>
+
+      {mailModal && (
+        <div onClick={() => bezig !== "mail" && setMailModal(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(28,35,33,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 14, padding: 24, width: "100%", maxWidth: 620, maxHeight: "88vh", overflowY: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.2)" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>E-mail versturen</div>
+            <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 16 }}>
+              De brief gaat als PDF-bijlage mee. Controleer of pas de begeleidende e-mail hieronder aan vóór het versturen.
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 12 }}>
+              <div style={{ flex: "1 1 240px" }}><span style={label}>E-mail ontvanger</span>
+                <input value={mailModal.naar} onChange={(e) => setMailModal((h) => ({ ...h, naar: e.target.value }))} style={input} placeholder="naam@bedrijf.nl" /></div>
+              <div style={{ flex: "1 1 200px" }}><span style={label}>CC (optioneel)</span>
+                <input value={mailModal.cc} onChange={(e) => setMailModal((h) => ({ ...h, cc: e.target.value }))} style={input} placeholder="cc@… (komma-gescheiden)" /></div>
+            </div>
+            <div style={{ marginBottom: 12 }}><span style={label}>Onderwerp</span>
+              <input value={mailModal.onderwerp} onChange={(e) => setMailModal((h) => ({ ...h, onderwerp: e.target.value }))} style={input} /></div>
+            <div style={{ marginBottom: 14 }}><span style={label}>Berichttekst</span>
+              <textarea value={mailModal.tekst} onChange={(e) => setMailModal((h) => ({ ...h, tekst: e.target.value }))} rows={9} style={{ ...input, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }} /></div>
+            {bijlage && <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 10 }}>Bijlage meegestuurd: {bijlage.naam}</div>}
+            {mailFout && <div style={{ marginBottom: 10 }}><Banner type="fout" tekst={mailFout} /></div>}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button onClick={() => setMailModal(null)} disabled={bezig === "mail"} style={{ ...knopLicht, opacity: bezig === "mail" ? 0.6 : 1 }}>Annuleren</button>
+              <button onClick={verstuurBriefMail}
+                disabled={bezig === "mail" || !mailModal.naar.trim() || !mailModal.onderwerp.trim() || !mailModal.tekst.trim()}
+                style={knop(KLEUR.groen, bezig !== "mail" && !!mailModal.naar.trim() && !!mailModal.onderwerp.trim() && !!mailModal.tekst.trim())}>
+                {bezig === "mail" ? <Loader2 size={15} className="spin" /> : <Mail size={15} />} {bezig === "mail" ? "Versturen…" : "Versturen"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`@keyframes briefspin{to{transform:rotate(360deg)}} .spin{animation:briefspin 1s linear infinite}`}</style>
     </div>
@@ -581,6 +660,7 @@ function BriefVoorbeeld({ brief }) {
       {(b.behandeldDoor || b.telefoonnummer) && <div style={{ height: 12 }} />}
       {b.behandeldDoor && vetLabel("Behandeld door", b.behandeldDoor)}
       {b.telefoonnummer && vetLabel("Telefoonnummer", b.telefoonnummer)}
+      {(b.behandeldDoor || b.telefoonnummer) && <div style={{ height: 18 }} />}
       <div style={{ height: 12 }} />
       {b.aanhef && <div style={{ marginBottom: 12 }}>{b.aanhef}</div>}
       {alineas.map((a, i) => <div key={i} style={{ marginBottom: 10, whiteSpace: "pre-wrap" }}>{a}</div>)}
