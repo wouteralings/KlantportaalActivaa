@@ -23,7 +23,10 @@ const KLEUR = {
   rand: "#E2E4DF", lichtblauw: "#EAF2F8", rood: "#B23B3B", groen: "#2E7D46", goud: "#B98237", papier: "#FFFFFF",
 };
 
+const ACTIE_LABEL = { mail: "Gemaild", dossier: "In dossier", backoffice: "Backoffice" };
+
 function veiligeStr(v) { return String(v == null ? "" : v).trim(); }
+function briefDatum(iso) { try { return new Date(iso).toLocaleString("nl-NL", { dateStyle: "short", timeStyle: "short" }); } catch { return ""; } }
 function samenAdres(a) { a = a || {}; return [a.straat, a.huisnummer, a.toevoeging].map(veiligeStr).filter(Boolean).join(" "); }
 function postcodePlaats(a) { a = a || {}; return [veiligeStr(a.postcode), veiligeStr(a.plaats)].filter(Boolean).join("  "); }
 function vandaagLang() { try { return new Date().toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" }); } catch { return new Date().toISOString().slice(0, 10); } }
@@ -166,6 +169,9 @@ export default function BrievenOverzicht() {
   const [bezig, setBezig] = useState("");
   const [melding, setMelding] = useState(null);
 
+  const [verzonden, setVerzonden] = useState([]); // brievenlogboek van de gekozen klant
+  const [verzondenBezig, setVerzondenBezig] = useState(false);
+
   const levend = useRef(true);
   useEffect(() => () => { levend.current = false; }, []);
 
@@ -202,7 +208,7 @@ export default function BrievenOverzicht() {
         if (!levend.current) return;
         if (!ok) setBk({ status: "fout", fout: d.error || "Kon het belastingkantoor niet ophalen." });
         else if (!d.gekoppeld) setBk({ status: "niet" });
-        else setBk({ status: "ok", naam: d.naam, adres: d.adres });
+        else setBk({ status: "ok", naam: d.naam, adres: d.adres, adresTekst: d.adresTekst || "" });
       })
       .catch((e) => { if (levend.current) setBk({ status: "fout", fout: String(e.message || e) }); });
   }, [geadType, klant]);
@@ -218,9 +224,11 @@ export default function BrievenOverzicht() {
     setVertrouwelijk(!!sjabloon.vertrouwelijk);
     setKenmerk("");
     setBehandeldDoor(behandelaarVan(klant));
-    setTelefoonnummer(veiligeStr(afzender.telefoon));
+    // "Behandeld door" krijgt het mobiele nummer van de manager/relatiebeheerder (systemuser.mobilephone,
+    // al meegeleverd als klant.manager.telefoon); valt terug op het algemene afzender-telefoonnummer.
+    setTelefoonnummer(veiligeStr(klant && klant.manager && klant.manager.telefoon) || veiligeStr(afzender.telefoon));
     setAutoGegenereerd(true);
-    setNaar(veiligeStr(klant && klant.contact && klant.contact.email) || veiligeStr(klant && klant.emailKlant));
+    // (Naar/CC wordt gezet door de geadresseerde-effect hieronder.)
     // invulveld-defaults
     const start = {};
     for (const v of (Array.isArray(sjabloon.velden) ? sjabloon.velden : [])) {
@@ -234,6 +242,16 @@ export default function BrievenOverzicht() {
     setMelding(null);
   }, [sjabloonId, klant, config]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // E-mailbestemming + CC afhankelijk van de geadresseerde:
+  //  - klant/belastingkantoor → mailen naar de klant-contactpersoon, geen CC.
+  //  - overig → de brief gaat naar een andere partij, dus de bestemming (Naar) wordt gevraagd
+  //    (leeg gelaten) en de klant-contactpersoon komt automatisch in CC.
+  useEffect(() => {
+    const klantEmail = veiligeStr(klant && klant.contact && klant.contact.email) || veiligeStr(klant && klant.emailKlant);
+    if (geadType === "overig") { setNaar(""); setCc(klantEmail); }
+    else { setNaar(klantEmail); setCc(""); }
+  }, [geadType, klant]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const gefilterd = useMemo(() => {
     const t = zoek.trim().toLowerCase(); const lijst = klanten || [];
     if (!t) return lijst.slice(0, 12);
@@ -243,6 +261,11 @@ export default function BrievenOverzicht() {
   const ontvangerRegels = useMemo(() => {
     if (geadType === "belastingkantoor") {
       if (bk.status !== "ok") return ["(belastingkantoor)"];
+      // Antwoordadres (cr283_antwoordadres) als meerregelige tekst → regel voor regel gebruiken.
+      if (veiligeStr(bk.adresTekst)) {
+        const lijnen = String(bk.adresTekst).split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+        return [veiligeStr(bk.naam) || "Belastingdienst", ...lijnen];
+      }
       return [veiligeStr(bk.naam) || "Belastingdienst", samenAdres(bk.adres), postcodePlaats(bk.adres)].filter(Boolean);
     }
     if (geadType === "overig") {
@@ -272,7 +295,7 @@ export default function BrievenOverzicht() {
     plaatsDatum: plaatsBrief ? `${plaatsBrief}, ${vandaagLang()}` : vandaagLang(),
     vertrouwelijk,
     ontvangerRegels,
-    kenmerk: vulIn(kenmerk, mergeVelden),
+    kenmerk: veiligeStr(kenmerk),
     beconnummer: veiligeStr(afzender.beconnummer),
     onderwerp: vulIn(onderwerp, mergeVelden),
     behandeldDoor: veiligeStr(behandeldDoor),
@@ -282,11 +305,12 @@ export default function BrievenOverzicht() {
     ondertekenaar: veiligeStr(ondertekenaar),
     ondertekenaarRegels: [ondertekenaar, veiligeStr(afzender.bedrijfsnaam) || "Activaa"].filter(Boolean),
     automatischGegenereerd: !!autoGegenereerd,
+    bijlageNaam: bijlage ? veiligeStr(bijlage.naam) : "",
     footerKolommen: footerKolommenVan(afzender),
     voetnoot: voetnootVan(afzender),
     logoUrl: veiligeStr(afzender.logoUrl), logoUitlijning: afzender.logoUitlijning || "links", logoGrootte: afzender.logoGrootte || "normaal",
     achtergrondUrl: veiligeStr(afzender.achtergrondUrl),
-  }), [afzender, ontvangerRegels, onderwerp, aanhef, tekst, afsluiting, ondertekenaar, plaatsBrief, mergeVelden, vertrouwelijk, kenmerk, behandeldDoor, telefoonnummer, autoGegenereerd]);
+  }), [afzender, ontvangerRegels, onderwerp, aanhef, tekst, afsluiting, ondertekenaar, plaatsBrief, mergeVelden, vertrouwelijk, kenmerk, behandeldDoor, telefoonnummer, autoGegenereerd, bijlage]);
 
   const bestandsnaamBasis = `${(sjabloon && sjabloon.naam) || "Brief"}${klant ? " - " + veiligeStr(klant.klantnaam) : ""}`;
   const geadresseerdeOk = geadType !== "belastingkantoor" || bk.status === "ok";
@@ -304,15 +328,43 @@ export default function BrievenOverzicht() {
     r.readAsDataURL(file);
   }
 
+  // Kent bij de eerste verstuur-/genereeractie op deze brief één uniek kenmerk toe
+  // (jaar-klantnummer-volgnummer) en hergebruikt dat daarna. Reset bij klant-/sjabloonwissel (setKenmerk("")).
+  async function zorgVoorKenmerk() {
+    if (kenmerk) return kenmerk;
+    try {
+      const res = await fetch("/api/brief-kenmerk", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ klantnummer: klant && klant.klantnummer }) });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && d.kenmerk) { if (levend.current) setKenmerk(d.kenmerk); return d.kenmerk; }
+    } catch { /* zonder kenmerk verder — de brief wordt dan zonder kenmerk gelogd */ }
+    return "";
+  }
+
+  // Verzonden brieven van de gekozen klant (het brievenlogboek) ophalen.
+  async function laadVerzonden(accountId) {
+    if (!accountId) { setVerzonden([]); return; }
+    setVerzondenBezig(true);
+    try {
+      const res = await fetch(`/api/brief-log?accountId=${encodeURIComponent(accountId)}`);
+      const d = await res.json().catch(() => ({}));
+      if (levend.current) setVerzonden(Array.isArray(d.brieven) ? d.brieven : []);
+    } catch { if (levend.current) setVerzonden([]); }
+    finally { if (levend.current) setVerzondenBezig(false); }
+  }
+  useEffect(() => { laadVerzonden(klant && klant.accountId); }, [klant]); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function doeActie(actie, fmt) {
     if (!klaarVoorActie) { setMelding({ type: "fout", tekst: "Kies eerst een klant, een brief en een geldige geadresseerde." }); return; }
     setMelding(null); setBezig(actie + (fmt || ""));
     try {
-      const payload = { actie, brief, bestandsnaamBasis, formaat: fmt || formaat };
-      if (actie === "dossier") payload.accountId = klant.accountId;
+      const kenmerkNu = await zorgVoorKenmerk();
+      const briefNu = { ...brief, kenmerk: kenmerkNu };
+      const payload = { actie, brief: briefNu, bestandsnaamBasis, formaat: fmt || formaat };
+      // Loggegevens voor het brievenlogboek (per klant terug te vinden) — bij elke actie meegestuurd.
+      if (klant) { payload.accountId = klant.accountId; payload.klantnummer = klant.klantnummer; payload.klantnaam = veiligeStr(klant.klantnaam); }
+      payload.sjabloonnaam = veiligeStr(sjabloon && sjabloon.naam);
+      payload.geadType = geadType;
       if (actie === "backoffice") {
-        payload.accountId = klant.accountId;
-        payload.klantnaam = veiligeStr(klant.klantnaam);
         // Onderwerp van de backoffice-taak uit Beheer, placeholders ingevuld.
         payload.backofficeOnderwerp = vulIn(veiligeStr(afzender.backofficeOnderwerp), mergeVelden);
       }
@@ -336,6 +388,7 @@ export default function BrievenOverzicht() {
         if (data.taakGedaan) setMelding({ type: "ok", tekst: `Taak voor backoffice aangemaakt${data.dossierGedaan ? " en de brief staat in het klantdossier" : ""}${metBijlage}.${data.eigenaarGevonden ? "" : " (Let op: geen eigenaar gevonden — controleer het backoffice-adres in Beheer.)"}` });
         else setMelding({ type: "fout", tekst: data.taakReden || "Kon de backoffice-taak niet aanmaken." });
       }
+      if (actie === "mail" || actie === "dossier" || actie === "backoffice") laadVerzonden(klant && klant.accountId);
     } catch (e) { setMelding({ type: "fout", tekst: String(e.message || e) }); }
     finally { if (levend.current) setBezig(""); }
   }
@@ -359,11 +412,14 @@ export default function BrievenOverzicht() {
     if (!String(m.onderwerp || "").trim() || !String(m.tekst || "").trim()) { setMailFout("Onderwerp en berichttekst mogen niet leeg zijn."); return; }
     setMailFout(""); setBezig("mail");
     try {
+      const kenmerkNu = await zorgVoorKenmerk();
       const payload = {
-        actie: "mail", brief, bestandsnaamBasis, formaat: "pdf",
+        actie: "mail", brief: { ...brief, kenmerk: kenmerkNu }, bestandsnaamBasis, formaat: "pdf",
         naar: naarTrim,
         cc: String(m.cc || "").split(/[,;]/).map((s) => s.trim()).filter(Boolean),
         mailOnderwerp: m.onderwerp, mailTekst: m.tekst,
+        accountId: klant && klant.accountId, klantnummer: klant && klant.klantnummer, klantnaam: veiligeStr(klant && klant.klantnaam),
+        sjabloonnaam: veiligeStr(sjabloon && sjabloon.naam), geadType,
       };
       if (bijlage) payload.bijlage = { naam: bijlage.naam, dataUrl: bijlage.dataUrl };
       const res = await fetch("/api/brieven", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -371,6 +427,7 @@ export default function BrievenOverzicht() {
       if (!res.ok) throw new Error(data.error || `Er ging iets mis (${res.status}).`);
       setMailModal(null);
       setMelding({ type: "ok", tekst: `Brief gemaild naar ${naarTrim}${bijlage ? " (met bijlage)" : ""}.` });
+      laadVerzonden(klant && klant.accountId);
     } catch (e) { setMailFout(String(e.message || e)); }
     finally { if (levend.current) setBezig(""); }
   }
@@ -470,7 +527,7 @@ export default function BrievenOverzicht() {
               <div style={{ marginTop: 8 }}>
                 {!klant ? <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Kies eerst een klant.</div>
                   : bk.status === "laden" ? <div style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst }}><Loader2 size={15} className="spin" /> Belastingkantoor ophalen…</div>
-                  : bk.status === "ok" ? <div style={{ fontSize: 12.5, color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", background: "#FBFBF9" }}><strong style={{ color: KLEUR.tekst }}>{veiligeStr(bk.naam)}</strong><br />{samenAdres(bk.adres)}<br />{postcodePlaats(bk.adres)}</div>
+                  : bk.status === "ok" ? <div style={{ fontSize: 12.5, color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", background: "#FBFBF9", whiteSpace: "pre-line" }}><strong style={{ color: KLEUR.tekst }}>{veiligeStr(bk.naam)}</strong>{"\n"}{veiligeStr(bk.adresTekst) || [samenAdres(bk.adres), postcodePlaats(bk.adres)].filter(Boolean).join("\n")}</div>
                   : bk.status === "niet" ? <Banner type="fout" tekst="Aan deze klant is nog geen belastingkantoor gekoppeld in Dynamics. Koppel het belastingkantoor (met adres) aan de klant en probeer opnieuw." />
                   : <Banner type="fout" tekst={`Belastingkantoor kon niet worden opgehaald: ${bk.fout || ""}`} />}
               </div>
@@ -515,7 +572,7 @@ export default function BrievenOverzicht() {
 
           {/* Kopgegevens (huisstijl-layout) */}
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <div style={{ flex: "1 1 160px" }}><span style={label}>Kenmerk</span><input value={kenmerk} onChange={(e) => setKenmerk(e.target.value)} style={input} placeholder="bijv. dossier/kenmerk" /></div>
+            <div style={{ flex: "1 1 160px" }}><span style={label}>Kenmerk</span><input value={kenmerk} readOnly style={{ ...input, background: "#F7F8F6", color: KLEUR.subtekst }} placeholder="(automatisch bij versturen)" title="Wordt automatisch toegekend zodra je de brief downloadt, opslaat of verstuurt (jaar-klantnummer-volgnummer)." /></div>
             <div style={{ flex: "1 1 180px" }}><span style={label}>Behandeld door</span><input value={behandeldDoor} onChange={(e) => setBehandeldDoor(e.target.value)} style={input} placeholder="naam behandelaar" /></div>
             <div style={{ flex: "1 1 150px" }}><span style={label}>Telefoonnummer</span><input value={telefoonnummer} onChange={(e) => setTelefoonnummer(e.target.value)} style={input} /></div>
           </div>
@@ -537,9 +594,10 @@ export default function BrievenOverzicht() {
             <div style={{ flex: "1 1 200px" }}><span style={label}>Ondertekenaar</span><input value={ondertekenaar} onChange={(e) => setOndertekenaar(e.target.value)} style={input} /></div>
           </div>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <div style={{ flex: "1 1 220px" }}><span style={label}>E-mail ontvanger</span><input value={naar} onChange={(e) => setNaar(e.target.value)} style={input} placeholder="naam@bedrijf.nl" /></div>
+            <div style={{ flex: "1 1 220px" }}><span style={label}>E-mail ontvanger</span><input value={naar} onChange={(e) => setNaar(e.target.value)} style={input} placeholder={geadType === "overig" ? "waarheen mailen? (verplicht bij Overig)" : "naam@bedrijf.nl"} /></div>
             <div style={{ flex: "1 1 180px" }}><span style={label}>CC (optioneel)</span><input value={cc} onChange={(e) => setCc(e.target.value)} style={input} placeholder="cc@… (komma-gescheiden)" /></div>
           </div>
+          {geadType === "overig" && <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>Brief naar “Overig”: vul hierboven het e-mailadres in waar de brief naartoe gemaild moet worden. De klant-contactpersoon staat automatisch in CC.</div>}
 
           {/* Bijlage — dropvenster (zelfde opzet als het IB-dossier: slepen of klikken) */}
           <div>
@@ -595,6 +653,39 @@ export default function BrievenOverzicht() {
             </div>
             {melding && <div style={{ marginTop: 12 }}><Banner type={melding.type} tekst={melding.tekst} /></div>}
           </div>
+
+          {/* Verzonden brieven van deze klant (brievenlogboek) */}
+          {klant && (
+            <div style={{ borderTop: `1px solid ${KLEUR.rand}`, paddingTop: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                <span style={{ ...label, marginBottom: 0 }}>Verzonden brieven — {veiligeStr(klant.klantnaam)}{verzonden.length ? ` (${verzonden.length})` : ""}</span>
+                <button onClick={() => laadVerzonden(klant.accountId)} style={{ ...knopLicht, padding: "5px 9px" }} title="Vernieuwen">{verzondenBezig ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />}</button>
+              </div>
+              {verzonden.length === 0 ? (
+                <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>{verzondenBezig ? "Laden…" : "Nog geen verstuurde brieven voor deze klant."}</div>
+              ) : (
+                <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, overflow: "hidden", maxHeight: 260, overflowY: "auto" }}>
+                  {verzonden.map((v) => (
+                    <div key={v.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "9px 12px", borderBottom: `1px solid ${KLEUR.rand}` }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 600, color: KLEUR.tekst, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {veiligeStr(v.kenmerk) && <span style={{ color: KLEUR.blauw }}>{v.kenmerk} </span>}{veiligeStr(v.betreft) || veiligeStr(v.sjabloonnaam) || "(brief)"}
+                        </div>
+                        <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>
+                          {briefDatum(v.verzondenOp)}
+                          {veiligeStr(v.ontvangerNaam) ? `  ·  ${veiligeStr(v.ontvangerNaam)}` : ""}
+                          {ACTIE_LABEL[v.actie] ? `  ·  ${ACTIE_LABEL[v.actie]}` : ""}
+                        </div>
+                      </div>
+                      {veiligeStr(v.pdfUrl) ? (
+                        <a href={v.pdfUrl} target="_blank" rel="noopener noreferrer" style={{ ...knopLicht, padding: "6px 10px", textDecoration: "none", flexShrink: 0 }}><FileText size={13} /> Bekijk</a>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ── Rechterkolom: voorbeeld ── */}
@@ -708,6 +799,7 @@ function BriefVoorbeeld({ brief }) {
       {b.ondertekeningBedrijf && <div>{b.ondertekeningBedrijf}</div>}
       <div style={{ height: 38 }} />
       {b.ondertekenaar && <div>{b.ondertekenaar}</div>}
+      {b.bijlageNaam && <div style={{ marginTop: 10 }}>Bijlage: {b.bijlageNaam}</div>}
       {b.automatischGegenereerd && <div style={{ marginTop: 10, fontSize: 10, color: KLEUR.mutedTekst }}>Deze brief is automatisch gegenereerd en daarom niet ondertekend</div>}
 
       {/* De driekoloms voettekst zit al ín het geüploade briefpapier/achtergrond; zonder achtergrond

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload, Lightbulb, Binoculars } from "lucide-react";
+import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload, Lightbulb, Binoculars, Archive } from "lucide-react";
 import { startMeekijken } from "../meekijken";
 import OffertesModule from "./OffertesModule";
 import ContractenOverzicht from "./ContractenOverzicht";
@@ -10,6 +10,7 @@ import Ontwikkelverzoeken from "./Ontwikkelverzoeken";
 import ScopeToggle, { useMijnNaam, isKlantVanMij } from "./MijnFilter";
 import ContactpersonenOverzicht from "./klanten/ContactpersonenOverzicht";
 import BrievenOverzicht from "./klanten/BrievenOverzicht";
+import BrievenLogboek from "./klanten/BrievenLogboek";
 import NogInTeRichten from "./klanten/NogInTeRichten";
 import Logboek from "./klanten/Logboek";
 import KlantVasteUitvragen from "./klanten/KlantVasteUitvragen";
@@ -1616,6 +1617,7 @@ const KLANTEN_SUBTABS = [
   { key: "klanten", label: "Klanten", icon: LayoutGrid },
   { key: "contactpersonen", label: "Contactpersonen", icon: Users },
   { key: "brieven", label: "Brieven", icon: Mail },
+  { key: "brievenlogboek", label: "Brievenlogboek", icon: Archive },
   { key: "ib", label: "Inkomstenbelasting", icon: FileText, watKomtEr: "Per cliënt de inkomstenbelasting-aangiftes: jaar, status, behandelaar en deadline, zodat je in één lijst ziet wat nog open staat en bij wie het ligt." },
   { key: "vpb", label: "Vennootschapsbelasting", icon: Building2, watKomtEr: "Per cliënt de vennootschapsbelasting-aangiftes: jaar, status, behandelaar en deadline, inclusief fiscale eenheden waar die van toepassing zijn." },
   { key: "divb", label: "Dividendbelasting", icon: Coins, watKomtEr: "Per cliënt de dividendbelasting-aangiftes: aangiftedatum, uitgekeerd dividend, status en behandelaar." },
@@ -1686,6 +1688,7 @@ function KlantenModule() {
         {sub === "klanten" && <KlantOverzicht />}
         {sub === "contactpersonen" && <ContactpersonenOverzicht />}
         {sub === "brieven" && <BrievenOverzicht />}
+        {sub === "brievenlogboek" && <BrievenLogboek />}
         {(sub === "ib" || sub === "vpb") && <MedewerkerDossiers soort={sub} />}
         {(sub === "divb" || sub === "lonen") && <NogInTeRichten titel={actief.label} watKomtEr={actief.watKomtEr} />}
       </div>
