@@ -1,4 +1,4 @@
-const { haalGroepen, haalGroepEmails, leegCache, diagnoseGroep } = require("../_gedeeld/entraGroepen");
+const { haalGroepen, haalGroepEmails, leegCache } = require("../_gedeeld/entraGroepen");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
 
 /**
@@ -49,13 +49,6 @@ module.exports = async function (context, req) {
 
     if (fouten.length) context.log.error(fouten.join(" | "));
 
-    // Tijdelijke diagnose (?diag=1): laat rechtstreeks zien wat Graph teruggeeft op de ledenqueries,
-    // zodat we een permissie-op-gebruikersgegevens kunnen onderscheiden van een echt lege groep.
-    let diag;
-    if (req.query && req.query.diag) {
-      diag = await diagnoseGroep(ledenGroepId).catch((e) => ({ fout: String((e && e.message) || e) }));
-    }
-
     context.res = {
       headers: { "Content-Type": "application/json" },
       body: {
@@ -64,10 +57,9 @@ module.exports = async function (context, req) {
         gekozenGroepNaam: (instellingen && instellingen.medewerkersGroepNaam) || "",
         ledenVoorGroepId: ledenGroepId,
         leden,
-        diag,
         // Alleen een korte, niet-technische melding naar de UI; de details staan in de logs.
         fout: fouten.length
-          ? "Entra-gegevens konden niet (volledig) worden opgehaald. Controleer of de app-registratie de permissie GroupMember.Read.All heeft met admin-consent."
+          ? "Entra-gegevens konden niet (volledig) worden opgehaald. Controleer of de app-registratie de permissies GroupMember.Read.All én User.Read.All heeft met admin-consent."
           : "",
       },
     };
