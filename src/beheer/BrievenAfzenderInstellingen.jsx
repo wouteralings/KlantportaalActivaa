@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { CheckCircle2, Save, ChevronDown } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { CheckCircle2, ChevronDown } from "lucide-react";
 
 /** Zelfde palet als de rest van het beheerdersportaal (bewust hier herhaald, zie BrievenBeheer.jsx). */
 const KLEUR = {
@@ -44,6 +44,11 @@ export default function BrievenAfzenderInstellingen() {
   const [papierFout, setPapierFout] = useState("");
   const [openWordpapier, setOpenWordpapier] = useState(false); // inklapbaar
   const [openBedrijf, setOpenBedrijf] = useState(false);       // inklapbaar
+  // Auto-opslaan: geladenRef = true na de eerste load; vuilRef = er is een gebruikerswijziging die
+  // nog bewaard moet worden. vuilRef voorkomt dat de setConfig ná een save opnieuw een save triggert
+  // (anders een oneindige opslag-lus).
+  const geladenRef = useRef(false);
+  const vuilRef = useRef(false);
 
   useEffect(() => {
     fetch("/api/beheer-briefsjablonen")
@@ -54,10 +59,11 @@ export default function BrievenAfzenderInstellingen() {
         sjablonen: Array.isArray(d.sjablonen) ? d.sjablonen : [],
         briefvelden: Array.isArray(d.briefvelden) ? d.briefvelden : [],
       }))
-      .catch(() => { setConfig({ afzender: {}, sharepointMap: "Brieven", sjablonen: [], briefvelden: [] }); setFout("De briefinstellingen konden niet worden geladen."); });
+      .catch(() => { setConfig({ afzender: {}, sharepointMap: "Brieven", sjablonen: [], briefvelden: [] }); setFout("De briefinstellingen konden niet worden geladen."); })
+      .finally(() => { geladenRef.current = true; });
   }, []);
 
-  const zetAfzender = (key, val) => setConfig((c) => ({ ...c, afzender: { ...c.afzender, [key]: val } }));
+  const zetAfzender = (key, val) => { vuilRef.current = true; setConfig((c) => ({ ...c, afzender: { ...c.afzender, [key]: val } })); };
 
   function uploadBriefpapier(bestand) {
     if (!bestand) return;
@@ -70,8 +76,9 @@ export default function BrievenAfzenderInstellingen() {
         const res = await fetch("/api/beheer-briefpapier-docx", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dataUrl: lezer.result }) });
         const d = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(d.error || "Uploaden mislukt.");
-        // Ook de uit het briefpapier afgeleide achtergrond bijhouden, zodat een latere "Opslaan"
-        // (die de hele config terugstuurt) die niet per ongeluk wist.
+        // Ook de uit het briefpapier afgeleide achtergrond bijhouden; auto-opslaan bewaart die dan
+        // mee in de config (vuilRef = true).
+        vuilRef.current = true;
         setConfig((c) => ({ ...c, afzender: { ...c.afzender, briefpapierDocx: d.briefpapierDocx === true, achtergrondUrl: d.achtergrondUrl || "" } }));
       } catch (e) { setPapierFout(String(e.message || e)); }
       finally { setPapierBezig(false); }
@@ -85,12 +92,14 @@ export default function BrievenAfzenderInstellingen() {
       const res = await fetch("/api/beheer-briefpapier-docx", { method: "DELETE" });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || "Verwijderen mislukt.");
+      vuilRef.current = true;
       setConfig((c) => ({ ...c, afzender: { ...c.afzender, briefpapierDocx: false, achtergrondUrl: "" } }));
     } catch (e) { setPapierFout(String(e.message || e)); }
     finally { setPapierBezig(false); }
   }
 
   async function opslaan() {
+    vuilRef.current = false; // vóór de PUT: de setConfig met het serverantwoord mag geen nieuwe save triggeren
     setStatus("bezig"); setFout("");
     try {
       const res = await fetch("/api/beheer-briefsjablonen", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(config) });
@@ -100,6 +109,14 @@ export default function BrievenAfzenderInstellingen() {
       setStatus("opgeslagen"); setTimeout(() => setStatus("rust"), 2500);
     } catch (e) { setStatus("fout"); setFout(String(e.message || e)); }
   }
+
+  // Automatisch opslaan (gedebounced) zodra er een gebruikerswijziging is — geen losse "Opslaan"-knop meer.
+  useEffect(() => {
+    if (!geladenRef.current || !vuilRef.current) return;
+    const t = setTimeout(() => { opslaan(); }, 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config]);
 
   if (config === null) return <div style={{ fontSize: 13, color: KLEUR.mutedTekst, padding: "16px 0" }}>Briefinstellingen laden…</div>;
 
@@ -187,12 +204,16 @@ export default function BrievenAfzenderInstellingen() {
         </>)}
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 20 }}>
-        <button onClick={opslaan} disabled={status === "bezig"} style={{ display: "inline-flex", alignItems: "center", gap: 7, background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 13, fontWeight: 700, cursor: status === "bezig" ? "default" : "pointer", opacity: status === "bezig" ? 0.7 : 1 }}>
-          <Save size={16} /> {status === "bezig" ? "Opslaan…" : "Opslaan"}
-        </button>
-        {status === "opgeslagen" && <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: KLEUR.groen, fontSize: 12.5, fontWeight: 600 }}><CheckCircle2 size={15} /> Opgeslagen</span>}
-        {status === "fout" && <span style={{ fontSize: 12.5, color: KLEUR.rood, fontWeight: 600 }}>{fout}</span>}
+      <div style={{ marginTop: 12 }}>
+        {status === "bezig" ? (
+          <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Opslaan…</div>
+        ) : status === "opgeslagen" ? (
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: KLEUR.groen }}><CheckCircle2 size={13} /> Automatisch opgeslagen</div>
+        ) : status === "fout" ? (
+          <div style={{ fontSize: 12.5, color: KLEUR.rood, fontWeight: 600 }}>{fout || "Automatisch opslaan is mislukt — probeer het nog eens."}</div>
+        ) : (
+          <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Wijzigingen worden automatisch opgeslagen.</div>
+        )}
       </div>
     </div>
   );
