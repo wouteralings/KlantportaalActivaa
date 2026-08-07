@@ -24,13 +24,18 @@ module.exports = async function (context, req) {
 
     const instellingen = await haalInstellingen().catch(() => ({}));
     const gekozenGroepId = (instellingen && instellingen.medewerkersGroepId) || "";
+    // Optioneel: leden van een ANDERE (nog niet opgeslagen) groep tonen, zodat het beheerscherm het
+    // ledenaantal live kan laten zien zodra je een groep in de dropdown kiest — zonder eerst te
+    // moeten opslaan. Valt terug op de opgeslagen groep als er geen groepId is meegegeven.
+    const previewGroepId = ((req.query && req.query.groepId) || "").trim();
+    const ledenGroepId = previewGroepId || gekozenGroepId;
 
     // De groepenlijst en de leden zijn onafhankelijk van elkaar; faalt één van de twee (bijv.
     // omdat de permissie GroupMember.Read.All nog niet is toegekend), dan willen we de andere
     // helft nog steeds kunnen tonen, met een duidelijke melding erbij.
     const [groepenResultaat, ledenResultaat] = await Promise.allSettled([
       haalGroepen(),
-      gekozenGroepId ? haalGroepEmails(gekozenGroepId) : Promise.resolve(new Set()),
+      ledenGroepId ? haalGroepEmails(ledenGroepId) : Promise.resolve(new Set()),
     ]);
 
     const fouten = [];
@@ -50,6 +55,7 @@ module.exports = async function (context, req) {
         groepen,
         gekozenGroepId,
         gekozenGroepNaam: (instellingen && instellingen.medewerkersGroepNaam) || "",
+        ledenVoorGroepId: ledenGroepId,
         leden,
         // Alleen een korte, niet-technische melding naar de UI; de details staan in de logs.
         fout: fouten.length

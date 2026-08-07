@@ -286,6 +286,7 @@ export default function BeheerPortaal() {
   const [entraLeden, setEntraLeden] = useState(null);
   const [entraFout, setEntraFout] = useState("");
   const [entraStatus, setEntraStatus] = useState("idle"); // idle | bezig | gelukt | fout
+  const [entraLedenLaden, setEntraLedenLaden] = useState(false); // live-teller: leden van de gekozen groep worden opgehaald
   const [inzageLog, setInzageLog] = useState(null); // null = laden; audit-log "meekijken als klant"
   const [inzageLogZoek, setInzageLogZoek] = useState("");
   const [inzageLogToonAantal, setInzageLogToonAantal] = useState(AANTAL_STANDAARD);
@@ -1114,6 +1115,19 @@ export default function BeheerPortaal() {
       setWijzigrechtenStatus("fout");
     }
   }, [niveaus, bulk, alsKlant, offertes]);
+
+  // Live-teller: haalt de leden van de gekozen (nog niet opgeslagen) groep op, zodat je het
+  // ledenaantal meteen ziet zodra je een groep in de dropdown kiest — zonder eerst te hoeven opslaan.
+  const laadEntraLedenVoor = useCallback(async (groepId) => {
+    if (!groepId) { setEntraLeden(new Set()); setEntraFout(""); return; }
+    setEntraLedenLaden(true);
+    try {
+      const d = await fetch(`/api/beheer-entra-groepen?groepId=${encodeURIComponent(groepId)}`).then((r) => (r.ok ? r.json() : null));
+      if (d) { setEntraLeden(new Set((d.leden || []).map((e) => String(e).toLowerCase()))); setEntraFout(d.fout || ""); }
+    } catch { /* laat de bestaande teller staan */ } finally {
+      setEntraLedenLaden(false);
+    }
+  }, []);
 
   const slaEntraGroepOp = useCallback(async () => {
     setEntraStatus("bezig");
@@ -2460,7 +2474,7 @@ export default function BeheerPortaal() {
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <select
                 value={entraGroepId}
-                onChange={(e) => { setEntraGroepId(e.target.value); setEntraStatus("idle"); }}
+                onChange={(e) => { const id = e.target.value; setEntraGroepId(id); setEntraStatus("idle"); laadEntraLedenVoor(id); }}
                 style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, background: "#fff", minWidth: 280 }}
               >
                 <option value="">Geen groep — niemand krijgt toegang via een groep</option>
@@ -2486,7 +2500,7 @@ export default function BeheerPortaal() {
             </div>
             <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginTop: 10 }}>
               {entraGroepId
-                ? `${entraLeden ? entraLeden.size : 0} leden gevonden in deze groep.`
+                ? (entraLedenLaden ? "Leden ophalen…" : `${entraLeden ? entraLeden.size : 0} leden gevonden in deze groep.`)
                 : "Nog geen groep gekozen."}
               {" "}Een wijziging geldt bij de volgende keer dat iemand inlogt; wie nu is ingelogd houdt zijn huidige rollen tot hij uit- en weer inlogt.
             </div>
