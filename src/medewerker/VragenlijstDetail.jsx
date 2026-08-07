@@ -79,6 +79,14 @@ export default function VragenlijstDetail({ verzoek: r, onGewijzigd, onVerwijder
       const res = await fetch("/api/medewerker-vragenlijsten", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "accepteren", verzoekId: r.id }) });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+      // Bij goedkeuring worden de aan Dynamics gekoppelde antwoorden weggeschreven; meld het als
+      // een deel niet lukte (bv. ontbrekend schrijfrecht), zodat de medewerker het niet mist.
+      if (d.dynamics && Array.isArray(d.dynamics.mislukt) && d.dynamics.mislukt.length) {
+        window.alert(
+          `Let op: ${d.dynamics.mislukt.length} antwoord(en) konden niet naar Dynamics worden weggeschreven:\n` +
+          d.dynamics.mislukt.map((m) => `• ${m.vraag}: ${m.reden}`).join("\n")
+        );
+      }
       onGewijzigd(d.verzoek);
     } catch (e) { setFout("Accepteren mislukt: " + (e.message || e)); }
     finally { setBezigAccepteren(false); }

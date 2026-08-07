@@ -169,6 +169,12 @@ export default function Vragenlijsten() {
       const res = await fetch("/api/medewerker-vragenlijsten", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "accepteren", verzoekId: r.id }) });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+      if (d.dynamics && Array.isArray(d.dynamics.mislukt) && d.dynamics.mislukt.length) {
+        window.alert(
+          `Let op: ${d.dynamics.mislukt.length} antwoord(en) konden niet naar Dynamics worden weggeschreven:\n` +
+          d.dynamics.mislukt.map((m) => `• ${m.vraag}: ${m.reden}`).join("\n")
+        );
+      }
       plaatsVerzoek(d.verzoek);
       setOpenId((h) => (h === r.id ? "" : h));
     } catch (e) { setFout("Accepteren mislukt: " + (e.message || e)); }

@@ -17,7 +17,6 @@ const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/
 const { AANLEVEREN_MAP } = require("../_gedeeld/documentmappen");
 const verzoeken = require("../_gedeeld/aanleververzoeken");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
-const { schrijfAntwoordNaarDynamics } = require("../_gedeeld/dynamicsAntwoordWriteback");
 
 async function haalSharePointUrl(resource, dynToken, accountId) {
   const url = `${resource}/api/data/v9.2/accounts(${accountId})?$select=cr283_sharepoint`;
@@ -161,24 +160,9 @@ module.exports = async function (context, req) {
         }
         verzoeken.herberekenStatus(v);
       });
-
-      // Best-effort: het antwoord ook wegschrijven naar het gekoppelde Dynamics-veld (Fase B).
-      // Faalt dit (geen koppeling, geen schrijfrecht, niet-converteerbare waarde), dan blijft het
-      // antwoord gewoon in het portaal staan — we blokkeren het opslaan nooit hierop.
-      let dynamicsResultaat = null;
-      try {
-        const regelNa = bijgewerkt && bijgewerkt.regels.find((x) => x.id === regelId);
-        if (regelNa && regelNa.dynamics && regelNa.dynamics.entitySet && regelNa.dynamics.kolom && regelNa.antwoord != null) {
-          const recordId = regelNa.dynamics.record === "contact" ? verzoek.contactId : verzoek.accountId;
-          dynamicsResultaat = await schrijfAntwoordNaarDynamics({ resource, token: dynToken, dynamics: regelNa.dynamics, recordId, antwoord: regelNa.antwoord });
-          if (!dynamicsResultaat.geschreven) context.log.warn("Antwoord niet naar Dynamics geschreven:", dynamicsResultaat.reden);
-        }
-      } catch (schrijfFout) {
-        context.log.error("Wegschrijven van antwoord naar Dynamics mislukt:", schrijfFout);
-        dynamicsResultaat = { geschreven: false, reden: String(schrijfFout.message || schrijfFout) };
-      }
-
-      context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek: bijgewerkt, dynamics: dynamicsResultaat } };
+      // Let op: het antwoord wordt hier NIET naar Dynamics geschreven. Dat gebeurt bewust pas als
+      // een medewerker de hele lijst goedkeurt (actie "accepteren" in api/medewerker-vragenlijsten).
+      context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek: bijgewerkt } };
       return;
     }
 

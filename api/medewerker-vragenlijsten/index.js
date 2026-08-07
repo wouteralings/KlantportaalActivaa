@@ -51,6 +51,7 @@ const verzoeken = require("../_gedeeld/aanleververzoeken");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
 const { haalOnderwerpen, resolvePad } = require("../_gedeeld/aanleveronderwerpen");
 const { haalLijsten, zetLijsten } = require("../_gedeeld/aanleverlijsten");
+const { schrijfAntwoordNaarDynamics } = require("../_gedeeld/dynamicsAntwoordWriteback");
 
 /**
  * Zoekt de volledige naam (systemuser fullname) van de ingelogde medewerker op basis van het
@@ -129,13 +130,42 @@ module.exports = async function (context, req) {
         });
         if (!v) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Verzoek niet gevonden." } }; return; }
         if (foutmelding) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: foutmelding } }; return; }
+
+        // PAS NU wegschrijven naar Dynamics: bij de goedkeuring van de hele lijst worden alle
+        // gekoppelde antwoorden (vraag met een Dynamics-koppeling én een gegeven antwoord) naar hun
+        // veld weggeschreven. Best-effort: een mislukte schrijfactie (geen schrijfrecht, niet-
+        // converteerbaar) blokkeert de goedkeuring niet — het resultaat komt terug in de response
+        // en gaat naar de logs.
+        let dynamicsResultaat = null;
+        const resource = process.env.DYNAMICS_RESOURCE_URL;
+        const teSchrijven = (v.regels || []).filter((r) => r.dynamics && r.dynamics.entitySet && r.dynamics.kolom && r.antwoord != null);
+        if (resource && teSchrijven.length) {
+          let geschreven = 0;
+          const mislukt = [];
+          try {
+            const dynToken = await haalDynamicsToken();
+            for (const r of teSchrijven) {
+              const recordId = r.dynamics.record === "contact" ? v.contactId : v.accountId;
+              const res = await schrijfAntwoordNaarDynamics({ resource, token: dynToken, dynamics: r.dynamics, recordId, antwoord: r.antwoord });
+              if (res.geschreven) geschreven++;
+              else mislukt.push({ vraag: r.naam || r.id, reden: res.reden || "onbekend" });
+            }
+          } catch (schrijfFout) {
+            context.log.error("Wegschrijven naar Dynamics bij accepteren mislukt:", schrijfFout);
+            mislukt.push({ vraag: "(algemeen)", reden: String(schrijfFout.message || schrijfFout) });
+          }
+          dynamicsResultaat = { geschreven, mislukt };
+          if (mislukt.length) context.log.warn("Niet alle antwoorden naar Dynamics geschreven:", JSON.stringify(mislukt));
+        }
+
         await logGebeurtenis({
           door: email || "onbekend", actie: "aanleververzoek", accountId: v.accountId, accountIds: [v.accountId],
           klantnaam: v.klantnaam, klantnummer: v.klantnummer, contactId: v.contactId, contactNaam: v.contactNaam,
-          tekst: `Vragenlijst "${v.lijstNaam || "aanlever-verzoek"}" gecontroleerd en geaccepteerd.`,
+          tekst: `Vragenlijst "${v.lijstNaam || "aanlever-verzoek"}" gecontroleerd en geaccepteerd.`
+            + (dynamicsResultaat ? ` (${dynamicsResultaat.geschreven} antwoord(en) naar Dynamics geschreven${dynamicsResultaat.mislukt.length ? `, ${dynamicsResultaat.mislukt.length} mislukt` : ""})` : ""),
         });
         const laatstGezienNa = await verzoeken.haalLaatstGezien().catch(() => null);
-        context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek: verrijk(v, laatstGezienNa) } };
+        context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek: verrijk(v, laatstGezienNa), dynamics: dynamicsResultaat } };
         return;
       }
 
