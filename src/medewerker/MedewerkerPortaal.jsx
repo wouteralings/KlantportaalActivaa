@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload, Lightbulb, Binoculars, BookOpen } from "lucide-react";
+import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload, Lightbulb, Binoculars, BookOpen, FileSignature } from "lucide-react";
 import { startMeekijken } from "../meekijken";
 import OffertesModule from "./OffertesModule";
 import ContractenOverzicht from "./ContractenOverzicht";
@@ -1639,6 +1639,9 @@ const KLANTEN_SUBTABS = [
   { key: "klanten", label: "Klanten", icon: LayoutGrid },
   { key: "contactpersonen", label: "Contactpersonen", icon: Users },
   { key: "brieven", label: "Brieven", icon: Mail },
+  // Contracten stond eerder als losse hoofd-tab; op verzoek verplaatst naar een sub-tab hier.
+  // Alleen zichtbaar met het recht "Contracten" (of als beheerder) — zie de filter in KlantenModule.
+  { key: "contracten", label: "Contracten", icon: FileSignature, alleenMet: "contracten" },
   { key: "ib", label: "Inkomstenbelasting", icon: FileText, watKomtEr: "Per cliënt de inkomstenbelasting-aangiftes: jaar, status, behandelaar en deadline, zodat je in één lijst ziet wat nog open staat en bij wie het ligt." },
   { key: "vpb", label: "Vennootschapsbelasting", icon: Building2, watKomtEr: "Per cliënt de vennootschapsbelasting-aangiftes: jaar, status, behandelaar en deadline, inclusief fiscale eenheden waar die van toepassing zijn." },
   { key: "divb", label: "Dividendbelasting", icon: Coins, watKomtEr: "Per cliënt de dividendbelasting-aangiftes: aangiftedatum, uitgekeerd dividend, status en behandelaar." },
@@ -1652,9 +1655,12 @@ const KLANTEN_SUBTABS = [
  * gaan filters en sortering van het andere tabblad dus niet verloren zolang je in het portaal
  * blijft — behalve dat een leeg tabblad niets te onthouden heeft.
  */
-function KlantenModule() {
+function KlantenModule({ magContracten = false, isBeheerder = false }) {
   const [sub, setSub] = useState("klanten");
-  const actief = KLANTEN_SUBTABS.find((s) => s.key === sub) || KLANTEN_SUBTABS[0];
+  // De Contracten-sub-tab alleen tonen met het recht (of als beheerder), net als toen het nog een
+  // losse hoofd-tab was.
+  const subtabs = KLANTEN_SUBTABS.filter((s) => (s.alleenMet === "contracten" ? (magContracten || isBeheerder) : true));
+  const actief = subtabs.find((s) => s.key === sub) || subtabs[0];
 
   return (
     <div>
@@ -1677,7 +1683,7 @@ function KlantenModule() {
           }}
         >
           <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-          {KLANTEN_SUBTABS.map((s) => {
+          {subtabs.map((s) => {
             const aan = s.key === sub;
             const Icon = s.icon;
             return (
@@ -1709,6 +1715,7 @@ function KlantenModule() {
         {sub === "klanten" && <KlantOverzicht />}
         {sub === "contactpersonen" && <ContactpersonenOverzicht />}
         {sub === "brieven" && <BrievenTab />}
+        {sub === "contracten" && (magContracten || isBeheerder) && <ContractenOverzicht />}
         {(sub === "ib" || sub === "vpb") && <MedewerkerDossiers soort={sub} />}
         {(sub === "divb" || sub === "lonen") && <NogInTeRichten titel={actief.label} watKomtEr={actief.watKomtEr} />}
       </div>
@@ -4210,7 +4217,7 @@ export default function MedewerkerPortaal() {
     ["verzoeken", "Wijzigingsverzoeken", tellingen.openWijzigingen],
     ["reviews", "Reviews", tellingen.nieuweReviews],
     ...(magOffertes || isBeheerder ? [["offertes", "Offertes", 0]] : []),
-    ...(magContracten || isBeheerder ? [["contracten", "Contracten", 0]] : []),
+    // "Contracten" is nu een sub-tab onder Klantoverzicht (zie KlantenModule), geen losse hoofd-tab meer.
   ];
 
   return (
@@ -4295,7 +4302,7 @@ export default function MedewerkerPortaal() {
         ))}
       </div>
 
-      {tab === "klantoverzicht" && <KlantenModule />}
+      {tab === "klantoverzicht" && <KlantenModule magContracten={magContracten} isBeheerder={isBeheerder} />}
       {tab === "taken" && <TakenOverzicht />}
       {tab === "vragenlijsten" && <Vragenlijsten />}
       {tab === "uren" && <Urenregistratie isBeheerder={isBeheerder} />}
@@ -4304,7 +4311,6 @@ export default function MedewerkerPortaal() {
       {tab === "reviews" && <ReviewBeheer />}
       {tab === "ontwikkelverzoeken" && <Ontwikkelverzoeken />}
       {tab === "offertes" && (magOffertes || isBeheerder) && <OffertesModule />}
-      {tab === "contracten" && (magContracten || isBeheerder) && <ContractenOverzicht />}
       {tab === "meekijken" && <MeekijkenAlsKlant gebruiker={gebruiker} />}
     </div>
   );
