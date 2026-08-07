@@ -32,6 +32,25 @@ function tijd(iso) {
   return isNaN(d.getTime()) ? "" : d.toLocaleString("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+// Vervolgvraag-voorwaarde (Uitvraag Fase C): een regel wordt alleen getoond als het antwoord op de
+// gekoppelde eerdere regel eraan voldoet. Houd dit in sync met voorwaardeVervuld() in
+// api/_gedeeld/aanleververzoeken.js (server-side gebruikt dezelfde logica voor afronding/writeback).
+function voorwaardeVervuld(regel, alleRegels) {
+  const vw = regel && regel.voorwaarde;
+  if (!vw || !vw.afhankelijkVanRegelId) return true;
+  const bron = (alleRegels || []).find((r) => r.id === vw.afhankelijkVanRegelId);
+  const antwoord = bron && bron.antwoord != null ? String(bron.antwoord) : "";
+  const waarde = vw.waarde != null ? String(vw.waarde) : "";
+  const norm = (s) => s.trim().toLowerCase();
+  switch (vw.operator) {
+    case "ingevuld": return antwoord.trim() !== "";
+    case "leeg": return antwoord.trim() === "";
+    case "isNiet": return norm(antwoord) !== norm(waarde);
+    case "is":
+    default: return norm(antwoord) === norm(waarde);
+  }
+}
+
 /**
  * Documenten-tab voor de klant, volledig via de app-only laag (/api/mijn-documenten) — de klant
  * heeft zelf geen SharePoint-toegang nodig; het portaal bepaalt op basis van de rechten wat zichtbaar
@@ -267,7 +286,7 @@ export default function DocumentenTab({ toonAanleververzoeken = true } = {}) {
               </div>
               {v.notitie && <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 8 }}>{v.notitie}</div>}
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {v.regels.map((r) => {
+                {v.regels.filter((r) => voorwaardeVervuld(r, v.regels)).map((r) => {
                   const type = r.type || "document";
                   const isVraag = type !== "document";
                   const klaar = r.status === "aangeleverd" || r.status === "beantwoord";

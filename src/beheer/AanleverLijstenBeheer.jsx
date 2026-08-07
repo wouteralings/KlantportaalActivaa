@@ -135,6 +135,10 @@ export default function AanleverLijstenBeheer() {
     }
   };
 
+  // Vervolgvraag-voorwaarde per regel (Fase C): merge in regel.voorwaarde (of wis met null).
+  const zetVoorwaarde = (lijstId, regelId, patch) =>
+    wijzig((h) => h.map((l) => (l.id !== lijstId ? l : { ...l, regels: l.regels.map((r) => (r.id !== regelId ? r : { ...r, voorwaarde: patch === null ? null : { ...(r.voorwaarde || {}), ...patch } })) })));
+
   const opslaan = async () => {
     setStatus("bezig");
     setFout("");
@@ -241,8 +245,11 @@ export default function AanleverLijstenBeheer() {
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {lijst.regels.map((regel) => {
+                {lijst.regels.map((regel, ri) => {
                   const type = regel.type || "document";
+                  const vw = regel.voorwaarde || {};
+                  const eerdereRegels = lijst.regels.slice(0, ri).filter((er) => (er.type || "document") !== "document");
+                  const bronRegel = eerdereRegels.find((er) => er.id === vw.afhankelijkVanRegelId) || null;
                   return (
                   <div key={regel.id} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, background: "#FBFBF9" }}>
                     <div style={{ display: "grid", gridTemplateColumns: "150px 1fr auto auto", gap: 8, alignItems: "center" }}>
@@ -339,6 +346,50 @@ export default function AanleverLijstenBeheer() {
                         </div>
                       );
                     })()}
+
+                    {/* Vervolgvraag: toon deze regel alleen als een eerdere vraag een bepaald antwoord heeft (Fase C, skip-logica). */}
+                    <div style={{ marginTop: 8, borderTop: `1px dashed ${KLEUR.rand}`, paddingTop: 8 }}>
+                      <div style={labelStijl}>Vervolgvraag — toon deze regel alleen als… (optioneel)</div>
+                      {eerdereRegels.length === 0 ? (
+                        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>Zet eerst een vraag bóven deze regel om er een voorwaarde aan te koppelen.</div>
+                      ) : (
+                        <div style={{ display: "grid", gridTemplateColumns: vw.afhankelijkVanRegelId ? (vw.operator === "ingevuld" || vw.operator === "leeg" ? "1.4fr 1fr" : "1.4fr 1fr 1fr") : "1fr", gap: 8 }}>
+                          <select
+                            value={vw.afhankelijkVanRegelId || ""}
+                            onChange={(e) => (e.target.value ? zetVoorwaarde(lijst.id, regel.id, { afhankelijkVanRegelId: e.target.value, operator: vw.operator || "is" }) : zetVoorwaarde(lijst.id, regel.id, null))}
+                            style={{ ...invoerStijl, cursor: "pointer" }}
+                            title="Afhankelijk van welke eerdere vraag"
+                          >
+                            <option value="">— altijd tonen —</option>
+                            {eerdereRegels.map((er) => <option key={er.id} value={er.id}>{er.naam || "(naamloze vraag)"}</option>)}
+                          </select>
+                          {vw.afhankelijkVanRegelId && (
+                            <select value={vw.operator || "is"} onChange={(e) => zetVoorwaarde(lijst.id, regel.id, { operator: e.target.value })} style={{ ...invoerStijl, cursor: "pointer" }} title="Voorwaarde">
+                              <option value="is">is gelijk aan</option>
+                              <option value="isNiet">is niet</option>
+                              <option value="ingevuld">is ingevuld</option>
+                              <option value="leeg">is leeg</option>
+                            </select>
+                          )}
+                          {vw.afhankelijkVanRegelId && vw.operator !== "ingevuld" && vw.operator !== "leeg" && (
+                            bronRegel && bronRegel.type === "janee" ? (
+                              <select value={vw.waarde || ""} onChange={(e) => zetVoorwaarde(lijst.id, regel.id, { waarde: e.target.value })} style={{ ...invoerStijl, cursor: "pointer" }}>
+                                <option value="">— kies —</option>
+                                <option value="Ja">Ja</option>
+                                <option value="Nee">Nee</option>
+                              </select>
+                            ) : bronRegel && bronRegel.type === "keuze" ? (
+                              <select value={vw.waarde || ""} onChange={(e) => zetVoorwaarde(lijst.id, regel.id, { waarde: e.target.value })} style={{ ...invoerStijl, cursor: "pointer" }}>
+                                <option value="">— kies —</option>
+                                {(bronRegel.opties || []).map((o, oi) => <option key={oi} value={o}>{o}</option>)}
+                              </select>
+                            ) : (
+                              <input value={vw.waarde || ""} onChange={(e) => zetVoorwaarde(lijst.id, regel.id, { waarde: e.target.value })} placeholder="Antwoord…" style={invoerStijl} />
+                            )
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                   );
                 })}

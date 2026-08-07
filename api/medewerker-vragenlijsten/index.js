@@ -138,7 +138,7 @@ module.exports = async function (context, req) {
         // en gaat naar de logs.
         let dynamicsResultaat = null;
         const resource = process.env.DYNAMICS_RESOURCE_URL;
-        const teSchrijven = (v.regels || []).filter((r) => r.dynamics && r.dynamics.entitySet && r.dynamics.kolom && r.antwoord != null);
+        const teSchrijven = (v.regels || []).filter((r) => r.dynamics && r.dynamics.entitySet && r.dynamics.kolom && r.antwoord != null && verzoeken.voorwaardeVervuld(r, v.regels));
         if (resource && teSchrijven.length) {
           let geschreven = 0;
           const mislukt = [];

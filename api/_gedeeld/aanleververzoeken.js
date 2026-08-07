@@ -75,6 +75,8 @@ function maakRegel(r) {
     // ingesteld, zodat het antwoord bij het beantwoorden naar dat veld kan worden weggeschreven.
     // Vorm: { tabel, tabelLabel, entitySet, kolom, kolomLabel, kolomType, vraagtype, record, opties? }.
     dynamics: r && r.dynamics && typeof r.dynamics === "object" ? r.dynamics : null,
+    // Vervolgvraag-voorwaarde (Uitvraag Fase C): { afhankelijkVanRegelId, operator, waarde }.
+    voorwaarde: r && r.voorwaarde && typeof r.voorwaarde === "object" ? r.voorwaarde : null,
     naam: String(r && r.naam ? r.naam : "").slice(0, 200),
     bestandsnaam: String(r && r.bestandsnaam ? r.bestandsnaam : "").slice(0, 200),
     toelichting: String(r && r.toelichting ? r.toelichting : "").slice(0, 600),
@@ -165,11 +167,41 @@ function maakBericht(rol, auteur, tekst) {
   };
 }
 
-/** Herberekent de verzoekstatus: 'afgerond' zodra alle verplichte regels niet meer 'open' staan
- * (aangeleverd mét bestand, óf afgemeld via een opmerking). */
+/**
+ * Evalueert de vervolgvraag-voorwaarde van een regel (Uitvraag Fase C, skip-logica). Een regel met
+ * een voorwaarde wordt alleen getoond/meegeteld als het antwoord op een eerdere regel eraan voldoet;
+ * anders wordt de regel overgeslagen (telt niet mee voor afronding, wordt niet naar Dynamics
+ * geschreven). Zonder voorwaarde is een regel altijd van toepassing.
+ *
+ *   voorwaarde = { afhankelijkVanRegelId, operator: "is"|"isNiet"|"ingevuld"|"leeg", waarde }
+ *
+ * Dezelfde logica draait aan de klantkant (DocumentenTab.jsx) om de vraag te tonen/verbergen — houd
+ * beide in sync.
+ */
+function voorwaardeVervuld(regel, alleRegels) {
+  const vw = regel && regel.voorwaarde;
+  if (!vw || !vw.afhankelijkVanRegelId) return true;
+  const bron = (alleRegels || []).find((r) => r.id === vw.afhankelijkVanRegelId);
+  const antwoord = bron && bron.antwoord != null ? String(bron.antwoord) : "";
+  const waarde = vw.waarde != null ? String(vw.waarde) : "";
+  const norm = (s) => s.trim().toLowerCase();
+  switch (vw.operator) {
+    case "ingevuld": return antwoord.trim() !== "";
+    case "leeg": return antwoord.trim() === "";
+    case "isNiet": return norm(antwoord) !== norm(waarde);
+    case "is":
+    default: return norm(antwoord) === norm(waarde);
+  }
+}
+
+/** Herberekent de verzoekstatus: 'afgerond' zodra alle verplichte, van-toepassing-zijnde regels niet
+ * meer 'open' staan (aangeleverd mét bestand, afgemeld via een opmerking, of beantwoord). Regels
+ * waarvan de vervolgvraag-voorwaarde niet klopt worden overgeslagen (tellen niet mee). */
 function herberekenStatus(verzoek) {
-  const verplicht = verzoek.regels.filter((r) => r.verplicht !== false);
-  const relevant = verplicht.length ? verplicht : verzoek.regels;
+  const regels = verzoek.regels || [];
+  const toepasselijk = regels.filter((r) => voorwaardeVervuld(r, regels));
+  const verplicht = toepasselijk.filter((r) => r.verplicht !== false);
+  const relevant = verplicht.length ? verplicht : toepasselijk;
   const klaar = relevant.length > 0 && relevant.every((r) => r.status !== "open");
   verzoek.status = klaar ? "afgerond" : "open";
   return verzoek.status;
@@ -311,6 +343,9 @@ function verrijkVerzoek(v, laatstGezien) {
       type: r.type || "document",
       opties: Array.isArray(r.opties) ? r.opties : [],
       antwoord: r.antwoord ?? null,
+      // Fase C: van toepassing (voorwaarde vervuld)? Zo niet, dan is de regel overgeslagen — de
+      // medewerker-UI toont 'm dan als "niet van toepassing" en telt 'm niet mee.
+      vanToepassing: voorwaardeVervuld(r, regels),
       status: r.status || "open",
       opmerking: r.opmerking || "",
       bestandNaam: (r.bestand && r.bestand.naam) || "",
@@ -337,5 +372,5 @@ module.exports = {
   haalAlle, maakVerzoek, maakRegel, maakBericht, voegToe, werkBij, verwijder, haalVoorAccounts, herberekenStatus,
   haalLaatstGezien, zetLaatstGezien, heeftKlantActiviteitSinds,
   haalKlantLaatstGezien, zetKlantLaatstGezien, heeftMedewerkerActiviteitSinds,
-  openVragen, verrijkVerzoek,
+  openVragen, verrijkVerzoek, voorwaardeVervuld,
 };
