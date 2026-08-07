@@ -157,4 +157,42 @@ function leegCache() {
   cache.clear();
 }
 
-module.exports = { haalGroepen, haalGroepEmails, leegCache };
+/**
+ * Diagnose: probeert de ledenqueries rechtstreeks en rapporteert per query de HTTP-status, het
+ * aantal teruggekomen items en of het eerste item een e-mail/UPN heeft. Zo is precies te zien of het
+ * probleem zit in het lezen van de leden (0 items / 403) of in het lezen van de gebruikersgegevens
+ * (wel items, maar zonder mail/UPN → app mist Directory.Read.All/User.Read.All). Alleen voor beheer.
+ */
+async function diagnoseGroep(groepId) {
+  if (!groepId) return { fout: "geen groepId" };
+  const token = await haalGraphToken();
+  const probeer = async (pad) => {
+    try {
+      const res = await fetch(`${GRAPH}/groups/${encodeURIComponent(groepId)}/${pad}`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/json", ConsistencyLevel: "eventual" },
+      });
+      const tekst = await res.text();
+      let data = null;
+      try { data = JSON.parse(tekst); } catch { /* niet-JSON */ }
+      const items = (data && data.value) || [];
+      const eerste = items[0] || null;
+      return {
+        status: res.status,
+        aantal: items.length,
+        odataCount: data ? data["@odata.count"] : undefined,
+        eersteVelden: eerste ? Object.keys(eerste) : [],
+        eersteHeeftMailOfUpn: !!(eerste && (eerste.mail || eerste.userPrincipalName)),
+        fout: res.ok ? "" : String(tekst || "").slice(0, 300),
+      };
+    } catch (e) {
+      return { status: "ERR", fout: String((e && e.message) || e) };
+    }
+  };
+  return {
+    membersUser: await probeer(`members/microsoft.graph.user?${LEDEN_SELECT}&$top=5`),
+    membersRuw: await probeer(`members?$select=id,displayName&$top=5`),
+    transitiveUser: await probeer(`transitiveMembers/microsoft.graph.user?${LEDEN_SELECT}&$top=5&$count=true`),
+  };
+}
+
+module.exports = { haalGroepen, haalGroepEmails, leegCache, diagnoseGroep };
