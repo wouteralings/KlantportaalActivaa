@@ -71,6 +71,10 @@ function maakRegel(r) {
     type: r && r.type ? String(r.type).slice(0, 20) : "document",
     // Keuze-opties (alleen bij type "keuze").
     opties: r && Array.isArray(r.opties) ? r.opties.map((o) => String(o).slice(0, 200)).slice(0, 50) : [],
+    // Koppeling naar een Dynamics-tabel+kolom (Uitvraag Fase B) — overgenomen zoals in beheer
+    // ingesteld, zodat het antwoord bij het beantwoorden naar dat veld kan worden weggeschreven.
+    // Vorm: { tabel, tabelLabel, entitySet, kolom, kolomLabel, kolomType, vraagtype, record, opties? }.
+    dynamics: r && r.dynamics && typeof r.dynamics === "object" ? r.dynamics : null,
     naam: String(r && r.naam ? r.naam : "").slice(0, 200),
     bestandsnaam: String(r && r.bestandsnaam ? r.bestandsnaam : "").slice(0, 200),
     toelichting: String(r && r.toelichting ? r.toelichting : "").slice(0, 600),

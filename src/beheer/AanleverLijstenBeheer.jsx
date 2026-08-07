@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus, Trash2, CheckCircle2, ListChecks, FileText, ChevronDown, Search } from "lucide-react";
 
 /** Zelfde palet als de rest van het beheerdersportaal (bewust hier herhaald zodat dit bestand op
@@ -51,6 +51,20 @@ export default function AanleverLijstenBeheer() {
   const [open, setOpen] = useState(() => new Set()); // ingeklapte/uitgeklapte lijsten (id's die open zijn)
   const [toonAantal, setToonAantal] = useState(25);
   const [zoek, setZoek] = useState("");
+  // Dynamics-metadata voor het koppelen van een vraag aan een tabel+kolom (Fase B).
+  const [tabellen, setTabellen] = useState(null); // null = laden; [] = niet beschikbaar
+  const [kolommenCache, setKolommenCache] = useState({}); // { tabelLogicalName: [{ logicalName, label, type, vraagtype }] }
+  const kolomFetchRef = useRef(new Set()); // tabellen waarvoor de kolommen al opgehaald (worden)
+
+  // Kolommen van één tabel ophalen (1× per tabel; ref voorkomt dubbele calls).
+  const laadKolommen = useCallback((tabel) => {
+    if (!tabel || kolomFetchRef.current.has(tabel)) return;
+    kolomFetchRef.current.add(tabel);
+    fetch(`/api/beheer-dynamics-metadata?tabel=${encodeURIComponent(tabel)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setKolommenCache((c) => ({ ...c, [tabel]: d.kolommen || [] })))
+      .catch(() => setKolommenCache((c) => ({ ...c, [tabel]: [] })));
+  }, []);
 
   const toggle = (id) => setOpen((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
@@ -67,8 +81,19 @@ export default function AanleverLijstenBeheer() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => { if (actief) setLijsten(d.lijsten || []); })
       .catch(() => { if (actief) { setLijsten([]); setFout("Kon de aanleverlijsten niet laden."); } });
+    // Dynamics-tabellen 1× ophalen voor de koppel-dropdowns (best-effort).
+    fetch("/api/beheer-dynamics-metadata")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => { if (actief) setTabellen(d.tabellen || []); })
+      .catch(() => { if (actief) setTabellen([]); });
     return () => { actief = false; };
   }, []);
+
+  // Zodra lijsten geladen/gewijzigd zijn: de kolommen voorladen van elke tabel die al aan een
+  // vraag gekoppeld is (zodat de kolom-dropdown de opgeslagen keuze meteen kan tonen).
+  useEffect(() => {
+    (lijsten || []).forEach((l) => (l.regels || []).forEach((r) => { if (r.dynamics && r.dynamics.tabel) laadKolommen(r.dynamics.tabel); }));
+  }, [lijsten, laadKolommen]);
 
   const wijzig = (fn) => { setLijsten((h) => fn(h || [])); setVuil(true); setStatus("rust"); };
   const updateLijst = (id, patch) => wijzig((h) => h.map((l) => (l.id === id ? { ...l, ...patch } : l)));
@@ -86,6 +111,29 @@ export default function AanleverLijstenBeheer() {
   const voegOptieToe = (lijstId, regelId) => wijzigRegelOpties(lijstId, regelId, (o) => [...o, ""]);
   const updateOptie = (lijstId, regelId, i, waarde) => wijzigRegelOpties(lijstId, regelId, (o) => o.map((x, idx) => (idx === i ? waarde : x)));
   const verwijderOptie = (lijstId, regelId, i) => wijzigRegelOpties(lijstId, regelId, (o) => o.filter((_, idx) => idx !== i));
+
+  // Dynamics-koppeling per regel (Fase B): merge in regel.dynamics (of wis met null).
+  const zetDynamics = (lijstId, regelId, patch) =>
+    wijzig((h) => h.map((l) => (l.id !== lijstId ? l : { ...l, regels: l.regels.map((r) => (r.id !== regelId ? r : { ...r, dynamics: patch === null ? null : { ...(r.dynamics || {}), ...patch } })) })));
+  // Tabel gekozen: koppeling (her)initialiseren en de kolommen laden.
+  const kiesTabel = (lijstId, regelId, huidigeDyn, logicalName) => {
+    const tab = (tabellen || []).find((t) => t.logicalName === logicalName);
+    if (!tab) { zetDynamics(lijstId, regelId, null); return; }
+    laadKolommen(tab.logicalName);
+    zetDynamics(lijstId, regelId, { tabel: tab.logicalName, tabelLabel: tab.label, entitySet: tab.entitySet, kolom: "", kolomLabel: "", kolomType: "", vraagtype: "", opties: undefined, record: (huidigeDyn && huidigeDyn.record) || "account" });
+  };
+  // Kolom gekozen: type/vraagtype vastleggen en (bij een keuzelijst-kolom) de opties ophalen.
+  const kiesKolom = (lijstId, regelId, tabel, logicalName) => {
+    const kol = (kolommenCache[tabel] || []).find((k) => k.logicalName === logicalName);
+    if (!kol) { zetDynamics(lijstId, regelId, { kolom: "", kolomLabel: "", kolomType: "", vraagtype: "", opties: undefined }); return; }
+    zetDynamics(lijstId, regelId, { kolom: kol.logicalName, kolomLabel: kol.label, kolomType: kol.type, vraagtype: kol.vraagtype, opties: undefined });
+    if (kol.type === "Picklist") {
+      fetch(`/api/beheer-dynamics-metadata?tabel=${encodeURIComponent(tabel)}&kolom=${encodeURIComponent(kol.logicalName)}`)
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then((d) => zetDynamics(lijstId, regelId, { opties: d.opties || [] }))
+        .catch(() => {});
+    }
+  };
 
   const opslaan = async () => {
     setStatus("bezig");
@@ -249,6 +297,48 @@ export default function AanleverLijstenBeheer() {
                           : "De klant kiest een datum."}
                       </div>
                     )}
+
+                    {/* Koppel het antwoord aan een Dynamics-tabel + kolom (alleen voor vraag-regels). */}
+                    {isVraag && (() => {
+                      const dyn = regel.dynamics || {};
+                      const kols = kolommenCache[dyn.tabel] || [];
+                      return (
+                        <div style={{ marginTop: 8, borderTop: `1px dashed ${KLEUR.rand}`, paddingTop: 8 }}>
+                          <div style={labelStijl}>Koppel aan Dynamics — antwoord wordt hierheen weggeschreven (optioneel)</div>
+                          {tabellen === null ? (
+                            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>Dynamics-tabellen laden…</div>
+                          ) : tabellen.length === 0 ? (
+                            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>Dynamics-metadata is niet beschikbaar (controleer de koppeling).</div>
+                          ) : (
+                            <>
+                              <div style={{ display: "grid", gridTemplateColumns: dyn.tabel ? "1fr 1fr 1fr" : "1fr", gap: 8 }}>
+                                <select value={dyn.tabel || ""} onChange={(e) => kiesTabel(lijst.id, regel.id, dyn, e.target.value)} style={{ ...invoerStijl, cursor: "pointer" }} title="Dynamics-tabel">
+                                  <option value="">— niet koppelen —</option>
+                                  {tabellen.map((t) => <option key={t.logicalName} value={t.logicalName}>{t.label}</option>)}
+                                </select>
+                                {dyn.tabel && (
+                                  <select value={dyn.kolom || ""} onChange={(e) => kiesKolom(lijst.id, regel.id, dyn.tabel, e.target.value)} style={{ ...invoerStijl, cursor: "pointer" }} title="Kolom (veld)">
+                                    <option value="">{kolommenCache[dyn.tabel] ? "— kies kolom —" : "kolommen laden…"}</option>
+                                    {kols.map((k) => <option key={k.logicalName} value={k.logicalName}>{k.label}</option>)}
+                                  </select>
+                                )}
+                                {dyn.tabel && (
+                                  <select value={dyn.record || "account"} onChange={(e) => zetDynamics(lijst.id, regel.id, { record: e.target.value })} style={{ ...invoerStijl, cursor: "pointer" }} title="Welk record wordt gevuld">
+                                    <option value="account">Account van de klant</option>
+                                    <option value="contact">Contactpersoon van de klant</option>
+                                  </select>
+                                )}
+                              </div>
+                              {dyn.tabel && dyn.kolom && dyn.vraagtype && dyn.vraagtype !== type && (
+                                <div style={{ fontSize: 11, color: KLEUR.rood, marginTop: 4 }}>
+                                  Let op: dit veld past het best bij een <strong>{dyn.vraagtype}</strong>-vraag, maar deze vraag is <strong>{type}</strong>. Het antwoord kan dan niet altijd worden weggeschreven.
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                   );
                 })}

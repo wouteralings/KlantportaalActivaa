@@ -84,6 +84,12 @@
       ]
     },
     {
+      "route": "/api/beheer-dynamics-metadata",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
       "route": "/api/beheer-taakrubrieken",
       "allowedRoles": [
         "beheerder"
