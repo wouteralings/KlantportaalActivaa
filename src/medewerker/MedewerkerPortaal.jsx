@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload, Lightbulb, Binoculars } from "lucide-react";
+import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload, Lightbulb, Binoculars, BookOpen } from "lucide-react";
 import { startMeekijken } from "../meekijken";
 import OffertesModule from "./OffertesModule";
 import ContractenOverzicht from "./ContractenOverzicht";
@@ -450,6 +450,16 @@ function OndertekeningenLog() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Log klantreacties + Ondertekeningen op één pagina ───────────────────────
+function ReactiesEnOndertekeningen() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      <AkkoordenLog />
+      <OndertekeningenLog />
     </div>
   );
 }
@@ -4195,8 +4205,6 @@ export default function MedewerkerPortaal() {
     ["vragenlijsten", "Vragenlijsten", tellingen.vragenlijstenAandacht],
     ["uren", "Uren", 0],
     ["verzoeken", "Wijzigingsverzoeken", tellingen.openWijzigingen],
-    ["reacties", "Log klantreacties", tellingen.nieuweReacties],
-    ["ondertekeningen", "Ondertekeningen", 0],
     ["reviews", "Reviews", tellingen.nieuweReviews],
     ...(magOffertes || isBeheerder ? [["offertes", "Offertes", 0]] : []),
     ...(magContracten || isBeheerder ? [["contracten", "Contracten", 0]] : []),
@@ -4211,6 +4219,18 @@ export default function MedewerkerPortaal() {
           {logoUrl && <img src={logoUrl} alt="Logo" style={{ maxHeight: 30, maxWidth: 160, objectFit: "contain", display: "block", alignSelf: "center", marginLeft: 8 }} />}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button
+            onClick={() => setTab("reacties")}
+            title="Klantreacties & ondertekeningen"
+            style={{ position: "relative", background: "none", border: "none", cursor: "pointer", color: tab === "reacties" ? KLEUR.goud : KLEUR.mutedTekst, padding: 4, display: "flex" }}
+          >
+            <BookOpen size={19} fill={tab === "reacties" ? "currentColor" : "none"} />
+            {tellingen.nieuweReacties > 0 && (
+              <span style={{ position: "absolute", top: -3, right: -4, minWidth: 15, height: 15, padding: "0 3px", borderRadius: 999, background: KLEUR.rood, color: "#fff", fontSize: 10, fontWeight: 700, lineHeight: "15px", textAlign: "center", boxSizing: "border-box" }}>
+                {tellingen.nieuweReacties > 99 ? "99+" : tellingen.nieuweReacties}
+              </span>
+            )}
+          </button>
           {(magAlsKlant || isBeheerder) && (
             <button
               onClick={() => setTab("meekijken")}
@@ -4276,8 +4296,7 @@ export default function MedewerkerPortaal() {
       {tab === "vragenlijsten" && <Vragenlijsten />}
       {tab === "uren" && <Urenregistratie isBeheerder={isBeheerder} />}
       {tab === "verzoeken" && <WijzigingsverzoekBeheer onAfgehandeld={laadTellingen} />}
-      {tab === "reacties" && <AkkoordenLog />}
-      {tab === "ondertekeningen" && <OndertekeningenLog />}
+      {tab === "reacties" && <ReactiesEnOndertekeningen />}
       {tab === "reviews" && <ReviewBeheer />}
       {tab === "ontwikkelverzoeken" && <Ontwikkelverzoeken />}
       {tab === "offertes" && (magOffertes || isBeheerder) && <OffertesModule />}
