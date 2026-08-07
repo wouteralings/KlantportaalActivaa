@@ -315,6 +315,9 @@ export default function BeheerPortaal() {
   const [taaksoortenOpslaanStatus, setTaaksoortenOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [taaksoortenSectieOpen, setTaaksoortenSectieOpen] = useState(false);
   const [taaksoortenZoek, setTaaksoortenZoek] = useState("");
+  // Opties van het "Rubriek"-veld (cr283_rubriek) op Task — voor de rubriek-keuze bij de
+  // vervolgtaak backoffice (zelfde bron als de rubriek bij Beheer → Brieven).
+  const [taakRubriekOpties, setTaakRubriekOpties] = useState([]); // [{ waarde, label }]
 
   // Submap voor het ondertekeningsbewijs (api/taken-ondertekenen) — geldt voor élke taaksoort met
   // "Vereist handtekening" hierboven, dus los van een specifieke taaksoort ingesteld.
@@ -467,6 +470,10 @@ export default function BeheerPortaal() {
         if (d.error) setTaaksoortenFout(d.error);
       })
       .catch(() => { setTaaksoortenOpties([]); setTaaksoortenFout("Kon de taaksoorten niet ophalen."); });
+    fetch("/api/beheer-taakrubrieken")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setTaakRubriekOpties((d && d.opties) || []))
+      .catch(() => setTaakRubriekOpties([]));
     fetch("/api/beheer-klanten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setFacturatieKlanten(
@@ -3169,6 +3176,31 @@ export default function BeheerPortaal() {
                               <option value="1">Normaal</option>
                               <option value="2">Hoog</option>
                             </select>
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: "1 1 240px" }}>
+                            <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>Rubriek van de vervolgtaak</span>
+                            {taakRubriekOpties.length > 0 ? (
+                              <select
+                                value={cfg.vervolgtaakRubriek ?? ""}
+                                onChange={(e) => wijzigTaaksoort(optie.waarde, "vervolgtaakRubriek", e.target.value, optie.label)}
+                                style={{ boxSizing: "border-box", width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 12.5, background: "#fff" }}
+                              >
+                                <option value="">— geen rubriek —</option>
+                                {taakRubriekOpties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
+                              </select>
+                            ) : (
+                              <>
+                                <input
+                                  value={cfg.vervolgtaakRubriek ?? ""}
+                                  onChange={(e) => wijzigTaaksoort(optie.waarde, "vervolgtaakRubriek", e.target.value, optie.label)}
+                                  placeholder="Leeg = geen rubriek"
+                                  style={{ boxSizing: "border-box", width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 12.5, background: "#fff" }}
+                                />
+                                <span style={{ fontSize: 10.5, color: KLEUR.mutedTekst }}>
+                                  De rubrieken-lijst kon niet worden opgehaald — vul de optiesetwaarde (nummer) rechtstreeks in, of laat leeg.
+                                </span>
+                              </>
+                            )}
                           </div>
                         </div>
                       )}
