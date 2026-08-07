@@ -385,7 +385,7 @@ export default function BrievenOverzicht({ onTerug }) {
       else if (actie === "mail") { setMelding({ type: "ok", tekst: `Brief gemaild naar ${naar.trim()}${metBijlage}.` }); }
       else if (actie === "dossier") { if (data.gedaan) setMelding({ type: "ok", tekst: `Brief opgeslagen in het SharePoint-dossier van de klant${metBijlage}.` }); else setMelding({ type: "fout", tekst: data.reden || "Opslaan in het dossier is niet gelukt." }); }
       else if (actie === "backoffice") {
-        if (data.taakGedaan) setMelding({ type: "ok", tekst: `Taak voor backoffice aangemaakt${data.dossierGedaan ? " en de brief staat in het klantdossier" : ""}${metBijlage}.${data.eigenaarGevonden ? "" : " (Let op: geen eigenaar gevonden — controleer het backoffice-adres in Beheer.)"}` });
+        if (data.taakGedaan) setMelding({ type: "ok", tekst: `Taak voor backoffice aangemaakt${data.dossierGedaan ? " en de brief staat in het klantdossier" : ""}${metBijlage}.${data.eigenaarGevonden ? "" : " (Let op: deze klant heeft geen manager/relatiebeheerder, dus de taak heeft geen eigenaar gekregen.)"}` });
         else setMelding({ type: "fout", tekst: data.taakReden || "Kon de backoffice-taak niet aanmaken." });
       }
       if (actie === "mail" || actie === "dossier" || actie === "backoffice") laadVerzonden(klant && klant.accountId);

@@ -243,14 +243,11 @@ async function maakBackofficeTaak({ context, accountId, klantnaam, onderwerp, ei
   const H = (token) => ({ Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json", "OData-MaxVersion": "4.0", "OData-Version": "4.0" });
   try {
     const token = await haalDynamicsToken();
+    // Eigenaar = de manager/relatiebeheerder van de klant (cr283_manager). Let op: het toewijzen van
+    // een taak-eigenaar in Dynamics verstuurt géén e-mail; het zet alleen wie de taak in behandeling
+    // heeft. Geen e-mailadresveld meer — de eigenaar komt rechtstreeks van de klant.
     let ownerId = "";
-    const email = String(eigenaarEmail || "").trim();
-    if (email) {
-      const q = `${resource}/api/data/v9.2/systemusers?$select=systemuserid&$filter=internalemailaddress eq '${email.replace(/'/g, "''")}' and isdisabled eq false`;
-      const r = await fetch(q, { headers: H(token) });
-      if (r.ok) { const j = await r.json(); ownerId = (j.value && j.value[0] && j.value[0].systemuserid) || ""; }
-    }
-    if (!ownerId) {
+    {
       const r = await fetch(`${resource}/api/data/v9.2/accounts(${accountId})?$select=_${TAAK_MANAGER_VELD}_value`, { headers: H(token) });
       if (r.ok) { const j = await r.json(); ownerId = j[`_${TAAK_MANAGER_VELD}_value`] || ""; }
     }
