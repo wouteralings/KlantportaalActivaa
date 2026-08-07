@@ -57,6 +57,9 @@ export default function BrievenBeheer() {
   const [openBrieven, setOpenBrieven] = useState(() => new Set()); // indices van opengeklapte brieven
   const [openVelden, setOpenVelden] = useState(() => new Set());   // indices van opengeklapte invulvelden
   const [zoek, setZoek] = useState(""); // zoekterm om tussen de standaardbrieven te filteren
+  // Taaksoort-opties voor de backoffice-taak-dropdown — zelfde bron/patroon als "Soort taak" bij
+  // IB/VPB Aangifte versturen (zie DossierIndelingBeheer.jsx).
+  const [taakSoortOpties, setTaakSoortOpties] = useState([]); // [{ waarde, label }]
 
   useEffect(() => {
     fetch("/api/beheer-briefsjablonen")
@@ -68,6 +71,10 @@ export default function BrievenBeheer() {
         briefvelden: Array.isArray(d.briefvelden) ? d.briefvelden : [],
       }))
       .catch(() => { setConfig({ afzender: {}, sharepointMap: "Brieven", sjablonen: [], briefvelden: [] }); setFout("De briefsjablonen konden niet worden geladen."); });
+    fetch("/api/beheer-taaksoorten")
+      .then((r) => (r.ok ? r.json() : { opties: [] }))
+      .then((d) => setTaakSoortOpties((d && d.opties) || []))
+      .catch(() => setTaakSoortOpties([]));
   }, []);
 
   // Open-set-hulpjes: bij verplaatsen/verwijderen schuiven de indices mee, zodat de juiste kaart open blijft.
@@ -322,6 +329,38 @@ export default function BrievenBeheer() {
             <input value={a.backofficeEigenaarEmail || ""} onChange={(e) => zetAfzender("backofficeEigenaarEmail", e.target.value)} placeholder="bijv. backoffice@activaa.nl" style={invoerStijl} /></div>
           <div style={{ flex: "2 1 320px" }}><span style={labelStijl}>Onderwerp van de taak</span>
             <input value={a.backofficeOnderwerp || ""} onChange={(e) => zetAfzender("backofficeOnderwerp", e.target.value)} placeholder="Brief printen en versturen — {{klantnaam}}" style={invoerStijl} /></div>
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <span style={labelStijl}>Soort taak</span>
+          {taakSoortOpties.length > 0 ? (
+            <select
+              value={a.backofficeTaakSoort || ""}
+              onChange={(e) => zetAfzender("backofficeTaakSoort", e.target.value)}
+              style={{ ...invoerStijl, maxWidth: 420 }}
+            >
+              <option value="">— geen soort (Dynamics-standaard) —</option>
+              {taakSoortOpties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
+            </select>
+          ) : (
+            <>
+              <input
+                type="number"
+                value={a.backofficeTaakSoort || ""}
+                onChange={(e) => zetAfzender("backofficeTaakSoort", e.target.value)}
+                placeholder="Leeg = geen soort"
+                style={{ ...invoerStijl, maxWidth: 200 }}
+              />
+              <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>
+                De taaksoorten-lijst kon niet worden opgehaald — vul de optiesetwaarde (nummer) rechtstreeks in, of laat leeg.
+              </span>
+            </>
+          )}
+          <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 4, maxWidth: 760 }}>
+            Kies bij voorkeur een eigen, dedicated soort (bijv. "Brief backoffice") in plaats van een
+            soort dat ook voor andere taken wordt gebruikt. Zet die soort in Beheer → Taken op{" "}
+            <strong>niet</strong> "Zichtbaar" — anders ziet de cliënt deze interne taak per ongeluk in
+            zijn eigen portaal.
+          </div>
         </div>
         <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8, maxWidth: 760 }}>
           Bij <strong>Naar backoffice</strong> wordt de brief in het klantdossier gezet én een interne taak aangemaakt om te printen en per post te versturen. Leeg e-mailadres = de taak gaat naar de manager/relatiebeheerder van de klant.

@@ -63,6 +63,12 @@ const STANDAARD_AFZENDER = {
   // relatiebeheerder van de klant) + het onderwerp-sjabloon van die taak.
   backofficeEigenaarEmail: "",
   backofficeOnderwerp: "",
+  // Optionele Dynamics-taaksoort (cr283_soortactiecategorie-waarde) voor diezelfde backoffice-taak
+  // — zelfde optieset/dropdown-bron (/api/beheer-taaksoorten) als bij IB/VPB "Aangifte versturen"
+  // (zie DossierIndelingBeheer.jsx). Leeg = geen soort meegeven (Dynamics-standaard). Op verzoek
+  // van Wouter (07-08-2026): "Kan ik dit bij brieven ook niet zo instellen als die door backoffice
+  // verzonden moet worden?"
+  backofficeTaakSoort: "",
 };
 
 const STANDAARD_SHAREPOINT_MAP = "Brieven";
@@ -199,6 +205,12 @@ function normaliseerAfzender(a) {
   // Backoffice-taak: e-mailadres van het postvak dat de taak krijgt (leeg = manager van de klant).
   const backofficeEigenaarRuw = tekst(bron.backofficeEigenaarEmail, 160);
   const backofficeEigenaarEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(backofficeEigenaarRuw) ? backofficeEigenaarRuw : "";
+  // Backoffice-taak: optionele taaksoort-optiesetwaarde (geheel getal); leeg/ongeldig = "".
+  const backofficeTaakSoortGetal = Number(bron.backofficeTaakSoort);
+  const backofficeTaakSoort =
+    bron.backofficeTaakSoort !== "" && bron.backofficeTaakSoort != null && Number.isFinite(backofficeTaakSoortGetal)
+      ? String(Math.trunc(backofficeTaakSoortGetal))
+      : "";
   return {
     bedrijfsnaam: tekst(bron.bedrijfsnaam, 120) || STANDAARD_AFZENDER.bedrijfsnaam,
     adres: tekst(bron.adres, 160),
@@ -225,6 +237,7 @@ function normaliseerAfzender(a) {
     mailTekst: langeTekst(bron.mailTekst, 20000),
     backofficeEigenaarEmail,
     backofficeOnderwerp: tekst(bron.backofficeOnderwerp, 300),
+    backofficeTaakSoort,
   };
 }
 

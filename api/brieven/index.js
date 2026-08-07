@@ -222,13 +222,19 @@ async function naarDossier({ accountId, submap, bestandsnaam, buffer, contentTyp
 // Dynamics-velden voor de backoffice-taak (zelfde defaults als _gedeeld/vervolgtaak.js).
 const TAAK_KLANT_VELD = process.env.DYNAMICS_TAAK_KLANT_VELD || "sk_client";
 const TAAK_MANAGER_VELD = process.env.DYNAMICS_RELATIEBEHEERDER_VELD || "cr283_manager";
+// Optioneel "Soort"-veld op Task — zelfde Application Setting als Beheer → Taken/Dossiers. Alleen
+// gezet op de backoffice-taak als in Beheer → Brieven een taaksoort is gekozen (backofficeTaakSoort).
+const TAAK_SOORT_VELD = process.env.DYNAMICS_TAAK_SOORT_VELD || "";
 
 /**
  * Maakt een interne Dynamics-taak "brief printen & versturen" voor de backoffice. Eigenaar = het in
  * Beheer ingestelde backoffice-postvak (e-mail → systemuser), of anders de manager/relatiebeheerder
- * van de klant. Best-effort — geeft { gedaan, reden, eigenaarGevonden }.
+ * van de klant. `soortWaarde` (optioneel) zet de Beheer → Brieven ingestelde taaksoort op de taak —
+ * kies in Beheer een soort die daar NIET op "Zichtbaar" staat, anders ziet de cliënt deze interne
+ * taak per ongeluk in zijn eigen portaal (zelfde valkuil als bij de vervolgtaak-soort, zie
+ * _gedeeld/vervolgtaak.js). Best-effort — geeft { gedaan, reden, eigenaarGevonden }.
  */
-async function maakBackofficeTaak({ context, accountId, klantnaam, onderwerp, eigenaarEmail, dossierGelukt, submap, briefUrl }) {
+async function maakBackofficeTaak({ context, accountId, klantnaam, onderwerp, eigenaarEmail, soortWaarde, dossierGelukt, submap, briefUrl }) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   if (!resource) return { gedaan: false, reden: "Dynamics-koppeling is nog niet geconfigureerd." };
   const H = (token) => ({ Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json", "OData-MaxVersion": "4.0", "OData-Version": "4.0" });
@@ -255,6 +261,7 @@ async function maakBackofficeTaak({ context, accountId, klantnaam, onderwerp, ei
       [`${TAAK_KLANT_VELD}@odata.bind`]: `/accounts(${accountId})`,
     };
     if (ownerId) taakBody["ownerid@odata.bind"] = `/systemusers(${ownerId})`;
+    if (TAAK_SOORT_VELD && Number.isFinite(soortWaarde)) taakBody[TAAK_SOORT_VELD] = soortWaarde;
     const res = await fetch(`${resource}/api/data/v9.2/tasks`, { method: "POST", headers: H(token), body: JSON.stringify(taakBody) });
     if (!res.ok) return { gedaan: false, reden: `Aanmaken backoffice-taak mislukt (${res.status}).` };
     return { gedaan: true, eigenaarGevonden: !!ownerId };
@@ -366,11 +373,13 @@ module.exports = async function (context, req) {
         bestandsnaam: veiligeBestandsnaam(basisMetKenmerk(body.bestandsnaamBasis, brief), "pdf"),
         buffer: pdf, contentType: PDF_TYPE, bijlage,
       });
+      const backofficeTaakSoortRuw = config.afzender && config.afzender.backofficeTaakSoort;
       const taak = await maakBackofficeTaak({
         context, accountId,
         klantnaam: String(body.klantnaam || "").trim(),
         onderwerp: String(body.backofficeOnderwerp || "").trim(),
         eigenaarEmail: (config.afzender && config.afzender.backofficeEigenaarEmail) || "",
+        soortWaarde: backofficeTaakSoortRuw ? Number(backofficeTaakSoortRuw) : null,
         dossierGelukt: dossier.gedaan, submap, briefUrl: dossier.url,
       });
       await logBrief(context, req, { actie: "backoffice", brief, body, naar: "", cc: "", pdfUrl: dossier.url, bijlage });
