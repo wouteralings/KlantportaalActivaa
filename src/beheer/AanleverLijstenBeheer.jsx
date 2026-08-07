@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, Trash2, CheckCircle2, ListChecks, FileText, ChevronDown, Search } from "lucide-react";
+import { Plus, Trash2, CheckCircle2, ListChecks, FileText, ChevronDown, ChevronUp, Search } from "lucide-react";
 
 /** Zelfde palet als de rest van het beheerdersportaal (bewust hier herhaald zodat dit bestand op
  *  zichzelf staat). */
@@ -105,6 +105,17 @@ export default function AanleverLijstenBeheer() {
     wijzig((h) => h.map((l) => (l.id === lijstId ? { ...l, regels: [...l.regels, legeRegel()] } : l)));
   const verwijderRegel = (lijstId, regelId) =>
     wijzig((h) => h.map((l) => (l.id === lijstId ? { ...l, regels: l.regels.filter((r) => r.id !== regelId) } : l)));
+  // Volgorde van een regel binnen de lijst aanpassen (omhoog/omlaag wisselen met de buur).
+  const verplaatsRegel = (lijstId, regelId, richting) =>
+    wijzig((h) => h.map((l) => {
+      if (l.id !== lijstId) return l;
+      const i = l.regels.findIndex((r) => r.id === regelId);
+      const j = i + richting;
+      if (i === -1 || j < 0 || j >= l.regels.length) return l;
+      const regels = [...l.regels];
+      [regels[i], regels[j]] = [regels[j], regels[i]];
+      return { ...l, regels };
+    }));
   // Keuzelijst-opties per regel (alleen bij type "keuze").
   const wijzigRegelOpties = (lijstId, regelId, fn) =>
     wijzig((h) => h.map((l) => (l.id !== lijstId ? l : { ...l, regels: l.regels.map((r) => (r.id !== regelId ? r : { ...r, opties: fn(r.opties || []) })) })));
@@ -253,7 +264,7 @@ export default function AanleverLijstenBeheer() {
                   const bronRegel = eerdereRegels.find((er) => er.id === vw.afhankelijkVanRegelId) || null;
                   return (
                   <div key={regel.id} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, background: "#FBFBF9" }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "150px 1fr auto auto", gap: 8, alignItems: "center" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "150px 1fr auto auto auto", gap: 8, alignItems: "center" }}>
                       <select value={type} onChange={(e) => updateRegel(lijst.id, regel.id, { type: e.target.value })} style={{ ...invoerStijl, cursor: "pointer" }} title="Type vraag">
                         {VRAAGTYPES.map(([k, lbl]) => <option key={k} value={k}>{lbl}</option>)}
                       </select>
@@ -261,6 +272,14 @@ export default function AanleverLijstenBeheer() {
                       <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: KLEUR.subtekst, whiteSpace: "nowrap", cursor: "pointer" }} title="Verplicht">
                         <input type="checkbox" checked={regel.verplicht !== false} onChange={(e) => updateRegel(lijst.id, regel.id, { verplicht: e.target.checked })} /> Verplicht
                       </label>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 }}>
+                        <button onClick={() => verplaatsRegel(lijst.id, regel.id, -1)} disabled={ri === 0} title="Omhoog" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 15, background: "#fff", color: ri === 0 ? KLEUR.rand : KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: "6px 6px 0 0", cursor: ri === 0 ? "default" : "pointer", padding: 0 }}>
+                          <ChevronUp size={13} />
+                        </button>
+                        <button onClick={() => verplaatsRegel(lijst.id, regel.id, 1)} disabled={ri === lijst.regels.length - 1} title="Omlaag" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 15, background: "#fff", color: ri === lijst.regels.length - 1 ? KLEUR.rand : KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderTop: "none", borderRadius: "0 0 6px 6px", cursor: ri === lijst.regels.length - 1 ? "default" : "pointer", padding: 0 }}>
+                          <ChevronDown size={13} />
+                        </button>
+                      </div>
                       <button onClick={() => verwijderRegel(lijst.id, regel.id)} title="Regel verwijderen" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, background: "#fff", color: KLEUR.rood, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, cursor: "pointer", flexShrink: 0 }}>
                         <Trash2 size={13} />
                       </button>
