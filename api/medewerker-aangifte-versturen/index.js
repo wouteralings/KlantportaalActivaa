@@ -38,6 +38,7 @@ const { haalInstellingen } = require("../_gedeeld/instellingen");
 const SHAREPOINT_VELD = process.env.DYNAMICS_KLANT_SHAREPOINT_VELD || "cr283_sharepoint";
 const KLANT_VELD = process.env.DYNAMICS_TAAK_KLANT_VELD || "sk_client";
 const SOORT_VELD = process.env.DYNAMICS_TAAK_SOORT_VELD || "";
+const RUBRIEK_VELD = process.env.DYNAMICS_TAAK_RUBRIEK_VELD || "cr283_rubriek";
 const DOCUMENT_VELD = process.env.DYNAMICS_TAAK_DOCUMENT_VELD || "";
 // "In afwachting reactie client" — bestaande optiesetwaarde op Task.cr283_soortactiecategorie
 // (of het veld dat via DYNAMICS_TAAK_SOORT_VELD is ingesteld), al elders in gebruik. Dient nu als
@@ -180,6 +181,8 @@ module.exports = async function (context, req) {
       vulSjabloonIn(STANDAARD_TAAK_ONDERWERP, { klant: naam, jaar: dossier.jaar });
     const soortInstelling = Number(instellingen.aangifteTaakSoort);
     const taakSoortWaarde = Number.isFinite(soortInstelling) && soortInstelling > 0 ? soortInstelling : SOORT_WAARDE_IN_AFWACHTING;
+    const rubriekInstelling = Number(instellingen.aangifteTaakRubriek);
+    const taakRubriekWaarde = Number.isFinite(rubriekInstelling) ? rubriekInstelling : null;
 
     // ── 1. Uploaden naar SharePoint (app-only — de klant hoeft zelf geen SharePoint-rechten te
     // hebben op deze map; het portaal toont het bestand straks via de eigen, gecontroleerde
@@ -211,6 +214,7 @@ module.exports = async function (context, req) {
       [`${klantNav}@odata.bind`]: `/accounts(${accountId})`,
     };
     if (SOORT_VELD) taakBody[SOORT_VELD] = taakSoortWaarde;
+    if (RUBRIEK_VELD && taakRubriekWaarde != null) taakBody[RUBRIEK_VELD] = taakRubriekWaarde;
     if (DOCUMENT_VELD) taakBody[DOCUMENT_VELD] = upload.webUrl || null;
 
     const taakRes = await fetch(`${resource}/api/data/v9.2/tasks`, {

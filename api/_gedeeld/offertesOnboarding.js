@@ -1118,12 +1118,19 @@ async function uploadNaarSharePoint({ sharepointUrl, bestandsnaam, bytes, conten
   return item.webUrl;
 }
 
+// Optioneel "Rubriek"-veld op Task — zelfde veld/Application Setting als Beheer → Brieven en
+// Beheer → Dossiers (zie /api/beheer-taakrubrieken). Alleen gezet als de taak-instelling een
+// rubriek heeft (zie TAAK_INSTELLINGEN_STANDAARD/haalTaakInstellingen hieronder).
+const TAAK_RUBRIEK_VELD = process.env.DYNAMICS_TAAK_RUBRIEK_VELD || "cr283_rubriek";
+
 // ---------------------------------------------------------------------------
-// Onboarding-taak aanmaken in Dataverse. onderwerp/categorie zijn instelbaar (zie
-// haalTaakInstellingen hieronder) — vroeger waren dit vaste waarden ("Onboarding
-// klant" / 8009 Backoffice), nu de standaardwaarden als er nog niets is ingesteld.
+// Onboarding-taak aanmaken in Dataverse. onderwerp/categorie/rubriek zijn instelbaar (zie
+// haalTaakInstellingen hieronder) — vroeger waren onderwerp/categorie vaste waarden ("Onboarding
+// klant" / 8009 Backoffice), nu de standaardwaarden als er nog niets is ingesteld. Rubriek is
+// optioneel en leeg (geen veld op de taak) totdat er iets is gekozen (07-08-2026, op verzoek van
+// Wouter: "rubriek offerte moet dit ook").
 // ---------------------------------------------------------------------------
-async function maakOnboardingTaak({ accountId, managerId, bestandsUrl, dataverseToken, onderwerp, categorie }) {
+async function maakOnboardingTaak({ accountId, managerId, bestandsUrl, dataverseToken, onderwerp, categorie, rubriek }) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   const body = {
     subject: onderwerp || "Onboarding klant",
@@ -1131,6 +1138,9 @@ async function maakOnboardingTaak({ accountId, managerId, bestandsUrl, dataverse
     cr283_urlbestand: bestandsUrl,
     "regardingobjectid_account@odata.bind": `/accounts(${accountId})`,
   };
+  if (TAAK_RUBRIEK_VELD && rubriek != null && Number.isFinite(Number(rubriek))) {
+    body[TAAK_RUBRIEK_VELD] = Number(rubriek);
+  }
   if (managerId) {
     body["ownerid@odata.bind"] = `/systemusers(${managerId})`;
   }
@@ -1153,14 +1163,14 @@ async function maakOnboardingTaak({ accountId, managerId, bestandsUrl, dataverse
 // "actief"-schakelaar; offerte staat standaard aan (ongewijzigd bestaand gedrag),
 // opdrachtbevestiging staat standaard uit.
 const TAAK_INSTELLINGEN_STANDAARD = {
-  offerte: { actief: true, onderwerp: "Onboarding klant", categorie: 8009 },
-  opdrachtbevestiging: { actief: false, onderwerp: "Opdrachtbevestiging ondertekend", categorie: 8009 },
+  offerte: { actief: true, onderwerp: "Onboarding klant", categorie: 8009, rubriek: null },
+  opdrachtbevestiging: { actief: false, onderwerp: "Opdrachtbevestiging ondertekend", categorie: 8009, rubriek: null },
   // Taak bij een automatisch aangemaakt concept ná een verstreken tarieven-einddatum (zie
   // verwerkVerlopenTarieven hieronder) — staat, anders dan de opdrachtbevestiging-taak
   // hierboven, standaard AAN: het hele punt van deze taak is juist dat iemand het nieuwe
   // concept opmerkt en controleert, dus een stille standaard-uit zou de functie zonder
   // verdere actie van de gebruiker onopgemerkt laten.
-  verlopenConcept: { actief: true, onderwerp: "Concept-opdrachtbevestiging klaar ter controle", categorie: 8009 },
+  verlopenConcept: { actief: true, onderwerp: "Concept-opdrachtbevestiging klaar ter controle", categorie: 8009, rubriek: null },
 };
 
 const TAAK_INSTELLINGEN_SLEUTELS = {
@@ -1282,6 +1292,7 @@ async function verwerkVerlopenTarieven(alleRuweRecords, contextLog) {
               dataverseToken,
               onderwerp: taakInstellingen.onderwerp,
               categorie: taakInstellingen.categorie,
+              rubriek: taakInstellingen.rubriek,
             });
           } catch (e) {
             contextLog(`Verlopen tarieven: taak aanmaken voor klant ${klant.naam || klant.id} mislukt: ${e.message}`);
@@ -1870,6 +1881,7 @@ async function verwerkOndertekeningNaSignering(record, contextLog) {
             dataverseToken,
             onderwerp: taakInstellingen.onderwerp,
             categorie: taakInstellingen.categorie,
+            rubriek: taakInstellingen.rubriek,
           });
           contextLog(`Klant ${klant.naam}: PDF + logbestand geüpload, taak aangemaakt.`);
         } else {

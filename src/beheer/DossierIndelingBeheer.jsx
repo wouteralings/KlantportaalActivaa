@@ -135,6 +135,10 @@ function SoortIndelingPaneel({ soort }) {
   const [taakOnderwerpTemplate, setTaakOnderwerpTemplate] = useState("");
   const [taakSoort, setTaakSoort] = useState(""); // optiesetwaarde als string in de <select>
   const [taakSoortOpties, setTaakSoortOpties] = useState([]); // [{ waarde, label }]
+  // Rubriek (cr283_rubriek) — optioneel, zelfde bron/opzet als taakSoort maar dan via
+  // /api/beheer-taakrubrieken (op verzoek van Wouter, 07-08-2026).
+  const [taakRubriek, setTaakRubriek] = useState("");
+  const [taakRubriekOpties, setTaakRubriekOpties] = useState([]); // [{ waarde, label }]
   const [taakInstellingStatus, setTaakInstellingStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
   const [fout, setFout] = useState("");
   const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
@@ -154,6 +158,7 @@ function SoortIndelingPaneel({ soort }) {
   const kPad = `aangiftePadTemplate${aangSuffix}`;
   const kTaakOnderwerp = `aangifteTaakOnderwerpTemplate${aangSuffix}`;
   const kTaakSoort = `aangifteTaakSoort${aangSuffix}`;
+  const kTaakRubriek = `aangifteTaakRubriek${aangSuffix}`;
   const soortWoord = soort === "vpb" ? "vennootschapsbelasting" : "inkomstenbelasting";
   const soortLabelKort = soort === "vpb" ? "VPB" : "IB";
 
@@ -182,8 +187,10 @@ function SoortIndelingPaneel({ soort }) {
       // Best-effort: de taaksoort-optieset (cr283_soortactiecategorie) voor de dropdown hieronder — als
       // die (nog) niet ophaalbaar is, valt het blok terug op een vrij in te vullen nummer.
       fetch("/api/beheer-taaksoorten").then((r) => (r.ok ? r.json() : { opties: [] })).catch(() => ({ opties: [] })),
+      // Best-effort: dezelfde rubriek-optieset (cr283_rubriek) als bij Beheer → Brieven.
+      fetch("/api/beheer-taakrubrieken").then((r) => (r.ok ? r.json() : { opties: [] })).catch(() => ({ opties: [] })),
     ])
-      .then(([veldenData, instellingenData, onderwerpenData, taaksoortenData]) => {
+      .then(([veldenData, instellingenData, onderwerpenData, taaksoortenData, taakrubriekenData]) => {
         setCatalogus(veldenData.catalogus || []);
         const huidigeIndeling = instellingenData.dossierIndeling || {};
         setDossierIndeling(huidigeIndeling);
@@ -201,6 +208,8 @@ function SoortIndelingPaneel({ soort }) {
         setTaakOnderwerpTemplate(instellingenData[kTaakOnderwerp] || "");
         setTaakSoort(instellingenData[kTaakSoort] != null ? String(instellingenData[kTaakSoort]) : "");
         setTaakSoortOpties((taaksoortenData && taaksoortenData.opties) || []);
+        setTaakRubriek(instellingenData[kTaakRubriek] != null ? String(instellingenData[kTaakRubriek]) : "");
+        setTaakRubriekOpties((taakrubriekenData && taakrubriekenData.opties) || []);
       })
       .catch(() => { setCatalogus([]); setSecties([]); setFout("Kon de dossierindeling niet laden."); });
   }, []);
@@ -295,13 +304,14 @@ function SoortIndelingPaneel({ soort }) {
     }
   };
 
-  /** Pad (submap), taak-onderwerp en taak-soort samen opslaan — zelfde generieke
-   *  /api/beheer-instellingen als hierboven, gewoon drie extra top-level velden. De soort wordt als
-   *  getal opgeslagen (leeg = de backend valt terug op de standaardwaarde). */
+  /** Pad (submap), taak-onderwerp, taak-soort en rubriek samen opslaan — zelfde generieke
+   *  /api/beheer-instellingen als hierboven, gewoon vier extra top-level velden. Soort/rubriek
+   *  worden als getal opgeslagen (leeg = niet meegeven op de taak). */
   const bewaarAangifteTaakInstellingen = async () => {
     setTaakInstellingStatus("bezig");
     try {
       const soortGetal = taakSoort === "" ? null : Number(taakSoort);
+      const rubriekGetal = taakRubriek === "" ? null : Number(taakRubriek);
       const r = await fetch("/api/beheer-instellingen", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -309,6 +319,7 @@ function SoortIndelingPaneel({ soort }) {
           [kPad]: padTemplate,
           [kTaakOnderwerp]: taakOnderwerpTemplate,
           [kTaakSoort]: Number.isFinite(soortGetal) ? soortGetal : null,
+          [kTaakRubriek]: Number.isFinite(rubriekGetal) ? rubriekGetal : null,
         }),
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
@@ -713,6 +724,33 @@ function SoortIndelingPaneel({ soort }) {
               />
               <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>
                 De taaksoorten-lijst kon niet worden opgehaald — vul de optiesetwaarde (nummer) rechtstreeks in. Leeg = standaard 8006.
+              </span>
+            </>
+          )}
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 12 }}>
+          <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>Rubriek</span>
+          {taakRubriekOpties.length > 0 ? (
+            <select
+              value={taakRubriek}
+              onChange={(e) => { setTaakRubriek(e.target.value); setTaakInstellingStatus("rust"); }}
+              style={{ ...invoerStijl, width: "100%", maxWidth: 420, background: "#fff" }}
+            >
+              <option value="">— geen rubriek —</option>
+              {taakRubriekOpties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
+            </select>
+          ) : (
+            <>
+              <input
+                type="number"
+                value={taakRubriek}
+                onChange={(e) => { setTaakRubriek(e.target.value); setTaakInstellingStatus("rust"); }}
+                placeholder="Leeg = geen rubriek"
+                style={{ ...invoerStijl, width: "100%", maxWidth: 200, background: "#fff" }}
+              />
+              <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>
+                De rubrieken-lijst kon niet worden opgehaald — vul de optiesetwaarde (nummer) rechtstreeks in, of laat leeg.
               </span>
             </>
           )}

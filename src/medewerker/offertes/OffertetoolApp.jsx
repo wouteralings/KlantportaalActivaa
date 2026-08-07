@@ -150,12 +150,12 @@ export const TAAK_CATEGORIE_OPTIES = [
 // Standaardwaarden voor de taak-instellingen (Instellingen > taak bij ondertekening) —
 // module-scope (niet per render opnieuw aangemaakt) zodat de load-useEffects hieronder
 // hier veilig naar kunnen verwijzen zonder een exhaustive-deps-waarschuwing.
-const TAAK_INSTELLINGEN_OFFERTE_DEFAULT = { actief: true, onderwerp: "Onboarding klant", categorie: 8009 };
-const TAAK_INSTELLINGEN_OPDRACHTBEVESTIGING_DEFAULT = { actief: false, onderwerp: "Opdrachtbevestiging ondertekend", categorie: 8009 };
+const TAAK_INSTELLINGEN_OFFERTE_DEFAULT = { actief: true, onderwerp: "Onboarding klant", categorie: 8009, rubriek: null };
+const TAAK_INSTELLINGEN_OPDRACHTBEVESTIGING_DEFAULT = { actief: false, onderwerp: "Opdrachtbevestiging ondertekend", categorie: 8009, rubriek: null };
 // Taak bij een automatisch aangemaakt concept ná een verstreken tarieven-einddatum (zie
 // tariefEinddatum hieronder) — staat, anders dan de opdrachtbevestiging-taak hierboven,
 // standaard AAN: zonder een signaal zou zo'n concept makkelijk onopgemerkt blijven.
-const TAAK_INSTELLINGEN_VERLOPEN_CONCEPT_DEFAULT = { actief: true, onderwerp: "Concept-opdrachtbevestiging klaar ter controle", categorie: 8009 };
+const TAAK_INSTELLINGEN_VERLOPEN_CONCEPT_DEFAULT = { actief: true, onderwerp: "Concept-opdrachtbevestiging klaar ter controle", categorie: 8009, rubriek: null };
 
 // Standaard opdrachttypes (NV COS) — zelf te beheren/uit te breiden via "Opdrachtbevestiging-
 // teksten beheren", dit is alleen de startset. De daadwerkelijke verplichte/optionele
@@ -3930,6 +3930,13 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
                   />
                 </div>
               </div>
+              <div style={{ marginTop: 14 }}>
+                <label className="ot-label">Taak — rubriek</label>
+                <TaakRubriekSelect
+                  waarde={taakInstellingenOfferte.rubriek}
+                  onChange={(waarde) => setTaakInstellingenOfferte((prev) => ({ ...prev, rubriek: waarde }))}
+                />
+              </div>
               <p style={{ fontSize: 11.5, color: "#8A9089", margin: "10px 0 0" }}>
                 Dit zijn de categorieën die tot nu toe zijn tegengekomen in de koppeling — gebruikt Activaa er meer,
                 dan kunnen die met "Andere code…" alsnog ingevuld worden.
@@ -3965,6 +3972,13 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
                     onChange={(code) => setTaakInstellingenOpdrachtbevestiging((prev) => ({ ...prev, categorie: code }))}
                   />
                 </div>
+              </div>
+              <div style={{ marginTop: 14 }}>
+                <label className="ot-label">Taak — rubriek</label>
+                <TaakRubriekSelect
+                  waarde={taakInstellingenOpdrachtbevestiging.rubriek}
+                  onChange={(waarde) => setTaakInstellingenOpdrachtbevestiging((prev) => ({ ...prev, rubriek: waarde }))}
+                />
               </div>
             </div>
 
@@ -4003,6 +4017,13 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
                     onChange={(code) => setTaakInstellingenVerlopenConcept((prev) => ({ ...prev, categorie: code }))}
                   />
                 </div>
+              </div>
+              <div style={{ marginTop: 14 }}>
+                <label className="ot-label">Taak — rubriek</label>
+                <TaakRubriekSelect
+                  waarde={taakInstellingenVerlopenConcept.rubriek}
+                  onChange={(waarde) => setTaakInstellingenVerlopenConcept((prev) => ({ ...prev, rubriek: waarde }))}
+                />
               </div>
             </div>
 
@@ -8161,6 +8182,76 @@ function TaakCategorieSelect({ waarde, onChange }) {
         <p style={{ fontSize: 10.5, color: "#8A9089", marginTop: 6 }}>
           Kon de actuele lijst niet live ophalen bij Dynamics — dit toont de eerder bekende
           categorieën.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// Module-scope cache, zelfde opzet als taakCategorieenCache hierboven.
+let taakRubriekenCache = null;
+
+// Rubriek-select voor de taak-instellingen (offerte + opdrachtbevestiging + verlopen concept) —
+// haalt de actuele cr283_rubriek-optionsetwaarden live op via /api/beheer-taakrubrieken (zelfde
+// endpoint als Beheer → Brieven, "Rubriek" bij de backoffice-taak). Optioneel: leeg = geen rubriek
+// meegeven op de taak. Op verzoek van Wouter (07-08-2026): "rubriek offerte moet dit ook."
+function TaakRubriekSelect({ waarde, onChange }) {
+  const [opties, setOpties] = useState(taakRubriekenCache || []);
+  const [ophalenMislukt, setOphalenMislukt] = useState(false);
+
+  useEffect(() => {
+    if (taakRubriekenCache) return;
+    let actief = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/beheer-taakrubrieken");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (Array.isArray(data?.opties) && data.opties.length > 0) {
+          taakRubriekenCache = data.opties;
+          if (actief) setOpties(data.opties);
+        }
+      } catch (e) {
+        if (actief) setOphalenMislukt(true);
+      }
+    })();
+    return () => {
+      actief = false;
+    };
+  }, []);
+
+  const bekend = waarde == null || waarde === "" ? true : opties.some((o) => o.waarde === Number(waarde));
+  return (
+    <div>
+      <select
+        className="ot-input"
+        value={waarde == null || waarde === "" ? "" : (bekend ? String(waarde) : "andere")}
+        onChange={(e) => {
+          if (e.target.value === "andere") return;
+          onChange(e.target.value === "" ? null : Number(e.target.value));
+        }}
+      >
+        <option value="">— geen rubriek —</option>
+        {opties.map((o) => (
+          <option key={o.waarde} value={o.waarde}>
+            {o.label} ({o.waarde})
+          </option>
+        ))}
+        <option value="andere">Andere code…</option>
+      </select>
+      {!bekend && (
+        <input
+          className="ot-input"
+          type="number"
+          style={{ marginTop: 8 }}
+          placeholder="Code (cr283_rubriek)"
+          value={waarde ?? ""}
+          onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
+        />
+      )}
+      {ophalenMislukt && (
+        <p style={{ fontSize: 10.5, color: "#8A9089", marginTop: 6 }}>
+          Kon de rubrieken niet live ophalen bij Dynamics.
         </p>
       )}
     </div>
