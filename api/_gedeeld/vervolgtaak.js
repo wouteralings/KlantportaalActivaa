@@ -10,6 +10,10 @@
 
 const SOORT_VELD = process.env.DYNAMICS_TAAK_SOORT_VELD || "";
 const KLANT_VELD = process.env.DYNAMICS_TAAK_KLANT_VELD || "sk_client";
+// Optieset "Rubriek" op Task (cr283_rubriek) — dezelfde Application Setting en standaardwaarde als
+// api/beheer-taakrubrieken, zodat een in Beheer → Taken gekozen rubriek ook echt op de vervolgtaak
+// terechtkomt (net als bij de backoffice-taak van Brieven).
+const RUBRIEK_VELD = process.env.DYNAMICS_TAAK_RUBRIEK_VELD || "cr283_rubriek";
 
 // Manager/relatiebeheerder op het Account — gebruikt om de eigenaar van de nieuwe vervolgtaak te
 // bepalen. Zelfde Application Setting als api/beheer-klanten/api/taken, zodat een eventuele
@@ -61,6 +65,11 @@ async function maakVervolgtaak({ context, resource, token, taak, klantnaam, soor
     if (soortCfg.vervolgtaakPrioriteit !== undefined && soortCfg.vervolgtaakPrioriteit !== "") {
       const prioriteitWaarde = Number(soortCfg.vervolgtaakPrioriteit);
       if (Number.isFinite(prioriteitWaarde)) taakBody.prioritycode = prioriteitWaarde;
+    }
+    // Rubriek (Task.cr283_rubriek — optieset); leeg/niet ingesteld = geen rubriek meegeven.
+    if (RUBRIEK_VELD && soortCfg.vervolgtaakRubriek !== undefined && soortCfg.vervolgtaakRubriek !== "") {
+      const rubriekWaarde = Number(soortCfg.vervolgtaakRubriek);
+      if (Number.isFinite(rubriekWaarde)) taakBody[RUBRIEK_VELD] = rubriekWaarde;
     }
 
     // Eigenaar = Manager van het cliënt-account, indien ingevuld.
