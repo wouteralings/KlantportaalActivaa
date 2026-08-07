@@ -204,17 +204,17 @@ export default function BrievenAfzenderInstellingen() {
         </>)}
       </div>
 
-      <div style={{ marginTop: 12 }}>
-        {status === "bezig" ? (
-          <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Opslaan…</div>
-        ) : status === "opgeslagen" ? (
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: KLEUR.groen }}><CheckCircle2 size={13} /> Automatisch opgeslagen</div>
-        ) : status === "fout" ? (
-          <div style={{ fontSize: 12.5, color: KLEUR.rood, fontWeight: 600 }}>{fout || "Automatisch opslaan is mislukt — probeer het nog eens."}</div>
-        ) : (
-          <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Wijzigingen worden automatisch opgeslagen.</div>
-        )}
-      </div>
+      {(status === "bezig" || status === "opgeslagen" || status === "fout") && (
+        <div style={{ marginTop: 12 }}>
+          {status === "bezig" ? (
+            <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Opslaan…</div>
+          ) : status === "opgeslagen" ? (
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: KLEUR.groen }}><CheckCircle2 size={13} /> Automatisch opgeslagen</div>
+          ) : (
+            <div style={{ fontSize: 12.5, color: KLEUR.rood, fontWeight: 600 }}>{fout || "Automatisch opslaan is mislukt — probeer het nog eens."}</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

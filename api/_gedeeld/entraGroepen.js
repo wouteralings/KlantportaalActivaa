@@ -157,4 +157,6 @@ function leegCache() {
   cache.clear();
 }
 
-module.exports = { haalGroepen, haalGroepEmails, leegCache };
+// haalGraphToken + haalAlles worden ook door gastaccounts.js hergebruikt: zelfde app-registratie
+// (DYNAMICS_*), zelfde advanced-query-afhandeling. Zo is er één plek voor het Graph-directory-token.
+module.exports = { haalGroepen, haalGroepEmails, leegCache, haalGraphToken, haalAlles };

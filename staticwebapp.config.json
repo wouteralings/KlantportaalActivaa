@@ -25,6 +25,18 @@
       ]
     },
     {
+      "route": "/api/beheer-gastaccounts",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
+      "route": "/api/beheer-gastaccount",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
       "route": "/api/beheer-klantcategorieen",
       "allowedRoles": [
         "beheerder"
