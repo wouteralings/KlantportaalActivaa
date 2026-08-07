@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload, Lightbulb, Binoculars, Sparkles, Clock, Car, ClipboardList, BarChart3, Boxes } from "lucide-react";
+import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload, Lightbulb, Binoculars } from "lucide-react";
 import { startMeekijken } from "../meekijken";
 import OffertesModule from "./OffertesModule";
 import ContractenOverzicht from "./ContractenOverzicht";
@@ -10,6 +10,18 @@ import Ontwikkelverzoeken from "./Ontwikkelverzoeken";
 import ScopeToggle, { useMijnNaam, isKlantVanMij } from "./MijnFilter";
 import ContactpersonenOverzicht from "./klanten/ContactpersonenOverzicht";
 import BrievenOverzicht from "./klanten/BrievenOverzicht";
+import BrievenLogboek from "./klanten/BrievenLogboek";
+
+/**
+ * Brieven-tab: start op het brievenlogboek (alle verstuurde brieven, filterbaar). Via "Nieuwe brief"
+ * ga je naar het opstel-scherm; "Terug naar overzicht" brengt je weer bij het logboek.
+ */
+function BrievenTab() {
+  const [briefView, setBriefView] = useState("logboek");
+  return briefView === "opstellen"
+    ? <BrievenOverzicht onTerug={() => setBriefView("logboek")} />
+    : <BrievenLogboek onNieuweBrief={() => setBriefView("opstellen")} />;
+}
 import NogInTeRichten from "./klanten/NogInTeRichten";
 import Logboek from "./klanten/Logboek";
 import KlantVasteUitvragen from "./klanten/KlantVasteUitvragen";
@@ -1685,7 +1697,7 @@ function KlantenModule() {
       <div style={{ paddingTop: 24 }}>
         {sub === "klanten" && <KlantOverzicht />}
         {sub === "contactpersonen" && <ContactpersonenOverzicht />}
-        {sub === "brieven" && <BrievenOverzicht />}
+        {sub === "brieven" && <BrievenTab />}
         {(sub === "ib" || sub === "vpb") && <MedewerkerDossiers soort={sub} />}
         {(sub === "divb" || sub === "lonen") && <NogInTeRichten titel={actief.label} watKomtEr={actief.watKomtEr} />}
       </div>
@@ -4062,80 +4074,6 @@ function MeekijkenAlsKlant({ gebruiker }) {
   );
 }
 
-function geldPerMaand(n) {
-  return n == null ? "—" : `${new Intl.NumberFormat("nl-NL", { style: "currency", currency: "EUR" }).format(Number(n) || 0)} / maand`;
-}
-
-// Zelfde zes betaalde functies als het klantportaal aanbiedt (zie FunctiesOverzicht in
-// FacturatieModule.jsx en de losse "Niet actief"-kaarten per module) — omschrijvingen hier
-// bewust letterlijk overgenomen, zodat medewerkers en klanten hetzelfde verhaal vertellen.
-// Prijzen komen uit Beheer → Functies (instellingen.js), per klantaccount per maand.
-const BETAALDE_FUNCTIES = [
-  {
-    key: "facturatie", naam: "Facturatiemodule", icon: FileText,
-    beschrijving: "Stel zelf facturen, offertes en creditnota's op aan je eigen klanten — met een eigen productencatalogus, bedrijfsgegevens en logo, automatische doorlopende nummering, terugkerende facturen en een echte PDF per e-mail.",
-  },
-  {
-    key: "uren", naam: "Urenregistratie", icon: Clock,
-    beschrijving: "Registreer losse uren per klant en zet openstaande uren in één klik op een factuur. Werkt samen met de Facturatiemodule — die moet ook aan staan.",
-  },
-  {
-    key: "rapportages", naam: "Rapportagesmodule", icon: BarChart3,
-    beschrijving: "Winst-en-verliesrekening en balans, automatisch opgebouwd uit de RGS-indeling van de administratie in Exact Online — altijd actueel, geen aparte export nodig.",
-  },
-  {
-    key: "bezittingen", naam: "Bezittingenmodule", icon: Boxes,
-    beschrijving: "Actuele activastaat en afschrijvingen, rechtstreeks uit Exact Online — boekwaarde per bedrijfsmiddel, altijd actueel.",
-  },
-  {
-    key: "ritten", naam: "Rittenregistratie", icon: Car,
-    beschrijving: "Zakelijke ritten registreren: van/naar-adres, voertuig, project en of het een privé- of woon-werkrit was. De afstand wordt automatisch berekend.",
-  },
-  {
-    key: "contracten", naam: "Contractenmodule", icon: ClipboardList,
-    beschrijving: "Eigen doorlopende contracten registreren (verzekeringen, telefonie en overig) en op tijd een herinnering ontvangen voordat een contract afloopt.",
-  },
-];
-
-/** Overzicht van alle betaalde functies uit het klantportaal, voor medewerkers — zodat je een
- * klant aan de telefoon meteen kunt vertellen wélke functies er zijn en wat ze kosten, zonder
- * eerst naar Beheer → Functies te hoeven. Prijzen zijn per klantaccount per maand (zie Beheer →
- * Functies om ze te wijzigen); dit scherm zelf is alleen-lezen. */
-function BetaaldeFunctiesOverzicht({ prijzen }) {
-  return (
-    <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-        <Sparkles size={18} color={KLEUR.blauw} />
-        <div style={{ fontSize: 16, fontWeight: 700 }}>Betaalde functies</div>
-      </div>
-      <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 18, maxWidth: 640 }}>
-        Dit zijn de functies die een klant los kan aanvragen in het klantportaal, met de prijs per
-        klantaccount per maand. Prijzen pas je aan in{" "}
-        <strong>Beheer → Functies</strong>.
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
-        {BETAALDE_FUNCTIES.map((f) => {
-          const Icon = f.icon;
-          return (
-            <div key={f.key} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 16, background: "#fff" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <Icon size={17} color={KLEUR.blauw} />
-                  <span style={{ fontSize: 14, fontWeight: 700 }}>{f.naam}</span>
-                </div>
-                <span style={{ fontSize: 12, fontWeight: 700, color: KLEUR.goud, whiteSpace: "nowrap" }}>
-                  {geldPerMaand(prijzen?.[f.key])}
-                </span>
-              </div>
-              <div style={{ fontSize: 12.5, color: KLEUR.subtekst, lineHeight: 1.5 }}>{f.beschrijving}</div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 // ── Medewerkersportaal ──────────────────────────────────────────────────────
 export default function MedewerkerPortaal() {
   const [status, setStatus] = useState("laden"); // laden | nietIngelogd | geenRol | klaar
@@ -4151,12 +4089,9 @@ export default function MedewerkerPortaal() {
   // geen eigen medewerkerskant-API om serverkant af te dwingen zoals bij offertes; die komt met
   // Stap 6, wanneer ContractenOverzicht.jsx zijn placeholder inruilt voor echte inhoud.
   const [magContracten, setMagContracten] = useState(false);
-  const [tab, setTab] = useState("klantoverzicht"); // klantoverzicht | verzoeken | reacties | ondertekeningen | reviews | offertes | contracten | meekijken | functies
+  const [tab, setTab] = useState("klantoverzicht"); // klantoverzicht | verzoeken | reacties | ondertekeningen | reviews | offertes | contracten | meekijken
   const [tellingen, setTellingen] = useState({ openWijzigingen: 0, nieuweReviews: 0, vragenlijstenAandacht: 0, nieuweReacties: 0 });
   const [logoUrl, setLogoUrl] = useState("");
-  // Prijzen van de betaalde functies (Beheer → Functies) — alleen nodig voor het "Betaalde
-  // functies"-overzicht (knop met het sterretje hierboven), zie BetaaldeFunctiesOverzicht.
-  const [functiePrijzen, setFunctiePrijzen] = useState({});
 
   const laadTellingen = useCallback(() => {
     fetch("/api/beheer-tellingen")
@@ -4192,14 +4127,7 @@ export default function MedewerkerPortaal() {
     if (status !== "klaar") return;
     fetch("/api/instellingen")
       .then((r) => r.json())
-      .then((d) => {
-        zetBrowserFavicon(d.faviconUrl);
-        setLogoUrl(d.logoUrl || "");
-        setFunctiePrijzen({
-          facturatie: d.facturatiemodulePrijs, uren: d.urenmodulePrijs, rapportages: d.rapportagesmodulePrijs,
-          bezittingen: d.bezittingenmodulePrijs, ritten: d.rittenmodulePrijs, contracten: d.contractenmodulePrijs,
-        });
-      })
+      .then((d) => { zetBrowserFavicon(d.faviconUrl); setLogoUrl(d.logoUrl || ""); })
       .catch(() => {});
     fetch("/api/medewerker-rechten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
@@ -4293,13 +4221,6 @@ export default function MedewerkerPortaal() {
             </button>
           )}
           <button
-            onClick={() => setTab("functies")}
-            title="Betaalde functies — welke er zijn en wat ze kosten"
-            style={{ background: "none", border: "none", cursor: "pointer", color: tab === "functies" ? KLEUR.goud : KLEUR.mutedTekst, padding: 4, display: "flex" }}
-          >
-            <Sparkles size={19} fill={tab === "functies" ? "currentColor" : "none"} />
-          </button>
-          <button
             onClick={() => setTab("ontwikkelverzoeken")}
             title="Ontwikkelverzoeken — bug melden of functionaliteit voorstellen"
             style={{ background: "none", border: "none", cursor: "pointer", color: tab === "ontwikkelverzoeken" ? KLEUR.goud : KLEUR.mutedTekst, padding: 4, display: "flex" }}
@@ -4359,7 +4280,6 @@ export default function MedewerkerPortaal() {
       {tab === "ondertekeningen" && <OndertekeningenLog />}
       {tab === "reviews" && <ReviewBeheer />}
       {tab === "ontwikkelverzoeken" && <Ontwikkelverzoeken />}
-      {tab === "functies" && <BetaaldeFunctiesOverzicht prijzen={functiePrijzen} />}
       {tab === "offertes" && (magOffertes || isBeheerder) && <OffertesModule />}
       {tab === "contracten" && (magContracten || isBeheerder) && <ContractenOverzicht />}
       {tab === "meekijken" && <MeekijkenAlsKlant gebruiker={gebruiker} />}

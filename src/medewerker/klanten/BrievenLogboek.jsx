@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Search, RefreshCw, Loader2, FileText, AlertTriangle } from "lucide-react";
+import { Search, RefreshCw, Loader2, FileText, AlertTriangle, Plus } from "lucide-react";
 
 /**
  * Brievenlogboek — medewerkersportaal → Klantoverzicht → Brievenlogboek.
@@ -17,7 +17,7 @@ const PAGINA_OPTIES = [25, 50, 100, 250, 500, "alle"];
 function veiligeStr(v) { return String(v == null ? "" : v).trim(); }
 function briefDatum(iso) { try { return new Date(iso).toLocaleString("nl-NL", { dateStyle: "short", timeStyle: "short" }); } catch { return ""; } }
 
-export default function BrievenLogboek() {
+export default function BrievenLogboek({ onNieuweBrief }) {
   const [brieven, setBrieven] = useState(null);
   const [fout, setFout] = useState("");
   const [bezig, setBezig] = useState(false);
@@ -65,8 +65,15 @@ export default function BrievenLogboek() {
 
   return (
     <div style={{ maxWidth: 1500, margin: "0 auto", padding: "0 24px 40px" }}>
-      <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 16 }}>
-        Alle verstuurde brieven, nieuwste eerst. Zoek op cliënt, kenmerk, onderwerp of ontvanger. De link opent de brief in het SharePoint-dossier.
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, flex: "1 1 320px" }}>
+          Alle verstuurde brieven, nieuwste eerst. Zoek op cliënt, kenmerk, onderwerp of ontvanger. De link opent de brief in het SharePoint-dossier.
+        </div>
+        {onNieuweBrief && (
+          <button onClick={onNieuweBrief} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 15px", borderRadius: 8, border: "none", background: KLEUR.groen, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>
+            <Plus size={16} /> Nieuwe brief
+          </button>
+        )}
       </div>
 
       <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 14 }}>

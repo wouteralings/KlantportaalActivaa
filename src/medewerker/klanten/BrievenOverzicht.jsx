@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Search, FileText, Download, FolderInput, Mail, RefreshCw, Loader2,
-  CheckCircle2, AlertTriangle, X, ChevronDown, Building2, User, Landmark, Paperclip, Upload, Printer,
+  CheckCircle2, AlertTriangle, X, ChevronDown, Building2, User, Landmark, Paperclip, Upload, Printer, ArrowLeft,
 } from "lucide-react";
 
 /**
@@ -125,7 +125,7 @@ const STANDAARD_MAIL_TEKST =
   "Heeft u vragen naar aanleiding van deze brief? Neem dan gerust contact met ons op.\n\n" +
   "Met vriendelijke groet,\n{{afzendernaam}}";
 
-export default function BrievenOverzicht() {
+export default function BrievenOverzicht({ onTerug }) {
   const [config, setConfig] = useState(null); // { afzender, sharepointMap, sjablonen, briefvelden }
   const [configFout, setConfigFout] = useState("");
   const [klanten, setKlanten] = useState(null);
@@ -443,6 +443,11 @@ export default function BrievenOverzicht() {
 
   return (
     <div style={{ maxWidth: 1600, margin: "0 auto", padding: "0 24px 40px" }}>
+      {onTerug && (
+        <button onClick={onTerug} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 8, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.blauw, fontSize: 12.5, fontWeight: 600, cursor: "pointer", marginBottom: 14 }}>
+          <ArrowLeft size={15} /> Terug naar overzicht
+        </button>
+      )}
       <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 16 }}>
         Kies een klant en een standaardbrief. Stel de geadresseerde in (de klant zelf, het gekoppelde
         belastingkantoor, of een handmatig adres) en vul eventuele invulvelden in. Het voorbeeld staat rechts.
