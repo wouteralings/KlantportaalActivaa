@@ -82,7 +82,8 @@ function AutoOpslagStatus({ status }) {
   if (status === "bezig") return <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginTop: 4 }}>Opslaan…</div>;
   if (status === "fout") return <div style={{ fontSize: 12.5, color: KLEUR.rood, marginTop: 4 }}>Automatisch opslaan is mislukt — probeer het nog eens.</div>;
   if (status === "gelukt") return <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: KLEUR.blauw, marginTop: 4 }}><CheckCircle2 size={13} /> Automatisch opgeslagen</div>;
-  return <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginTop: 4 }}>Wijzigingen worden automatisch opgeslagen.</div>;
+  // In rust (nog niets opgeslagen): niets tonen — geen zwevende "worden automatisch opgeslagen"-tekst.
+  return null;
 }
 
 /** Eén prijs-rij in de moduleprijzen-tabel ("Functies"): label, bedrag-invoer en opslaan-knop. */
