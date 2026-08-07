@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import OffertetoolApp from "../medewerker/offertes/OffertetoolApp";
 import UitvraagBeheer from "./UitvraagBeheer";
 import UrenTarievenBeheer from "./UrenTarievenBeheer";
@@ -74,15 +74,6 @@ function AantalKiezer({ aantal, setAantal, totaal, extraTekst }) {
       </div>
     </div>
   );
-}
-
-/** Subtiele statusregel voor automatisch opslaan — vervangt de losse "Opslaan"-knop op de
- *  Instellingen-tab (webhooks, wijzigingsformulieren, assistent/reviews/contact, klantoverzicht-kolommen). */
-function AutoOpslagStatus({ status }) {
-  if (status === "bezig") return <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginTop: 4 }}>Opslaan…</div>;
-  if (status === "fout") return <div style={{ fontSize: 12.5, color: KLEUR.rood, marginTop: 4 }}>Automatisch opslaan is mislukt — probeer het nog eens.</div>;
-  if (status === "gelukt") return <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: KLEUR.blauw, marginTop: 4 }}><CheckCircle2 size={13} /> Automatisch opgeslagen</div>;
-  return <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginTop: 4 }}>Wijzigingen worden automatisch opgeslagen.</div>;
 }
 
 /** Eén prijs-rij in de moduleprijzen-tabel ("Functies"): label, bedrag-invoer en opslaan-knop. */
@@ -292,6 +283,7 @@ export default function BeheerPortaal() {
   // "niet gevonden" en "nog niet geladen" mogen er niet hetzelfde uitzien).
   const [entraGroepen, setEntraGroepen] = useState(null);
   const [entraGroepId, setEntraGroepId] = useState("");
+  const [entraGroepNaam, setEntraGroepNaam] = useState(""); // vaste medewerkersgroep (Activaa B.V.), alleen-lezen tonen
   const [entraLeden, setEntraLeden] = useState(null);
   const [entraFout, setEntraFout] = useState("");
   const [entraStatus, setEntraStatus] = useState("idle"); // idle | bezig | gelukt | fout
@@ -323,9 +315,6 @@ export default function BeheerPortaal() {
   const [taaksoortenOpslaanStatus, setTaaksoortenOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [taaksoortenSectieOpen, setTaaksoortenSectieOpen] = useState(false);
   const [taaksoortenZoek, setTaaksoortenZoek] = useState("");
-  // Opties van het "Rubriek"-veld (cr283_rubriek) op Task — voor de rubriek-keuze bij de
-  // vervolgtaak backoffice (zelfde bron als de rubriek bij Beheer → Brieven).
-  const [taakRubriekOpties, setTaakRubriekOpties] = useState([]); // [{ waarde, label }]
 
   // Submap voor het ondertekeningsbewijs (api/taken-ondertekenen) — geldt voor élke taaksoort met
   // "Vereist handtekening" hierboven, dus los van een specifieke taaksoort ingesteld.
@@ -414,11 +403,6 @@ export default function BeheerPortaal() {
       .catch(() => setStatus("nietIngelogd"));
   }, []);
 
-  // Wordt true zodra de instellingen één keer geladen zijn — pas dán mag het automatisch opslaan
-  // van de Instellingen-tab gaan schrijven (anders zou het vullen van de velden bij het openen
-  // zichzelf meteen terugschrijven). Zie de auto-opslag-effecten verderop.
-  const instellingenGeladenRef = useRef(false);
-
   useEffect(() => {
     if (status !== "klaar") return;
     // Als beheerder laden we de volledige instellingen (incl. googleReviewUrl) via het
@@ -446,11 +430,8 @@ export default function BeheerPortaal() {
         setContractenmodulePrijs(d.contractenmodulePrijs != null ? String(d.contractenmodulePrijs) : "2.5");
         setKoExtra((d.klantoverzicht && d.klantoverzicht.extraKolommen) || []);
         setKoVerborgen((d.klantoverzicht && d.klantoverzicht.standaardVerborgen) || []);
-        // Eén tick later vrijgeven, zodat het re-render dat door de setters hierboven ontstaat de
-        // auto-opslag niet triggert (die effecten zien de ref dan nog op false).
-        setTimeout(() => { instellingenGeladenRef.current = true; }, 0);
       })
-      .catch(() => { setTimeout(() => { instellingenGeladenRef.current = true; }, 0); });
+      .catch(() => {});
     fetch("/api/beheer-klantcategorieen")
       .then((r) => r.json())
       .then((d) => setCategorieen(d.opties || []))
@@ -464,6 +445,7 @@ export default function BeheerPortaal() {
       .then((d) => {
         setEntraGroepen(d.groepen || []);
         setEntraGroepId(d.gekozenGroepId || "");
+        setEntraGroepNaam(d.gekozenGroepNaam || "");
         setEntraLeden(new Set((d.leden || []).map((e) => String(e).toLowerCase())));
         setEntraFout(d.fout || "");
       })
@@ -485,10 +467,6 @@ export default function BeheerPortaal() {
         if (d.error) setTaaksoortenFout(d.error);
       })
       .catch(() => { setTaaksoortenOpties([]); setTaaksoortenFout("Kon de taaksoorten niet ophalen."); });
-    fetch("/api/beheer-taakrubrieken")
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => setTaakRubriekOpties((d && d.opties) || []))
-      .catch(() => setTaakRubriekOpties([]));
     fetch("/api/beheer-klanten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setFacturatieKlanten(
@@ -1199,30 +1177,6 @@ export default function BeheerPortaal() {
     setKoNieuwVeld(""); setKoNieuwLabel(""); setKoNieuwType("tekst");
   }, [koNieuwVeld, koNieuwLabel, koNieuwType]);
 
-  // ── Automatisch opslaan van de Instellingen-tab (geen losse "Opslaan"-knop meer) ──
-  // Gedebounced (800 ms na de laatste wijziging) en pas nadat de instellingen één keer geladen zijn
-  // (instellingenGeladenRef). Elke sectie hergebruikt zijn bestaande opslaan-handler + status-state.
-  useEffect(() => {
-    if (!instellingenGeladenRef.current) return;
-    const t = setTimeout(() => { slaWebhooksOp(); }, 800);
-    return () => clearTimeout(t);
-  }, [slaWebhooksOp]);
-  useEffect(() => {
-    if (!instellingenGeladenRef.current) return;
-    const t = setTimeout(() => { slaFormLinksOp(); }, 800);
-    return () => clearTimeout(t);
-  }, [slaFormLinksOp]);
-  useEffect(() => {
-    if (!instellingenGeladenRef.current) return;
-    const t = setTimeout(() => { slaReviewLinksOp(); }, 800);
-    return () => clearTimeout(t);
-  }, [slaReviewLinksOp]);
-  useEffect(() => {
-    if (!instellingenGeladenRef.current) return;
-    const t = setTimeout(() => { slaKlantoverzichtOp(); }, 800);
-    return () => clearTimeout(t);
-  }, [slaKlantoverzichtOp]);
-
   const wijzigTaaksoort = useCallback((waarde, veld, aan, label) => {
     setTaaksoortenConfig((huidig) => {
       const key = String(waarde);
@@ -1404,7 +1358,7 @@ export default function BeheerPortaal() {
           ["faq", "FAQ"],
           ["taken", "Taken"],
           ["medewerkers", "Medewerkers"],
-          ["facturatie", "Functies"],
+          ["facturatie", "Facturatie"],
           ["offertes", "Offertes"],
           ["brieven", "Brieven"],
           ["aanleveren", "Uitvraag"],
@@ -2113,7 +2067,21 @@ export default function BeheerPortaal() {
           placeholder="https://prod-XX.westeurope.logic.azure.com:443/workflows/.../triggers/manual/paths/invoke?..."
           style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 16, boxSizing: "border-box" }}
         />
-        <AutoOpslagStatus status={webhookOpslaanStatus} />
+        <button
+          onClick={slaWebhooksOp}
+          disabled={webhookOpslaanStatus === "bezig"}
+          style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+        >
+          {webhookOpslaanStatus === "bezig" ? "Opslaan..." : "Opslaan"}
+        </button>
+        {webhookOpslaanStatus === "gelukt" && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 12, fontSize: 12.5, color: KLEUR.blauw }}>
+            <CheckCircle2 size={14} /> Opgeslagen.
+          </span>
+        )}
+        {webhookOpslaanStatus === "fout" && (
+          <span style={{ marginLeft: 12, fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
+        )}
         </>)}
       </div>
 
@@ -2159,7 +2127,21 @@ export default function BeheerPortaal() {
           style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 16, boxSizing: "border-box" }}
         />
 
-        <AutoOpslagStatus status={formOpslaanStatus} />
+        <button
+          onClick={slaFormLinksOp}
+          disabled={formOpslaanStatus === "bezig"}
+          style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+        >
+          {formOpslaanStatus === "bezig" ? "Opslaan..." : "Opslaan"}
+        </button>
+        {formOpslaanStatus === "gelukt" && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 12, fontSize: 12.5, color: KLEUR.blauw }}>
+            <CheckCircle2 size={14} /> Opgeslagen.
+          </span>
+        )}
+        {formOpslaanStatus === "fout" && (
+          <span style={{ marginLeft: 12, fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
+        )}
         </>)}
       </div>
 
@@ -2223,7 +2205,21 @@ export default function BeheerPortaal() {
           style={{ width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, fontSize: 13, marginBottom: 16, boxSizing: "border-box" }}
         />
 
-        <AutoOpslagStatus status={linksOpslaanStatus} />
+        <button
+          onClick={slaReviewLinksOp}
+          disabled={linksOpslaanStatus === "bezig"}
+          style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+        >
+          {linksOpslaanStatus === "bezig" ? "Opslaan..." : "Opslaan"}
+        </button>
+        {linksOpslaanStatus === "gelukt" && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 12, fontSize: 12.5, color: KLEUR.blauw }}>
+            <CheckCircle2 size={14} /> Opgeslagen.
+          </span>
+        )}
+        {linksOpslaanStatus === "fout" && (
+          <span style={{ marginLeft: 12, fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
+        )}
         </>)}
       </div>
 
@@ -2282,7 +2278,21 @@ export default function BeheerPortaal() {
           <button onClick={voegExtraKolomToe} style={{ padding: "8px 14px", background: "#fff", color: KLEUR.blauw, border: `1px solid ${KLEUR.blauw}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Toevoegen</button>
         </div>
 
-        <AutoOpslagStatus status={koStatus} />
+        <button
+          onClick={slaKlantoverzichtOp}
+          disabled={koStatus === "bezig"}
+          style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+        >
+          {koStatus === "bezig" ? "Opslaan..." : "Opslaan"}
+        </button>
+        {koStatus === "gelukt" && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 12, fontSize: 12.5, color: KLEUR.blauw }}>
+            <CheckCircle2 size={14} /> Opgeslagen.
+          </span>
+        )}
+        {koStatus === "fout" && (
+          <span style={{ marginLeft: 12, fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
+        )}
         </>)}
       </div>
 
@@ -2463,38 +2473,17 @@ export default function BeheerPortaal() {
           </div>
         ) : (
           <>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <select
-                value={entraGroepId}
-                onChange={(e) => { const id = e.target.value; setEntraGroepId(id); setEntraStatus("idle"); laadEntraLedenVoor(id); }}
-                style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, background: "#fff", minWidth: 280 }}
-              >
-                <option value="">Geen groep — niemand krijgt toegang via een groep</option>
-                {entraGroepen.map((g) => (
-                  <option key={g.id} value={g.id}>{g.naam}{g.email ? ` (${g.email})` : ""}</option>
-                ))}
-              </select>
-              <button
-                onClick={slaEntraGroepOp}
-                disabled={entraStatus === "bezig"}
-                style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-              >
-                {entraStatus === "bezig" ? "Opslaan..." : "Opslaan"}
-              </button>
-              {entraStatus === "gelukt" && (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: KLEUR.blauw }}>
-                  <CheckCircle2 size={14} /> Opgeslagen.
-                </span>
-              )}
-              {entraStatus === "fout" && (
-                <span style={{ fontSize: 12.5, color: KLEUR.rood }}>Opslaan mislukt, probeer het nog eens.</span>
-              )}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 8, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 600, background: "#f7f8fa" }}>
+                {entraGroepNaam || "Activaa B.V."}
+              </div>
+              <span style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>
+                {entraLedenLaden ? "Leden ophalen…" : `${entraLeden ? entraLeden.size : 0} leden`}
+              </span>
             </div>
             <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginTop: 10 }}>
-              {entraGroepId
-                ? (entraLedenLaden ? "Leden ophalen…" : `${entraLeden ? entraLeden.size : 0} leden gevonden in deze groep.`)
-                : "Nog geen groep gekozen."}
-              {" "}Een wijziging geldt bij de volgende keer dat iemand inlogt; wie nu is ingelogd houdt zijn huidige rollen tot hij uit- en weer inlogt.
+              De medewerkersgroep ligt vast op <strong>Activaa B.V.</strong> en kan hier niet worden gewijzigd.
+              {" "}Toegang regel je door mensen in Entra aan die groep toe te voegen of eruit te halen; een wijziging daar geldt bij de volgende keer dat iemand inlogt.
             </div>
           </>
         )}
@@ -2706,7 +2695,7 @@ export default function BeheerPortaal() {
           style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
         >
           <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("facturatieKlanten") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
-          <span style={{ fontSize: 15, fontWeight: 700 }}>Betaalde functies per klant</span>
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Functies</span>
         </button>
         {rubriekIsOpen("facturatieKlanten") && (<>
         <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 14px" }}>
@@ -3026,25 +3015,13 @@ export default function BeheerPortaal() {
         )}
         </>)}
       </div>
-      {/* Contracten — alles voor de Contracten-module gebundeld in één inklapbaar geheel */}
+      {/* Contracten-beheer (per ongeluk losgeraakt in b072dcc — hersteld) */}
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <button
-          onClick={() => toggleRubriek("contracten")}
-          aria-expanded={rubriekIsOpen("contracten")}
-          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
-        >
-          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("contracten") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
-          <span style={{ fontSize: 15, fontWeight: 700 }}>Contracten</span>
-        </button>
-        {rubriekIsOpen("contracten") && (
-          <div style={{ marginTop: 14 }}>
-            <ContractenDossierInstellingen />
-            <ContractenMailInstellingen />
-            <div style={{ marginTop: 20, paddingTop: 20, borderTop: `1px solid ${KLEUR.rand}` }}>
-              <ContractenTypesBeheer />
-            </div>
-          </div>
-        )}
+        <ContractenDossierInstellingen />
+        <ContractenMailInstellingen />
+      </div>
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
+        <ContractenTypesBeheer />
       </div>
 
       {/* RGS-configuratie voor de Rapportages-module (de per-klant aan/uit staat al in Functies). */}
@@ -3180,31 +3157,6 @@ export default function BeheerPortaal() {
                               <option value="1">Normaal</option>
                               <option value="2">Hoog</option>
                             </select>
-                          </div>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: "1 1 240px" }}>
-                            <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>Rubriek van de vervolgtaak</span>
-                            {taakRubriekOpties.length > 0 ? (
-                              <select
-                                value={cfg.vervolgtaakRubriek ?? ""}
-                                onChange={(e) => wijzigTaaksoort(optie.waarde, "vervolgtaakRubriek", e.target.value, optie.label)}
-                                style={{ boxSizing: "border-box", width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 12.5, background: "#fff" }}
-                              >
-                                <option value="">— geen rubriek —</option>
-                                {taakRubriekOpties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
-                              </select>
-                            ) : (
-                              <>
-                                <input
-                                  value={cfg.vervolgtaakRubriek ?? ""}
-                                  onChange={(e) => wijzigTaaksoort(optie.waarde, "vervolgtaakRubriek", e.target.value, optie.label)}
-                                  placeholder="Leeg = geen rubriek"
-                                  style={{ boxSizing: "border-box", width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 12.5, background: "#fff" }}
-                                />
-                                <span style={{ fontSize: 10.5, color: KLEUR.mutedTekst }}>
-                                  De rubrieken-lijst kon niet worden opgehaald — vul de optiesetwaarde (nummer) rechtstreeks in, of laat leeg.
-                                </span>
-                              </>
-                            )}
                           </div>
                         </div>
                       )}
