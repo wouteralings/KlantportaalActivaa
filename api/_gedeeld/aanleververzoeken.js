@@ -65,12 +65,20 @@ async function schrijfAlle(verzoeken) {
 function maakRegel(r) {
   return {
     id: crypto.randomUUID(),
+    // Vraagtype van de regel: "document" (upload, standaard/terugval) of een echte vraag
+    // (janee/open/keuze/getal/datum) — zie AanleverLijstenBeheer.jsx. Verzoeken zonder type
+    // gedragen zich als "document".
+    type: r && r.type ? String(r.type).slice(0, 20) : "document",
+    // Keuze-opties (alleen bij type "keuze").
+    opties: r && Array.isArray(r.opties) ? r.opties.map((o) => String(o).slice(0, 200)).slice(0, 50) : [],
     naam: String(r && r.naam ? r.naam : "").slice(0, 200),
     bestandsnaam: String(r && r.bestandsnaam ? r.bestandsnaam : "").slice(0, 200),
     toelichting: String(r && r.toelichting ? r.toelichting : "").slice(0, 600),
     verplicht: r && r.verplicht === false ? false : true,
     status: "open",
     opmerking: "",
+    // Antwoord op een vraag-regel (null zolang onbeantwoord; bij een document-regel blijft dit null).
+    antwoord: null,
     aangeleverdOp: null,
     aangeleverdDoor: null,
     bestand: null,
@@ -294,6 +302,11 @@ function verrijkVerzoek(v, laatstGezien) {
       naam: r.naam || "",
       verplicht: r.verplicht !== false,
       toelichting: r.toelichting || "",
+      // Vraagtype + (voor keuze) opties + het gegeven antwoord, zodat de medewerker-UI naast een
+      // aangeleverd document ook het antwoord op een vraag-regel kan tonen.
+      type: r.type || "document",
+      opties: Array.isArray(r.opties) ? r.opties : [],
+      antwoord: r.antwoord ?? null,
       status: r.status || "open",
       opmerking: r.opmerking || "",
       bestandNaam: (r.bestand && r.bestand.naam) || "",

@@ -21,6 +21,9 @@ function tijd(iso) {
   return isNaN(d.getTime()) ? "" : d.toLocaleString("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+// Labels voor de vraagtypen van een regel (naast "document" = upload). Zie AanleverLijstenBeheer.jsx.
+const VRAAGTYPE_LABEL = { janee: "Ja/nee", open: "Open tekst", keuze: "Keuzelijst", getal: "Getal", datum: "Datum" };
+
 /**
  * De volledige inhoud van één vragenlijst (aanlever-verzoek): naam/jaar/deadline aanpassen,
  * documenten aftekenen/heropenen/bewerken, en vragen van de klant beantwoorden — exact dezelfde
@@ -262,6 +265,7 @@ export default function VragenlijstDetail({ verzoek: r, onGewijzigd, onVerwijder
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             {r.documenten.map((d) => {
               const klaar = d.status !== "open";
+              const isVraagType = (d.type || "document") !== "document";
               const heropenBezig = bezigHeropenen === d.id;
               const bewerken = bewerkRegelId === d.id;
               if (bewerken) {
@@ -304,8 +308,14 @@ export default function VragenlijstDetail({ verzoek: r, onGewijzigd, onVerwijder
                 <div key={d.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, padding: "6px 9px", border: `1px solid ${klaar ? "#BFE0C8" : KLEUR.rand}`, borderRadius: 7, background: klaar ? "#F1F8F3" : "#fff" }}>
                   {klaar ? <CheckCircle2 size={15} color={KLEUR.groen} style={{ flexShrink: 0, marginTop: 1 }} /> : <Circle size={15} color={KLEUR.mutedTekst} style={{ flexShrink: 0, marginTop: 1 }} />}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div><span style={{ fontWeight: 600 }}>{d.naam}</span>{d.verplicht === false && <span style={{ color: KLEUR.mutedTekst }}> · optioneel</span>}</div>
-                    {klaar && d.bestandNaam && (
+                    <div><span style={{ fontWeight: 600 }}>{d.naam}</span>{d.verplicht === false && <span style={{ color: KLEUR.mutedTekst }}> · optioneel</span>}{isVraagType && <span style={{ fontSize: 10.5, fontWeight: 700, marginLeft: 6, padding: "1px 6px", borderRadius: 999, background: KLEUR.lichtblauw, color: KLEUR.blauw }}>{VRAAGTYPE_LABEL[d.type] || "Vraag"}</span>}</div>
+                    {isVraagType && (
+                      <div style={{ fontSize: 11.5, color: d.antwoord ? KLEUR.groen : KLEUR.mutedTekst }}>
+                        Antwoord: {d.antwoord ? <strong>{d.antwoord}</strong> : "nog niet beantwoord"}
+                        {d.antwoord && d.aangeleverdOp ? ` · ${tijd(d.aangeleverdOp)}` : ""}
+                      </div>
+                    )}
+                    {!isVraagType && klaar && d.bestandNaam && (
                       <div style={{ fontSize: 11.5, color: KLEUR.groen }}>
                         Aangeleverd:{" "}
                         {d.bestandUrl ? (
@@ -314,7 +324,7 @@ export default function VragenlijstDetail({ verzoek: r, onGewijzigd, onVerwijder
                         {d.aangeleverdOp ? ` · ${tijd(d.aangeleverdOp)}` : ""}
                       </div>
                     )}
-                    {klaar && !d.bestandNaam && <div style={{ fontSize: 11.5, color: KLEUR.goud }}>Afgemeld (via opmerking, geen bestand){d.aangeleverdOp ? ` · ${tijd(d.aangeleverdOp)}` : ""}</div>}
+                    {!isVraagType && klaar && !d.bestandNaam && <div style={{ fontSize: 11.5, color: KLEUR.goud }}>Afgemeld (via opmerking, geen bestand){d.aangeleverdOp ? ` · ${tijd(d.aangeleverdOp)}` : ""}</div>}
                     {d.opmerking && <div style={{ fontSize: 11.5, color: KLEUR.goud }}>Opmerking klant: {d.opmerking}</div>}
                     {d.toelichting && <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{d.toelichting}</div>}
                   </div>

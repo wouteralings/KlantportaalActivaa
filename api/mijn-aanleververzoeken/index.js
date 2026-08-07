@@ -78,9 +78,9 @@ module.exports = async function (context, req) {
       return;
     }
 
-    if (actie !== "upload" && actie !== "opmerking" && actie !== "vraag") { context.res = { status: 400, body: { error: "Onbekende of ontbrekende 'actie'." } }; return; }
+    if (actie !== "upload" && actie !== "opmerking" && actie !== "vraag" && actie !== "antwoord") { context.res = { status: 400, body: { error: "Onbekende of ontbrekende 'actie'." } }; return; }
     if (!verzoekId) { context.res = { status: 400, body: { error: "Geef 'verzoekId' mee." } }; return; }
-    if ((actie === "upload" || actie === "opmerking") && !regelId) { context.res = { status: 400, body: { error: "Geef 'regelId' mee." } }; return; }
+    if ((actie === "upload" || actie === "opmerking" || actie === "antwoord") && !regelId) { context.res = { status: 400, body: { error: "Geef 'regelId' mee." } }; return; }
 
     // Verzoek ophalen + controleren dat het van deze ingelogde klant is.
     const alle = await verzoeken.haalAlle();
@@ -132,6 +132,31 @@ module.exports = async function (context, req) {
             r.aangeleverdOp = null;
             r.aangeleverdDoor = null;
           }
+        }
+        verzoeken.herberekenStatus(v);
+      });
+      context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verzoek: bijgewerkt } };
+      return;
+    }
+
+    // ── Antwoord op een vraag-regel (ja/nee, open tekst, keuzelijst, getal, datum) ──
+    // Een niet-leeg antwoord tekent de regel af (status 'beantwoord', telt mee voor afronding);
+    // een leeg antwoord zet 'm terug op 'open'. Alleen zinvol bij een niet-document-regel; bij een
+    // document-regel blijft de upload leidend (deze actie raakt alleen het antwoord-veld).
+    if (actie === "antwoord") {
+      const bijgewerkt = await verzoeken.werkBij(verzoekId, (v) => {
+        const r = v.regels.find((x) => x.id === regelId);
+        if (!r) return;
+        const waarde = (b.antwoord == null ? "" : String(b.antwoord)).slice(0, 2000).trim();
+        r.antwoord = waarde === "" ? null : waarde;
+        if (r.antwoord != null) {
+          r.status = "beantwoord";
+          r.aangeleverdOp = new Date().toISOString();
+          r.aangeleverdDoor = haalEmailUitPrincipal(req) || "";
+        } else {
+          r.status = "open";
+          r.aangeleverdOp = null;
+          r.aangeleverdDoor = null;
         }
         verzoeken.herberekenStatus(v);
       });

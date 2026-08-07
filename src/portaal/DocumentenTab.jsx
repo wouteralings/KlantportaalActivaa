@@ -50,6 +50,8 @@ export default function DocumentenTab({ toonAanleververzoeken = true } = {}) {
   const [bezigOpm, setBezigOpm] = useState("");
   const [vraagDraft, setVraagDraft] = useState({}); // verzoekId -> tekst
   const [bezigVraag, setBezigVraag] = useState("");
+  const [antwoordDraft, setAntwoordDraft] = useState({}); // regelId -> concept-antwoord (open/getal)
+  const [bezigAntwoord, setBezigAntwoord] = useState(""); // regelId dat op dit moment opslaat
   const [bezigUpload, setBezigUpload] = useState(false); // upload in Administratie-map (recht bewerkenAdministratie)
   const [openRelaties, setOpenRelaties] = useState(() => new Set()); // welke relatie-blokken open staan (standaard alles dichtgeklapt)
 
@@ -178,6 +180,25 @@ export default function DocumentenTab({ toonAanleververzoeken = true } = {}) {
     }
   };
 
+  // ── Antwoord op een vraag-regel opslaan (ja/nee, open, keuze, getal, datum) ──
+  const slaAntwoordOp = async (verzoek, regel, waarde) => {
+    setBezigAntwoord(regel.id);
+    try {
+      const r = await fetch("/api/mijn-aanleververzoeken", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "antwoord", verzoekId: verzoek.id, regelId: regel.id, antwoord: waarde }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      const d = await r.json();
+      if (d.verzoek) setVerzoeken((huidig) => huidig.map((v) => (v.id === d.verzoek.id ? d.verzoek : v)));
+    } catch (e) {
+      alert("Antwoord opslaan mislukt: " + (e.message || e));
+    } finally {
+      setBezigAntwoord("");
+    }
+  };
+
   // ── Een vraag stellen bij een vragenlijst (verzoek-niveau) ──
   const stelVraag = async (verzoek) => {
     const tekst = (vraagDraft[verzoek.id] || "").trim();
@@ -247,9 +268,12 @@ export default function DocumentenTab({ toonAanleververzoeken = true } = {}) {
               {v.notitie && <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 8 }}>{v.notitie}</div>}
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {v.regels.map((r) => {
-                  const klaar = r.status === "aangeleverd";
+                  const type = r.type || "document";
+                  const isVraag = type !== "document";
+                  const klaar = r.status === "aangeleverd" || r.status === "beantwoord";
                   const open = openRegels.has(r.id);
                   const opmWaarde = opmerkingDraft[r.id] != null ? opmerkingDraft[r.id] : (r.opmerking || "");
+                  const antwoordWaarde = antwoordDraft[r.id] != null ? antwoordDraft[r.id] : (r.antwoord || "");
                   return (
                     <div key={r.id} style={{ border: `1px solid ${klaar ? "#BFE0C8" : KLEUR.rand}`, borderRadius: 8, background: klaar ? "#F1F8F3" : "#fff", overflow: "hidden" }}>
                       <button onClick={() => toggleRegel(r.id)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", background: "none", border: "none", padding: "10px 12px", cursor: "pointer" }}>
@@ -257,11 +281,58 @@ export default function DocumentenTab({ toonAanleververzoeken = true } = {}) {
                         <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: KLEUR.tekst }}>
                           {r.naam}{r.verplicht === false ? <span style={{ fontWeight: 400, color: KLEUR.mutedTekst }}> · optioneel</span> : null}
                         </span>
-                        {klaar && <span style={{ fontSize: 11.5, color: KLEUR.groen, fontWeight: 700 }}>Aangeleverd</span>}
+                        {klaar && <span style={{ fontSize: 11.5, color: KLEUR.groen, fontWeight: 700 }}>{isVraag ? "Beantwoord" : "Aangeleverd"}</span>}
                         {!klaar && r.opmerking && <span style={{ fontSize: 11, color: KLEUR.goud, fontWeight: 600 }}>opmerking</span>}
                         <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
                       </button>
-                      {open && (
+                      {open && (isVraag ? (
+                        <div style={{ padding: "0 12px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+                          {r.toelichting && <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>{r.toelichting}</div>}
+                          {type === "janee" && (
+                            <div style={{ display: "flex", gap: 8 }}>
+                              {["Ja", "Nee"].map((opt) => (
+                                <button key={opt} onClick={() => slaAntwoordOp(v, r, opt)} disabled={bezigAntwoord === r.id}
+                                  style={{ padding: "7px 18px", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+                                    border: `1px solid ${r.antwoord === opt ? KLEUR.blauw : KLEUR.rand}`,
+                                    background: r.antwoord === opt ? KLEUR.blauw : "#fff", color: r.antwoord === opt ? "#fff" : KLEUR.subtekst }}>
+                                  {opt}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {type === "keuze" && (
+                            <select value={r.antwoord || ""} disabled={bezigAntwoord === r.id} onChange={(e) => slaAntwoordOp(v, r, e.target.value)}
+                              style={{ maxWidth: 320, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 9px", fontSize: 12.5, background: "#fff" }}>
+                              <option value="">— Maak een keuze —</option>
+                              {(r.opties || []).map((o, i) => <option key={i} value={o}>{o}</option>)}
+                            </select>
+                          )}
+                          {type === "datum" && (
+                            <input type="date" value={r.antwoord || ""} disabled={bezigAntwoord === r.id} onChange={(e) => slaAntwoordOp(v, r, e.target.value)}
+                              style={{ maxWidth: 200, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 12.5 }} />
+                          )}
+                          {(type === "open" || type === "getal") && (
+                            <div>
+                              {type === "open" ? (
+                                <textarea value={antwoordWaarde} onChange={(e) => setAntwoordDraft((d) => ({ ...d, [r.id]: e.target.value }))} rows={2}
+                                  placeholder="Typ je antwoord…"
+                                  style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 12.5, resize: "vertical", outline: "none" }} />
+                              ) : (
+                                <input type="number" value={antwoordWaarde} onChange={(e) => setAntwoordDraft((d) => ({ ...d, [r.id]: e.target.value }))}
+                                  placeholder="Vul een getal in"
+                                  style={{ maxWidth: 200, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 12.5 }} />
+                              )}
+                              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4 }}>
+                                <button onClick={() => slaAntwoordOp(v, r, antwoordWaarde)} disabled={bezigAntwoord === r.id}
+                                  style={{ padding: "5px 11px", background: KLEUR.blauw, border: "none", borderRadius: 6, fontSize: 11.5, fontWeight: 600, color: "#fff", cursor: "pointer" }}>
+                                  {bezigAntwoord === r.id ? "Opslaan…" : "Antwoord opslaan"}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                          {r.antwoord && <div style={{ fontSize: 12, color: KLEUR.groen }}>Antwoord opgeslagen: {r.antwoord}{r.aangeleverdOp ? ` · ${tijd(r.aangeleverdOp)}` : ""}</div>}
+                        </div>
+                      ) : (
                         <div style={{ padding: "0 12px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
                           {r.toelichting && <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>{r.toelichting}</div>}
                           {klaar && r.bestand && <div style={{ fontSize: 12, color: KLEUR.groen }}>Aangeleverd: {r.bestand.naam}{r.aangeleverdOp ? ` · ${tijd(r.aangeleverdOp)}` : ""}</div>}
@@ -288,7 +359,7 @@ export default function DocumentenTab({ toonAanleververzoeken = true } = {}) {
                             </div>
                           </div>
                         </div>
-                      )}
+                      ))}
                     </div>
                   );
                 })}
