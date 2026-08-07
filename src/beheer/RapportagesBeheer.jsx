@@ -124,7 +124,7 @@ function KlantenToggle() {
       <div style={{ fontSize: 12.5, color: KLEUR.subtekst, margin: "10px 0 14px" }}>
         Standaard staat Rapportages <strong>uit</strong> voor elke klant. Zet 'm per klant aan zodra die klant hem mag
         gebruiken — de tab "Rapportages" verschijnt dan meteen in het klantportaal van die klant. W&amp;V en Balans
-        worden opgebouwd uit RGS 3.5-referentiecodes; naam en volgorde daarvan staan hieronder bij "RGS-namen en volgorde".
+        worden opgebouwd uit RGS 3.5-referentiecodes; naam en volgorde daarvan staan hieronder bij "Rapportage".
         De prijs per maand stel je in bij de tabel "Betaalde functionaliteiten" bovenaan de tab Facturatie.
       </div>
 
@@ -230,7 +230,7 @@ function RgsNaamVolgorde() {
         style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
       >
         <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s", flexShrink: 0 }} />
-        <span style={{ fontSize: 15, fontWeight: 700 }}>Rapportages — RGS-namen en volgorde</span>
+        <span style={{ fontSize: 15, fontWeight: 700 }}>Rapportage</span>
       </button>
       {open && (<>
       <div style={{ fontSize: 12.5, color: KLEUR.subtekst, margin: "10px 0 14px" }}>
