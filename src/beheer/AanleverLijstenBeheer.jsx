@@ -247,6 +247,7 @@ export default function AanleverLijstenBeheer() {
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {lijst.regels.map((regel, ri) => {
                   const type = regel.type || "document";
+                  const isVraag = type !== "document";
                   const vw = regel.voorwaarde || {};
                   const eerdereRegels = lijst.regels.slice(0, ri).filter((er) => (er.type || "document") !== "document");
                   const bronRegel = eerdereRegels.find((er) => er.id === vw.afhankelijkVanRegelId) || null;
