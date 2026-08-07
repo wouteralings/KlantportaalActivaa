@@ -81,13 +81,34 @@ async function haalGroepen() {
   return rijen.map((g) => ({ id: g.id, naam: g.displayName || "(zonder naam)", email: g.mail || "" }));
 }
 
+const LEDEN_SELECT = "$select=id,mail,userPrincipalName,otherMails";
+
+function voegEmailsToe(emails, leden) {
+  for (const l of leden || []) {
+    for (const kandidaat of [l.mail, l.userPrincipalName, ...(Array.isArray(l.otherMails) ? l.otherMails : [])]) {
+      const schoon = String(kandidaat || "").trim().toLowerCase();
+      if (schoon) emails.add(schoon);
+    }
+  }
+}
+
 /**
- * De e-mailadressen van alle gebruikers in een groep, inclusief geneste groepen
- * (transitiveMembers). Alles in kleine letters, want e-mail is niet case-sensitive en de
- * vergelijking met de ingelogde gebruiker moet niet op een hoofdletter stuklopen.
+ * De e-mailadressen van alle gebruikers in een groep. Alles in kleine letters, want e-mail is niet
+ * case-sensitive en de vergelijking met de ingelogde gebruiker moet niet op een hoofdletter stuklopen.
  *
- * Naast `mail` en `userPrincipalName` nemen we ook `otherMails` mee: bij gastgebruikers staat
- * het echte adres daar vaak, terwijl de UPN de #EXT#-notatie heeft.
+ * We combineren twee bronnen zodat het robuust is als één ervan in de tenant leeg terugkomt:
+ *   1. de DIRECTE leden (/members) — een eenvoudige query zonder advanced-query-vereisten;
+ *   2. de TRANSITIEVE leden (/transitiveMembers, incl. geneste groepen) — een advanced query
+ *      (ConsistencyLevel: eventual + $count), die niet in elke tenant/permissie-situatie leden
+ *      teruggeeft. De directe leden vangen dat op.
+ * De e-mailadressen worden samengevoegd (ontdubbeld via de Set).
+ *
+ * Naast `mail` en `userPrincipalName` nemen we ook `otherMails` mee: bij gastgebruikers staat het
+ * echte adres daar vaak, terwijl de UPN de #EXT#-notatie heeft.
+ *
+ * Foutafhandeling: lukt geen van beide bronnen én is er niets gevonden, dan gooien we de fout door
+ * (zodat het beheerscherm bijv. de ontbrekende GroupMember.Read.All-consent kan melden). Lukt er
+ * minstens één, dan geven we terug wat we hebben.
  */
 async function haalGroepEmails(groepId) {
   if (!groepId) return new Set();
@@ -96,20 +117,37 @@ async function haalGroepEmails(groepId) {
   if (inCache && Date.now() - inCache.tijd < CACHE_MS) return inCache.emails;
 
   const token = await haalGraphToken();
-  const leden = await haalAlles(
-    `${GRAPH}/groups/${encodeURIComponent(groepId)}/transitiveMembers/microsoft.graph.user` +
-      `?$select=id,mail,userPrincipalName,otherMails&$top=999&$count=true`,
-    token,
-    5000
-  );
-
   const emails = new Set();
-  for (const l of leden) {
-    for (const kandidaat of [l.mail, l.userPrincipalName, ...(Array.isArray(l.otherMails) ? l.otherMails : [])]) {
-      const schoon = String(kandidaat || "").trim().toLowerCase();
-      if (schoon) emails.add(schoon);
-    }
+  let laatsteFout = null;
+
+  // 1) Directe leden — simpele query (geen ConsistencyLevel/$count nodig).
+  try {
+    const direct = await haalAlles(
+      `${GRAPH}/groups/${encodeURIComponent(groepId)}/members/microsoft.graph.user?${LEDEN_SELECT}&$top=999`,
+      token,
+      5000
+    );
+    voegEmailsToe(emails, direct);
+  } catch (e) {
+    laatsteFout = e;
   }
+
+  // 2) Transitieve leden (incl. geneste groepen) — advanced query.
+  try {
+    const trans = await haalAlles(
+      `${GRAPH}/groups/${encodeURIComponent(groepId)}/transitiveMembers/microsoft.graph.user?${LEDEN_SELECT}&$top=999&$count=true`,
+      token,
+      5000
+    );
+    voegEmailsToe(emails, trans);
+  } catch (e) {
+    laatsteFout = e;
+  }
+
+  // Alleen als we écht niets vonden én er onderweg een fout was: die fout doorgeven (zodat het
+  // een echte permissie-/configuratiefout blijft, geen stil "0 leden").
+  if (emails.size === 0 && laatsteFout) throw laatsteFout;
+
   cache.set(groepId, { tijd: Date.now(), emails });
   return emails;
 }
