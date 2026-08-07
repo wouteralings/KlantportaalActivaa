@@ -4,7 +4,6 @@ const { haalGebruikersToken, wisselVoorGraphToken } = require("../_gedeeld/graph
 const { voegHandtekeningToe, bewaarPdfBlob } = require("../_gedeeld/handtekeningen");
 const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/sharepointUpload");
 const { maakVervolgtaak } = require("../_gedeeld/vervolgtaak");
-const { SOORTEN, werkDossierBij } = require("../_gedeeld/dossiers");
 const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
 
 // Submap onder de SharePoint-basismap (cr283_sharepoint) van de klant waarin het ondertekenings-
@@ -42,6 +41,25 @@ const DYN = (token) => ({
 function clientIp(req) {
   const xff = req.headers["x-forwarded-for"] || req.headers["X-Forwarded-For"] || "";
   return (xff.split(",")[0] || "").trim().replace(/:\d+$/, "") || "onbekend";
+}
+
+// De taak van een aangifte (IB/VPB) wijst via DOCUMENT_VELD naar de aangifte-PDF ín de dossiermap.
+// Met deze helper bepalen we de bovenliggende map van dat document, zodat het ondertekeningsbewijs
+// óók in het dossier zelf belandt (naast het aangifte-document).
+const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
+function encodeShareUrl(url) {
+  return "u!" + Buffer.from(String(url || ""), "utf-8").toString("base64").replace(/=+$/, "").replace(/\//g, "_").replace(/\+/g, "-");
+}
+async function resolveOuderMap(graphToken, url) {
+  const res = await fetch(`${GRAPH_BASE}/shares/${encodeShareUrl(url)}/driveItem?$select=id,parentReference,folder`, {
+    headers: { Authorization: `Bearer ${graphToken}`, Accept: "application/json" },
+  });
+  if (!res.ok) throw new Error(`Document niet gevonden in SharePoint (${res.status})`);
+  const item = await res.json();
+  // Wijst de URL zelf al naar een map? Dan die map; anders de map waarin het bestand staat.
+  if (item.folder) return { driveId: item.parentReference && item.parentReference.driveId, itemId: item.id };
+  const pr = item.parentReference || {};
+  return { driveId: pr.driveId, itemId: pr.id };
 }
 
 /** Bouwt de bewijs-PDF met naam, e-mail, toelichting, de getekende krabbel, tijdstip en IP. */
@@ -144,6 +162,7 @@ module.exports = async function (context, req) {
     // Naar SharePoint schrijven (best-effort; vereist Files.ReadWrite.All + admin-consent).
     let sharepointUrl = null;
     let sharepointFout = null;
+    let dossierUrl = null; // bewijs óók in de dossiermap (IB/VPB), als de taak naar een dossierdocument wijst
     try {
       const gebruikersToken = haalGebruikersToken(req);
       if (!gebruikersToken) throw new Error("Geen gebruikerstoken (log opnieuw in).");
@@ -158,6 +177,19 @@ module.exports = async function (context, req) {
       const doelId = await ensureFolderPath(graphToken, map.driveId, map.itemId, padSegmenten);
       const geupload = await uploadBestand(graphToken, map.driveId, doelId, bestandsnaam, pdf);
       sharepointUrl = geupload.webUrl || null;
+      // Óók in het dossier laten landen: als de taak naar een document in een dossiermap wijst
+      // (aangifte IB/VPB), zetten we het bewijs ook in díe map, naast het aangifte-document.
+      if (documentUrl) {
+        try {
+          const ouder = await resolveOuderMap(graphToken, documentUrl);
+          if (ouder && ouder.driveId && ouder.itemId) {
+            const inDossier = await uploadBestand(graphToken, ouder.driveId, ouder.itemId, bestandsnaam, pdf);
+            dossierUrl = inDossier.webUrl || null;
+          }
+        } catch (dossierFout) {
+          context.log.error("Ondertekeningsbewijs in dossiermap zetten mislukt:", String(dossierFout.message || dossierFout));
+        }
+      }
     } catch (spFout) {
       sharepointFout = String(spFout.message || spFout);
       context.log.error("SharePoint-upload handtekening mislukt:", sharepointFout);
@@ -167,31 +199,6 @@ module.exports = async function (context, req) {
     let blobNaam = null;
     try { blobNaam = await bewaarPdfBlob(bestandsnaam, pdf); } catch (e) { context.log.error("Blob-kopie mislukt:", e); }
 
-    // Als deze taak via /api/medewerker-aangifte-versturen is aangemaakt, zit er een onzichtbare
-    // "[dossier-ref: ib:<guid>]" in de omschrijving (zie daar — wordt bij de cliënt weggefilterd,
-    // zie verbergDossierRef in api/taken/index.js). Ondertekenen betekent dan dat de aangifte
-    // daadwerkelijk is geaccordeerd: de dossierstatus gaat naar "Aangifte verzonden naar
-    // Belastingdienst" en het dossier wordt op inactief gezet (alleen-lezen, zie de statecode-
-    // controle in medewerker-dossier), zodat er daarna geen wijzigingen meer in gemaakt kunnen
-    // worden. Best-effort — een fout hier mag de ondertekening zelf niet blokkeren (07-08-2026, op
-    // verzoek van Wouter n.a.v. een IB-aangifte die na ondertekenen niet automatisch werd afgesloten).
-    let dossierBijgewerkt = false;
-    let dossierBijgewerktFout = null;
-    const dossierRefMatch = /\[dossier-ref:\s*([a-z]+):([0-9a-fA-F-]{10,})\]/.exec(taak.description || "");
-    if (dossierRefMatch) {
-      try {
-        const dossierSoort = SOORTEN.find((s) => s.key === dossierRefMatch[1]);
-        if (!dossierSoort) throw new Error(`Onbekend dossiersoort in taak-omschrijving: ${dossierRefMatch[1]}`);
-        const statusOptie = dossierSoort.statusOpties.find((o) => o.label === "Aangifte verzonden naar Belastingdienst");
-        if (!statusOptie) throw new Error("Statusoptie 'Aangifte verzonden naar Belastingdienst' niet gevonden voor dit dossiersoort.");
-        await werkDossierBij(resource, token, dossierSoort, dossierRefMatch[2], { status: statusOptie.waarde, actief: false });
-        dossierBijgewerkt = true;
-      } catch (e) {
-        dossierBijgewerktFout = String(e.message || e);
-        context.log.error("Dossier bijwerken na ondertekenen mislukt:", dossierBijgewerktFout);
-      }
-    }
-
     // Vastleggen in de log.
     let record = null;
     try {
@@ -200,14 +207,14 @@ module.exports = async function (context, req) {
         taaktitel: taak.subject, soort: SOORT_VELD ? taak[SOORT_VELD + FV] || "" : "",
         aanvragerEmail: email, naam, opgegevenEmail: opgegevenEmail || email, toelichting,
         ip, bestandsnaam, sharepointUrl, sharepointFout, blobNaam,
-        dossierBijgewerkt: dossierRefMatch ? dossierBijgewerkt : undefined,
-        dossierBijgewerktFout: dossierRefMatch ? dossierBijgewerktFout : undefined,
       });
     } catch (e) { context.log.error("Handtekening-log mislukt:", e); }
 
     // Taak afronden in Dynamics + notitie.
     const notitie = `\n\n[Ondertekend door klant (${naam}, ${opgegevenEmail || email}) via het klantportaal op ${stempel}. IP: ${ip}.` +
-      (sharepointUrl ? ` Bewijs: ${sharepointUrl}]` : "]");
+      (sharepointUrl ? ` Bewijs: ${sharepointUrl}` : "") +
+      (dossierUrl ? ` Ook in dossier: ${dossierUrl}` : "") +
+      "]";
     const updateBody = { statecode: 1, statuscode: 5, description: (taak.description || "") + notitie };
     const upd = await fetch(`${resource}/api/data/v9.2/tasks(${taakId})`, {
       method: "PATCH", headers: DYN(token), body: JSON.stringify(updateBody),
@@ -230,7 +237,7 @@ module.exports = async function (context, req) {
     context.res = {
       status: 200,
       headers: { "Content-Type": "application/json" },
-      body: { ok: true, sharepointUrl, sharepointFout, record },
+      body: { ok: true, sharepointUrl, sharepointFout, dossierUrl, record },
     };
   } catch (err) {
     if (err.code === "GEEN_IDENTITEIT" || err.code === "GEEN_KOPPELING" || err.code === "GEEN_RECHT" || err.code === "ALLEEN_LEZEN") {
