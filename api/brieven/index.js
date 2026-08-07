@@ -383,7 +383,9 @@ module.exports = async function (context, req) {
         context, accountId,
         klantnaam: String(body.klantnaam || "").trim(),
         onderwerp: String(body.backofficeOnderwerp || "").trim(),
-        eigenaarEmail: (config.afzender && config.afzender.backofficeEigenaarEmail) || "",
+        // Geen e-mailadres meer: de backoffice-taak wordt altijd in het systeem gezet bij de
+        // manager/relatiebeheerder van de klant (zie maakBackofficeTaak — lege eigenaarEmail).
+        eigenaarEmail: "",
         soortWaarde: backofficeTaakSoortRuw ? Number(backofficeTaakSoortRuw) : null,
         rubriekWaarde: backofficeTaakRubriekRuw ? Number(backofficeTaakRubriekRuw) : null,
         dossierGelukt: dossier.gedaan, submap, briefUrl: dossier.url,

@@ -330,9 +330,7 @@ export default function BrievenBeheer() {
 
         <div style={{ fontSize: 13.5, fontWeight: 700, color: KLEUR.tekst, margin: "18px 0 8px", borderTop: `1px solid ${KLEUR.rand}`, paddingTop: 16 }}>Backoffice-taak (bij “Naar backoffice”)</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-          <div style={{ flex: "1 1 280px" }}><span style={labelStijl}>Taak naar (e-mailadres backoffice)</span>
-            <input value={a.backofficeEigenaarEmail || ""} onChange={(e) => zetAfzender("backofficeEigenaarEmail", e.target.value)} placeholder="bijv. backoffice@activaa.nl" style={invoerStijl} /></div>
-          <div style={{ flex: "2 1 320px" }}><span style={labelStijl}>Onderwerp van de taak</span>
+          <div style={{ flex: "1 1 100%" }}><span style={labelStijl}>Onderwerp van de taak</span>
             <input value={a.backofficeOnderwerp || ""} onChange={(e) => zetAfzender("backofficeOnderwerp", e.target.value)} placeholder="Brief printen en versturen — {{klantnaam}}" style={invoerStijl} /></div>
         </div>
         <div style={{ marginTop: 12 }}>
@@ -394,7 +392,7 @@ export default function BrievenBeheer() {
           )}
         </div>
         <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8, maxWidth: 760 }}>
-          Bij <strong>Naar backoffice</strong> wordt de brief in het klantdossier gezet én een interne taak aangemaakt om te printen en per post te versturen. Leeg e-mailadres = de taak gaat naar de manager/relatiebeheerder van de klant.
+          Bij <strong>Naar backoffice</strong> wordt de brief in het klantdossier gezet én een interne taak in het systeem aangemaakt om te printen en per post te versturen. De taak gaat automatisch naar de manager/relatiebeheerder van de klant.
         </div>
       </Rubriek>
 
