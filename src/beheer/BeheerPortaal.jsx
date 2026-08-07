@@ -1358,7 +1358,7 @@ export default function BeheerPortaal() {
           ["faq", "FAQ"],
           ["taken", "Taken"],
           ["medewerkers", "Medewerkers"],
-          ["facturatie", "Facturatie"],
+          ["facturatie", "Functies"],
           ["offertes", "Offertes"],
           ["brieven", "Brieven"],
           ["aanleveren", "Uitvraag"],
@@ -2695,7 +2695,7 @@ export default function BeheerPortaal() {
           style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
         >
           <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("facturatieKlanten") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
-          <span style={{ fontSize: 15, fontWeight: 700 }}>Functies</span>
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Betaalde functies per klant</span>
         </button>
         {rubriekIsOpen("facturatieKlanten") && (<>
         <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 14px" }}>
@@ -3015,13 +3015,25 @@ export default function BeheerPortaal() {
         )}
         </>)}
       </div>
-      {/* Contracten-beheer (per ongeluk losgeraakt in b072dcc — hersteld) */}
+      {/* Contracten — alles voor de Contracten-module gebundeld in één inklapbaar geheel */}
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <ContractenDossierInstellingen />
-        <ContractenMailInstellingen />
-      </div>
-      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginTop: 20 }}>
-        <ContractenTypesBeheer />
+        <button
+          onClick={() => toggleRubriek("contracten")}
+          aria-expanded={rubriekIsOpen("contracten")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("contracten") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Contracten</span>
+        </button>
+        {rubriekIsOpen("contracten") && (
+          <div style={{ marginTop: 14 }}>
+            <ContractenDossierInstellingen />
+            <ContractenMailInstellingen />
+            <div style={{ marginTop: 20, paddingTop: 20, borderTop: `1px solid ${KLEUR.rand}` }}>
+              <ContractenTypesBeheer />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* RGS-configuratie voor de Rapportages-module (de per-klant aan/uit staat al in Functies). */}
