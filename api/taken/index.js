@@ -2,6 +2,14 @@ const { haalDynamicsToken, herleidAccounts, haalNaamUitPrincipal } = require("..
 const { haalInstellingen } = require("../_gedeeld/instellingen");
 const { voegAkkoordToe, haalAkkoordenVoorEmail } = require("../_gedeeld/taakakkoorden");
 const { webhookMetId } = require("../_gedeeld/webhook");
+const { maakVervolgtaak } = require("../_gedeeld/vervolgtaak");
+
+// Verbergt de onzichtbare "[dossier-ref: ...]"-koppeling die api/medewerker-aangifte-versturen in
+// de omschrijving verstopt (zie daar) — puur voor intern gebruik door api/taken-ondertekenen, nooit
+// bedoeld voor de cliënt. Wordt hier weggefilterd vóór de omschrijving naar het portaal gaat.
+function verbergDossierRef(tekst) {
+  return String(tekst || "").replace(/\n*\[dossier-ref:[^\]]*\]/g, "").trimEnd();
+}
 
 /**
  * Optionele eigen velden op Task; leeg laten als ze bij jullie niet bestaan (dan worden ze
@@ -110,7 +118,7 @@ async function haalZichtbareTaken(resource, token, accounts, soortConfig) {
     groep.taken.push({
       id: rij.activityid,
       titel: rij.subject || "(geen titel)",
-      omschrijving: rij.description || "",
+      omschrijving: verbergDossierRef(rij.description),
       deadline: rij.scheduledend || null,
       prioriteit: rij.prioritycode ?? 1,
       soort: rij[SOORT_VELD + FV] || "",
@@ -118,10 +126,7 @@ async function haalZichtbareTaken(resource, token, accounts, soortConfig) {
       vereistHandtekening: soortConfig.vereistHandtekening.has(String(soortWaarde)),
       uploadLink: UPLOADLINK_VELD ? rij[UPLOADLINK_VELD] || null : null,
       uploadVerloopt: VERLOOPDATUM_VELD ? rij[VERLOOPDATUM_VELD] || null : null,
-      // Alleen een boolean naar de klant: staat er een document op de taak? De echte SharePoint-url
-      // wordt NOOIT prijsgegeven; de inhoud loopt via de gecontroleerde proxy /api/taken-document.
-      // De frontend (TaakDocumentViewer) rendert op basis van taak.heeftDocument — vandaar deze sleutel.
-      heeftDocument: DOCUMENT_VELD ? Boolean(rij[DOCUMENT_VELD]) : false,
+      documentUrl: DOCUMENT_VELD ? rij[DOCUMENT_VELD] || null : null,
     });
   }
 
@@ -264,6 +269,22 @@ module.exports = async function (context, req) {
           });
         } catch (opslagFout) {
           context.log.error("Reactie vastleggen in opslag mislukt:", opslagFout);
+        }
+      }
+
+      // Vervolgtaak backoffice (best-effort) — zelfde mechanisme en per-taaksoort instelling
+      // (Beheer → Taken, "Vervolgtaak backoffice") als bij ondertekenen (api/taken-ondertekenen).
+      // Was hier tot 07-08-2026 per abuis niet aangeroepen, waardoor een gewoon "akkoord" via de
+      // akkoord-knop (zonder handtekening) nooit een backoffice-vervolgtaak aanmaakte, ook niet als
+      // dat voor die taaksoort aan stond in Beheer.
+      if (isAkkoord) {
+        const soortCfg = (soortConfig.config || {})[String(taak.soortWaarde)] || {};
+        if (soortCfg.vervolgtaakBackoffice) {
+          await maakVervolgtaak({
+            context, resource, token, soortCfg,
+            taak: { accountId: taak.accountId, subject: taak.subject },
+            klantnaam: account.klantnaam,
+          });
         }
       }
 

@@ -10,18 +10,6 @@ import Ontwikkelverzoeken from "./Ontwikkelverzoeken";
 import ScopeToggle, { useMijnNaam, isKlantVanMij } from "./MijnFilter";
 import ContactpersonenOverzicht from "./klanten/ContactpersonenOverzicht";
 import BrievenOverzicht from "./klanten/BrievenOverzicht";
-import BrievenLogboek from "./klanten/BrievenLogboek";
-
-/**
- * Brieven-tab: start op het brievenlogboek (alle verstuurde brieven, filterbaar). Via "Nieuwe brief"
- * ga je naar het opstel-scherm; "Terug naar overzicht" brengt je weer bij het logboek.
- */
-function BrievenTab() {
-  const [briefView, setBriefView] = useState("logboek");
-  return briefView === "opstellen"
-    ? <BrievenOverzicht onTerug={() => setBriefView("logboek")} />
-    : <BrievenLogboek onNieuweBrief={() => setBriefView("opstellen")} />;
-}
 import NogInTeRichten from "./klanten/NogInTeRichten";
 import Logboek from "./klanten/Logboek";
 import KlantVasteUitvragen from "./klanten/KlantVasteUitvragen";
@@ -443,6 +431,12 @@ function OndertekeningenLog() {
                   )}
                   {!h.sharepointUrl && h.sharepointFout && (
                     <span style={{ fontSize: 11.5, color: KLEUR.rood }}>SharePoint-opslag mislukt ({h.sharepointFout})</span>
+                  )}
+                  {h.dossierBijgewerkt && (
+                    <span style={{ fontSize: 11.5, color: "#2E7D46" }}>Dossier op "verzonden naar Belastingdienst" + inactief gezet</span>
+                  )}
+                  {h.dossierBijgewerktFout && (
+                    <span style={{ fontSize: 11.5, color: KLEUR.rood }}>Dossier bijwerken mislukt ({h.dossierBijgewerktFout})</span>
                   )}
                 </div>
               </div>
@@ -1697,7 +1691,7 @@ function KlantenModule() {
       <div style={{ paddingTop: 24 }}>
         {sub === "klanten" && <KlantOverzicht />}
         {sub === "contactpersonen" && <ContactpersonenOverzicht />}
-        {sub === "brieven" && <BrievenTab />}
+        {sub === "brieven" && <BrievenOverzicht />}
         {(sub === "ib" || sub === "vpb") && <MedewerkerDossiers soort={sub} />}
         {(sub === "divb" || sub === "lonen") && <NogInTeRichten titel={actief.label} watKomtEr={actief.watKomtEr} />}
       </div>

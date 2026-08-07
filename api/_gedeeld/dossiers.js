@@ -379,6 +379,10 @@ function catalogusWaardeNaarDynamics(veldDef, waarde) {
 /**
  * Werkt een dossier bij in Dynamics (PATCH). Ondersteunt:
  *   - status      : nieuwe cr283_statusaangifte (optionset-nummer)
+ *   - actief      : true/false — zet het dossier op statecode Actief/Inactief (zelfde standaard-
+ *                   statuscode-paar als elders in de app bij deactiveren: 1/2, zie
+ *                   medewerker-klant/medewerker-contactpersoon). Een inactief dossier is voor de
+ *                   medewerker alleen-lezen (zie de statecode-controle in medewerker-dossier).
  *   - urlDossier  : cr283_urldossier
  *   - documentUrl : cr283_urluitgaandedocumenten
  *   - velden      : { [catalogusKey]: nieuweWaarde } — alle overige velden uit de (Beheer-
@@ -391,6 +395,10 @@ async function werkDossierBij(resource, token, soort, id, velden) {
   const body = {};
   if (velden.status !== undefined && velden.status !== null && velden.status !== "") {
     body[STATUS_VELD] = Number(velden.status);
+  }
+  if (velden.actief !== undefined && velden.actief !== null) {
+    body.statecode = velden.actief ? 0 : 1;
+    body.statuscode = velden.actief ? 1 : 2;
   }
   if (velden.urlDossier !== undefined && soort.optioneel.urlDossier) {
     body[soort.optioneel.urlDossier] = velden.urlDossier ? String(velden.urlDossier).slice(0, 2000) : null;

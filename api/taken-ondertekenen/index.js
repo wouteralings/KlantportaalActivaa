@@ -4,6 +4,7 @@ const { haalGebruikersToken, wisselVoorGraphToken } = require("../_gedeeld/graph
 const { voegHandtekeningToe, bewaarPdfBlob } = require("../_gedeeld/handtekeningen");
 const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/sharepointUpload");
 const { maakVervolgtaak } = require("../_gedeeld/vervolgtaak");
+const { SOORTEN, werkDossierBij } = require("../_gedeeld/dossiers");
 const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
 
 // Submap onder de SharePoint-basismap (cr283_sharepoint) van de klant waarin het ondertekenings-
@@ -166,6 +167,31 @@ module.exports = async function (context, req) {
     let blobNaam = null;
     try { blobNaam = await bewaarPdfBlob(bestandsnaam, pdf); } catch (e) { context.log.error("Blob-kopie mislukt:", e); }
 
+    // Als deze taak via /api/medewerker-aangifte-versturen is aangemaakt, zit er een onzichtbare
+    // "[dossier-ref: ib:<guid>]" in de omschrijving (zie daar — wordt bij de cliënt weggefilterd,
+    // zie verbergDossierRef in api/taken/index.js). Ondertekenen betekent dan dat de aangifte
+    // daadwerkelijk is geaccordeerd: de dossierstatus gaat naar "Aangifte verzonden naar
+    // Belastingdienst" en het dossier wordt op inactief gezet (alleen-lezen, zie de statecode-
+    // controle in medewerker-dossier), zodat er daarna geen wijzigingen meer in gemaakt kunnen
+    // worden. Best-effort — een fout hier mag de ondertekening zelf niet blokkeren (07-08-2026, op
+    // verzoek van Wouter n.a.v. een IB-aangifte die na ondertekenen niet automatisch werd afgesloten).
+    let dossierBijgewerkt = false;
+    let dossierBijgewerktFout = null;
+    const dossierRefMatch = /\[dossier-ref:\s*([a-z]+):([0-9a-fA-F-]{10,})\]/.exec(taak.description || "");
+    if (dossierRefMatch) {
+      try {
+        const dossierSoort = SOORTEN.find((s) => s.key === dossierRefMatch[1]);
+        if (!dossierSoort) throw new Error(`Onbekend dossiersoort in taak-omschrijving: ${dossierRefMatch[1]}`);
+        const statusOptie = dossierSoort.statusOpties.find((o) => o.label === "Aangifte verzonden naar Belastingdienst");
+        if (!statusOptie) throw new Error("Statusoptie 'Aangifte verzonden naar Belastingdienst' niet gevonden voor dit dossiersoort.");
+        await werkDossierBij(resource, token, dossierSoort, dossierRefMatch[2], { status: statusOptie.waarde, actief: false });
+        dossierBijgewerkt = true;
+      } catch (e) {
+        dossierBijgewerktFout = String(e.message || e);
+        context.log.error("Dossier bijwerken na ondertekenen mislukt:", dossierBijgewerktFout);
+      }
+    }
+
     // Vastleggen in de log.
     let record = null;
     try {
@@ -174,6 +200,8 @@ module.exports = async function (context, req) {
         taaktitel: taak.subject, soort: SOORT_VELD ? taak[SOORT_VELD + FV] || "" : "",
         aanvragerEmail: email, naam, opgegevenEmail: opgegevenEmail || email, toelichting,
         ip, bestandsnaam, sharepointUrl, sharepointFout, blobNaam,
+        dossierBijgewerkt: dossierRefMatch ? dossierBijgewerkt : undefined,
+        dossierBijgewerktFout: dossierRefMatch ? dossierBijgewerktFout : undefined,
       });
     } catch (e) { context.log.error("Handtekening-log mislukt:", e); }
 

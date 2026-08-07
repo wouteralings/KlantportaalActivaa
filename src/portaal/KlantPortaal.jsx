@@ -380,24 +380,10 @@ export default function KlantPortaal() {
 
   const geefHandtekening = useCallback(async (taakId, gegevens) => {
     // gegevens = { naam, email, toelichting, handtekening (data-URL) }
-    // Het MSAL-token is ALLEEN nodig voor de best-effort on-behalf-of-upload van het
-    // ondertekeningsbewijs naar SharePoint. Een klant logt in via de SWA-sessie (EasyAuth), niet
-    // via MSAL — voor een gastgebruiker (of bij een geblokkeerde popup) kan haalApiToken() daardoor
-    // falen. Dat mag de ondertekening zélf NIET blokkeren: de backend verwerkt het akkoord ook
-    // zonder gebruikerstoken (de SharePoint-upload is daar al best-effort en het bewijs wordt
-    // sowieso in blob-opslag bewaard voor de beheer-log). Dus: token best-effort ophalen en bij een
-    // fout gewoon zónder Authorization-header versturen.
-    let token = null;
-    try {
-      token = await haalApiToken();
-    } catch (tokenFout) {
-      token = null;
-    }
-    const headers = { "Content-Type": "application/json" };
-    if (token) headers.Authorization = `Bearer ${token}`;
+    const token = await haalApiToken(); // MSAL-token nodig voor de on-behalf-of-upload naar SharePoint
     const res = await fetch("/api/taken-ondertekenen", {
       method: "POST",
-      headers,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ taakId, ...gegevens }),
     });
     if (!res.ok) throw new Error(await res.text());
@@ -408,9 +394,11 @@ export default function KlantPortaal() {
       return { ...huidig, groepen: huidig.groepen.map((g) => ({ ...g, taken: g.taken.filter((t) => t.id !== taakId) })) };
     });
     haalTakenOp();
-    if (data.sharepointFout) {
-      setFout("Ondertekend en vastgelegd. Let op: opslaan in SharePoint lukte nog niet (" + data.sharepointFout + ").");
-    }
+    // Een eventuele SharePoint-opslagfout (data.sharepointFout) tonen we bewust NIET aan de klant —
+    // de ondertekening zelf is gewoon gelukt en vastgelegd (bewijs-PDF + Dynamics-notitie), alleen de
+    // archiefkopie in SharePoint niet. Medewerkers zien die fout wél, in Medewerkersportaal →
+    // Ondertekeningen (zie OndertekeningenLog in MedewerkerPortaal.jsx) — 07-08-2026, op verzoek van
+    // Wouter ("die melding moet hij niet krijgen, staat gek").
     return data;
   }, [haalTakenOp]);
 
@@ -1650,54 +1638,16 @@ function DocumentViewer({ url, driveId, itemId, formaat, titel }) {
 // apart MSAL-token nodig (in tegenstelling tot DocumentViewer/document-inhoud, dat écht de eigen
 // SharePoint-rechten van de klant gebruikt).
 function TaakDocumentViewer({ taakId, titel }) {
-  // Haalt het document op via fetch (NIET een kale <iframe src>): bij "Meekijken als klant" loopt
-  // window.fetch door de meekijk-interceptor (src/meekijken.js), die de header x-meekijken-als-email
-  // meestuurt zodat /api/taken-document namens de klant resolvet. Een directe iframe-URL gaat NIET
-  // door window.fetch en mist die header — dan weigert de backend het document. Daarom fetch→blob→
-  // iframe. Lukt het niet, dan blijft de knop "Openen" (nieuw tabblad) als terugval.
-  const [status, setStatus] = useState("laden"); // laden | klaar | fout
-  const [blobUrl, setBlobUrl] = useState("");
-
-  useEffect(() => {
-    let actief = true;
-    let gemaakteUrl = "";
-    setStatus("laden");
-    setBlobUrl("");
-    (async () => {
-      try {
-        const res = await fetch(`/api/taken-document?taakId=${encodeURIComponent(taakId)}`);
-        if (!res.ok) throw new Error(await res.text().catch(() => ""));
-        const blob = await res.blob();
-        if (!actief) return;
-        gemaakteUrl = URL.createObjectURL(blob);
-        setBlobUrl(gemaakteUrl);
-        setStatus("klaar");
-      } catch {
-        if (actief) setStatus("fout");
-      }
-    })();
-    return () => {
-      actief = false;
-      if (gemaakteUrl) URL.revokeObjectURL(gemaakteUrl);
-    };
-  }, [taakId]);
-
-  if (status === "laden") {
-    return (
-      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst, padding: "16px 4px" }}>
-        <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Document ophalen…
-      </div>
-    );
-  }
-  if (status === "fout") {
-    return (
-      <div style={{ fontSize: 12.5, color: KLEUR.rood, padding: "8px 0" }}>
-        Het document kon niet worden geladen. Gebruik de knop “Openen” hierboven om het in een nieuw tabblad te bekijken.
-      </div>
-    );
-  }
+  // De iframe wijst RECHTSTREEKS naar de proxy /api/taken-document (dezelfde URL als de knop
+  // "Openen" hierboven). Dat is een eigen, same-origin route (géén SharePoint-iframe, dus geen
+  // 'frame-ancestors'-blokkade) die het bestand met Content-Disposition: inline teruggeeft — de
+  // browser rendert de PDF dan gewoon in het kader. Eerder werd hier fetch()→blob→iframe gebruikt,
+  // maar dat kon mislukken (blob/CORS/timing) terwijl "Openen" met exact dezelfde URL wél werkte;
+  // rechtstreeks in de iframe laden haalt dat verschil weg. Lukt het toch niet, dan blijft de knop
+  // "Openen" (nieuw tabblad) altijd als terugval beschikbaar.
+  const src = `/api/taken-document?taakId=${encodeURIComponent(taakId)}`;
   return (
-    <iframe title={titel} src={blobUrl} style={{ width: "100%", height: 460, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, background: "#fff" }} />
+    <iframe title={titel} src={src} style={{ width: "100%", height: 460, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, background: "#fff" }} />
   );
 }
 
