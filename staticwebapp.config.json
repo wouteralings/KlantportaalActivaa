@@ -651,6 +651,13 @@
       ]
     },
     {
+      "route": "/api/mw-taken",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
       "route": "/*",
       "allowedRoles": [
         "authenticated"

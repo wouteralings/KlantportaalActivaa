@@ -15,6 +15,36 @@ const { haalReviews, haalReviewGezien, zetReviewGezien } = require("../_gedeeld/
 const { haalAlleVerzoeken } = require("../_gedeeld/wijzigingen");
 const { haalAlleAkkoorden, haalReactiesGezien, zetReactiesGezien } = require("../_gedeeld/taakakkoorden");
 const aanleververzoeken = require("../_gedeeld/aanleververzoeken");
+const { haalDynamicsToken, haalEmailUitPrincipal } = require("../_gedeeld/identiteit");
+const { DYNAMICS_HEADERS, haalSystemuser } = require("../_gedeeld/takenGedeeld");
+const takenGezien = require("../_gedeeld/takenGezien");
+
+/**
+ * Telt de "nieuwe" openstaande taken van de ingelogde medewerker zelf (eigenaar) sinds hij het
+ * tabblad Taken voor het laatst opende — de bron voor de rode badge. Per medewerker (eigen
+ * gezien-moment), niet kantoorbreed. Best-effort: bij een ontbrekende Dynamics-koppeling of een
+ * fout geeft dit 0 terug, zodat de overige tellingen gewoon blijven werken.
+ */
+async function telMijnNieuweTaken(email) {
+  const resource = process.env.DYNAMICS_RESOURCE_URL;
+  if (!resource || !email) return 0;
+  try {
+    const token = await haalDynamicsToken();
+    const mij = await haalSystemuser(resource, token, email);
+    if (!mij.id) return 0;
+    const sinds = await takenGezien.haalGezien(email).catch(() => null);
+    let filter = `statecode eq 0 and _ownerid_value eq ${mij.id}`;
+    if (sinds) filter += ` and createdon gt ${new Date(sinds).toISOString()}`;
+    const url = `${resource}/api/data/v9.2/tasks?$select=activityid&$count=true&$filter=${encodeURIComponent(filter)}`;
+    const res = await fetch(url, { headers: { ...DYNAMICS_HEADERS(token), Prefer: "odata.maxpagesize=1" } });
+    if (!res.ok) return 0;
+    const data = await res.json();
+    const n = data["@odata.count"];
+    return typeof n === "number" ? n : (data.value || []).length;
+  } catch {
+    return 0;
+  }
+}
 
 module.exports = async function (context, req) {
   try {
@@ -31,6 +61,12 @@ module.exports = async function (context, req) {
       }
       if (req.body?.actie === "reacties-gezien") {
         const moment = await zetReactiesGezien(new Date().toISOString());
+        context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, laatstGezien: moment } };
+        return;
+      }
+      if (req.body?.actie === "taken-gezien") {
+        // Per-medewerker: legt vast dat DEZE medewerker de taken nu gezien heeft (badge → 0 voor hem).
+        const moment = await takenGezien.zetGezien(haalEmailUitPrincipal(req), new Date().toISOString()).catch(() => null);
         context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, laatstGezien: moment } };
         return;
       }
@@ -65,9 +101,13 @@ module.exports = async function (context, req) {
       .filter((v) => !(v.status === "afgerond" && v.medewerkerGeaccepteerd))
       .filter((v) => aanleververzoeken.heeftKlantActiviteitSinds(v, laatstGezienVragenlijsten)).length;
 
+    // Rode badge op de tab "Taken": mijn nieuwe openstaande taken (eigenaar) sinds ik voor het
+    // laatst keek — per medewerker (zie telMijnNieuweTaken). Best-effort; 0 als Dynamics niet kan.
+    const nieuweTaken = await telMijnNieuweTaken(haalEmailUitPrincipal(req)).catch(() => 0);
+
     context.res = {
       headers: { "Content-Type": "application/json" },
-      body: { openWijzigingen, nieuweReviews, vragenlijstenAandacht, nieuweReacties, laatstGezien },
+      body: { openWijzigingen, nieuweReviews, vragenlijstenAandacht, nieuweReacties, nieuweTaken, laatstGezien },
     };
   } catch (err) {
     context.log.error(err);
