@@ -109,6 +109,7 @@ const req0 = { Value: "None", CanBeChanged: true, ManagedPropertyLogicalName: "c
 const Str = (schema, naam, max = 200, fmt = "Text") => ({ "@odata.type": "Microsoft.Dynamics.CRM.StringAttributeMetadata", AttributeType: "String", AttributeTypeName: { Value: "StringType" }, SchemaName: schema, DisplayName: label(naam), RequiredLevel: req0, MaxLength: max, FormatName: { Value: fmt } });
 const Memo = (schema, naam, max = 2000) => ({ "@odata.type": "Microsoft.Dynamics.CRM.MemoAttributeMetadata", AttributeType: "Memo", AttributeTypeName: { Value: "MemoType" }, SchemaName: schema, DisplayName: label(naam), RequiredLevel: req0, MaxLength: max, Format: "TextArea" });
 const Dec = (schema, naam) => ({ "@odata.type": "Microsoft.Dynamics.CRM.DecimalAttributeMetadata", AttributeType: "Decimal", AttributeTypeName: { Value: "DecimalType" }, SchemaName: schema, DisplayName: label(naam), RequiredLevel: req0, MinValue: -1000000, MaxValue: 100000000, Precision: 2 });
+const Int = (schema, naam) => ({ "@odata.type": "Microsoft.Dynamics.CRM.IntegerAttributeMetadata", AttributeType: "Integer", AttributeTypeName: { Value: "IntegerType" }, SchemaName: schema, DisplayName: label(naam), RequiredLevel: req0, MinValue: 1900, MaxValue: 2100 });
 const DatumOnly = (schema, naam) => ({ "@odata.type": "Microsoft.Dynamics.CRM.DateTimeAttributeMetadata", AttributeType: "DateTime", AttributeTypeName: { Value: "DateTimeType" }, SchemaName: schema, DisplayName: label(naam), RequiredLevel: req0, Format: "DateOnly" });
 const DatumTijd = (schema, naam) => ({ "@odata.type": "Microsoft.Dynamics.CRM.DateTimeAttributeMetadata", AttributeType: "DateTime", AttributeTypeName: { Value: "DateTimeType" }, SchemaName: schema, DisplayName: label(naam), RequiredLevel: req0, Format: "DateAndTime" });
 const Bool = (schema, naam) => ({ "@odata.type": "Microsoft.Dynamics.CRM.BooleanAttributeMetadata", AttributeType: "Boolean", AttributeTypeName: { Value: "BooleanType" }, SchemaName: schema, DisplayName: label(naam), RequiredLevel: req0, OptionSet: { "@odata.type": "Microsoft.Dynamics.CRM.BooleanOptionSetMetadata", TrueOption: { Value: 1, Label: label("Ja") }, FalseOption: { Value: 0, Label: label("Nee") } } });
@@ -163,6 +164,7 @@ module.exports = async function (context, req) {
       [`${PREFIX}_managernaam`, Str(`${PREFIX}_Managernaam`, "Manager (snapshot)", 256)],
       [`${PREFIX}_goedkeurdernaam`, Str(`${PREFIX}_Goedkeurdernaam`, "Goedkeurder (snapshot)", 256)],
       [`${PREFIX}_urencode`, Str(`${PREFIX}_Urencode`, "Urencode", 100)],
+      [`${PREFIX}_jaar`, Int(`${PREFIX}_Jaar`, "Jaar (abonnement)")],           // verplicht in te vullen bij soort 'abonnement' (zie mw-uren-boekingen)
       [`${PREFIX}_vast`, Bool(`${PREFIX}_Vast`, "Vaste (contract)uren")],       // door beheer vastgezet, niet zelf te wijzigen
     ];
     for (const [logisch, meta] of boekingAttrs) stappen.push(await maakAttribuut(token, resource, B, logisch, meta, boekingBestaandeAttrs));

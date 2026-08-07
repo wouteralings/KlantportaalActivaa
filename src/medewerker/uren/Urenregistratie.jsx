@@ -91,7 +91,7 @@ export default function Urenregistratie({ isBeheerder }) {
   );
 }
 
-const LEEG = { id: "", datum: "", soort: "abonnement", urencode: "", accountId: "", klantnaam: "", omschrijving: "", uren: "", tariefSoort: "normaal", meerdere: false, dagen: [] };
+const LEEG = { id: "", datum: "", soort: "abonnement", urencode: "", accountId: "", klantnaam: "", omschrijving: "", uren: "", tariefSoort: "normaal", jaar: "", meerdere: false, dagen: [] };
 const WEEKDAG_KORT = ["Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"];
 const STATUS_LABEL = { concept: "Concept", ingediend: "Ingediend", goedgekeurd: "Goedgekeurd", gefactureerd: "Gefactureerd" };
 
@@ -127,7 +127,7 @@ function Schrijven() {
   const zet = (veld) => (e) => setForm((f) => ({ ...f, [veld]: e && e.target ? e.target.value : e }));
   const kiesCode = (code) => setForm((f) => ({ ...f, urencode: code.naam, soort: code.categorie, ...(isDeclarabel(code.categorie) ? {} : { accountId: "", klantnaam: "" }) }));
   const kiesSoort = (key) => setForm((f) => ({ ...f, soort: key, urencode: "", ...(isDeclarabel(key) ? {} : { accountId: "", klantnaam: "" }) }));
-  const bewerk = (b) => setForm({ ...LEEG, id: b.id, datum: b.datum, soort: b.soort, urencode: b.urencode || "", accountId: b.accountId || "", klantnaam: b.klantnaam || "", omschrijving: b.omschrijving || "", uren: String(b.uren), tariefSoort: b.tariefSoort || "normaal" });
+  const bewerk = (b) => setForm({ ...LEEG, id: b.id, datum: b.datum, soort: b.soort, urencode: b.urencode || "", accountId: b.accountId || "", klantnaam: b.klantnaam || "", omschrijving: b.omschrijving || "", uren: String(b.uren), tariefSoort: b.tariefSoort || "normaal", jaar: b.jaar != null ? String(b.jaar) : "" });
   const annuleer = () => setForm({ ...LEEG, datum: form.datum || vandaagIso() });
   const weekDagen = Array.from({ length: 7 }, (_, i) => voegDagenToe(weekStart, i));
   const toggleDag = (iso) => setForm((f) => ({ ...f, dagen: f.dagen.includes(iso) ? f.dagen.filter((d) => d !== iso) : [...f.dagen, iso] }));
@@ -137,6 +137,7 @@ function Schrijven() {
     if (codes.length > 0 && !form.urencode) { setFout("Kies een urencode."); return; }
     const decl = isDeclarabel(form.soort);
     if (decl && !form.accountId) { setFout("Kies een cliënt voor abonnement/UXT."); return; }
+    if (form.soort === "abonnement" && !form.jaar) { setFout("Vul het jaar in voor een abonnement."); return; }
     const aantal = Number(String(form.uren).replace(",", "."));
     if (!(aantal > 0)) { setFout("Vul een aantal uren in (groter dan 0)."); return; }
     const dagen = form.dagen.filter((d) => weekDagen.includes(d));
@@ -144,6 +145,7 @@ function Schrijven() {
     setBezig(true);
     try {
       const payload = { soort: form.soort, urencode: form.urencode || undefined, accountId: decl ? form.accountId : undefined, omschrijving: form.omschrijving, uren: aantal, tariefSoort: decl ? form.tariefSoort : undefined,
+        jaar: form.soort === "abonnement" ? Number(form.jaar) : undefined,
         ...(form.meerdere && !form.id ? { datums: dagen } : { datum: form.datum }) };
       const res = await fetch("/api/mw-uren-boekingen", {
         method: form.id ? "PATCH" : "POST",
@@ -310,8 +312,16 @@ function Schrijven() {
             )}
             {decl && (
               <Veld label="Tarief">
-                <select value={form.tariefSoort} onChange={zet("tariefSoort")} style={{ ...veldStijl, width: 120 }}>
+                <select value={form.tariefSoort} onChange={zet("tariefSoort")} style={{ ...veldStijl, width: 220 }}>
                   {TARIEF_SOORTEN.map((t) => <option key={t.key} value={t.key}>{t.label}{tariefBedrag(tarief, t.key) != null ? ` · ${euro(tariefBedrag(tarief, t.key))}` : ""}</option>)}
+                </select>
+              </Veld>
+            )}
+            {form.soort === "abonnement" && (
+              <Veld label="Jaar">
+                <select value={form.jaar} onChange={zet("jaar")} style={{ ...veldStijl, width: 110, borderColor: form.jaar ? KLEUR.rand : KLEUR.goud }} title="Verplicht bij uren op een abonnement">
+                  <option value="">Kies jaar…</option>
+                  {Array.from({ length: 6 }, (_, i) => new Date().getFullYear() + 1 - i).map((j) => <option key={j} value={j}>{j}</option>)}
                 </select>
               </Veld>
             )}
@@ -358,7 +368,7 @@ function Schrijven() {
                             {b.declarabel && b.omschrijving ? " · " : ""}
                             {b.omschrijving || (!b.urencode && !b.declarabel ? soortVan(b.soort).uitleg : "")}
                           </div>
-                          {b.declarabel && b.tariefSoort && <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>Tarief {b.tariefSoort}{b.tariefBedrag != null ? ` · ${euro(b.tariefBedrag)}/u` : ""}</div>}
+                          {b.declarabel && b.tariefSoort && <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>Tarief {b.tariefSoort}{b.tariefBedrag != null ? ` · ${euro(b.tariefBedrag)}/u` : ""}{b.soort === "abonnement" && b.jaar ? ` · jaar ${b.jaar}` : ""}</div>}
                         </div>
                         <div style={{ fontSize: 12.5, fontWeight: 700, minWidth: 52, textAlign: "right" }}>{uur(b.uren)} u</div>
                         {b.vast ? (

@@ -107,6 +107,11 @@ module.exports = async function (context, req) {
       if (datums.length === 0 || datums.some((d) => !/^\d{4}-\d{2}-\d{2}$/.test(d))) return json(context, 400, { error: "Geef één of meer geldige datums (YYYY-MM-DD)." });
       const aantalUren = Number(b.uren);
       if (!(aantalUren > 0)) return json(context, 400, { error: "Geef een aantal uren groter dan 0." });
+      // Bij een abonnement is het jaar verplicht (uren op een abonnementcode altijd mét jaar).
+      const jaar = b.jaar != null && b.jaar !== "" ? Number(b.jaar) : null;
+      if (soort === "abonnement" && !(Number.isInteger(jaar) && jaar >= 1900 && jaar <= 2100)) {
+        return json(context, 400, { error: "Vul het jaar in bij uren op een abonnement." });
+      }
       let klantMeta = null;
       if (uren.isDeclarabel(soort)) {
         if (!b.accountId) return json(context, 400, { error: "Kies een cliënt voor declarabele uren (abonnement/UXT)." });
@@ -118,7 +123,7 @@ module.exports = async function (context, req) {
       for (const datum of datums) {
         boekingen.push(await uren.maakBoeking({
           email, naam, datum, soort, accountId: b.accountId, omschrijving: b.omschrijving,
-          uren: aantalUren, tariefSoort: b.tariefSoort, urencode: b.urencode,
+          uren: aantalUren, tariefSoort: b.tariefSoort, urencode: b.urencode, jaar,
         }, klantMeta));
       }
       return json(context, 200, { ok: true, boeking: boekingen[0], boekingen });
@@ -130,6 +135,10 @@ module.exports = async function (context, req) {
       const soort = b.soort ? String(b.soort).toLowerCase() : null;
       if (soort && !uren.SOORTEN.includes(soort)) return json(context, 400, { error: "Ongeldige urensoort." });
       if (b.uren !== undefined && !(Number(b.uren) > 0)) return json(context, 400, { error: "Geef een aantal uren groter dan 0." });
+      const jaar = b.jaar !== undefined ? (b.jaar === "" || b.jaar == null ? null : Number(b.jaar)) : undefined;
+      if (soort === "abonnement" && !(Number.isInteger(jaar) && jaar >= 1900 && jaar <= 2100)) {
+        return json(context, 400, { error: "Vul het jaar in bij uren op een abonnement." });
+      }
       let klantMeta = null;
       if (soort && uren.isDeclarabel(soort) && b.accountId) {
         const token = await haalDynamicsToken();
@@ -137,7 +146,7 @@ module.exports = async function (context, req) {
       }
       const res = await uren.werkBoekingBij(b.id, email, {
         soort, datum: b.datum, accountId: b.accountId, urencode: b.urencode,
-        omschrijving: b.omschrijving, uren: b.uren !== undefined ? Number(b.uren) : undefined, tariefSoort: b.tariefSoort,
+        omschrijving: b.omschrijving, uren: b.uren !== undefined ? Number(b.uren) : undefined, tariefSoort: b.tariefSoort, jaar,
       }, klantMeta);
       if (res.fout === "NIET_GEVONDEN") return json(context, 404, { error: "Boeking niet gevonden." });
       if (res.fout === "VAST") return json(context, 409, { error: "Dit zijn vaste (contract)uren die door beheer zijn vastgezet; die kun je niet zelf wijzigen." });

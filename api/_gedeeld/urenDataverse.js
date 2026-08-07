@@ -119,6 +119,7 @@ function boekingNaarBuiten(r) {
     managerNaam: r[`${P}_managernaam`] || "",
     goedkeurderNaam: r[`${P}_goedkeurdernaam`] || "",
     urencode: r[`${P}_urencode`] || "",
+    jaar: n(r[`${P}_jaar`]),
     vast: !!r[`${P}_vast`],
     omschrijving: r[`${P}_omschrijving`] || "",
     uren: n(r[`${P}_uren`]) || 0,
@@ -259,7 +260,7 @@ async function boekingenVanMedewerker(email, { vanaf, tot } = {}) {
   return haalBoekingen(resource, token, f, `${P}_datum desc`);
 }
 
-async function maakBoeking({ email, naam, datum, soort, accountId, omschrijving, uren, tariefSoort, urencode, vast }, klantMeta) {
+async function maakBoeking({ email, naam, datum, soort, accountId, omschrijving, uren, tariefSoort, urencode, jaar, vast }, klantMeta) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   const token = await haalDynamicsToken();
   const set = await entitySet(resource, token, BOEKING);
@@ -285,12 +286,33 @@ async function maakBoeking({ email, naam, datum, soort, accountId, omschrijving,
     [`${P}_urencode`]: urencode ?? null,
     [`${P}_vast`]: !!vast,
   };
+  // Jaar (bij een abonnement verplicht, zie mw-uren-boekingen). Alleen meesturen als het is
+  // meegegeven, zodat andere soorten onveranderd blijven.
+  if (jaar != null && jaar !== "") body[`${P}_jaar`] = Number(jaar);
   if (decl && accountId) body[`${P}_Client@odata.bind`] = `/accounts(${accountId})`;
   const suId = await haalSystemuserId(resource, token, email);
   if (suId) body[`${P}_Medewerker@odata.bind`] = `/systemusers(${suId})`;
-  const res = await fetch(`${resource}/api/data/v9.2/${set}`, { method: "POST", headers: schrijfHeaders(token, true), body: JSON.stringify(body) });
+  const res = await postMetJaarTerugval(resource, token, `${resource}/api/data/v9.2/${set}`, "POST", body);
   if (!res.ok) throw new Error(`Boeking aanmaken mislukt (${res.status}): ${await res.text()}`);
   return boekingNaarBuiten(await res.json());
+}
+
+/**
+ * Doet een POST/PATCH; als die faalt omdat het (nieuwe) veld cr283_jaar nog niet bestaat (schema-
+ * setup nog niet gedraaid), wordt de aanvraag één keer opnieuw geprobeerd zónder dat veld. Zo breekt
+ * het uren schrijven nooit op een ontbrekende kolom — het jaar wordt dan gewoon (nog) niet bewaard.
+ */
+async function postMetJaarTerugval(resource, token, url, methode, body) {
+  const doe = (b) => fetch(url, { method: methode, headers: schrijfHeaders(token, true), body: JSON.stringify(b) });
+  let res = await doe(body);
+  if (!res.ok && Object.prototype.hasOwnProperty.call(body, `${P}_jaar`)) {
+    const tekst = await res.clone().text().catch(() => "");
+    if (/cr283_jaar/i.test(tekst) || /jaar/i.test(tekst)) {
+      const { [`${P}_jaar`]: _weg, ...zonder } = body;
+      res = await doe(zonder);
+    }
+  }
+  return res;
 }
 
 async function werkBoekingBij(id, email, velden, klantMeta) {
@@ -315,6 +337,12 @@ async function werkBoekingBij(id, email, velden, klantMeta) {
     [`${P}_goedkeurdernaam`]: decl ? (klantMeta ? klantMeta.managerNaam : huidig[`${P}_goedkeurdernaam`]) : (t && t.leidinggevende ? t.leidinggevende : null),
     [`${P}_urencode`]: velden.urencode ?? huidig[`${P}_urencode`] ?? null,
   };
+  // Jaar (abonnement): meegestuurde waarde overneemt; bij een niet-abonnement wordt het jaar gewist.
+  if (velden.jaar !== undefined) {
+    body[`${P}_jaar`] = velden.jaar != null && velden.jaar !== "" ? Number(velden.jaar) : null;
+  } else if (nieuwSoort !== "abonnement") {
+    body[`${P}_jaar`] = null;
+  }
   if (decl) {
     const tSoort = TARIEF_SOORTEN.includes(velden.tariefSoort) ? velden.tariefSoort : (huidig[`${P}_tariefsoort`] || "normaal");
     body[`${P}_tariefsoort`] = tSoort;
@@ -327,7 +355,7 @@ async function werkBoekingBij(id, email, velden, klantMeta) {
     const res0 = await fetch(`${resource}/api/data/v9.2/${set}(${id})/${P}_Client/$ref`, { method: "DELETE", headers: schrijfHeaders(token, false) }).catch(() => null);
     void res0;
   }
-  const res = await fetch(`${resource}/api/data/v9.2/${set}(${id})`, { method: "PATCH", headers: schrijfHeaders(token, true), body: JSON.stringify(body) });
+  const res = await postMetJaarTerugval(resource, token, `${resource}/api/data/v9.2/${set}(${id})`, "PATCH", body);
   if (!res.ok) throw new Error(`Boeking bijwerken mislukt (${res.status}): ${await res.text()}`);
   return { boeking: boekingNaarBuiten(await res.json()) };
 }
