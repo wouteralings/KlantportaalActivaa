@@ -15,8 +15,22 @@ const KLEUR = {
 };
 
 const nieuwId = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-const legeRegel = () => ({ id: nieuwId(), naam: "", bestandsnaam: "", toelichting: "", verplicht: true });
+const legeRegel = () => ({ id: nieuwId(), type: "document", naam: "", bestandsnaam: "", toelichting: "", verplicht: true, opties: [] });
 const legeLijst = () => ({ id: nieuwId(), naam: "", omschrijving: "", pad: "", regels: [legeRegel()] });
+
+// Vraagtypen per regel. "document" = het huidige upload-gedrag; de overige typen zijn echte vragen
+// die de klant in de uitvraag beantwoordt (Fase A). Fase B koppelt een antwoord aan een Dynamics-
+// tabel+kolom en schrijft het daarheen weg; Fase C maakt vervolgvragen conditioneel (skip-logica).
+// Beide bouwen voort op dit type-veld, dus bestaande lijsten (zonder type) gedragen zich als
+// "document" en blijven werken.
+const VRAAGTYPES = [
+  ["document", "Document (upload)"],
+  ["janee", "Ja / nee"],
+  ["open", "Open tekst"],
+  ["keuze", "Keuzelijst"],
+  ["getal", "Getal"],
+  ["datum", "Datum"],
+];
 
 const AANTALLEN = [[25, "25"], [50, "50"], [100, "100"], [250, "250"], [500, "500"], [Infinity, "Alle"]];
 
@@ -66,6 +80,12 @@ export default function AanleverLijstenBeheer() {
     wijzig((h) => h.map((l) => (l.id === lijstId ? { ...l, regels: [...l.regels, legeRegel()] } : l)));
   const verwijderRegel = (lijstId, regelId) =>
     wijzig((h) => h.map((l) => (l.id === lijstId ? { ...l, regels: l.regels.filter((r) => r.id !== regelId) } : l)));
+  // Keuzelijst-opties per regel (alleen bij type "keuze").
+  const wijzigRegelOpties = (lijstId, regelId, fn) =>
+    wijzig((h) => h.map((l) => (l.id !== lijstId ? l : { ...l, regels: l.regels.map((r) => (r.id !== regelId ? r : { ...r, opties: fn(r.opties || []) })) })));
+  const voegOptieToe = (lijstId, regelId) => wijzigRegelOpties(lijstId, regelId, (o) => [...o, ""]);
+  const updateOptie = (lijstId, regelId, i, waarde) => wijzigRegelOpties(lijstId, regelId, (o) => o.map((x, idx) => (idx === i ? waarde : x)));
+  const verwijderOptie = (lijstId, regelId, i) => wijzigRegelOpties(lijstId, regelId, (o) => o.filter((_, idx) => idx !== i));
 
   const opslaan = async () => {
     setStatus("bezig");
@@ -99,9 +119,10 @@ export default function AanleverLijstenBeheer() {
             <ListChecks size={17} color={KLEUR.blauw} /> Aanleverlijsten
           </div>
           <div style={{ fontSize: 13, color: KLEUR.subtekst, marginTop: 4, maxWidth: 720 }}>
-            Herbruikbare lijsten van documenten die je bij een klant kunt uitvragen. Per regel vraag je
-            één document op, met een vaste bestandsnaam. Je zet een lijst later uit als aanlever-verzoek;
-            de klant levert dan per regel het bestand aan.
+            Herbruikbare uitvraaglijsten. Per regel vraag je een <strong>document</strong> op (met vaste
+            bestandsnaam) óf stel je een <strong>vraag</strong> — ja/nee, open tekst, keuzelijst, getal of
+            datum. Je zet een lijst later uit als aanlever-verzoek; de klant levert dan per regel het
+            bestand aan of beantwoordt de vraag.
           </div>
         </div>
         <button onClick={voegLijstToe} style={{ display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0, padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
@@ -139,7 +160,7 @@ export default function AanleverLijstenBeheer() {
               <button onClick={() => toggle(lijst.id)} style={{ display: "flex", alignItems: "center", gap: 9, flex: 1, minWidth: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: 0 }}>
                 <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ flexShrink: 0, transform: isOpen ? "none" : "rotate(-90deg)", transition: "transform .15s" }} />
                 <span style={{ fontSize: 14, fontWeight: 700, color: KLEUR.tekst, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{lijst.naam || "Naamloze lijst"}</span>
-                <span style={{ fontSize: 12, color: KLEUR.mutedTekst, flexShrink: 0 }}>{lijst.regels.length} document{lijst.regels.length === 1 ? "" : "en"}</span>
+                <span style={{ fontSize: 12, color: KLEUR.mutedTekst, flexShrink: 0 }}>{lijst.regels.length} regel{lijst.regels.length === 1 ? "" : "s"}</span>
               </button>
               <button onClick={() => verwijderLijst(lijst.id)} title="Lijst verwijderen" style={{ display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0, padding: "7px 11px", background: "#fff", color: KLEUR.rood, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                 <Trash2 size={13} /> Lijst
@@ -167,38 +188,74 @@ export default function AanleverLijstenBeheer() {
                 </div>
               </div>
 
-              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 6 }}>
-                <FileText size={13} /> Uit te vragen documenten ({lijst.regels.length})
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 8 }}>
+                <FileText size={13} /> Vragen &amp; documenten ({lijst.regels.length})
               </div>
 
-              {lijst.regels.length > 0 && (
-                <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.4fr 1.6fr auto auto", gap: 8, padding: "0 2px 4px", fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>
-                  <div>Document</div>
-                  <div>Vaste bestandsnaam</div>
-                  <div>Toelichting voor klant</div>
-                  <div style={{ textAlign: "center" }}>Verplicht</div>
-                  <div />
-                </div>
-              )}
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {lijst.regels.map((regel) => {
+                  const type = regel.type || "document";
+                  return (
+                  <div key={regel.id} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, background: "#FBFBF9" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "150px 1fr auto auto", gap: 8, alignItems: "center" }}>
+                      <select value={type} onChange={(e) => updateRegel(lijst.id, regel.id, { type: e.target.value })} style={{ ...invoerStijl, cursor: "pointer" }} title="Type vraag">
+                        {VRAAGTYPES.map(([k, lbl]) => <option key={k} value={k}>{lbl}</option>)}
+                      </select>
+                      <input value={regel.naam} onChange={(e) => updateRegel(lijst.id, regel.id, { naam: e.target.value })} placeholder={type === "document" ? "bv. Aangifte IB 2025" : "bv. Heeft u een auto van de zaak?"} style={invoerStijl} />
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: KLEUR.subtekst, whiteSpace: "nowrap", cursor: "pointer" }} title="Verplicht">
+                        <input type="checkbox" checked={regel.verplicht !== false} onChange={(e) => updateRegel(lijst.id, regel.id, { verplicht: e.target.checked })} /> Verplicht
+                      </label>
+                      <button onClick={() => verwijderRegel(lijst.id, regel.id)} title="Regel verwijderen" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, background: "#fff", color: KLEUR.rood, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, cursor: "pointer", flexShrink: 0 }}>
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {lijst.regels.map((regel) => (
-                  <div key={regel.id} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.4fr 1.6fr auto auto", gap: 8, alignItems: "center" }}>
-                    <input value={regel.naam} onChange={(e) => updateRegel(lijst.id, regel.id, { naam: e.target.value })} placeholder="bv. Aangifte IB 2025" style={invoerStijl} />
-                    <input value={regel.bestandsnaam} onChange={(e) => updateRegel(lijst.id, regel.id, { bestandsnaam: e.target.value })} placeholder="bv. IB-2025 (leeg = documentnaam)" style={invoerStijl} />
-                    <input value={regel.toelichting} onChange={(e) => updateRegel(lijst.id, regel.id, { toelichting: e.target.value })} placeholder="Optioneel" style={invoerStijl} />
-                    <label style={{ display: "flex", justifyContent: "center", cursor: "pointer" }} title="Verplicht aan te leveren">
-                      <input type="checkbox" checked={regel.verplicht !== false} onChange={(e) => updateRegel(lijst.id, regel.id, { verplicht: e.target.checked })} />
-                    </label>
-                    <button onClick={() => verwijderRegel(lijst.id, regel.id)} title="Regel verwijderen" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, background: "#fff", color: KLEUR.rood, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, cursor: "pointer" }}>
-                      <Trash2 size={13} />
-                    </button>
+                    <div style={{ marginTop: 8 }}>
+                      <input value={regel.toelichting || ""} onChange={(e) => updateRegel(lijst.id, regel.id, { toelichting: e.target.value })} placeholder="Toelichting voor de klant (optioneel)" style={invoerStijl} />
+                    </div>
+
+                    {type === "document" && (
+                      <div style={{ marginTop: 8 }}>
+                        <div style={labelStijl}>Vaste bestandsnaam</div>
+                        <input value={regel.bestandsnaam || ""} onChange={(e) => updateRegel(lijst.id, regel.id, { bestandsnaam: e.target.value })} placeholder="bv. IB-2025 (leeg = documentnaam)" style={invoerStijl} />
+                      </div>
+                    )}
+
+                    {type === "keuze" && (
+                      <div style={{ marginTop: 8 }}>
+                        <div style={labelStijl}>Keuze-opties</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {(regel.opties || []).map((optie, i) => (
+                            <div key={i} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                              <input value={optie} onChange={(e) => updateOptie(lijst.id, regel.id, i, e.target.value)} placeholder={`Optie ${i + 1}`} style={invoerStijl} />
+                              <button onClick={() => verwijderOptie(lijst.id, regel.id, i)} title="Optie verwijderen" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, background: "#fff", color: KLEUR.rood, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, cursor: "pointer", flexShrink: 0 }}>
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          ))}
+                          {(regel.opties || []).length === 0 && <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>Nog geen opties toegevoegd.</div>}
+                        </div>
+                        <button onClick={() => voegOptieToe(lijst.id, regel.id)} style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 6, padding: "5px 9px", background: KLEUR.lichtblauw, color: KLEUR.blauw, border: "none", borderRadius: 6, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>
+                          <Plus size={12} /> Optie toevoegen
+                        </button>
+                      </div>
+                    )}
+
+                    {(type === "janee" || type === "open" || type === "getal" || type === "datum") && (
+                      <div style={{ marginTop: 6, fontSize: 11.5, color: KLEUR.mutedTekst }}>
+                        {type === "janee" ? "De klant beantwoordt deze vraag met Ja of Nee."
+                          : type === "open" ? "De klant vult een vrij tekstantwoord in."
+                          : type === "getal" ? "De klant vult een getal in."
+                          : "De klant kiest een datum."}
+                      </div>
+                    )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
 
-              <button onClick={() => voegRegelToe(lijst.id)} style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 8, padding: "6px 10px", background: KLEUR.lichtblauw, color: KLEUR.blauw, border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                <Plus size={13} /> Regel toevoegen
+              <button onClick={() => voegRegelToe(lijst.id)} style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10, padding: "6px 10px", background: KLEUR.lichtblauw, color: KLEUR.blauw, border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                <Plus size={13} /> Vraag of document toevoegen
               </button>
             </div>
             )}
