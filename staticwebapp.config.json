@@ -84,6 +84,12 @@
       ]
     },
     {
+      "route": "/api/beheer-taakrubrieken",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
       "route": "/api/beheer-aanleverlijsten",
       "allowedRoles": [
         "beheerder"

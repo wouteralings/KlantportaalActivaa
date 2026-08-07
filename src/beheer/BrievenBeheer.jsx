@@ -57,9 +57,10 @@ export default function BrievenBeheer() {
   const [openBrieven, setOpenBrieven] = useState(() => new Set()); // indices van opengeklapte brieven
   const [openVelden, setOpenVelden] = useState(() => new Set());   // indices van opengeklapte invulvelden
   const [zoek, setZoek] = useState(""); // zoekterm om tussen de standaardbrieven te filteren
-  // Taaksoort-opties voor de backoffice-taak-dropdown — zelfde bron/patroon als "Soort taak" bij
-  // IB/VPB Aangifte versturen (zie DossierIndelingBeheer.jsx).
+  // Taaksoort-/rubriek-opties voor de backoffice-taak-dropdowns — zelfde bron/patroon als "Soort
+  // taak" bij IB/VPB Aangifte versturen (zie DossierIndelingBeheer.jsx).
   const [taakSoortOpties, setTaakSoortOpties] = useState([]); // [{ waarde, label }]
+  const [taakRubriekOpties, setTaakRubriekOpties] = useState([]); // [{ waarde, label }]
 
   useEffect(() => {
     fetch("/api/beheer-briefsjablonen")
@@ -75,6 +76,10 @@ export default function BrievenBeheer() {
       .then((r) => (r.ok ? r.json() : { opties: [] }))
       .then((d) => setTaakSoortOpties((d && d.opties) || []))
       .catch(() => setTaakSoortOpties([]));
+    fetch("/api/beheer-taakrubrieken")
+      .then((r) => (r.ok ? r.json() : { opties: [] }))
+      .then((d) => setTaakRubriekOpties((d && d.opties) || []))
+      .catch(() => setTaakRubriekOpties([]));
   }, []);
 
   // Open-set-hulpjes: bij verplaatsen/verwijderen schuiven de indices mee, zodat de juiste kaart open blijft.
@@ -361,6 +366,32 @@ export default function BrievenBeheer() {
             <strong>niet</strong> "Zichtbaar" — anders ziet de cliënt deze interne taak per ongeluk in
             zijn eigen portaal.
           </div>
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <span style={labelStijl}>Rubriek</span>
+          {taakRubriekOpties.length > 0 ? (
+            <select
+              value={a.backofficeTaakRubriek || ""}
+              onChange={(e) => zetAfzender("backofficeTaakRubriek", e.target.value)}
+              style={{ ...invoerStijl, maxWidth: 420 }}
+            >
+              <option value="">— geen rubriek —</option>
+              {taakRubriekOpties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
+            </select>
+          ) : (
+            <>
+              <input
+                type="number"
+                value={a.backofficeTaakRubriek || ""}
+                onChange={(e) => zetAfzender("backofficeTaakRubriek", e.target.value)}
+                placeholder="Leeg = geen rubriek"
+                style={{ ...invoerStijl, maxWidth: 200 }}
+              />
+              <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>
+                De rubrieken-lijst kon niet worden opgehaald — vul de optiesetwaarde (nummer) rechtstreeks in, of laat leeg.
+              </span>
+            </>
+          )}
         </div>
         <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8, maxWidth: 760 }}>
           Bij <strong>Naar backoffice</strong> wordt de brief in het klantdossier gezet én een interne taak aangemaakt om te printen en per post te versturen. Leeg e-mailadres = de taak gaat naar de manager/relatiebeheerder van de klant.

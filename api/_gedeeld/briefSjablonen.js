@@ -69,6 +69,10 @@ const STANDAARD_AFZENDER = {
   // van Wouter (07-08-2026): "Kan ik dit bij brieven ook niet zo instellen als die door backoffice
   // verzonden moet worden?"
   backofficeTaakSoort: "",
+  // Optionele Rubriek (cr283_rubriek-waarde) voor diezelfde backoffice-taak — zelfde soort dropdown
+  // maar dan op /api/beheer-taakrubrieken. Leeg = geen rubriek meegeven. Op verzoek van Wouter
+  // (07-08-2026): "ik wil bij backoffice taak rubriek kunnen meegeven."
+  backofficeTaakRubriek: "",
 };
 
 const STANDAARD_SHAREPOINT_MAP = "Brieven";
@@ -211,6 +215,12 @@ function normaliseerAfzender(a) {
     bron.backofficeTaakSoort !== "" && bron.backofficeTaakSoort != null && Number.isFinite(backofficeTaakSoortGetal)
       ? String(Math.trunc(backofficeTaakSoortGetal))
       : "";
+  // Backoffice-taak: optionele rubriek-optiesetwaarde (geheel getal); leeg/ongeldig = "".
+  const backofficeTaakRubriekGetal = Number(bron.backofficeTaakRubriek);
+  const backofficeTaakRubriek =
+    bron.backofficeTaakRubriek !== "" && bron.backofficeTaakRubriek != null && Number.isFinite(backofficeTaakRubriekGetal)
+      ? String(Math.trunc(backofficeTaakRubriekGetal))
+      : "";
   return {
     bedrijfsnaam: tekst(bron.bedrijfsnaam, 120) || STANDAARD_AFZENDER.bedrijfsnaam,
     adres: tekst(bron.adres, 160),
@@ -238,6 +248,7 @@ function normaliseerAfzender(a) {
     backofficeEigenaarEmail,
     backofficeOnderwerp: tekst(bron.backofficeOnderwerp, 300),
     backofficeTaakSoort,
+    backofficeTaakRubriek,
   };
 }
 
