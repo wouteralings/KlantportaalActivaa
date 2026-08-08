@@ -1,19 +1,22 @@
 /**
- * Planning (hoofdtabblad) — wrapper met twee weergaven:
- *   • Overzicht        — alle losse planningsregels (Stap 2, PlanningOverzicht).
+ * Planning (hoofdtabblad) — wrapper met de weergaven:
+ *   • Maandplanning    — afgeleid uit de configuratie + rooster/bezetting (Stap 3b/3c, PlanningMaand).
+ *   • Jaarplanning     — klant × activiteit per maand over 12 maanden (PlanningJaar).
  *   • Per klant        — de configuratie "wat doen we voor deze klant" (Stap 3a, PlanningConfigPerKlant).
- * De maandplanning-weergave (afgeleid uit de configuratie + rooster) komt hier later als derde tab bij.
+ *   • Losse regels     — alle losse planningsregels (Stap 2, PlanningOverzicht).
  */
 import { useState } from "react";
-import { List, Users, CalendarRange } from "lucide-react";
+import { List, Users, CalendarRange, CalendarDays } from "lucide-react";
 import PlanningOverzicht from "./PlanningOverzicht";
 import PlanningConfigPerKlant from "./PlanningConfigPerKlant";
 import PlanningMaand from "./PlanningMaand";
+import PlanningJaar from "./PlanningJaar";
 
 const KLEUR = { blauw: "#1C5D8C", subtekst: "#5B6259", rand: "#E2E4DF" };
 
 const SUBTABS = [
   { key: "maand", label: "Maandplanning", icon: CalendarRange },
+  { key: "jaar", label: "Jaarplanning", icon: CalendarDays },
   { key: "config", label: "Per klant", icon: Users },
   { key: "overzicht", label: "Losse regels", icon: List },
 ];
@@ -38,6 +41,7 @@ export default function PlanningModule() {
         })}
       </div>
       {sub === "maand" && <PlanningMaand />}
+      {sub === "jaar" && <PlanningJaar />}
       {sub === "config" && <PlanningConfigPerKlant />}
       {sub === "overzicht" && <PlanningOverzicht />}
     </div>
