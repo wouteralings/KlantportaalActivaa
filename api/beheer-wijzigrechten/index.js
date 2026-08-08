@@ -16,8 +16,8 @@ const { haalRechten, zetRechten } = require("../_gedeeld/wijzigrechten");
 module.exports = async function (context, req) {
   try {
     if (req.method === "GET") {
-      const { niveaus, bulk, alsKlant, offertes, contracten, verwijderIb, verwijderVpb, verwijderContactpersonen, verwijderDividendbelasting } = await haalRechten();
-      context.res = { headers: { "Content-Type": "application/json" }, body: { niveaus, bulk, alsKlant, offertes, contracten, verwijderIb, verwijderVpb, verwijderContactpersonen, verwijderDividendbelasting } };
+      const { niveaus, bulk, alsKlant, offertes, contracten, planning, verwijderIb, verwijderVpb, verwijderContactpersonen, verwijderDividendbelasting } = await haalRechten();
+      context.res = { headers: { "Content-Type": "application/json" }, body: { niveaus, bulk, alsKlant, offertes, contracten, planning, verwijderIb, verwijderVpb, verwijderContactpersonen, verwijderDividendbelasting } };
       return;
     }
     if (req.method === "PUT") {
@@ -26,6 +26,7 @@ module.exports = async function (context, req) {
       const alsKlant = (req.body && req.body.alsKlant) || [];
       const offertes = (req.body && req.body.offertes) || [];
       const contracten = (req.body && req.body.contracten) || [];
+      const planning = (req.body && req.body.planning) || [];
       const verwijderIb = (req.body && req.body.verwijderIb) || [];
       const verwijderVpb = (req.body && req.body.verwijderVpb) || [];
       const verwijderContactpersonen = (req.body && req.body.verwijderContactpersonen) || [];
@@ -50,6 +51,10 @@ module.exports = async function (context, req) {
         context.res = { status: 400, body: { error: "Geef 'contracten' (lijst met e-mailadressen) mee." } };
         return;
       }
+      if (!Array.isArray(planning)) {
+        context.res = { status: 400, body: { error: "Geef 'planning' (lijst met e-mailadressen) mee." } };
+        return;
+      }
       if (!Array.isArray(verwijderIb)) {
         context.res = { status: 400, body: { error: "Geef 'verwijderIb' (lijst met e-mailadressen) mee." } };
         return;
@@ -67,7 +72,7 @@ module.exports = async function (context, req) {
         return;
       }
       const opgeslagen = await zetRechten({
-        niveaus, bulk, alsKlant, offertes, contracten,
+        niveaus, bulk, alsKlant, offertes, contracten, planning,
         verwijderIb, verwijderVpb, verwijderContactpersonen, verwijderDividendbelasting,
       });
       context.res = { headers: { "Content-Type": "application/json" }, body: opgeslagen };

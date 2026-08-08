@@ -1,6 +1,6 @@
 const { haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const {
-  magWijzigen, magBulk, magAlsKlant, magOffertes, magContracten,
+  magWijzigen, magBulk, magAlsKlant, magOffertes, magContracten, magPlanning,
   magVerwijderIb, magVerwijderVpb, magVerwijderContactpersonen, magVerwijderDividendbelasting,
 } = require("../_gedeeld/wijzigrechten");
 
@@ -26,6 +26,7 @@ module.exports = async function (context, req) {
     const alsKlant = await magAlsKlant(email, beheerder).catch(() => false);
     const offertes = await magOffertes(email, beheerder).catch(() => false);
     const contracten = await magContracten(email, beheerder).catch(() => false);
+    const planning = await magPlanning(email, beheerder).catch(() => false);
     const verwijderIb = await magVerwijderIb(email, beheerder).catch(() => false);
     const verwijderVpb = await magVerwijderVpb(email, beheerder).catch(() => false);
     const verwijderContactpersonen = await magVerwijderContactpersonen(email, beheerder).catch(() => false);
@@ -34,6 +35,7 @@ module.exports = async function (context, req) {
       headers: { "Content-Type": "application/json" },
       body: {
         magWijzigen: mag, magBulk: bulk, magAlsKlant: alsKlant, magOffertes: offertes, magContracten: contracten,
+        magPlanning: planning,
         magVerwijderIb: verwijderIb, magVerwijderVpb: verwijderVpb,
         magVerwijderContactpersonen: verwijderContactpersonen, magVerwijderDividendbelasting: verwijderDividendbelasting,
         beheerder,
@@ -44,6 +46,7 @@ module.exports = async function (context, req) {
       headers: { "Content-Type": "application/json" },
       body: {
         magWijzigen: false, magBulk: false, magAlsKlant: false, magOffertes: false, magContracten: false,
+        magPlanning: false,
         magVerwijderIb: false, magVerwijderVpb: false, magVerwijderContactpersonen: false, magVerwijderDividendbelasting: false,
         beheerder: false,
       },

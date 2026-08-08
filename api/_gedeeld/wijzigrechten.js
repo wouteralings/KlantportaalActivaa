@@ -84,7 +84,7 @@ function schoonLijst(lijst) {
 }
 
 const LEEG = {
-  niveaus: {}, bulk: [], alsKlant: [], offertes: [], contracten: [],
+  niveaus: {}, bulk: [], alsKlant: [], offertes: [], contracten: [], planning: [],
   verwijderIb: [], verwijderVpb: [], verwijderContactpersonen: [], verwijderDividendbelasting: [],
 };
 
@@ -115,6 +115,7 @@ async function haalRechten() {
       alsKlant: schoonLijst(data && data.alsKlant),
       offertes: schoonLijst(data && data.offertes),
       contracten: schoonLijst(data && data.contracten),
+      planning: schoonLijst(data && data.planning),
       verwijderIb: schoonLijst(data && data.verwijderIb),
       verwijderVpb: schoonLijst(data && data.verwijderVpb),
       verwijderContactpersonen: schoonLijst(data && data.verwijderContactpersonen),
@@ -150,6 +151,11 @@ async function haalContracten() {
   return (await haalRechten()).contracten;
 }
 
+/** Geeft de planning-lijst terug: [ "<email>" ] (kleine letters). */
+async function haalPlanning() {
+  return (await haalRechten()).planning;
+}
+
 /** Geeft de verwijder-IB-lijst terug: [ "<email>" ] (kleine letters). */
 async function haalVerwijderIb() {
   return (await haalRechten()).verwijderIb;
@@ -172,7 +178,7 @@ async function haalVerwijderDividendbelasting() {
 
 /** Overschrijft het volledige rechtendocument. Normaliseert e-mail; 'medewerker' wordt niet bewaard. */
 async function zetRechten({
-  niveaus, bulk, alsKlant, offertes, contracten,
+  niveaus, bulk, alsKlant, offertes, contracten, planning,
   verwijderIb, verwijderVpb, verwijderContactpersonen, verwijderDividendbelasting,
 }) {
   const schoonNiveaus = {};
@@ -187,6 +193,7 @@ async function zetRechten({
     alsKlant: schoonLijst(alsKlant),
     offertes: schoonLijst(offertes),
     contracten: schoonLijst(contracten),
+    planning: schoonLijst(planning),
     verwijderIb: schoonLijst(verwijderIb),
     verwijderVpb: schoonLijst(verwijderVpb),
     verwijderContactpersonen: schoonLijst(verwijderContactpersonen),
@@ -201,8 +208,8 @@ async function zetRechten({
 
 /** Overschrijft alleen de niveaus; behoudt de rest van de bestaande rechten. */
 async function zetNiveaus(niveaus) {
-  const { bulk, alsKlant, offertes, contracten, verwijderIb, verwijderVpb, verwijderContactpersonen, verwijderDividendbelasting } = await haalRechten();
-  return (await zetRechten({ niveaus, bulk, alsKlant, offertes, contracten, verwijderIb, verwijderVpb, verwijderContactpersonen, verwijderDividendbelasting })).niveaus;
+  const { bulk, alsKlant, offertes, contracten, planning, verwijderIb, verwijderVpb, verwijderContactpersonen, verwijderDividendbelasting } = await haalRechten();
+  return (await zetRechten({ niveaus, bulk, alsKlant, offertes, contracten, planning, verwijderIb, verwijderVpb, verwijderContactpersonen, verwijderDividendbelasting })).niveaus;
 }
 
 /** Bepaalt of deze gebruiker mag wijzigen: beheerder (Azure) mag altijd; anders niveau manager/beheerder. */
@@ -246,6 +253,14 @@ async function magContracten(email, isBeheerder) {
   return (await haalContracten()).includes(laag);
 }
 
+/** Bepaalt of deze gebruiker de Planning mag zien/gebruiken: beheerder (Azure) mag altijd; anders in de planning-lijst. */
+async function magPlanning(email, isBeheerder) {
+  if (isBeheerder) return true;
+  const laag = String(email || "").trim().toLowerCase();
+  if (!laag) return false;
+  return (await haalPlanning()).includes(laag);
+}
+
 /** Bepaalt of deze gebruiker IB-dossiers mag verwijderen: beheerder (Azure) mag altijd; anders in de verwijderIb-lijst. */
 async function magVerwijderIb(email, isBeheerder) {
   if (isBeheerder) return true;
@@ -279,10 +294,10 @@ async function magVerwijderDividendbelasting(email, isBeheerder) {
 }
 
 module.exports = {
-  haalRechten, haalNiveaus, haalBulk, haalAlsKlant, haalOffertes, haalContracten,
+  haalRechten, haalNiveaus, haalBulk, haalAlsKlant, haalOffertes, haalContracten, haalPlanning,
   haalVerwijderIb, haalVerwijderVpb, haalVerwijderContactpersonen, haalVerwijderDividendbelasting,
   zetRechten, zetNiveaus,
-  magWijzigen, magBulk, magAlsKlant, magOffertes, magContracten,
+  magWijzigen, magBulk, magAlsKlant, magOffertes, magContracten, magPlanning,
   magVerwijderIb, magVerwijderVpb, magVerwijderContactpersonen, magVerwijderDividendbelasting,
   GELDIGE_NIVEAUS,
 };

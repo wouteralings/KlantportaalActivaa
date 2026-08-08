@@ -275,6 +275,8 @@ export default function BeheerPortaal() {
   // Offertes-recht: lijst met e-mailadressen die offertes/opdrachtbevestigingen mogen maken.
   // Let op: leeg = niemand (net als bulk en als-klant); beheerders mogen altijd.
   const [offertes, setOffertes] = useState([]);
+  // Planning-recht: lijst met e-mailadressen die de Planning (sub-tab "Planning" onder Klantoverzicht) mogen zien/gebruiken.
+  const [planning, setPlanning] = useState([]);
   const [wijzigrechtenStatus, setWijzigrechtenStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [medewerkers, setMedewerkers] = useState(null); // null = laden; alle Activaa-medewerkers
   const [medewerkerZoek, setMedewerkerZoek] = useState("");
@@ -439,7 +441,7 @@ export default function BeheerPortaal() {
       .catch(() => setCategorieen([]));
     fetch("/api/beheer-wijzigrechten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { setNiveaus(d.niveaus || {}); setBulk(Array.isArray(d.bulk) ? d.bulk : []); setAlsKlant(Array.isArray(d.alsKlant) ? d.alsKlant : []); setOffertes(Array.isArray(d.offertes) ? d.offertes : []); })
+      .then((d) => { setNiveaus(d.niveaus || {}); setBulk(Array.isArray(d.bulk) ? d.bulk : []); setAlsKlant(Array.isArray(d.alsKlant) ? d.alsKlant : []); setOffertes(Array.isArray(d.offertes) ? d.offertes : []); setPlanning(Array.isArray(d.planning) ? d.planning : []); })
       .catch(() => {});
     fetch("/api/beheer-entra-groepen")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
@@ -1099,13 +1101,19 @@ export default function BeheerPortaal() {
     setWijzigrechtenStatus("idle");
   }, []);
 
+  const zetPlanning = useCallback((email, aan) => {
+    const laag = String(email).toLowerCase();
+    setPlanning((h) => (aan ? [...new Set([...h, laag])] : h.filter((e) => e !== laag)));
+    setWijzigrechtenStatus("idle");
+  }, []);
+
   const slaWijzigrechtenOp = useCallback(async () => {
     setWijzigrechtenStatus("bezig");
     try {
       const res = await fetch("/api/beheer-wijzigrechten", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ niveaus, bulk, alsKlant, offertes }),
+        body: JSON.stringify({ niveaus, bulk, alsKlant, offertes, planning }),
       });
       if (!res.ok) throw new Error(await res.text());
       const d = await res.json();
@@ -1113,11 +1121,12 @@ export default function BeheerPortaal() {
       setBulk(Array.isArray(d.bulk) ? d.bulk : []);
       setAlsKlant(Array.isArray(d.alsKlant) ? d.alsKlant : []);
       setOffertes(Array.isArray(d.offertes) ? d.offertes : []);
+      setPlanning(Array.isArray(d.planning) ? d.planning : []);
       setWijzigrechtenStatus("gelukt");
     } catch {
       setWijzigrechtenStatus("fout");
     }
-  }, [niveaus, bulk, alsKlant, offertes]);
+  }, [niveaus, bulk, alsKlant, offertes, planning]);
 
   // Live-teller: haalt de leden van de gekozen (nog niet opgeslagen) groep op, zodat je het
   // ledenaantal meteen ziet zodra je een groep in de dropdown kiest — zonder eerst te hoeven opslaan.
@@ -2534,7 +2543,7 @@ export default function BeheerPortaal() {
               />
             </div>
             <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 8 }}>
-              {Object.values(niveaus).filter((n) => n === "manager" || n === "beheerder").length} met wijzig-recht · {bulk.length} met bulk-recht · {alsKlant.length} met als-klant-recht · {offertes.length} met offertes-recht · {medewerkers.length} medewerkers
+              {Object.values(niveaus).filter((n) => n === "manager" || n === "beheerder").length} met wijzig-recht · {bulk.length} met bulk-recht · {alsKlant.length} met als-klant-recht · {offertes.length} met offertes-recht · {planning.length} met planning-recht · {medewerkers.length} medewerkers
             </div>
             {(() => {
             const gefilterdeMedewerkers = medewerkers
@@ -2583,6 +2592,14 @@ export default function BeheerPortaal() {
                         onChange={(e) => zetOffertes(m.email, e.target.checked)}
                       />
                       Offertes
+                    </label>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: KLEUR.subtekst, cursor: "pointer", whiteSpace: "nowrap" }} title="Mag de Planning zien/gebruiken (de sub-tab 'Planning' onder Klantoverzicht in het medewerkersportaal)">
+                      <input
+                        type="checkbox"
+                        checked={planning.includes(String(m.email).toLowerCase())}
+                        onChange={(e) => zetPlanning(m.email, e.target.checked)}
+                      />
+                      Planning
                     </label>
                     <select
                       value={niveaus[m.email] || "medewerker"}
