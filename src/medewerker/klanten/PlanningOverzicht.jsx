@@ -13,6 +13,7 @@
  */
 import { useState, useEffect, useMemo } from "react";
 import { CalendarClock, Search, ArrowLeft, Plus, Trash2, Loader2 } from "lucide-react";
+import MedewerkerKiezer from "./MedewerkerKiezer";
 import ScopeToggle, { useMijnNaam, isKlantVanMij } from "../MijnFilter";
 
 const KLEUR = {
@@ -343,7 +344,7 @@ export default function PlanningOverzicht() {
 
           <div>
             <label style={labelStijl}>Toegewezen aan</label>
-            <input value={form.toegewezenAan} onChange={(e) => zetForm("toegewezenAan", e.target.value)} placeholder="naam of e-mail medewerker" style={inputStijl} />
+            <MedewerkerKiezer waarde={form.toegewezenAan} onChange={(v) => zetForm("toegewezenAan", v)} placeholder="zoek medewerker…" stijl={inputStijl} />
           </div>
 
           <div>

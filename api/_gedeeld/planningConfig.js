@@ -20,6 +20,7 @@ function naarBuiten(row) {
     frequentie: row.frequentie || "maandelijks",
     indicatieUren: row.indicatie_uren != null ? Number(row.indicatie_uren) : null,
     toegewezenAan: row.toegewezen_aan || "",
+    uitvoerMaand: row.uitvoer_maand != null ? Number(row.uitvoer_maand) : null,
     actief: !!row.actief,
     opmerkingen: row.opmerkingen || "",
     aangemaaktOp: row.aangemaakt_op,
@@ -42,6 +43,13 @@ function valideerUren(waarde) {
   const n = Number(waarde);
   if (isNaN(n) || n < 0) throw new Error("VALIDATIE: indicatie-uren moet een getal ≥ 0 zijn.");
   return Math.round(n * 100) / 100;
+}
+
+function valideerMaand(waarde) {
+  if (waarde === undefined || waarde === null || waarde === "") return null;
+  const n = Number(waarde);
+  if (!Number.isInteger(n) || n < 1 || n > 12) throw new Error("VALIDATIE: uitvoermaand moet 1 t/m 12 zijn (of leeg).");
+  return n;
 }
 
 async function valideerActiviteit(waarde) {
@@ -89,6 +97,7 @@ async function maakRegel(data, email) {
   const activiteit = await valideerActiviteit(data.activiteit);
   const frequentie = valideerFrequentie(data.frequentie);
   const indicatieUren = valideerUren(data.indicatieUren);
+  const uitvoerMaand = valideerMaand(data.uitvoerMaand);
 
   const pool = await haalPool();
   const request = pool.request();
@@ -96,16 +105,17 @@ async function maakRegel(data, email) {
   request.input("activiteit", sql.NVarChar(100), activiteit);
   request.input("frequentie", sql.VarChar(12), frequentie);
   request.input("indicatieUren", sql.Decimal(6, 2), indicatieUren);
+  request.input("uitvoerMaand", sql.TinyInt, uitvoerMaand);
   request.input("toegewezenAan", sql.NVarChar(320), data.toegewezenAan ? String(data.toegewezenAan).trim().slice(0, 320) : null);
   request.input("actief", sql.Bit, data.actief === false ? 0 : 1);
   request.input("opmerkingen", sql.NVarChar(sql.MAX), data.opmerkingen ? String(data.opmerkingen) : null);
   request.input("email", sql.NVarChar(320), email || null);
   const result = await request.query(`
     INSERT INTO dbo.planning_config_klanten
-      (klant_account_id, activiteit, frequentie, indicatie_uren, toegewezen_aan, actief, opmerkingen, aangemaakt_door)
+      (klant_account_id, activiteit, frequentie, indicatie_uren, uitvoer_maand, toegewezen_aan, actief, opmerkingen, aangemaakt_door)
     OUTPUT INSERTED.*
     VALUES
-      (@klantAccountId, @activiteit, @frequentie, @indicatieUren, @toegewezenAan, @actief, @opmerkingen, @email)
+      (@klantAccountId, @activiteit, @frequentie, @indicatieUren, @uitvoerMaand, @toegewezenAan, @actief, @opmerkingen, @email)
   `);
   return naarBuiten(result.recordset[0]);
 }
@@ -117,6 +127,7 @@ async function wijzigRegel(id, data, email) {
   const activiteit = data.activiteit !== undefined ? await valideerActiviteit(data.activiteit) : bestaand.activiteit;
   const frequentie = data.frequentie !== undefined ? valideerFrequentie(data.frequentie) : bestaand.frequentie;
   const indicatieUren = data.indicatieUren !== undefined ? valideerUren(data.indicatieUren) : bestaand.indicatieUren;
+  const uitvoerMaand = data.uitvoerMaand !== undefined ? valideerMaand(data.uitvoerMaand) : (bestaand.uitvoerMaand ?? null);
   const toegewezenAan = data.toegewezenAan !== undefined ? (data.toegewezenAan ? String(data.toegewezenAan).trim().slice(0, 320) : null) : (bestaand.toegewezenAan || null);
   const actief = data.actief !== undefined ? (data.actief === false ? 0 : 1) : (bestaand.actief ? 1 : 0);
   const opmerkingen = data.opmerkingen !== undefined ? (data.opmerkingen ? String(data.opmerkingen) : null) : (bestaand.opmerkingen || null);
@@ -127,6 +138,7 @@ async function wijzigRegel(id, data, email) {
   request.input("activiteit", sql.NVarChar(100), activiteit);
   request.input("frequentie", sql.VarChar(12), frequentie);
   request.input("indicatieUren", sql.Decimal(6, 2), indicatieUren);
+  request.input("uitvoerMaand", sql.TinyInt, uitvoerMaand);
   request.input("toegewezenAan", sql.NVarChar(320), toegewezenAan);
   request.input("actief", sql.Bit, actief);
   request.input("opmerkingen", sql.NVarChar(sql.MAX), opmerkingen);
@@ -134,7 +146,7 @@ async function wijzigRegel(id, data, email) {
   const result = await request.query(`
     UPDATE dbo.planning_config_klanten
        SET activiteit = @activiteit, frequentie = @frequentie, indicatie_uren = @indicatieUren,
-           toegewezen_aan = @toegewezenAan, actief = @actief, opmerkingen = @opmerkingen,
+           uitvoer_maand = @uitvoerMaand, toegewezen_aan = @toegewezenAan, actief = @actief, opmerkingen = @opmerkingen,
            gewijzigd_op = SYSUTCDATETIME(), gewijzigd_door = @email
      OUTPUT INSERTED.*
      WHERE id = @id

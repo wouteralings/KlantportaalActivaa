@@ -10,6 +10,7 @@
  */
 import { useState, useEffect, useMemo } from "react";
 import { Search, Plus, Trash2, Users, AlertTriangle, X } from "lucide-react";
+import MedewerkerKiezer from "./MedewerkerKiezer";
 
 const KLEUR = {
   blauw: "#1C5D8C", tekst: "#1C2321", subtekst: "#5B6259", mutedTekst: "#8A9089", rand: "#E2E4DF",
@@ -22,6 +23,9 @@ const td = { fontSize: 12.5, padding: "8px 10px", borderBottom: `1px solid ${KLE
 const ROL_LABELS = { assistent: "Assistent", manager: "Manager", accountant: "Accountant", fiscaal: "Fiscaal medewerker", loonadministratie: "Loonadministratie", backup: "Backup" };
 const FREQ = [["maandelijks", "Maandelijks"], ["kwartaal", "Per kwartaal"], ["jaarlijks", "Jaarlijks"], ["eenmalig", "Eenmalig"]];
 const freqLabel = (f) => (FREQ.find(([k]) => k === f) || [null, f])[1];
+const MAANDEN = ["januari", "februari", "maart", "april", "mei", "juni", "juli", "augustus", "september", "oktober", "november", "december"];
+// Een uitvoermaand is relevant voor jaar-/eenmalige afspraken (welke maand valt de taak?).
+const heeftUitvoerMaand = (frequentie) => frequentie === "jaarlijks" || frequentie === "eenmalig";
 
 /** De naam van de persoon in een bepaalde rol op de klant (uit /api/beheer-klanten). */
 function teamPersoon(klant, rol) {
@@ -55,6 +59,8 @@ export default function PlanningConfigPerKlant() {
   const [nwActiviteit, setNwActiviteit] = useState("");
   const [nwFrequentie, setNwFrequentie] = useState("maandelijks");
   const [nwUren, setNwUren] = useState("");
+  const [nwUitvoerMaand, setNwUitvoerMaand] = useState("");
+  const [overrides, setOverrides] = useState({}); // id → tekst tijdens het bewerken van een afwijkende toewijzing
 
   const activiteitById = useMemo(() => Object.fromEntries(activiteiten.map((a) => [a.sleutel, a])), [activiteiten]);
 
@@ -91,10 +97,10 @@ export default function PlanningConfigPerKlant() {
     try {
       const res = await fetch("/api/mw-planning-config", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ klantAccountId: String(klant.accountId).toLowerCase(), activiteit: nwActiviteit, frequentie: nwFrequentie, indicatieUren: nwUren === "" ? null : nwUren }),
+        body: JSON.stringify({ klantAccountId: String(klant.accountId).toLowerCase(), activiteit: nwActiviteit, frequentie: nwFrequentie, indicatieUren: nwUren === "" ? null : nwUren, uitvoerMaand: heeftUitvoerMaand(nwFrequentie) && nwUitvoerMaand ? Number(nwUitvoerMaand) : null }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
-      setNwActiviteit(""); setNwUren(""); setNwFrequentie("maandelijks");
+      setNwActiviteit(""); setNwUren(""); setNwFrequentie("maandelijks"); setNwUitvoerMaand("");
       laadConfig(String(klant.accountId).toLowerCase());
     } catch (e) { setFout(e.message || "Toevoegen mislukt."); } finally { setBezig(false); }
   };
@@ -192,7 +198,7 @@ export default function PlanningConfigPerKlant() {
             <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, marginBottom: 14 }}>
               <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
                 <thead><tr>
-                  <th style={th}>Activiteit</th><th style={th}>Type</th><th style={th}>Frequentie</th>
+                  <th style={th}>Activiteit</th><th style={th}>Type</th><th style={th}>Frequentie</th><th style={th}>Uitvoermaand</th>
                   <th style={th}>Indicatie-uren</th><th style={th}>Uitvoerder (team)</th><th style={th}></th>
                 </tr></thead>
                 <tbody>
@@ -206,6 +212,14 @@ export default function PlanningConfigPerKlant() {
                           <select value={r.frequentie} onChange={(e) => wijzig(r.id, { frequentie: e.target.value })} style={{ ...inputStijl, width: "auto", padding: "5px 8px" }}>
                             {FREQ.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
                           </select>
+                        </td>
+                        <td style={td}>
+                          {heeftUitvoerMaand(r.frequentie) ? (
+                            <select value={r.uitvoerMaand || ""} onChange={(e) => wijzig(r.id, { uitvoerMaand: e.target.value ? Number(e.target.value) : null })} style={{ ...inputStijl, width: "auto", padding: "5px 8px" }}>
+                              <option value="">— kies —</option>
+                              {MAANDEN.map((m, idx) => <option key={idx} value={idx + 1}>{m}</option>)}
+                            </select>
+                          ) : <span style={{ color: KLEUR.mutedTekst }}>n.v.t.</span>}
                         </td>
                         <td style={td}>
                           <input type="number" min="0" step="0.25" defaultValue={r.indicatieUren == null ? "" : r.indicatieUren}
@@ -222,10 +236,16 @@ export default function PlanningConfigPerKlant() {
                             )}
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
-                            <input placeholder={`Afwijken van team (${ROL_LABELS[info.rol] || "rol"})…`} defaultValue={r.toegewezenAan || ""}
-                              onBlur={(e) => { const v = e.target.value.trim(); if (v !== (r.toegewezenAan || "")) wijzig(r.id, { toegewezenAan: v }); }}
-                              style={{ ...inputStijl, width: 220, padding: "5px 8px", fontSize: 12 }} />
-                            {r.toegewezenAan && <button onClick={() => wijzig(r.id, { toegewezenAan: "" })} title="Terug naar team" style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 11.5, cursor: "pointer" }}>← team</button>}
+                            <div style={{ width: 220 }}>
+                              <MedewerkerKiezer
+                                waarde={overrides[r.id] !== undefined ? overrides[r.id] : (r.toegewezenAan || "")}
+                                onChange={(v) => setOverrides((o) => ({ ...o, [r.id]: v }))}
+                                onCommit={(v) => { const t = (v || "").trim(); if (t !== (r.toegewezenAan || "")) wijzig(r.id, { toegewezenAan: t }); setOverrides((o) => { const n = { ...o }; delete n[r.id]; return n; }); }}
+                                placeholder={`Afwijken van team (${ROL_LABELS[info.rol] || "rol"})…`}
+                                klein
+                              />
+                            </div>
+                            {r.toegewezenAan && <button onClick={() => { wijzig(r.id, { toegewezenAan: "" }); setOverrides((o) => { const n = { ...o }; delete n[r.id]; return n; }); }} title="Terug naar team" style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 11.5, cursor: "pointer", flexShrink: 0 }}>← team</button>}
                           </div>
                         </td>
                         <td style={{ ...td, textAlign: "right" }}>
@@ -234,7 +254,7 @@ export default function PlanningConfigPerKlant() {
                       </tr>
                     );
                   })}
-                  {config.length === 0 && <tr><td colSpan={6} style={{ ...td, color: KLEUR.mutedTekst, textAlign: "center", padding: "20px" }}>Nog niets ingesteld voor deze klant. Voeg hieronder een activiteit toe.</td></tr>}
+                  {config.length === 0 && <tr><td colSpan={7} style={{ ...td, color: KLEUR.mutedTekst, textAlign: "center", padding: "20px" }}>Nog niets ingesteld voor deze klant. Voeg hieronder een activiteit toe.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -250,6 +270,12 @@ export default function PlanningConfigPerKlant() {
             <select value={nwFrequentie} onChange={(e) => setNwFrequentie(e.target.value)} style={{ ...inputStijl, width: "auto" }}>
               {FREQ.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>
+            {heeftUitvoerMaand(nwFrequentie) && (
+              <select value={nwUitvoerMaand} onChange={(e) => setNwUitvoerMaand(e.target.value)} title="In welke maand valt deze jaartaak?" style={{ ...inputStijl, width: "auto" }}>
+                <option value="">Uitvoermaand…</option>
+                {MAANDEN.map((m, idx) => <option key={idx} value={idx + 1}>{m}</option>)}
+              </select>
+            )}
             <input type="number" min="0" step="0.25" value={nwUren} onChange={(e) => setNwUren(e.target.value)} placeholder="uren (bv. 2)" style={{ ...inputStijl, width: 120 }} />
             <button onClick={voegToe} disabled={!nwActiviteit || bezig} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: nwActiviteit ? "pointer" : "default", opacity: nwActiviteit ? 1 : 0.6 }}>
               <Plus size={14} /> Toevoegen

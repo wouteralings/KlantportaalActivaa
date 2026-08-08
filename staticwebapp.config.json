@@ -696,6 +696,20 @@
       ]
     },
     {
+      "route": "/api/mw-planning-medewerkers",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
+      "route": "/api/mw-planning-capaciteit",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
       "route": "/api/mw-taken",
       "allowedRoles": [
         "beheerder",
