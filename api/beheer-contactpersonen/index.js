@@ -1,5 +1,6 @@
 const { haalDynamicsToken } = require("../_gedeeld/identiteit");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
+const { haalGastenPerEmail, normaliseerEmail } = require("../_gedeeld/gastaccounts");
 
 /**
  * Contactpersonen-overzicht voor het medewerkersportaal — de tegenhanger van
@@ -167,11 +168,18 @@ module.exports = async function (context, req) {
     const token = await haalDynamicsToken();
     const instellingen = await haalInstellingen().catch(() => ({}));
     const extraKolommen = (instellingen.contactpersonenExtraKolommen || []).filter((c) => c && c.veld);
-    const [{ rijen, afgekapt }, perContact] = await Promise.all([
+    const [{ rijen, afgekapt }, perContact, gastenPerEmail] = await Promise.all([
       haalContactpersonen(resource, token, extraKolommen),
       haalKlantKoppelingen(resource, token).catch((err) => {
         context.log.warn ? context.log.warn(`Cliëntkoppelingen ophalen mislukt: ${err}`) : context.log(`Cliëntkoppelingen ophalen mislukt: ${err}`);
         return new Map();
+      }),
+      // Best-effort: heeft dit contact een B2B-gastaccount (voor de groen-vinkje-kolom in het
+      // overzicht)? Faalt dit (bijv. Graph-permissie), dan blijft de kolom leeg i.p.v. het hele
+      // overzicht te breken. Gecachet in gastaccounts.js, dus niet elke load raakt Graph.
+      haalGastenPerEmail().catch((err) => {
+        context.log.error(`Gastaccount-status ophalen mislukt: ${err}`);
+        return null;
       }),
     ]);
 
@@ -185,6 +193,12 @@ module.exports = async function (context, req) {
       const klantnamen = klanten.map((k) => k.klantnaam).filter(Boolean).join(", ");
       const klantnummers = klanten.map((k) => k.klantnummer).filter(Boolean).join(", ");
       const rollen = [...new Set(klanten.map((k) => k.rol))].join(", ");
+      // "actief" | "pending" (uitgenodigd, nog niet geaccepteerd) | "geblokkeerd" | "" (geen account).
+      let gastStatus = "";
+      if (gastenPerEmail) {
+        const g = gastenPerEmail.get(normaliseerEmail(c.emailaddress1));
+        if (g) gastStatus = !g.accountEnabled ? "geblokkeerd" : g.externalUserState === "PendingAcceptance" ? "pending" : "actief";
+      }
       const extra = {};
       for (const def of extraKolommen) extra[def.veld] = leesExtra(c, def);
       return {
@@ -211,6 +225,7 @@ module.exports = async function (context, req) {
         klantnamen,
         klantnummers,
         rollen,
+        gastStatus,
       };
     });
 

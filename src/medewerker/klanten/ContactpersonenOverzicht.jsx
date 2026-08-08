@@ -31,6 +31,7 @@ const BASIS_KOLOMMEN = [
   { key: "aanhef", label: "Aanhef", waarde: (c) => c.aanhef },
   { key: "functie", label: "Functie", waarde: (c) => c.functie, standaard: true },
   { key: "email", label: "E-mail", waarde: (c) => c.email, standaard: true, soort: "email" },
+  { key: "gastaccount", label: "Gastaccount", waarde: (c) => c.gastStatus || "", standaard: true, soort: "gastaccount" },
   { key: "mobiel", label: "Mobiel", waarde: (c) => c.mobiel, standaard: true, soort: "tel" },
   { key: "telefoon", label: "Telefoon", waarde: (c) => c.telefoon, soort: "tel" },
   { key: "klantnamen", label: "Cliënt(en)", waarde: (c) => c.klantnamen, standaard: true },
@@ -430,6 +431,11 @@ export default function ContactpersonenOverzicht() {
     if (!waarde) return <span style={{ color: KLEUR.mutedTekst }}>—</span>;
     if (kol.soort === "email") return <a href={`mailto:${waarde}`} onClick={(e) => e.stopPropagation()} style={{ color: KLEUR.blauw, textDecoration: "none" }}>{waarde}</a>;
     if (kol.soort === "tel") return <a href={`tel:${String(waarde).replace(/\s/g, "")}`} onClick={(e) => e.stopPropagation()} style={{ color: KLEUR.blauw, textDecoration: "none" }}>{waarde}</a>;
+    if (kol.soort === "gastaccount") {
+      if (waarde === "geblokkeerd") return <span title="Geblokkeerd gastaccount" style={{ color: "#B23B3B", fontWeight: 700 }}>✓ geblokkeerd</span>;
+      if (waarde === "pending") return <span title="Uitgenodigd — nog niet geaccepteerd" style={{ color: "#B7791F", fontWeight: 700 }}>✓ uitgenodigd</span>;
+      return <span title="Heeft gastaccount" style={{ color: "#2E7D5B", fontWeight: 700 }}>✓</span>;
+    }
     return waarde;
   };
 
