@@ -6,7 +6,6 @@ import VerlofBeheer from "./VerlofBeheer";
 import DossierIndelingBeheer from "./DossierIndelingBeheer";
 import RapportagesBeheer from "./RapportagesBeheer";
 import ContractenTypesBeheer from "./ContractenTypesBeheer";
-import PlanningInstellingenBeheer from "./PlanningInstellingenBeheer";
 import ContractenDossierInstellingen from "./ContractenDossierInstellingen";
 import ContractenMailInstellingen from "./ContractenMailInstellingen";
 import BrievenBeheer from "./BrievenBeheer";
@@ -220,8 +219,11 @@ export default function BeheerPortaal() {
   // undefined/true = open (standaard), false = ingeklapt. Eén gedeelde state i.p.v. een
   // aparte useState per rubriek.
   const [rubriekOpen, setRubriekOpen] = useState({});
-  // Standaard dichtgeklapt — pas open na een expliciete klik door de beheerder.
-  const rubriekIsOpen = (key) => rubriekOpen[key] === true;
+  // Deze rubrieken staan standaard opengeklapt (mits nog niet expliciet dichtgeklikt);
+  // de overige rubrieken zijn standaard dichtgeklapt.
+  const RUBRIEK_STANDAARD_OPEN = new Set(["mededeling", "faq", "medewerkers"]);
+  // undefined = nog niet aangeklikt → val terug op de standaard hierboven; anders de gekozen stand.
+  const rubriekIsOpen = (key) => (rubriekOpen[key] === undefined ? RUBRIEK_STANDAARD_OPEN.has(key) : rubriekOpen[key] === true);
   const toggleRubriek = (key) => setRubriekOpen((h) => ({ ...h, [key]: !rubriekIsOpen(key) }));
   const [logoUrl, setLogoUrl] = useState("");
   const [uploadStatus, setUploadStatus] = useState("idle"); // idle | bezig | gelukt | fout
@@ -327,7 +329,7 @@ export default function BeheerPortaal() {
   const [taaksoortenConfiguratieNodig, setTaaksoortenConfiguratieNodig] = useState(false);
   const [taaksoortenFout, setTaaksoortenFout] = useState("");
   const [taaksoortenOpslaanStatus, setTaaksoortenOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
-  const [taaksoortenSectieOpen, setTaaksoortenSectieOpen] = useState(false);
+  const [taaksoortenSectieOpen, setTaaksoortenSectieOpen] = useState(true);
   const [taaksoortenZoek, setTaaksoortenZoek] = useState("");
   // Opties van het "Rubriek"-veld (cr283_rubriek) op Task — voor de rubriek-keuze bij de
   // vervolgtaak backoffice (zelfde bron als de rubriek bij Beheer → Brieven).
@@ -1418,7 +1420,6 @@ export default function BeheerPortaal() {
           ["medewerkers", "Medewerkers"],
           ["gastaccounts", "Gastaccounts"],
           ["facturatie", "Functies"],
-          ["planning", "Planning"],
           ["offertes", "Offertes"],
           ["brieven", "Brieven"],
           ["aanleveren", "Uitvraag"],
@@ -1453,7 +1454,6 @@ export default function BeheerPortaal() {
 
       {tab === "aanleveren" && <UitvraagBeheer />}
       {tab === "gastaccounts" && <GastaccountsOverzicht />}
-      {tab === "planning" && <PlanningInstellingenBeheer />}
       {tab === "uren" && (<>
         <UrenTarievenBeheer />
         <VerlofBeheer />
