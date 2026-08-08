@@ -10,7 +10,7 @@ import Urenregistratie from "./uren/Urenregistratie";
 import Ontwikkelverzoeken from "./Ontwikkelverzoeken";
 import ScopeToggle, { useMijnNaam, isKlantVanMij } from "./MijnFilter";
 import ContactpersonenOverzicht from "./klanten/ContactpersonenOverzicht";
-import PlanningOverzicht from "./klanten/PlanningOverzicht";
+import PlanningModule from "./klanten/PlanningModule";
 import BrievenOverzicht from "./klanten/BrievenOverzicht";
 import BrievenLogboek from "./klanten/BrievenLogboek";
 
@@ -4309,7 +4309,7 @@ export default function MedewerkerPortaal() {
 
       {tab === "klantoverzicht" && <KlantenModule magContracten={magContracten} isBeheerder={isBeheerder} />}
       {tab === "taken" && <TakenOverzicht />}
-      {tab === "planning" && (magPlanning || isBeheerder) && <PlanningOverzicht />}
+      {tab === "planning" && (magPlanning || isBeheerder) && <PlanningModule />}
       {tab === "vragenlijsten" && <Vragenlijsten />}
       {tab === "uren" && <Urenregistratie isBeheerder={isBeheerder} />}
       {tab === "verzoeken" && <WijzigingsverzoekBeheer onAfgehandeld={laadTellingen} />}

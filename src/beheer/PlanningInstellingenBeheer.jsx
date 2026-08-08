@@ -9,6 +9,18 @@ const KLEUR = {
 };
 const invoerStijl = { boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 13, outline: "none" };
 
+/** De rollen waaraan een activiteit gekoppeld kan worden (moet in sync blijven met GELDIGE_ROLLEN in
+ *  api/_gedeeld/planningInstellingen.js). De planning wijst standaard de persoon in deze rol toe,
+ *  afgeleid uit de klantgegevens (Dynamics). */
+const ROLLEN = [
+  { key: "assistent", label: "Assistent" },
+  { key: "manager", label: "Manager" },
+  { key: "accountant", label: "Accountant" },
+  { key: "fiscaal", label: "Fiscaal medewerker" },
+  { key: "loonadministratie", label: "Loonadministratie" },
+  { key: "backup", label: "Backup (assistent 2)" },
+];
+
 /**
  * Beheer van de Planningsmodule-lijsten: de activiteiten (maand-/jaaractiviteiten) en de statussen
  * (met kleur). Op verzoek van Wouter (07-08-2026) volledig zelf te beheren. Opslag via
@@ -38,6 +50,7 @@ export default function PlanningInstellingenBeheer() {
   const [statussen, setStatussen] = useState(null);
   const [nieuweActiviteit, setNieuweActiviteit] = useState("");
   const [nieuweActiviteitType, setNieuweActiviteitType] = useState("maand");
+  const [nieuweActiviteitRol, setNieuweActiviteitRol] = useState("assistent");
   const [nieuweStatus, setNieuweStatus] = useState("");
   const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
   const [fout, setFout] = useState("");
@@ -70,11 +83,12 @@ export default function PlanningInstellingenBeheer() {
   const voegActiviteitToe = () => {
     const label = nieuweActiviteit.trim();
     if (!label) return;
-    opslaan([...(activiteiten || []), { label, type: nieuweActiviteitType, actief: true }], statussen || []);
+    opslaan([...(activiteiten || []), { label, type: nieuweActiviteitType, rol: nieuweActiviteitRol, actief: true }], statussen || []);
     setNieuweActiviteit("");
   };
   const wijzigActiviteitLabel = (sleutel, label) => setActiviteiten((h) => (h || []).map((a) => (a.sleutel === sleutel ? { ...a, label } : a)));
   const wijzigActiviteitType = (sleutel, type) => opslaan((activiteiten || []).map((a) => (a.sleutel === sleutel ? { ...a, type } : a)), statussen || []);
+  const wijzigActiviteitRol = (sleutel, rol) => opslaan((activiteiten || []).map((a) => (a.sleutel === sleutel ? { ...a, rol } : a)), statussen || []);
   const zetActiviteitActief = (sleutel, actief) => opslaan((activiteiten || []).map((a) => (a.sleutel === sleutel ? { ...a, actief } : a)), statussen || []);
   const verplaatsActiviteit = (i, richting) => {
     const doel = i + richting;
@@ -138,9 +152,13 @@ export default function PlanningInstellingenBeheer() {
                 <div key={a.sleutel} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, opacity: a.actief ? 1 : 0.6 }}>
                   {pijltjes(i, activiteiten.length, verplaatsActiviteit)}
                   <input value={a.label} onChange={(e) => wijzigActiviteitLabel(a.sleutel, e.target.value)} onBlur={() => opslaan(activiteiten, statussen)} style={{ ...invoerStijl, flex: 1, minWidth: 0 }} />
-                  <select value={a.type} onChange={(e) => wijzigActiviteitType(a.sleutel, e.target.value)} style={{ ...invoerStijl, flexShrink: 0 }}>
+                  <select value={a.type} onChange={(e) => wijzigActiviteitType(a.sleutel, e.target.value)} title="Maand- of jaaractiviteit" style={{ ...invoerStijl, flexShrink: 0 }}>
                     <option value="maand">Maand</option>
                     <option value="jaar">Jaar</option>
+                  </select>
+                  <select value={a.rol || ""} onChange={(e) => wijzigActiviteitRol(a.sleutel, e.target.value)} title="Rol die deze activiteit doet (team-toewijzing)" style={{ ...invoerStijl, flexShrink: 0 }}>
+                    <option value="">— rol —</option>
+                    {ROLLEN.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
                   </select>
                   {ACTIEF_KNOP(a.actief, () => zetActiviteitActief(a.sleutel, !a.actief))}
                 </div>
@@ -152,6 +170,9 @@ export default function PlanningInstellingenBeheer() {
               <select value={nieuweActiviteitType} onChange={(e) => setNieuweActiviteitType(e.target.value)} style={invoerStijl}>
                 <option value="maand">Maand</option>
                 <option value="jaar">Jaar</option>
+              </select>
+              <select value={nieuweActiviteitRol} onChange={(e) => setNieuweActiviteitRol(e.target.value)} title="Rol die deze activiteit doet" style={invoerStijl}>
+                {ROLLEN.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
               </select>
               <button onClick={voegActiviteitToe} disabled={!nieuweActiviteit.trim() || status === "bezig"} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: nieuweActiviteit.trim() ? "pointer" : "default", opacity: nieuweActiviteit.trim() ? 1 : 0.6 }}><Plus size={14} /> Toevoegen</button>
             </div>

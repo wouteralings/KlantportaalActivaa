@@ -29,27 +29,32 @@ const CONTAINER_NAAM = "portaalcontent";
 const BLOB_NAAM = "planning-instellingen.json";
 let cachedContainerClient = null;
 
+// De rollen waaraan een activiteit gekoppeld kan worden (het "Type" dat de activiteit uitvoert).
+// De sleutel matcht een rol-persoon die /api/beheer-klanten per klant teruggeeft (uit Dynamics),
+// zodat de planning automatisch het TEAM van de klant toewijst. Vrij per activiteit te kiezen.
+const GELDIGE_ROLLEN = ["assistent", "manager", "accountant", "fiscaal", "loonadministratie", "backup"];
+
 const STANDAARD_ACTIVITEITEN = [
-  { sleutel: "administratie", label: "Administratie", type: "maand", actief: true },
-  { sleutel: "controle-administratie", label: "Controle administratie", type: "maand", actief: true },
-  { sleutel: "rapportage", label: "Rapportage", type: "maand", actief: true },
-  { sleutel: "omzetbelasting", label: "Omzetbelasting", type: "maand", actief: true },
-  { sleutel: "icp-aangifte", label: "ICP Aangifte", type: "maand", actief: true },
-  { sleutel: "aangifte-ioss", label: "Aangifte iOSS", type: "maand", actief: true },
-  { sleutel: "aangifte-oss", label: "Aangifte OSS", type: "maand", actief: true },
-  { sleutel: "overige-klanthandelingen", label: "Overige klanthandelingen", type: "maand", actief: true },
-  { sleutel: "hcm", label: "HCM", type: "jaar", actief: true },
-  { sleutel: "planning", label: "Planning", type: "jaar", actief: true },
-  { sleutel: "interim-controle", label: "Interim controle", type: "jaar", actief: true },
-  { sleutel: "concept-jaarrekening", label: "Concept jaarrekening", type: "jaar", actief: true },
-  { sleutel: "definitieve-jaarrekening", label: "Definitieve jaarrekening", type: "jaar", actief: true },
-  { sleutel: "publicatiestukken", label: "Publicatiestukken", type: "jaar", actief: true },
-  { sleutel: "aangifte-vennootschapsbelasting", label: "Aangifte vennootschapsbelasting", type: "jaar", actief: true },
-  { sleutel: "sbr", label: "SBR", type: "jaar", actief: true },
-  { sleutel: "bijlage-wuo", label: "Bijlage WUO", type: "jaar", actief: true },
-  { sleutel: "aangifte-inkomstenbelasting", label: "Aangifte inkomstenbelasting", type: "jaar", actief: true },
-  { sleutel: "rapport-4400", label: "Rapport 4400", type: "jaar", actief: true },
-  { sleutel: "rapport-2400", label: "Rapport 2400", type: "jaar", actief: true },
+  { sleutel: "administratie", label: "Administratie", type: "maand", rol: "assistent", actief: true },
+  { sleutel: "controle-administratie", label: "Controle administratie", type: "maand", rol: "manager", actief: true },
+  { sleutel: "rapportage", label: "Rapportage", type: "maand", rol: "assistent", actief: true },
+  { sleutel: "omzetbelasting", label: "Omzetbelasting", type: "maand", rol: "assistent", actief: true },
+  { sleutel: "icp-aangifte", label: "ICP Aangifte", type: "maand", rol: "assistent", actief: true },
+  { sleutel: "aangifte-ioss", label: "Aangifte iOSS", type: "maand", rol: "assistent", actief: true },
+  { sleutel: "aangifte-oss", label: "Aangifte OSS", type: "maand", rol: "assistent", actief: true },
+  { sleutel: "overige-klanthandelingen", label: "Overige klanthandelingen", type: "maand", rol: "assistent", actief: true },
+  { sleutel: "hcm", label: "HCM", type: "jaar", rol: "accountant", actief: true },
+  { sleutel: "planning", label: "Planning", type: "jaar", rol: "manager", actief: true },
+  { sleutel: "interim-controle", label: "Interim controle", type: "jaar", rol: "accountant", actief: true },
+  { sleutel: "concept-jaarrekening", label: "Concept jaarrekening", type: "jaar", rol: "accountant", actief: true },
+  { sleutel: "definitieve-jaarrekening", label: "Definitieve jaarrekening", type: "jaar", rol: "accountant", actief: true },
+  { sleutel: "publicatiestukken", label: "Publicatiestukken", type: "jaar", rol: "accountant", actief: true },
+  { sleutel: "aangifte-vennootschapsbelasting", label: "Aangifte vennootschapsbelasting", type: "jaar", rol: "accountant", actief: true },
+  { sleutel: "sbr", label: "SBR", type: "jaar", rol: "accountant", actief: true },
+  { sleutel: "bijlage-wuo", label: "Bijlage WUO", type: "jaar", rol: "accountant", actief: true },
+  { sleutel: "aangifte-inkomstenbelasting", label: "Aangifte inkomstenbelasting", type: "jaar", rol: "fiscaal", actief: true },
+  { sleutel: "rapport-4400", label: "Rapport 4400", type: "jaar", rol: "accountant", actief: true },
+  { sleutel: "rapport-2400", label: "Rapport 2400", type: "jaar", rol: "accountant", actief: true },
 ];
 
 const STANDAARD_STATUSSEN = [
@@ -104,7 +109,8 @@ function normaliseerActiviteiten(lijst) {
     let sleutel = maakSleutel((t && t.sleutel) || label);
     if (!sleutel || gezien.has(sleutel)) continue;
     gezien.add(sleutel);
-    uit.push({ sleutel, label, type: (t && t.type) === "jaar" ? "jaar" : "maand", actief: t && t.actief === false ? false : true });
+    const rol = GELDIGE_ROLLEN.includes(t && t.rol) ? t.rol : "";
+    uit.push({ sleutel, label, type: (t && t.type) === "jaar" ? "jaar" : "maand", rol, actief: t && t.actief === false ? false : true });
   }
   return uit;
 }
@@ -181,5 +187,5 @@ async function magStatus(sleutel) {
 
 module.exports = {
   haalInstellingen, haalActieveActiviteiten, haalActieveStatussen, zetInstellingen,
-  magActiviteit, magStatus, maakSleutel, STANDAARD_ACTIVITEITEN, STANDAARD_STATUSSEN,
+  magActiviteit, magStatus, maakSleutel, GELDIGE_ROLLEN, STANDAARD_ACTIVITEITEN, STANDAARD_STATUSSEN,
 };
