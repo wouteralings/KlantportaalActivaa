@@ -5,19 +5,21 @@
  * De maandplanning-weergave (afgeleid uit de configuratie + rooster) komt hier later als derde tab bij.
  */
 import { useState } from "react";
-import { List, Users } from "lucide-react";
+import { List, Users, CalendarRange } from "lucide-react";
 import PlanningOverzicht from "./PlanningOverzicht";
 import PlanningConfigPerKlant from "./PlanningConfigPerKlant";
+import PlanningMaand from "./PlanningMaand";
 
 const KLEUR = { blauw: "#1C5D8C", subtekst: "#5B6259", rand: "#E2E4DF" };
 
 const SUBTABS = [
-  { key: "overzicht", label: "Overzicht", icon: List },
+  { key: "maand", label: "Maandplanning", icon: CalendarRange },
   { key: "config", label: "Per klant", icon: Users },
+  { key: "overzicht", label: "Losse regels", icon: List },
 ];
 
 export default function PlanningModule() {
-  const [sub, setSub] = useState("overzicht");
+  const [sub, setSub] = useState("maand");
   return (
     <div>
       <div style={{ display: "flex", gap: 4, marginBottom: 16, flexWrap: "wrap" }}>
@@ -35,8 +37,9 @@ export default function PlanningModule() {
           );
         })}
       </div>
-      {sub === "overzicht" && <PlanningOverzicht />}
+      {sub === "maand" && <PlanningMaand />}
       {sub === "config" && <PlanningConfigPerKlant />}
+      {sub === "overzicht" && <PlanningOverzicht />}
     </div>
   );
 }

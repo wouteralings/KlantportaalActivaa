@@ -45,6 +45,31 @@ const ACTIEF_KNOP = (actief, onClick) => (
   </button>
 );
 
+const AANTAL_KEUZES = [[25, "25"], [50, "50"], [100, "100"], [250, "250"], [500, "500"], [Infinity, "Alle"]];
+function AantalKiezer({ aantal, setAantal, totaal }) {
+  const getoond = Math.min(aantal === Infinity ? totaal : aantal, totaal);
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+      <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{getoond} van {totaal} getoond</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, flexWrap: "wrap" }}>
+        <span style={{ color: KLEUR.mutedTekst }}>Toon:</span>
+        {AANTAL_KEUZES.map(([n, lbl]) => (
+          <button key={lbl} onClick={() => setAantal(n)} style={{
+            padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
+            border: `1px solid ${aantal === n ? KLEUR.blauw : KLEUR.rand}`,
+            background: aantal === n ? KLEUR.blauw : "#fff", color: aantal === n ? "#fff" : KLEUR.subtekst,
+          }}>{lbl}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Grid-kolommen zodat de koppen exact boven de invoervelden uitlijnen.
+const GRID_ACT = "52px minmax(150px, 1fr) 110px 180px 96px"; // pijltjes | Activiteit | Periode | Functie | Status
+const GRID_STAT = "52px minmax(180px, 1fr) 52px 96px";       // pijltjes | Status | Kleur | (actief)
+const kopStijl = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" };
+
 export default function PlanningInstellingenBeheer() {
   const [activiteiten, setActiviteiten] = useState(null);
   const [statussen, setStatussen] = useState(null);
@@ -54,6 +79,8 @@ export default function PlanningInstellingenBeheer() {
   const [nieuweStatus, setNieuweStatus] = useState("");
   const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
   const [fout, setFout] = useState("");
+  const [activiteitAantal, setActiviteitAantal] = useState(25);
+  const [statusAantal, setStatusAantal] = useState(25);
 
   useEffect(() => {
     fetch("/api/beheer-planning-instellingen")
@@ -147,16 +174,19 @@ export default function PlanningInstellingenBeheer() {
             <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700, marginBottom: 12 }}>
               <CalendarClock size={16} color={KLEUR.blauw} /> Activiteiten <span style={{ fontSize: 12, fontWeight: 600, color: KLEUR.mutedTekst }}>({activiteiten.length})</span>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
-              {activiteiten.map((a, i) => (
-                <div key={a.sleutel} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, opacity: a.actief ? 1 : 0.6 }}>
+            <div style={{ display: "grid", gridTemplateColumns: GRID_ACT, gap: 8, alignItems: "center", padding: "0 10px 6px", ...kopStijl }}>
+              <span></span><span>Activiteit</span><span>Periode</span><span>Functie</span><span>Status</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 6 }}>
+              {activiteiten.slice(0, activiteitAantal).map((a, i) => (
+                <div key={a.sleutel} style={{ display: "grid", gridTemplateColumns: GRID_ACT, gap: 8, alignItems: "center", padding: "7px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, opacity: a.actief ? 1 : 0.6 }}>
                   {pijltjes(i, activiteiten.length, verplaatsActiviteit)}
-                  <input value={a.label} onChange={(e) => wijzigActiviteitLabel(a.sleutel, e.target.value)} onBlur={() => opslaan(activiteiten, statussen)} style={{ ...invoerStijl, flex: 1, minWidth: 0 }} />
-                  <select value={a.type} onChange={(e) => wijzigActiviteitType(a.sleutel, e.target.value)} title="Maand- of jaaractiviteit" style={{ ...invoerStijl, flexShrink: 0 }}>
+                  <input value={a.label} onChange={(e) => wijzigActiviteitLabel(a.sleutel, e.target.value)} onBlur={() => opslaan(activiteiten, statussen)} style={{ ...invoerStijl, minWidth: 0 }} />
+                  <select value={a.type} onChange={(e) => wijzigActiviteitType(a.sleutel, e.target.value)} title="Maand- of jaaractiviteit" style={invoerStijl}>
                     <option value="maand">Maand</option>
                     <option value="jaar">Jaar</option>
                   </select>
-                  <select value={a.rol || ""} onChange={(e) => wijzigActiviteitRol(a.sleutel, e.target.value)} title="Rol die deze activiteit doet (team-toewijzing)" style={{ ...invoerStijl, flexShrink: 0 }}>
+                  <select value={a.rol || ""} onChange={(e) => wijzigActiviteitRol(a.sleutel, e.target.value)} title="Rol die deze activiteit doet (team-toewijzing)" style={invoerStijl}>
                     <option value="">— rol —</option>
                     {ROLLEN.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
                   </select>
@@ -165,6 +195,7 @@ export default function PlanningInstellingenBeheer() {
               ))}
               {activiteiten.length === 0 && <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, padding: "8px 2px" }}>Nog geen activiteiten.</div>}
             </div>
+            {activiteiten.length > 0 && <div style={{ marginBottom: 12 }}><AantalKiezer aantal={activiteitAantal} setAantal={setActiviteitAantal} totaal={activiteiten.length} /></div>}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <input value={nieuweActiviteit} onChange={(e) => setNieuweActiviteit(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); voegActiviteitToe(); } }} placeholder="Nieuwe activiteit, bijv. BTW-suppletie" style={{ ...invoerStijl, flex: "0 1 300px" }} />
               <select value={nieuweActiviteitType} onChange={(e) => setNieuweActiviteitType(e.target.value)} style={invoerStijl}>
@@ -183,18 +214,24 @@ export default function PlanningInstellingenBeheer() {
             <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700, marginBottom: 12 }}>
               <Tag size={16} color={KLEUR.blauw} /> Statussen <span style={{ fontSize: 12, fontWeight: 600, color: KLEUR.mutedTekst }}>({statussen.length})</span>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
-              {statussen.map((s, i) => (
-                <div key={s.sleutel} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, opacity: s.actief ? 1 : 0.6 }}>
+            <div style={{ display: "grid", gridTemplateColumns: GRID_STAT, gap: 8, alignItems: "center", padding: "0 10px 6px", ...kopStijl }}>
+              <span></span><span>Status</span><span>Kleur</span><span></span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 6 }}>
+              {statussen.slice(0, statusAantal).map((s, i) => (
+                <div key={s.sleutel} style={{ display: "grid", gridTemplateColumns: GRID_STAT, gap: 8, alignItems: "center", padding: "7px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, opacity: s.actief ? 1 : 0.6 }}>
                   {pijltjes(i, statussen.length, verplaatsStatus)}
-                  <span style={{ fontSize: 11, fontWeight: 600, color: s.kleur, background: `${s.kleur}1A`, padding: "3px 9px", borderRadius: 20, whiteSpace: "nowrap", flexShrink: 0 }}>{s.label || "—"}</span>
-                  <input value={s.label} onChange={(e) => wijzigStatusLabel(s.sleutel, e.target.value)} onBlur={() => opslaan(activiteiten, statussen)} style={{ ...invoerStijl, flex: 1, minWidth: 0 }} />
-                  <input type="color" value={s.kleur} onChange={(e) => wijzigStatusKleur(s.sleutel, e.target.value)} title="Kleur" style={{ width: 34, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", cursor: "pointer", flexShrink: 0, padding: 2 }} />
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: s.kleur, background: `${s.kleur}1A`, padding: "3px 9px", borderRadius: 20, whiteSpace: "nowrap", flexShrink: 0 }}>{s.label || "—"}</span>
+                    <input value={s.label} onChange={(e) => wijzigStatusLabel(s.sleutel, e.target.value)} onBlur={() => opslaan(activiteiten, statussen)} style={{ ...invoerStijl, flex: 1, minWidth: 0 }} />
+                  </div>
+                  <input type="color" value={s.kleur} onChange={(e) => wijzigStatusKleur(s.sleutel, e.target.value)} title="Kleur" style={{ width: 40, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", cursor: "pointer", padding: 2 }} />
                   {ACTIEF_KNOP(s.actief, () => zetStatusActief(s.sleutel, !s.actief))}
                 </div>
               ))}
               {statussen.length === 0 && <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, padding: "8px 2px" }}>Nog geen statussen.</div>}
             </div>
+            {statussen.length > 0 && <div style={{ marginBottom: 12 }}><AantalKiezer aantal={statusAantal} setAantal={setStatusAantal} totaal={statussen.length} /></div>}
             <div style={{ display: "flex", gap: 8 }}>
               <input value={nieuweStatus} onChange={(e) => setNieuweStatus(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); voegStatusToe(); } }} placeholder="Nieuwe status, bijv. Ter review" style={{ ...invoerStijl, flex: "0 1 300px" }} />
               <button onClick={voegStatusToe} disabled={!nieuweStatus.trim() || status === "bezig"} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: nieuweStatus.trim() ? "pointer" : "default", opacity: nieuweStatus.trim() ? 1 : 0.6 }}><Plus size={14} /> Toevoegen</button>

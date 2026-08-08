@@ -10,7 +10,7 @@
  */
 const { haalEmailUitPrincipal } = require("../_gedeeld/identiteit");
 const { metPlanningRecht } = require("../_gedeeld/planningRecht");
-const { haalVoorKlant, maakRegel, wijzigRegel, verwijderRegel } = require("../_gedeeld/planningConfig");
+const { haalVoorKlant, haalAlle, maakRegel, wijzigRegel, verwijderRegel } = require("../_gedeeld/planningConfig");
 
 function afhandelFout(context, err) {
   if (err.message === "MISSING_CONFIG") {
@@ -31,11 +31,8 @@ module.exports = metPlanningRecht(async function (context, req) {
 
     if (req.method === "GET") {
       const accountId = req.query.accountId;
-      if (!accountId) {
-        context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef accountId mee." } };
-        return;
-      }
-      const config = await haalVoorKlant(accountId);
+      // Zonder accountId: alle actieve configuratie over alle klanten heen (voor de maandplanning, Stap 3b).
+      const config = accountId ? await haalVoorKlant(accountId) : await haalAlle();
       context.res = { headers: { "Content-Type": "application/json" }, body: { config } };
       return;
     }
