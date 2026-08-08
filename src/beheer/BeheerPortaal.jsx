@@ -6,6 +6,7 @@ import VerlofBeheer from "./VerlofBeheer";
 import DossierIndelingBeheer from "./DossierIndelingBeheer";
 import RapportagesBeheer from "./RapportagesBeheer";
 import ContractenTypesBeheer from "./ContractenTypesBeheer";
+import PlanningInstellingenBeheer from "./PlanningInstellingenBeheer";
 import ContractenDossierInstellingen from "./ContractenDossierInstellingen";
 import ContractenMailInstellingen from "./ContractenMailInstellingen";
 import BrievenBeheer from "./BrievenBeheer";
@@ -1417,6 +1418,7 @@ export default function BeheerPortaal() {
           ["medewerkers", "Medewerkers"],
           ["gastaccounts", "Gastaccounts"],
           ["facturatie", "Functies"],
+          ["planning", "Planning"],
           ["offertes", "Offertes"],
           ["brieven", "Brieven"],
           ["aanleveren", "Uitvraag"],
@@ -1451,6 +1453,7 @@ export default function BeheerPortaal() {
 
       {tab === "aanleveren" && <UitvraagBeheer />}
       {tab === "gastaccounts" && <GastaccountsOverzicht />}
+      {tab === "planning" && <PlanningInstellingenBeheer />}
       {tab === "uren" && (<>
         <UrenTarievenBeheer />
         <VerlofBeheer />

@@ -188,6 +188,12 @@
       ]
     },
     {
+      "route": "/api/beheer-planning-instellingen",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
       "route": "/api/beheer-contractentypes",
       "allowedRoles": [
         "beheerder"
