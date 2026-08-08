@@ -55,6 +55,7 @@ export default function PlanningMaand() {
   const [alle, setAlle] = useState(false);
   const [roosterAan, setRoosterAan] = useState(true);
   const [doelAan, setDoelAan] = useState(true);
+  const [teamFilter, setTeamFilter] = useState("alle");
 
   const [config, setConfig] = useState(null);
   const [activiteiten, setActiviteiten] = useState([]);
@@ -96,6 +97,7 @@ export default function PlanningMaand() {
       const act = activiteitById[r.activiteit];
       if (!act) continue;
       const klant = klantenMap[String(r.klantAccountId || "").toLowerCase()] || null;
+      if (teamFilter !== "alle" && (klant?.team || "") !== teamFilter) continue;
       const override = (r.toegewezenAan || "").trim();
       const team = teamPersoon(klant, act.rol);
       const wie = override || team || "— niet toegewezen";
@@ -111,7 +113,12 @@ export default function PlanningMaand() {
       }
     }
     return { maanditems, zonderMaand, perMedewerker };
-  }, [config, activiteitById, klantenMap, maand]);
+  }, [config, activiteitById, klantenMap, maand, teamFilter]);
+
+  const teams = useMemo(
+    () => [...new Set(Object.values(klantenMap).map((k) => k.team).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), "nl")),
+    [klantenMap]
+  );
 
   const planningVoor = (naam) => {
     if (perMedewerker[naam] != null) return perMedewerker[naam];
@@ -164,6 +171,15 @@ export default function PlanningMaand() {
       <div style={{ fontSize: 12.5, color: KLEUR.subtekst, margin: "8px 0 14px", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
         <span><strong>{urenTekst(totaalMaand)}</strong> ingepland deze maand</span>
         <span style={{ color: KLEUR.rand }}>|</span>
+        {teams.length > 0 && (
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: KLEUR.subtekst }}>
+            Team:
+            <select value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "4px 8px", fontSize: 12, background: "#fff" }}>
+              <option value="alle">alle</option>
+              {teams.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </label>
+        )}
         {checkbox(roosterAan, setRoosterAan, "Rooster", "Beschikbaar op basis van het werkrooster (parttime-factor) i.p.v. de volle norm")}
         {checkbox(doelAan, setDoelAan, "Declarabel-doel", "Beschikbaar × declarabel-doel % per medewerker")}
         {checkbox(alle, setAlle, "Kantoorbreed", "Beheerder: alle medewerkers i.p.v. alleen je eigen team")}

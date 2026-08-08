@@ -104,6 +104,7 @@ export default function PlanningOverzicht() {
   const [typeFilter, setTypeFilter] = useState("alle"); // alle | maand | jaar
   const [statusFilter, setStatusFilter] = useState("alle");
   const [groepFilter, setGroepFilter] = useState("alle");
+  const [teamFilter, setTeamFilter] = useState("alle");
   const [scope, setScope] = useState("mijn");
   const [toonAantal, setToonAantal] = useState(50);
   const [sortKey, setSortKey] = useState("deadline");
@@ -158,6 +159,10 @@ export default function PlanningOverzicht() {
     () => [...new Set(Object.values(klantenMap).map((k) => k.groepsnaam).filter(Boolean))].sort((a, b) => a.localeCompare(b, "nl")),
     [klantenMap]
   );
+  const teams = useMemo(
+    () => [...new Set(Object.values(klantenMap).map((k) => k.team).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), "nl")),
+    [klantenMap]
+  );
 
   const gefilterd = useMemo(() => {
     const term = zoek.trim().toLowerCase();
@@ -166,6 +171,7 @@ export default function PlanningOverzicht() {
       if (typeFilter !== "alle" && r.type !== typeFilter) return false;
       if (statusFilter !== "alle" && r.status !== statusFilter) return false;
       if (groepFilter !== "alle" && r.groepsnaam !== groepFilter) return false;
+      if (teamFilter !== "alle" && (r.klant?.team || "") !== teamFilter) return false;
       if (term) {
         const raak = [r.klantnaam, r.klantnummer, r.activiteitLabel, r.periode, r.toegewezenAan, r.groepsnaam]
           .filter(Boolean).some((v) => String(v).toLowerCase().includes(term));
@@ -173,7 +179,7 @@ export default function PlanningOverzicht() {
       }
       return true;
     });
-  }, [rijen, zoek, typeFilter, statusFilter, groepFilter, scope, mijnNaam]);
+  }, [rijen, zoek, typeFilter, statusFilter, groepFilter, teamFilter, scope, mijnNaam]);
 
   const sorteerWaarde = (key, r) => {
     switch (key) {
@@ -218,7 +224,7 @@ export default function PlanningOverzicht() {
     return { totaal, perMedewerker: sorteer(perMedewerker), perPeriode: sorteer(perPeriode) };
   }, [gefilterd]);
 
-  const filtersActief = typeFilter !== "alle" || statusFilter !== "alle" || groepFilter !== "alle";
+  const filtersActief = typeFilter !== "alle" || statusFilter !== "alle" || groepFilter !== "alle" || teamFilter !== "alle";
 
   // ---- Formulier (nieuw/bewerken) ----
   const nieuweRegel = () => setForm({ nieuw: true, klantAccountId: "", activiteit: "", type: "maand", periode: "", deadline: "", status: "", toegewezenAan: "", indicatieUren: "", opmerkingen: "" });
@@ -414,8 +420,14 @@ export default function PlanningOverzicht() {
             {groepen.map((g) => <option key={g} value={g}>{g}</option>)}
           </select>
         )}
+        {teams.length > 0 && (
+          <select value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)} style={selectStijl}>
+            <option value="alle">Alle teams</option>
+            {teams.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        )}
         {(filtersActief || zoek) && (
-          <button onClick={() => { setTypeFilter("alle"); setStatusFilter("alle"); setGroepFilter("alle"); setZoek(""); }}
+          <button onClick={() => { setTypeFilter("alle"); setStatusFilter("alle"); setGroepFilter("alle"); setTeamFilter("alle"); setZoek(""); }}
             style={{ padding: "8px 12px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
             Filters wissen
           </button>

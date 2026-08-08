@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, CheckCircle2, XCircle, CalendarClock, Tag, ArrowUp, ArrowDown } from "lucide-react";
+import { Plus, CheckCircle2, XCircle, CalendarClock, Tag, ArrowUp, ArrowDown, UserX, Trash2 } from "lucide-react";
 
 /** Zelfde palet als de rest van het beheerdersportaal (bewust hier herhaald zodat dit bestand op
  *  zichzelf staat, zie bijv. ContractenTypesBeheer.jsx). */
@@ -81,25 +81,34 @@ export default function PlanningInstellingenBeheer() {
   const [fout, setFout] = useState("");
   const [activiteitAantal, setActiviteitAantal] = useState(25);
   const [statusAantal, setStatusAantal] = useState(25);
+  const [uitgesloten, setUitgesloten] = useState([]); // [{ email, naam, reden }]
+  const [medewerkers, setMedewerkers] = useState([]); // [{ naam, email }]
+  const [nwUitEmail, setNwUitEmail] = useState("");
+  const [nwUitReden, setNwUitReden] = useState("");
 
   useEffect(() => {
     fetch("/api/beheer-planning-instellingen")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { setActiviteiten(d.activiteiten || []); setStatussen(d.statussen || []); })
+      .then((d) => { setActiviteiten(d.activiteiten || []); setStatussen(d.statussen || []); setUitgesloten(d.uitgeslotenMedewerkers || []); })
       .catch(() => { setActiviteiten([]); setStatussen([]); setFout("Kon de planning-instellingen niet laden."); });
+    fetch("/api/mw-planning-medewerkers")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setMedewerkers(d.medewerkers || []))
+      .catch(() => setMedewerkers([]));
   }, []);
 
-  const opslaan = async (nieuweActiviteiten, nieuweStatussen) => {
+  const opslaan = async (nieuweActiviteiten, nieuweStatussen, nieuweUitgesloten = uitgesloten) => {
     setStatus("bezig"); setFout("");
     try {
       const r = await fetch("/api/beheer-planning-instellingen", {
         method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ activiteiten: nieuweActiviteiten, statussen: nieuweStatussen }),
+        body: JSON.stringify({ activiteiten: nieuweActiviteiten, statussen: nieuweStatussen, uitgeslotenMedewerkers: nieuweUitgesloten }),
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       const d = await r.json();
       setActiviteiten(d.activiteiten || nieuweActiviteiten);
       setStatussen(d.statussen || nieuweStatussen);
+      setUitgesloten(d.uitgeslotenMedewerkers || nieuweUitgesloten);
       setStatus("opgeslagen");
     } catch (e) {
       setFout(e.message || "Opslaan mislukt."); setStatus("fout");
@@ -142,6 +151,19 @@ export default function PlanningInstellingenBeheer() {
     [nieuw[i], nieuw[doel]] = [nieuw[doel], nieuw[i]];
     opslaan(activiteiten || [], nieuw);
   };
+
+  // ---- Uitgesloten medewerkers (bijv. secretaresses, loonadministratie) ----
+  const voegUitToe = () => {
+    if (!nwUitEmail) return;
+    const m = medewerkers.find((x) => x.email === nwUitEmail);
+    if (!m || uitgesloten.some((u) => u.email === m.email)) return;
+    opslaan(activiteiten || [], statussen || [], [...uitgesloten, { email: m.email, naam: m.naam, reden: nwUitReden.trim() }]);
+    setNwUitEmail(""); setNwUitReden("");
+  };
+  const verwijderUit = (email) => opslaan(activiteiten || [], statussen || [], uitgesloten.filter((u) => u.email !== email));
+  const wijzigUitReden = (email, reden) => setUitgesloten((h) => h.map((u) => (u.email === email ? { ...u, reden } : u)));
+  const bewaarUitReden = () => opslaan(activiteiten || [], statussen || [], uitgesloten);
+  const beschikbareMedewerkers = medewerkers.filter((m) => !uitgesloten.some((u) => u.email === m.email));
 
   const pijltjes = (i, lengte, verplaats) => (
     <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
@@ -235,6 +257,34 @@ export default function PlanningInstellingenBeheer() {
             <div style={{ display: "flex", gap: 8 }}>
               <input value={nieuweStatus} onChange={(e) => setNieuweStatus(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); voegStatusToe(); } }} placeholder="Nieuwe status, bijv. Ter review" style={{ ...invoerStijl, flex: "0 1 300px" }} />
               <button onClick={voegStatusToe} disabled={!nieuweStatus.trim() || status === "bezig"} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: nieuweStatus.trim() ? "pointer" : "default", opacity: nieuweStatus.trim() ? 1 : 0.6 }}><Plus size={14} /> Toevoegen</button>
+            </div>
+          </div>
+
+          {/* Uitgesloten medewerkers */}
+          <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700, marginBottom: 6 }}>
+              <UserX size={16} color={KLEUR.blauw} /> Uitgesloten medewerkers <span style={{ fontSize: 12, fontWeight: 600, color: KLEUR.mutedTekst }}>({uitgesloten.length})</span>
+            </div>
+            <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 12, maxWidth: 760 }}>
+              Medewerkers die niet meetellen in de planning-bezetting (bijv. secretaresses of loonadministratie). Geef per uitsluiting een reden op.
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+              {uitgesloten.map((u) => (
+                <div key={u.email} style={{ display: "grid", gridTemplateColumns: "minmax(150px, 1fr) minmax(180px, 2fr) 34px", gap: 8, alignItems: "center", padding: "7px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{u.naam || u.email}</div>
+                  <input value={u.reden || ""} onChange={(e) => wijzigUitReden(u.email, e.target.value)} onBlur={bewaarUitReden} placeholder="Reden van uitsluiting…" style={{ ...invoerStijl, minWidth: 0 }} />
+                  <button onClick={() => verwijderUit(u.email)} title="Uitsluiting opheffen" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: KLEUR.rood, cursor: "pointer" }}><Trash2 size={14} /></button>
+                </div>
+              ))}
+              {uitgesloten.length === 0 && <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, padding: "8px 2px" }}>Nog niemand uitgesloten.</div>}
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <select value={nwUitEmail} onChange={(e) => setNwUitEmail(e.target.value)} style={{ ...invoerStijl, flex: "0 1 240px" }}>
+                <option value="">— kies medewerker —</option>
+                {beschikbareMedewerkers.map((m) => <option key={m.email} value={m.email}>{m.naam}</option>)}
+              </select>
+              <input value={nwUitReden} onChange={(e) => setNwUitReden(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); voegUitToe(); } }} placeholder="Reden (bijv. secretaresse)" style={{ ...invoerStijl, flex: "0 1 260px" }} />
+              <button onClick={voegUitToe} disabled={!nwUitEmail || status === "bezig"} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: nwUitEmail ? "pointer" : "default", opacity: nwUitEmail ? 1 : 0.6 }}><Plus size={14} /> Uitsluiten</button>
             </div>
           </div>
         </>

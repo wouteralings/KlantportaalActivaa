@@ -21,6 +21,7 @@ const { haalDynamicsToken, haalEmailUitPrincipal, haalNaamUitPrincipal, haalRoll
 const { metPlanningRecht } = require("../_gedeeld/planningRecht");
 const uren = require("../_gedeeld/urenDataverse");
 const verlof = require("../_gedeeld/verlofDataverse");
+const { haalUitgeslotenMedewerkers } = require("../_gedeeld/planningInstellingen");
 
 const pad = (n) => String(n).padStart(2, "0");
 
@@ -72,9 +73,12 @@ module.exports = metPlanningRecht(async function (context, req) {
     const normPerDag = uren.WEEK_UREN_EIS / 5;
 
     // Medewerkers (uit de urentarieven), gescoped op leidinggevende tenzij beheerder + scope=alle.
+    // Uitgesloten medewerkers (Beheer → Planning, bijv. secretaresses/loonadministratie) vallen weg.
     const mij = String(naam || "").trim().toLowerCase();
+    const uitgesloten = new Set((await haalUitgeslotenMedewerkers().catch(() => [])).map((u) => String(u.email || "").toLowerCase()));
     const tarieven = (await uren.lijstTarieven())
       .filter((t) => t.actief !== false && (t.medewerker_email || t.medewerker_naam))
+      .filter((t) => !uitgesloten.has(String(t.medewerker_email || "").toLowerCase()))
       .filter((t) => alle || (t.leidinggevende || "").trim().toLowerCase() === mij);
 
     // Verlof: goedgekeurd (overlap met de maand) en aangevraagd (nog te beoordelen), per e-mail opgeteld.

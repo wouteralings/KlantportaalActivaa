@@ -135,7 +135,7 @@ async function haalInstellingen() {
   const containerClient = await haalContainerClient();
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
   if (!(await blobClient.exists())) {
-    return { activiteiten: STANDAARD_ACTIVITEITEN, statussen: STANDAARD_STATUSSEN };
+    return { activiteiten: STANDAARD_ACTIVITEITEN, statussen: STANDAARD_STATUSSEN, uitgeslotenMedewerkers: [] };
   }
   try {
     const data = JSON.parse(await streamNaarTekst((await blobClient.download()).readableStreamBody));
@@ -144,10 +144,26 @@ async function haalInstellingen() {
     return {
       activiteiten: activiteiten.length ? activiteiten : STANDAARD_ACTIVITEITEN,
       statussen: statussen.length ? statussen : STANDAARD_STATUSSEN,
+      uitgeslotenMedewerkers: normaliseerUitgesloten(data && data.uitgeslotenMedewerkers),
     };
   } catch {
-    return { activiteiten: STANDAARD_ACTIVITEITEN, statussen: STANDAARD_STATUSSEN };
+    return { activiteiten: STANDAARD_ACTIVITEITEN, statussen: STANDAARD_STATUSSEN, uitgeslotenMedewerkers: [] };
   }
+}
+
+/** Normaliseert de uitgesloten-medewerkers-lijst naar [{ email, naam, reden }], ontdubbeld op e-mail.
+ *  Backward-compat: een lijst met kale e-mailstrings wordt omgezet naar objecten zonder reden. */
+function normaliseerUitgesloten(lijst) {
+  const gezien = new Set();
+  const uit = [];
+  for (const item of Array.isArray(lijst) ? lijst : []) {
+    const obj = typeof item === "string" ? { email: item } : (item || {});
+    const email = String(obj.email || "").trim().toLowerCase();
+    if (!email || gezien.has(email)) continue;
+    gezien.add(email);
+    uit.push({ email, naam: tekst(obj.naam, 200), reden: tekst(obj.reden, 300) });
+  }
+  return uit;
 }
 
 async function haalActieveActiviteiten() {
@@ -158,10 +174,17 @@ async function haalActieveStatussen() {
   return (await haalInstellingen()).statussen.filter((s) => s.actief);
 }
 
-async function zetInstellingen({ activiteiten, statussen }) {
+/** E-mailadressen van medewerkers die uit de planning-bezetting worden gelaten (bijv. secretaresses,
+ *  loonadministratie) — beheerd in Beheer → Planning. */
+async function haalUitgeslotenMedewerkers() {
+  return (await haalInstellingen()).uitgeslotenMedewerkers || [];
+}
+
+async function zetInstellingen({ activiteiten, statussen, uitgeslotenMedewerkers }) {
   const schoon = {
     activiteiten: normaliseerActiviteiten(activiteiten),
     statussen: normaliseerStatussen(statussen),
+    uitgeslotenMedewerkers: normaliseerUitgesloten(uitgeslotenMedewerkers),
   };
   const containerClient = await haalContainerClient();
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
@@ -186,6 +209,6 @@ async function magStatus(sleutel) {
 }
 
 module.exports = {
-  haalInstellingen, haalActieveActiviteiten, haalActieveStatussen, zetInstellingen,
+  haalInstellingen, haalActieveActiviteiten, haalActieveStatussen, haalUitgeslotenMedewerkers, zetInstellingen,
   magActiviteit, magStatus, maakSleutel, GELDIGE_ROLLEN, STANDAARD_ACTIVITEITEN, STANDAARD_STATUSSEN,
 };

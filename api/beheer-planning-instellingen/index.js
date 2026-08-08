@@ -11,18 +11,19 @@ const { haalInstellingen, zetInstellingen } = require("../_gedeeld/planningInste
 module.exports = async function (context, req) {
   try {
     if (req.method === "GET") {
-      const { activiteiten, statussen } = await haalInstellingen();
-      context.res = { headers: { "Content-Type": "application/json" }, body: { activiteiten, statussen } };
+      const { activiteiten, statussen, uitgeslotenMedewerkers } = await haalInstellingen();
+      context.res = { headers: { "Content-Type": "application/json" }, body: { activiteiten, statussen, uitgeslotenMedewerkers } };
       return;
     }
     if (req.method === "PUT") {
       const activiteiten = (req.body && req.body.activiteiten) || [];
       const statussen = (req.body && req.body.statussen) || [];
+      const uitgeslotenMedewerkers = (req.body && req.body.uitgeslotenMedewerkers) || [];
       if (!Array.isArray(activiteiten) || !Array.isArray(statussen)) {
         context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'activiteiten' en 'statussen' als lijsten mee." } };
         return;
       }
-      const opgeslagen = await zetInstellingen({ activiteiten, statussen });
+      const opgeslagen = await zetInstellingen({ activiteiten, statussen, uitgeslotenMedewerkers });
       context.res = { headers: { "Content-Type": "application/json" }, body: opgeslagen };
       return;
     }
