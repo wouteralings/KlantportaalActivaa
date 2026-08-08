@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload, Lightbulb, Binoculars, BookOpen, FileSignature, CalendarClock } from "lucide-react";
+import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload, Lightbulb, Binoculars, BookOpen, FileSignature } from "lucide-react";
 import { startMeekijken } from "../meekijken";
 import OffertesModule from "./OffertesModule";
 import ContractenOverzicht from "./ContractenOverzicht";
@@ -1639,9 +1639,6 @@ const BASIS_KOLOMMEN = [
 const KLANTEN_SUBTABS = [
   { key: "klanten", label: "Klanten", icon: LayoutGrid },
   { key: "contactpersonen", label: "Contactpersonen", icon: Users },
-  // Planning — simpele eigen maand-/jaarplanning per klant. Alleen zichtbaar met het recht
-  // "Planning" (of als beheerder) — zie de filter in KlantenModule.
-  { key: "planning", label: "Planning", icon: CalendarClock, alleenMet: "planning" },
   { key: "brieven", label: "Brieven", icon: Mail },
   // Contracten stond eerder als losse hoofd-tab; op verzoek verplaatst naar een sub-tab hier.
   // Alleen zichtbaar met het recht "Contracten" (of als beheerder) — zie de filter in KlantenModule.
@@ -1659,12 +1656,11 @@ const KLANTEN_SUBTABS = [
  * gaan filters en sortering van het andere tabblad dus niet verloren zolang je in het portaal
  * blijft — behalve dat een leeg tabblad niets te onthouden heeft.
  */
-function KlantenModule({ magContracten = false, magPlanning = false, isBeheerder = false }) {
+function KlantenModule({ magContracten = false, isBeheerder = false }) {
   const [sub, setSub] = useState("klanten");
-  // Sub-tabs met een "alleenMet"-recht alleen tonen als de gebruiker dat recht heeft (of beheerder is).
-  // De echte grens ligt serverkant op de bijbehorende endpoints (contractenRecht.js / planningRecht.js).
-  const rechtOk = { contracten: magContracten || isBeheerder, planning: magPlanning || isBeheerder };
-  const subtabs = KLANTEN_SUBTABS.filter((s) => !s.alleenMet || rechtOk[s.alleenMet]);
+  // De Contracten-sub-tab alleen tonen met het recht (of als beheerder), net als toen het nog een
+  // losse hoofd-tab was.
+  const subtabs = KLANTEN_SUBTABS.filter((s) => (s.alleenMet === "contracten" ? (magContracten || isBeheerder) : true));
   const actief = subtabs.find((s) => s.key === sub) || subtabs[0];
 
   return (
@@ -1719,7 +1715,6 @@ function KlantenModule({ magContracten = false, magPlanning = false, isBeheerder
       <div style={{ paddingTop: 24 }}>
         {sub === "klanten" && <KlantOverzicht />}
         {sub === "contactpersonen" && <ContactpersonenOverzicht />}
-        {sub === "planning" && (magPlanning || isBeheerder) && <PlanningOverzicht />}
         {sub === "brieven" && <BrievenTab />}
         {sub === "contracten" && (magContracten || isBeheerder) && <ContractenOverzicht />}
         {(sub === "ib" || sub === "vpb") && <MedewerkerDossiers soort={sub} />}
@@ -4221,6 +4216,7 @@ export default function MedewerkerPortaal() {
   const tabs = [
     ["klantoverzicht", "Klantoverzicht", 0],
     ["taken", "Taken", tellingen.nieuweTaken],
+    ...(magPlanning || isBeheerder ? [["planning", "Planning", 0]] : []),
     ["vragenlijsten", "Vragenlijsten", tellingen.vragenlijstenAandacht],
     ["uren", "Uren", 0],
     ["verzoeken", "Wijzigingsverzoeken", tellingen.openWijzigingen],
@@ -4311,8 +4307,9 @@ export default function MedewerkerPortaal() {
         ))}
       </div>
 
-      {tab === "klantoverzicht" && <KlantenModule magContracten={magContracten} magPlanning={magPlanning} isBeheerder={isBeheerder} />}
+      {tab === "klantoverzicht" && <KlantenModule magContracten={magContracten} isBeheerder={isBeheerder} />}
       {tab === "taken" && <TakenOverzicht />}
+      {tab === "planning" && (magPlanning || isBeheerder) && <PlanningOverzicht />}
       {tab === "vragenlijsten" && <Vragenlijsten />}
       {tab === "uren" && <Urenregistratie isBeheerder={isBeheerder} />}
       {tab === "verzoeken" && <WijzigingsverzoekBeheer onAfgehandeld={laadTellingen} />}
