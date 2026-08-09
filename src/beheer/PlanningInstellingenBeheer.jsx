@@ -82,6 +82,9 @@ export default function PlanningInstellingenBeheer() {
   const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
   const [fout, setFout] = useState("");
   const [activiteitAantal, setActiviteitAantal] = useState(25);
+  const [openDeel, setOpenDeel] = useState(() => new Set()); // welke activiteiten hun deelstappen tonen
+  const [nwDeelPer, setNwDeelPer] = useState({}); // { activiteitSleutel: nieuwe-deelstap-tekst }
+  const toggleDeel = (sleutel) => setOpenDeel((s) => { const n = new Set(s); if (n.has(sleutel)) n.delete(sleutel); else n.add(sleutel); return n; });
   const [statusAantal, setStatusAantal] = useState(25);
   const [uitgesloten, setUitgesloten] = useState([]); // [{ email, naam, reden }]
   const [medewerkers, setMedewerkers] = useState([]); // [{ naam, email }]
@@ -126,6 +129,13 @@ export default function PlanningInstellingenBeheer() {
   };
   const wijzigActiviteitLabel = (sleutel, label) => setActiviteiten((h) => (h || []).map((a) => (a.sleutel === sleutel ? { ...a, label } : a)));
   const wijzigActiviteitStandaardUren = (sleutel, standaardUren) => setActiviteiten((h) => (h || []).map((a) => (a.sleutel === sleutel ? { ...a, standaardUren } : a)));
+
+  // Deelstappen (deelactiviteiten) per activiteit — sjabloon, per klant nog aan te passen.
+  const metDeel = (actSleutel, fn) => (activiteiten || []).map((a) => (a.sleutel === actSleutel ? { ...a, deelstappen: fn(a.deelstappen || []) } : a));
+  const wijzigDeelLabelLokaal = (actSleutel, i, label) => setActiviteiten(() => metDeel(actSleutel, (ds) => ds.map((d, idx) => (idx === i ? { ...d, label } : d))));
+  const voegDeelToe = (actSleutel) => { const t = (nwDeelPer[actSleutel] || "").trim(); if (!t) return; setNwDeelPer((p) => ({ ...p, [actSleutel]: "" })); opslaan(metDeel(actSleutel, (ds) => [...ds, { label: t }]), statussen || []); };
+  const verwijderDeel = (actSleutel, i) => opslaan(metDeel(actSleutel, (ds) => ds.filter((_, idx) => idx !== i)), statussen || []);
+  const verplaatsDeel = (actSleutel, i, dir) => opslaan(metDeel(actSleutel, (ds) => { const n = [...ds]; const j = i + dir; if (j < 0 || j >= n.length) return n; [n[i], n[j]] = [n[j], n[i]]; return n; }), statussen || []);
   const wijzigActiviteitType = (sleutel, type) => opslaan((activiteiten || []).map((a) => (a.sleutel === sleutel ? { ...a, type } : a)), statussen || []);
   const wijzigActiviteitRol = (sleutel, rol) => opslaan((activiteiten || []).map((a) => (a.sleutel === sleutel ? { ...a, rol } : a)), statussen || []);
   const zetActiviteitActief = (sleutel, actief) => opslaan((activiteiten || []).map((a) => (a.sleutel === sleutel ? { ...a, actief } : a)), statussen || []);
@@ -203,22 +213,52 @@ export default function PlanningInstellingenBeheer() {
               <span></span><span>Activiteit</span><span>Periode</span><span>Functie</span><span>Std. uren</span><span>Status</span>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 6 }}>
-              {activiteiten.slice(0, activiteitAantal).map((a, i) => (
-                <div key={a.sleutel} style={{ display: "grid", gridTemplateColumns: GRID_ACT, gap: 8, alignItems: "center", padding: "7px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, opacity: a.actief ? 1 : 0.6 }}>
-                  {pijltjes(i, activiteiten.length, verplaatsActiviteit)}
-                  <input value={a.label} onChange={(e) => wijzigActiviteitLabel(a.sleutel, e.target.value)} onBlur={() => opslaan(activiteiten, statussen)} style={{ ...invoerStijl, minWidth: 0 }} />
-                  <select value={a.type} onChange={(e) => wijzigActiviteitType(a.sleutel, e.target.value)} title="Maand- of jaaractiviteit" style={invoerStijl}>
-                    <option value="maand">Maand</option>
-                    <option value="jaar">Jaar</option>
-                  </select>
-                  <select value={a.rol || ""} onChange={(e) => wijzigActiviteitRol(a.sleutel, e.target.value)} title="Rol die deze activiteit doet (team-toewijzing)" style={invoerStijl}>
-                    <option value="">— rol —</option>
-                    {ROLLEN.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
-                  </select>
-                  <input type="number" min="0" step="0.25" value={a.standaardUren ?? ""} onChange={(e) => wijzigActiviteitStandaardUren(a.sleutel, e.target.value)} onBlur={() => opslaan(activiteiten, statussen)} title="Standaard indicatie-uren (per klant overschrijfbaar)" placeholder="—" style={{ ...invoerStijl, minWidth: 0 }} />
-                  {ACTIEF_KNOP(a.actief, () => zetActiviteitActief(a.sleutel, !a.actief))}
+              {activiteiten.slice(0, activiteitAantal).map((a, i) => {
+                const deel = a.deelstappen || [];
+                const dopen = openDeel.has(a.sleutel);
+                return (
+                <div key={a.sleutel} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, opacity: a.actief ? 1 : 0.6 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: GRID_ACT, gap: 8, alignItems: "center", padding: "7px 10px" }}>
+                    {pijltjes(i, activiteiten.length, verplaatsActiviteit)}
+                    <input value={a.label} onChange={(e) => wijzigActiviteitLabel(a.sleutel, e.target.value)} onBlur={() => opslaan(activiteiten, statussen)} style={{ ...invoerStijl, minWidth: 0 }} />
+                    <select value={a.type} onChange={(e) => wijzigActiviteitType(a.sleutel, e.target.value)} title="Maand- of jaaractiviteit" style={invoerStijl}>
+                      <option value="maand">Maand</option>
+                      <option value="jaar">Jaar</option>
+                    </select>
+                    <select value={a.rol || ""} onChange={(e) => wijzigActiviteitRol(a.sleutel, e.target.value)} title="Rol die deze activiteit doet (team-toewijzing)" style={invoerStijl}>
+                      <option value="">— rol —</option>
+                      {ROLLEN.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
+                    </select>
+                    <input type="number" min="0" step="0.25" value={a.standaardUren ?? ""} onChange={(e) => wijzigActiviteitStandaardUren(a.sleutel, e.target.value)} onBlur={() => opslaan(activiteiten, statussen)} title="Standaard indicatie-uren (per klant overschrijfbaar)" placeholder="—" style={{ ...invoerStijl, minWidth: 0 }} />
+                    {ACTIEF_KNOP(a.actief, () => zetActiviteitActief(a.sleutel, !a.actief))}
+                  </div>
+                  <div style={{ padding: "0 10px 8px 62px" }}>
+                    <button onClick={() => toggleDeel(a.sleutel)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: KLEUR.blauw, fontSize: 12, fontWeight: 600 }}>
+                      {dopen ? "▾" : "▸"} Deelstappen ({deel.length})
+                    </button>
+                    {dopen && (
+                      <div style={{ marginTop: 6, paddingLeft: 4 }}>
+                        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 6 }}>Deze stappen moeten worden afgewikkeld vóórdat "{a.label}" gereed is. Per klant nog aan te passen.</div>
+                        {deel.map((d, di) => (
+                          <div key={d.sleutel || di} style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
+                            <span style={{ color: KLEUR.mutedTekst, fontSize: 11, width: 20, textAlign: "right" }}>{di + 1}.</span>
+                            <input value={d.label} onChange={(e) => wijzigDeelLabelLokaal(a.sleutel, di, e.target.value)} onBlur={() => opslaan(activiteiten, statussen)} style={{ ...invoerStijl, flex: "0 1 320px", minWidth: 0 }} />
+                            <button onClick={() => verplaatsDeel(a.sleutel, di, -1)} disabled={di === 0} title="Omhoog" style={{ background: "none", border: "none", cursor: di === 0 ? "default" : "pointer", color: KLEUR.mutedTekst, opacity: di === 0 ? 0.4 : 1, padding: 2 }}><ArrowUp size={14} /></button>
+                            <button onClick={() => verplaatsDeel(a.sleutel, di, 1)} disabled={di === deel.length - 1} title="Omlaag" style={{ background: "none", border: "none", cursor: di === deel.length - 1 ? "default" : "pointer", color: KLEUR.mutedTekst, opacity: di === deel.length - 1 ? 0.4 : 1, padding: 2 }}><ArrowDown size={14} /></button>
+                            <button onClick={() => verwijderDeel(a.sleutel, di)} title="Verwijderen" style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.rood, padding: 2 }}><Trash2 size={14} /></button>
+                          </div>
+                        ))}
+                        {deel.length === 0 && <div style={{ fontSize: 12, color: KLEUR.mutedTekst, padding: "2px 0 6px" }}>Nog geen deelstappen.</div>}
+                        <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                          <input value={nwDeelPer[a.sleutel] || ""} onChange={(e) => setNwDeelPer((p) => ({ ...p, [a.sleutel]: e.target.value }))} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); voegDeelToe(a.sleutel); } }} placeholder="Nieuwe deelstap, bijv. Administratie inboeken" style={{ ...invoerStijl, flex: "0 1 320px", minWidth: 0 }} />
+                          <button onClick={() => voegDeelToe(a.sleutel)} disabled={!(nwDeelPer[a.sleutel] || "").trim()} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: (nwDeelPer[a.sleutel] || "").trim() ? "pointer" : "default", opacity: (nwDeelPer[a.sleutel] || "").trim() ? 1 : 0.6 }}><Plus size={13} /> Toevoegen</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              ))}
+                );
+              })}
               {activiteiten.length === 0 && <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, padding: "8px 2px" }}>Nog geen activiteiten.</div>}
             </div>
             {activiteiten.length > 0 && <div style={{ marginBottom: 12 }}><AantalKiezer aantal={activiteitAantal} setAantal={setActiviteitAantal} totaal={activiteiten.length} /></div>}

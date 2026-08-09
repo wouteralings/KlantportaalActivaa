@@ -6,17 +6,19 @@
  *   • Losse regels     — alle losse planningsregels (Stap 2, PlanningOverzicht).
  */
 import { useState } from "react";
-import { List, Users, CalendarRange, CalendarDays } from "lucide-react";
+import { List, Users, CalendarRange, CalendarDays, ListChecks } from "lucide-react";
 import PlanningOverzicht from "./PlanningOverzicht";
 import PlanningConfigPerKlant from "./PlanningConfigPerKlant";
 import PlanningMaand from "./PlanningMaand";
 import PlanningJaar from "./PlanningJaar";
+import Deelactiviteiten from "./Deelactiviteiten";
 
 const KLEUR = { blauw: "#1C5D8C", subtekst: "#5B6259", rand: "#E2E4DF" };
 
 const SUBTABS = [
   { key: "maand", label: "Maandplanning", icon: CalendarRange },
   { key: "jaar", label: "Jaarplanning", icon: CalendarDays },
+  { key: "deel", label: "Deelactiviteiten", icon: ListChecks },
   { key: "config", label: "Per klant", icon: Users },
   { key: "overzicht", label: "Losse regels", icon: List },
 ];
@@ -46,6 +48,7 @@ export default function PlanningModule() {
       </div>
       {sub === "maand" && <PlanningMaand />}
       {sub === "jaar" && <PlanningJaar onInstellen={gaInstellen} />}
+      {sub === "deel" && <Deelactiviteiten />}
       {sub === "config" && <PlanningConfigPerKlant initieelAccountId={instelKlant} />}
       {sub === "overzicht" && <PlanningOverzicht />}
     </div>

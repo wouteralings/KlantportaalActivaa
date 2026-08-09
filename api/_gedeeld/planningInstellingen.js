@@ -109,6 +109,24 @@ function urenOfNull(v) {
   return Math.round(n * 100) / 100;
 }
 
+/** Deelstappen (deelactiviteiten) van een hoofdactiviteit: het SJABLOON, per activiteit. Elke stap
+ *  moet worden afgewikkeld voordat de hoofdactiviteit "gereed" kan. Per klant nog aan te passen
+ *  (zie api/_gedeeld/planningDeelstappenKlant.js). Vorm: [{ sleutel, label }] in vaste volgorde. */
+function normaliseerDeelstappen(lijst) {
+  if (!Array.isArray(lijst)) return [];
+  const gezien = new Set();
+  const uit = [];
+  for (const t of lijst.slice(0, 50)) {
+    const label = tekst(t && t.label, 80);
+    if (!label) continue;
+    const sleutel = maakSleutel((t && t.sleutel) || label);
+    if (!sleutel || gezien.has(sleutel)) continue;
+    gezien.add(sleutel);
+    uit.push({ sleutel, label });
+  }
+  return uit;
+}
+
 function normaliseerActiviteiten(lijst) {
   if (!Array.isArray(lijst)) return [];
   const gezien = new Set();
@@ -122,7 +140,7 @@ function normaliseerActiviteiten(lijst) {
     const rol = GELDIGE_ROLLEN.includes(t && t.rol) ? t.rol : "";
     // standaardUren = de standaard indicatie-uren van deze activiteit. Per klant overschrijfbaar
     // (planning_config_klanten.indicatie_uren); leeg per klant = erf deze standaard.
-    uit.push({ sleutel, label, type: (t && t.type) === "jaar" ? "jaar" : "maand", rol, standaardUren: urenOfNull(t && t.standaardUren), actief: t && t.actief === false ? false : true });
+    uit.push({ sleutel, label, type: (t && t.type) === "jaar" ? "jaar" : "maand", rol, standaardUren: urenOfNull(t && t.standaardUren), deelstappen: normaliseerDeelstappen(t && t.deelstappen), actief: t && t.actief === false ? false : true });
   }
   return uit;
 }
@@ -220,7 +238,15 @@ async function magStatus(sleutel) {
   return (await haalInstellingen()).statussen.some((st) => st.sleutel === s);
 }
 
+/** Het deelstappen-sjabloon (Beheer) van één activiteit, of [] als er geen is. */
+async function haalDeelstappenSjabloon(activiteitSleutel) {
+  const s = maakSleutel(activiteitSleutel);
+  if (!s) return [];
+  const act = (await haalInstellingen()).activiteiten.find((a) => a.sleutel === s);
+  return act && Array.isArray(act.deelstappen) ? act.deelstappen : [];
+}
+
 module.exports = {
   haalInstellingen, haalActieveActiviteiten, haalActieveStatussen, haalUitgeslotenMedewerkers, zetInstellingen,
-  magActiviteit, magStatus, maakSleutel, GELDIGE_ROLLEN, STANDAARD_ACTIVITEITEN, STANDAARD_STATUSSEN,
+  magActiviteit, magStatus, maakSleutel, haalDeelstappenSjabloon, GELDIGE_ROLLEN, STANDAARD_ACTIVITEITEN, STANDAARD_STATUSSEN,
 };
