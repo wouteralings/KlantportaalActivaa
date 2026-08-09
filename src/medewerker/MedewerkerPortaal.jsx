@@ -1745,7 +1745,7 @@ function KlantenModule({ magContracten = false, isBeheerder = false, magPlanning
       </div>
 
       <div style={{ paddingTop: 24 }}>
-        {sub === "klanten" && <KlantOverzicht />}
+        {sub === "klanten" && <KlantOverzicht magPlanning={magPlanning} />}
         {sub === "contactpersonen" && <ContactpersonenOverzicht />}
         {sub === "brieven" && <BrievenTab />}
         {sub === "contracten" && (magContracten || isBeheerder) && <ContractenOverzicht />}
@@ -3332,7 +3332,7 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
   );
 }
 
-function KlantOverzicht() {
+function KlantOverzicht({ magPlanning = false }) {
   const [klanten, setKlanten] = useState(null); // null = laden
   const [afgekapt, setAfgekapt] = useState(false);
   const [fout, setFout] = useState(false);
