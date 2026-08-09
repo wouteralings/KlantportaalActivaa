@@ -45,6 +45,9 @@ function urenTekst(n) {
   if (!n) return "—";
   return `${Number(n).toLocaleString("nl-NL", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} u`;
 }
+// Declarabel-doel → factor (zelfde als de maandplanning): het deel van de rooster-uren dat direct/
+// declarabel is; de rest is indirecte tijd die niet als "beschikbaar" meetelt. 80 → 0,8, 0,8 → 0,8.
+const doelFactor = (doel) => (doel == null ? 1 : (doel > 1 ? doel / 100 : doel));
 function valtInMaand(r, maand1) {
   if (r.frequentie === "maandelijks") return true;
   if (r.frequentie === "kwartaal") return [1, 4, 7, 10].includes(maand1);
@@ -309,7 +312,8 @@ export default function PlanningJaar({ onInstellen }) {
       const w = perNaam.get(lc) || { naam: (capMap.get(lc)?.naam) || lc, config: 0, taken: 0, takenLijst: [] };
       if (zl && !String(w.naam).toLowerCase().includes(zl)) continue;
       const cap = capMap.get(lc) || null;
-      const beschikbaar = cap ? Math.max(0, Number(cap.roosterUren || 0) - Number(cap.verlofGoedgekeurd || 0)) : null;
+      // Beschikbaar = (rooster × declarabel-doel) − goedgekeurd verlof; indirecte uren tellen niet mee.
+      const beschikbaar = cap ? Math.max(0, Number(cap.roosterUren || 0) * doelFactor(cap.declarabelDoel) - Number(cap.verlofGoedgekeurd || 0)) : null;
       const werklast = w.config + w.taken;
       const pct = beschikbaar && beschikbaar > 0 ? Math.round((werklast / beschikbaar) * 100) : null;
       rijen.push({
@@ -474,7 +478,7 @@ export default function PlanningJaar({ onInstellen }) {
           <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, border: `1px solid ${KLEUR.amber}`, display: "inline-block" }} /> afwijkend van team</span>
           <span><strong>•</strong> = losse regel (eenmalige opdracht/advies)</span>
           {weergave !== "klant" && <span style={{ color: KLEUR.blauw }}>klik een {weergave === "medewerker" ? "medewerker" : "klantgroep"} open voor de klanten</span>}
-          {weergave === "medewerker" && <span>onder elke medewerker: <span style={{ color: KLEUR.subtekst, fontWeight: 600 }}>Beschikbaar</span> (rooster − verlof) en <span style={{ color: "#2E7D46", fontWeight: 700 }}>vrij</span>/<span style={{ color: KLEUR.rood, fontWeight: 700 }}>over</span> per maand</span>}
+          {weergave === "medewerker" && <span>onder elke medewerker: <span style={{ color: KLEUR.subtekst, fontWeight: 600 }}>Beschikbaar</span> (declarabele uren: rooster × declarabel-doel − verlof) en <span style={{ color: "#2E7D46", fontWeight: 700 }}>vrij</span>/<span style={{ color: KLEUR.rood, fontWeight: 700 }}>over</span> per maand</span>}
         </div>
       )}
 

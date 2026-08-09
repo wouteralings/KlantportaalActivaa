@@ -172,14 +172,20 @@ module.exports = metPlanningRecht(async function (context, req) {
       const e = String(t.medewerker_email || "").toLowerCase();
       const factor = factoren[i];
       const roosterUren = rond(werkdagen * normPerDag * factor);
-      // Per-maand-uitsplitsing (alleen bij ?jaar): rooster − goedgekeurd verlof per maand.
+      // Declarabel-doel = het deel van de rooster-uren dat declarabel (direct) is; de rest is
+      // indirecte tijd. Zelfde omrekening als de maandplanning (doelFactor): 80 → 0,8, of 0,8 → 0,8.
+      const doel = t.declarabel_doel != null ? Number(t.declarabel_doel) : null;
+      const doelFactor = doel == null ? 1 : (doel > 1 ? doel / 100 : doel);
+      // Per-maand-uitsplitsing (alleen bij ?jaar): (rooster × declarabel-doel) − goedgekeurd verlof.
+      // Zo tellen de indirecte uren NIET mee in "beschikbaar", net als in de maandplanning.
       let maanden = null;
       if (heelJaar) {
         const verlofM = verlofMaandPerEmail[e] || null;
         maanden = werkdagenPerMaand.map((wd, m) => {
-          const rooster = rond(wd * normPerDag * factor);
+          const roosterBruto = rond(wd * normPerDag * factor);
+          const roosterDeclarabel = rond(roosterBruto * doelFactor);
           const ver = rond((verlofM && verlofM[m]) || 0);
-          return { rooster, verlof: ver, beschikbaar: rond(Math.max(0, rooster - ver)) };
+          return { rooster: roosterBruto, roosterDeclarabel, verlof: ver, beschikbaar: rond(Math.max(0, roosterDeclarabel - ver)) };
         });
       }
       return {
