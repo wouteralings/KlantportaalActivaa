@@ -11,6 +11,7 @@ import Ontwikkelverzoeken from "./Ontwikkelverzoeken";
 import ScopeToggle, { useMijnNaam, isKlantVanMij } from "./MijnFilter";
 import ContactpersonenOverzicht from "./klanten/ContactpersonenOverzicht";
 import PlanningModule from "./klanten/PlanningModule";
+import PlanningConfigPerKlant from "./klanten/PlanningConfigPerKlant";
 import BrievenOverzicht from "./klanten/BrievenOverzicht";
 import BrievenLogboek from "./klanten/BrievenLogboek";
 
@@ -1285,10 +1286,15 @@ function KlantBewerken({ klant, keuzes, medewerkers, onKlaar, onOpgeslagen }) {
   );
 }
 
-function KlantDetail({ klant, magWijzigen, isBeheerder, keuzes, medewerkers, onTerug, onContact, onMedewerker, onOpgeslagen, onVerwijderd }) {
+function KlantDetail({ klant, magWijzigen, isBeheerder, magPlanning = false, keuzes, medewerkers, onTerug, onContact, onMedewerker, onOpgeslagen, onVerwijderd }) {
   const [bewerken, setBewerken] = useState(false);
   const [verwijderBezig, setVerwijderBezig] = useState(false);
   const [verwijderFout, setVerwijderFout] = useState("");
+  const [detailTab, setDetailTab] = useState("gegevens");
+  const [planningBewerken, setPlanningBewerken] = useState(false); // Planning-tab: eerst op slot, "Bewerken" ontgrendelt
+  const toonPlanning = magPlanning || isBeheerder; // Planning-tab alleen met het planningsrecht (of beheerder)
+  // Bij een andere klant altijd weer op slot beginnen.
+  useEffect(() => { setPlanningBewerken(false); }, [klant.accountId]);
   if (bewerken) {
     return <KlantBewerken klant={klant} keuzes={keuzes} medewerkers={medewerkers} onKlaar={() => setBewerken(false)} onOpgeslagen={onOpgeslagen} />;
   }
@@ -1354,6 +1360,31 @@ function KlantDetail({ klant, magWijzigen, isBeheerder, keuzes, medewerkers, onT
           </div>
         </div>
         {verwijderFout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginTop: 8 }}>Verwijderen mislukt: {verwijderFout}</div>}
+
+        {toonPlanning && (
+          <div style={{ display: "flex", gap: 4, margin: "6px 0 16px", borderBottom: `1px solid ${KLEUR.rand}` }}>
+            {[["gegevens", "Gegevens"], ["planning", "Planning"]].map(([k, label]) => (
+              <button key={k} onClick={() => { setDetailTab(k); setPlanningBewerken(false); }} style={{
+                padding: "8px 14px", border: "none", background: "none", cursor: "pointer", fontSize: 13, fontWeight: 600,
+                color: detailTab === k ? KLEUR.blauw : KLEUR.subtekst,
+                borderBottom: detailTab === k ? `2px solid ${KLEUR.blauw}` : "2px solid transparent", marginBottom: -1,
+              }}>{label}</button>
+            ))}
+          </div>
+        )}
+
+        {toonPlanning && detailTab === "planning" ? (
+          <div>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+              {planningBewerken ? (
+                <button onClick={() => setPlanningBewerken(false)} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Klaar met bewerken</button>
+              ) : (
+                <button onClick={() => setPlanningBewerken(true)} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px", background: "#fff", color: KLEUR.blauw, border: `1px solid ${KLEUR.blauw}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Bewerken</button>
+              )}
+            </div>
+            <PlanningConfigPerKlant vasteKlant={klant} readOnly={!planningBewerken} />
+          </div>
+        ) : (<>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0 24px" }}>
           <div>
             <Veld label="Groep" waarde={klant.groepsnaam} />
@@ -1426,6 +1457,7 @@ function KlantDetail({ klant, magWijzigen, isBeheerder, keuzes, medewerkers, onT
         <KlantVasteUitvragen accountId={klant.accountId} klantnaam={klant.klantnaam} defaultContact={{ id: klant.contact?.contactId || "", naam: klant.contact?.naam || "" }} magWijzigen={magWijzigen} />
 
         <Logboek accountId={klant.accountId} />
+        </>)}
       </div>
     </div>
   );
@@ -1656,7 +1688,7 @@ const KLANTEN_SUBTABS = [
  * gaan filters en sortering van het andere tabblad dus niet verloren zolang je in het portaal
  * blijft — behalve dat een leeg tabblad niets te onthouden heeft.
  */
-function KlantenModule({ magContracten = false, isBeheerder = false }) {
+function KlantenModule({ magContracten = false, isBeheerder = false, magPlanning = false }) {
   const [sub, setSub] = useState("klanten");
   // De Contracten-sub-tab alleen tonen met het recht (of als beheerder), net als toen het nog een
   // losse hoofd-tab was.
@@ -3455,7 +3487,7 @@ function KlantOverzicht() {
     return <MedewerkerDetail persoon={detailMedewerker.persoon} rol={detailMedewerker.rol} klantnaam={detailMedewerker.klantnaam} onTerug={() => setDetailMedewerker(null)} />;
   }
   if (detailKlant) {
-    return <KlantDetail klant={detailKlant} magWijzigen={magWijzigen} isBeheerder={isBeheerder} keuzes={keuzes} medewerkers={medewerkers} onTerug={() => setDetailKlant(null)} onContact={(k) => { setDetailKlant(null); setDetailContact(k); }} onMedewerker={openMedewerker} onOpgeslagen={verwerkKlantWijziging} onVerwijderd={naKlantVerwijderen} />;
+    return <KlantDetail klant={detailKlant} magWijzigen={magWijzigen} isBeheerder={isBeheerder} magPlanning={magPlanning} keuzes={keuzes} medewerkers={medewerkers} onTerug={() => setDetailKlant(null)} onContact={(k) => { setDetailKlant(null); setDetailContact(k); }} onMedewerker={openMedewerker} onOpgeslagen={verwerkKlantWijziging} onVerwijderd={naKlantVerwijderen} />;
   }
   if (detailContact) {
     return <ContactDetail klant={detailContact} magWijzigen={magWijzigen} onTerug={() => setDetailContact(null)} onOpgeslagen={verwerkKlantWijziging} />;
@@ -4307,7 +4339,7 @@ export default function MedewerkerPortaal() {
         ))}
       </div>
 
-      {tab === "klantoverzicht" && <KlantenModule magContracten={magContracten} isBeheerder={isBeheerder} />}
+      {tab === "klantoverzicht" && <KlantenModule magContracten={magContracten} isBeheerder={isBeheerder} magPlanning={magPlanning} />}
       {tab === "taken" && <TakenOverzicht />}
       {tab === "planning" && (magPlanning || isBeheerder) && <PlanningModule />}
       {tab === "vragenlijsten" && <Vragenlijsten />}

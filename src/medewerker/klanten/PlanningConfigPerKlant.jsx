@@ -46,7 +46,7 @@ function urenTekst(n) {
   return `${Number(n).toLocaleString("nl-NL", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} u`;
 }
 
-export default function PlanningConfigPerKlant({ initieelAccountId } = {}) {
+export default function PlanningConfigPerKlant({ initieelAccountId, vasteKlant, readOnly = false } = {}) {
   const [activiteiten, setActiviteiten] = useState([]);
   const [klantenLijst, setKlantenLijst] = useState([]);
   const [klantZoek, setKlantZoek] = useState("");
@@ -69,10 +69,14 @@ export default function PlanningConfigPerKlant({ initieelAccountId } = {}) {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setActiviteiten(d.activiteiten || []))
       .catch(() => setActiviteiten([]));
-    fetch("/api/beheer-klanten?alle=1")
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => setKlantenLijst((d.klanten || []).slice().sort((a, b) => String(a.klantnaam || "").localeCompare(String(b.klantnaam || ""), "nl"))))
-      .catch(() => setKlantenLijst([]));
+    // Klantenlijst alleen nodig voor de picker; bij een vaste klant (ingebed in de klantkaart) overslaan.
+    if (!vasteKlant) {
+      fetch("/api/beheer-klanten?alle=1")
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then((d) => setKlantenLijst((d.klanten || []).slice().sort((a, b) => String(a.klantnaam || "").localeCompare(String(b.klantnaam || ""), "nl"))))
+        .catch(() => setKlantenLijst([]));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const laadConfig = (accountId) => {
@@ -85,10 +89,16 @@ export default function PlanningConfigPerKlant({ initieelAccountId } = {}) {
 
   const kiesKlant = (k) => { setKlant(k); setFout(""); laadConfig(String(k.accountId).toLowerCase()); };
 
+  // Vast op één klant (ingebed in de klantkaart, tab "Planning"): meteen die klant openen, geen picker.
+  useEffect(() => {
+    if (vasteKlant && vasteKlant.accountId) kiesKlant(vasteKlant);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vasteKlant && vasteKlant.accountId]);
+
   // Voorselecteren wanneer we vanuit de Jaarplanning binnenkomen met een klant ("instellen"-doorklik):
   // zodra de klantenlijst geladen is, de klant met dat account-id automatisch openen.
   useEffect(() => {
-    if (!initieelAccountId || !klantenLijst.length) return;
+    if (vasteKlant || !initieelAccountId || !klantenLijst.length) return;
     const doel = String(initieelAccountId).toLowerCase();
     if (klant && String(klant.accountId).toLowerCase() === doel) return;
     const gevonden = klantenLijst.find((k) => String(k.accountId).toLowerCase() === doel);
@@ -190,9 +200,11 @@ export default function PlanningConfigPerKlant({ initieelAccountId } = {}) {
               <div style={{ fontSize: 14, fontWeight: 700 }}>{klant.klantnaam}</div>
               <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>{klant.klantnummer}{klant.groepsnaam ? ` · ${klant.groepsnaam}` : ""}</div>
             </div>
-            <button onClick={() => { setKlant(null); setConfig(null); }} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
-              <X size={14} /> Andere klant
-            </button>
+            {!vasteKlant && (
+              <button onClick={() => { setKlant(null); setConfig(null); }} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+                <X size={14} /> Andere klant
+              </button>
+            )}
           </div>
 
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
@@ -221,24 +233,29 @@ export default function PlanningConfigPerKlant({ initieelAccountId } = {}) {
                         <td style={td}>{info.act?.label || r.activiteit}</td>
                         <td style={td}><span style={{ fontSize: 11, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, padding: "2px 7px", borderRadius: 5 }}>{info.act?.type === "jaar" ? "Jaar" : "Maand"}</span></td>
                         <td style={td}>
-                          <select value={r.frequentie} onChange={(e) => wijzig(r.id, { frequentie: e.target.value })} style={{ ...inputStijl, width: "auto", padding: "5px 8px" }}>
-                            {FREQ.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-                          </select>
+                          {readOnly ? <span>{freqLabel(r.frequentie)}</span> : (
+                            <select value={r.frequentie} onChange={(e) => wijzig(r.id, { frequentie: e.target.value })} style={{ ...inputStijl, width: "auto", padding: "5px 8px" }}>
+                              {FREQ.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                            </select>
+                          )}
                         </td>
                         <td style={td}>
-                          {heeftUitvoerMaand(r.frequentie) ? (
+                          {!heeftUitvoerMaand(r.frequentie) ? <span style={{ color: KLEUR.mutedTekst }}>n.v.t.</span>
+                            : readOnly ? <span>{r.uitvoerMaand ? MAANDEN[r.uitvoerMaand - 1] : "—"}</span> : (
                             <select value={r.uitvoerMaand || ""} onChange={(e) => wijzig(r.id, { uitvoerMaand: e.target.value ? Number(e.target.value) : null })} style={{ ...inputStijl, width: "auto", padding: "5px 8px" }}>
                               <option value="">— kies —</option>
                               {MAANDEN.map((m, idx) => <option key={idx} value={idx + 1}>{m}</option>)}
                             </select>
-                          ) : <span style={{ color: KLEUR.mutedTekst }}>n.v.t.</span>}
+                          )}
                         </td>
                         <td style={td}>
-                          <input type="number" min="0" step="0.25" defaultValue={r.indicatieUren == null ? "" : r.indicatieUren}
-                            onBlur={(e) => { const v = e.target.value; if (String(v) !== String(r.indicatieUren ?? "")) wijzig(r.id, { indicatieUren: v === "" ? null : v }); }}
-                            placeholder={info.act?.standaardUren != null ? String(info.act.standaardUren) : "uren"}
-                            title={info.act?.standaardUren != null ? `Leeg = de standaard-uren van deze activiteit (${info.act.standaardUren} u)` : "Indicatie-uren"}
-                            style={{ ...inputStijl, width: 90, padding: "5px 8px" }} />
+                          {readOnly ? <span>{r.indicatieUren != null ? urenTekst(r.indicatieUren) : (info.act?.standaardUren != null ? `${urenTekst(info.act.standaardUren)} (std)` : "—")}</span> : (
+                            <input type="number" min="0" step="0.25" defaultValue={r.indicatieUren == null ? "" : r.indicatieUren}
+                              onBlur={(e) => { const v = e.target.value; if (String(v) !== String(r.indicatieUren ?? "")) wijzig(r.id, { indicatieUren: v === "" ? null : v }); }}
+                              placeholder={info.act?.standaardUren != null ? String(info.act.standaardUren) : "uren"}
+                              title={info.act?.standaardUren != null ? `Leeg = de standaard-uren van deze activiteit (${info.act.standaardUren} u)` : "Indicatie-uren"}
+                              style={{ ...inputStijl, width: 90, padding: "5px 8px" }} />
+                          )}
                         </td>
                         <td style={td}>
                           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -249,32 +266,35 @@ export default function PlanningConfigPerKlant({ initieelAccountId } = {}) {
                               </span>
                             )}
                           </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
-                            <div style={{ width: 220 }}>
-                              <MedewerkerKiezer
-                                waarde={overrides[r.id] !== undefined ? overrides[r.id] : (r.toegewezenAan || "")}
-                                onChange={(v) => setOverrides((o) => ({ ...o, [r.id]: v }))}
-                                onCommit={(v) => { const t = (v || "").trim(); if (t !== (r.toegewezenAan || "")) wijzig(r.id, { toegewezenAan: t }); setOverrides((o) => { const n = { ...o }; delete n[r.id]; return n; }); }}
-                                placeholder={`Afwijken van team (${ROL_LABELS[info.rol] || "rol"})…`}
-                                klein
-                              />
+                          {!readOnly && (
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+                              <div style={{ width: 220 }}>
+                                <MedewerkerKiezer
+                                  waarde={overrides[r.id] !== undefined ? overrides[r.id] : (r.toegewezenAan || "")}
+                                  onChange={(v) => setOverrides((o) => ({ ...o, [r.id]: v }))}
+                                  onCommit={(v) => { const t = (v || "").trim(); if (t !== (r.toegewezenAan || "")) wijzig(r.id, { toegewezenAan: t }); setOverrides((o) => { const n = { ...o }; delete n[r.id]; return n; }); }}
+                                  placeholder={`Afwijken van team (${ROL_LABELS[info.rol] || "rol"})…`}
+                                  klein
+                                />
+                              </div>
+                              {r.toegewezenAan && <button onClick={() => { wijzig(r.id, { toegewezenAan: "" }); setOverrides((o) => { const n = { ...o }; delete n[r.id]; return n; }); }} title="Terug naar team" style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 11.5, cursor: "pointer", flexShrink: 0 }}>← team</button>}
                             </div>
-                            {r.toegewezenAan && <button onClick={() => { wijzig(r.id, { toegewezenAan: "" }); setOverrides((o) => { const n = { ...o }; delete n[r.id]; return n; }); }} title="Terug naar team" style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 11.5, cursor: "pointer", flexShrink: 0 }}>← team</button>}
-                          </div>
+                          )}
                         </td>
                         <td style={{ ...td, textAlign: "right" }}>
-                          <button onClick={() => verwijder(r.id)} title="Verwijderen" style={{ background: "none", border: "none", color: KLEUR.rood, cursor: "pointer" }}><Trash2 size={15} /></button>
+                          {!readOnly && <button onClick={() => verwijder(r.id)} title="Verwijderen" style={{ background: "none", border: "none", color: KLEUR.rood, cursor: "pointer" }}><Trash2 size={15} /></button>}
                         </td>
                       </tr>
                     );
                   })}
-                  {config.length === 0 && <tr><td colSpan={7} style={{ ...td, color: KLEUR.mutedTekst, textAlign: "center", padding: "20px" }}>Nog niets ingesteld voor deze klant. Voeg hieronder een activiteit toe.</td></tr>}
+                  {config.length === 0 && <tr><td colSpan={7} style={{ ...td, color: KLEUR.mutedTekst, textAlign: "center", padding: "20px" }}>Nog niets ingesteld voor deze klant.{readOnly ? "" : " Voeg hieronder een activiteit toe."}</td></tr>}
                 </tbody>
               </table>
             </div>
           )}
 
-          {/* Nieuwe regel */}
+          {/* Nieuwe regel — alleen in bewerk-stand */}
+          {!readOnly && (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <select value={nwActiviteit} onChange={(e) => setNwActiviteit(e.target.value)} style={{ ...inputStijl, width: "auto", minWidth: 220 }}>
               <option value="">— kies activiteit —</option>
@@ -295,6 +315,7 @@ export default function PlanningConfigPerKlant({ initieelAccountId } = {}) {
               <Plus size={14} /> Toevoegen
             </button>
           </div>
+          )}
         </div>
       )}
     </div>
