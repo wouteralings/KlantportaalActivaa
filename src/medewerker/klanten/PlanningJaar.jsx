@@ -352,46 +352,34 @@ export default function PlanningJaar() {
       </span>
     );
   };
-  const groepKnop = { display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", textAlign: "left" };
-  // Compacte maandstrook (spreiding over jan–dec) voor een groep/klant: staafje per maand.
-  const maandStrip = (maanden, zonderMaand) => {
-    const max = Math.max(1, ...maanden);
+  // Verdeelt een lijst items over de 12 maandkolommen (een item kan in meerdere maanden vallen);
+  // items zonder maand/deadline komen in `zonder`.
+  const chipsPerMaand = (leaves) => {
+    const cellen = Array.from({ length: 12 }, () => []);
+    const zonder = [];
+    for (const it of leaves || []) {
+      let geplaatst = false;
+      for (let m = 0; m < 12; m++) { if (it.maanden[m] > 0) { cellen[m].push(it); geplaatst = true; } }
+      if (!geplaatst) zonder.push(it);
+    }
+    return { cellen, zonder };
+  };
+  // Eén activiteit als gekleurd chip (kleur = status: Gepland/Te doen/…); "•" markeert een losse regel.
+  const groepChip = (it) => {
+    const { label, kleur } = statusMeta(it.statusKey);
     return (
-      <div style={{ display: "flex", gap: 3, alignItems: "flex-end", padding: "8px 12px 10px 30px", flexWrap: "wrap" }}>
-        {maanden.map((u, i) => (
-          <div key={i} title={`${MAANDEN_KORT[i]}: ${urenTekst(u)}`} style={{ textAlign: "center", minWidth: 30, flex: "1 1 30px" }}>
-            <div style={{ height: 26, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-              <div style={{ width: "70%", height: `${u ? Math.max(3, Math.round((u / max) * 26)) : 2}px`, background: u ? `rgba(28,93,140,${0.35 + 0.5 * (u / max)})` : KLEUR.rand, borderRadius: 3 }} />
-            </div>
-            <div style={{ fontSize: 8.5, color: KLEUR.mutedTekst, marginTop: 2 }}>{MAANDEN_KORT[i]}</div>
-            <div style={{ fontSize: 9, color: u ? KLEUR.blauw : KLEUR.rand, fontWeight: u ? 700 : 400 }}>{u ? Math.round(u) : "·"}</div>
-          </div>
-        ))}
-        {zonderMaand > 0 && (
-          <div title={`Zonder maand/deadline: ${urenTekst(zonderMaand)}`} style={{ textAlign: "center", minWidth: 40, alignSelf: "flex-end" }}>
-            <div style={{ fontSize: 8.5, color: KLEUR.amber }}>z. mnd</div>
-            <div style={{ fontSize: 9, color: KLEUR.amber, fontWeight: 700 }}>{Math.round(zonderMaand)}</div>
-          </div>
-        )}
-      </div>
+      <span key={it.id} title={`${it.activiteitLabel} · ${label} · ${it.wie} · ${urenTekst(it.uren)}${it.bron === "regel" ? " · losse regel" : ""}`}
+        style={{ display: "block", fontSize: 10.5, lineHeight: 1.35, padding: "1px 5px", marginBottom: 2, borderRadius: 5,
+          background: `${kleur}1A`, color: kleur, border: it.afwijkend ? `1px solid ${KLEUR.amber}` : "1px solid transparent",
+          whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 130 }}>
+        {it.bron === "regel" ? "• " : ""}{it.activiteitLabel}
+      </span>
     );
   };
-  const leafTabel = (leaves) => (
-    <div style={{ padding: "0 12px 10px 30px", overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
-        <tbody>
-          {leaves.map((it) => (
-            <tr key={it.id}>
-              <td style={{ ...leafTd, fontWeight: 600 }}>{it.activiteitLabel}{it.bron === "regel" ? <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, color: KLEUR.mutedTekst, background: KLEUR.rand, padding: "1px 5px", borderRadius: 4, verticalAlign: "middle" }}>los</span> : null}</td>
-              <td style={leafTd}>{statusChip(it.statusKey)}</td>
-              <td style={{ ...leafTd, color: it.zonderMaand ? KLEUR.amber : KLEUR.mutedTekst, whiteSpace: "nowrap" }} title={it.bron === "config" ? "Maand(en) uit de configuratie" : "Deadline"}>{it.wanneer}</td>
-              <td style={leafTd}>{it.wie}</td>
-              <td style={{ ...leafTd, textAlign: "right", whiteSpace: "nowrap", fontWeight: 600 }}>{urenTekst(it.uren)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+  const maandCel = (lijst, mi) => (
+    <td key={mi} style={{ ...td, background: mi % 2 ? "#FbFcFb" : "#fff" }}>
+      {lijst.length === 0 ? <span style={{ color: KLEUR.rand }}>·</span> : lijst.map(groepChip)}
+    </td>
   );
 
   const stickyLinks = { position: "sticky", left: 0, zIndex: 1, background: "#fff", boxShadow: `1px 0 0 ${KLEUR.rand}` };
@@ -458,9 +446,7 @@ export default function PlanningJaar() {
       )}
       {isGroep && (
         <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 8, lineHeight: 1.5 }}>
-          Basis = de vaste <strong>jaartaken</strong> uit de per-klant configuratie (status <span style={{ color: KLEUR.blauw, fontWeight: 700 }}>Gepland</span>). Regels met de tag
-          <span style={{ margin: "0 4px", fontSize: 9.5, fontWeight: 700, color: KLEUR.mutedTekst, background: KLEUR.rand, padding: "1px 5px", borderRadius: 4 }}>los</span>
-          zijn bewust opgevoerde eenmalige opdrachten (advies e.d.) met hun eigen status.
+          Klik een {weergave === "medewerker" ? "medewerker" : weergave === "klantgroep" ? "klantgroep" : "klant"} open voor de activiteiten per maand. De top-rij toont de uren-totalen per maand; eronder de activiteit-chips (kleur = status: <span style={{ color: KLEUR.blauw, fontWeight: 700 }}>Gepland</span> = vaste jaartaak uit de configuratie, <span style={{ fontWeight: 700 }}>•</span> = losse regel / eenmalige opdracht).
         </div>
       )}
 
@@ -568,45 +554,67 @@ export default function PlanningJaar() {
           </div>
         </div>
       ) : (
-        <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
-          {groepData.groepen.length === 0 && (
-            <div style={{ padding: 22, fontSize: 12.5, color: KLEUR.mutedTekst, textAlign: "center", lineHeight: 1.6 }}>
-              Geen jaartaken{zoek || teamFilter !== "alle" ? " voor deze filter" : ""}.<br />
-              Deze weergave toont de vaste jaartaken uit de per-klant configuratie ("Gepland") plus de losse jaarregels met status — stel ze in via Planning → Per klant, of voeg een losse regel toe via Planning → Overzicht.
-            </div>
-          )}
-          {groepData.groepen.map((g) => {
-            const gopen = openGroep.has(g.key);
-            return (
-              <div key={g.key} style={{ borderBottom: `1px solid ${KLEUR.rand}` }}>
-                <button onClick={() => toggleGroep(g.key)} style={groepKnop}>
-                  <ChevronRight size={15} style={{ transform: gopen ? "rotate(90deg)" : "none", transition: "transform .15s", flexShrink: 0 }} color={KLEUR.mutedTekst} />
-                  <span style={{ fontWeight: 700, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.naam}</span>
-                  {statusBalk(g.telling)}
-                  <span style={{ fontSize: 12, color: KLEUR.mutedTekst, whiteSpace: "nowrap", marginLeft: 4 }}>{g.aantal} · {urenTekst(g.uren)}</span>
-                </button>
-                {gopen && (
-                  <div style={{ background: "#FbFcFb" }}>
-                    {maandStrip(g.maanden, g.zonderMaand)}
-                    {g.subgroepen ? g.subgroepen.map((s) => {
-                      const sopen = openSub.has(s.key);
-                      return (
-                        <div key={s.key} style={{ borderTop: `1px solid ${KLEUR.rand}` }}>
-                          <button onClick={() => toggleSub(s.key)} style={{ ...groepKnop, padding: "7px 12px 7px 26px" }}>
-                            <ChevronRight size={14} style={{ transform: sopen ? "rotate(90deg)" : "none", transition: "transform .15s", flexShrink: 0 }} color={KLEUR.mutedTekst} />
-                            <span style={{ fontWeight: 600, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.naam}{s.nummer ? <span style={{ color: KLEUR.mutedTekst, fontWeight: 400 }}> · {s.nummer}</span> : null}</span>
-                            {statusBalk(s.telling)}
-                            <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst, whiteSpace: "nowrap", marginLeft: 4 }}>{s.aantal} · {urenTekst(s.uren)}</span>
-                          </button>
-                          {sopen && <div style={{ background: "#fff" }}>{maandStrip(s.maanden, s.zonderMaand)}{leafTabel(s.leaves)}</div>}
-                        </div>
-                      );
-                    }) : leafTabel(g.leaves)}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+        <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10 }}>
+          <table style={{ borderCollapse: "collapse", minWidth: 1180 }}>
+            <thead><tr>
+              <th style={{ ...th, ...stickyLinks, minWidth: 210 }}>{weergave === "medewerker" ? "Medewerker" : weergave === "klantgroep" ? "Klantgroep" : "Klant"}</th>
+              {MAANDEN_KORT.map((m) => <th key={m} style={{ ...th, minWidth: 84, textAlign: "left" }}>{m}</th>)}
+              <th style={{ ...th, minWidth: 74 }}>Totaal</th>
+            </tr></thead>
+            <tbody>
+              {groepData.groepen.length === 0 && (
+                <tr><td colSpan={14} style={{ ...td, color: KLEUR.mutedTekst, textAlign: "center", padding: 24, lineHeight: 1.6 }}>
+                  Geen jaartaken{zoek || teamFilter !== "alle" ? " voor deze filter" : ""}. Deze weergave toont de vaste jaartaken uit de configuratie ("Gepland") plus de losse jaarregels met status.
+                </td></tr>
+              )}
+              {groepData.groepen.flatMap((g) => {
+                const gopen = openGroep.has(g.key);
+                const heeftSub = !!g.subgroepen;
+                const rows = [];
+                // Top-rij: medewerker / klantgroep / klant — uren-totaal per maand, klikbaar om open te klappen.
+                rows.push(
+                  <tr key={g.key} onClick={() => toggleGroep(g.key)} style={{ cursor: "pointer" }}>
+                    <td style={{ ...td, ...stickyLinks }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <ChevronRight size={14} style={{ transform: gopen ? "rotate(90deg)" : "none", transition: "transform .15s", flexShrink: 0 }} color={KLEUR.mutedTekst} />
+                        <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.naam}</span>
+                      </div>
+                      <div style={{ paddingLeft: 20, marginTop: 3, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                        {statusBalk(g.telling)}
+                        {g.zonderMaand > 0 && <span title="Uren zonder maand/deadline" style={{ fontSize: 9.5, fontWeight: 700, color: KLEUR.amber }}>z. mnd {Math.round(g.zonderMaand)}</span>}
+                      </div>
+                    </td>
+                    {g.maanden.map((u, mi) => (
+                      <td key={mi} style={{ ...td, background: mi % 2 ? "#FbFcFb" : "#fff", fontWeight: 600, whiteSpace: "nowrap", color: u ? KLEUR.tekst : KLEUR.rand }}>{u ? urenTekst(u) : "·"}</td>
+                    ))}
+                    <td style={{ ...td, fontWeight: 700, whiteSpace: "nowrap" }}>{urenTekst(g.uren)}</td>
+                  </tr>
+                );
+                // Open: bij medewerker/klantgroep de klanten als sub-rijen met de activiteit-chips per maand
+                // (zoals de klantenkalender); bij "Per klant" direct de activiteiten.
+                if (gopen) {
+                  const subrijen = heeftSub ? g.subgroepen : [{ key: g.key + ":act", naam: "Activiteiten", nummer: "", leaves: g.leaves, uren: g.uren, isActieRij: true }];
+                  for (const s of subrijen) {
+                    const { cellen, zonder } = chipsPerMaand(s.leaves);
+                    rows.push(
+                      <tr key={s.key} style={{ background: "#FbFcFb" }}>
+                        <td style={{ ...td, ...stickyLinks, background: "#FbFcFb", verticalAlign: "top" }}>
+                          <div style={{ paddingLeft: 22 }}>
+                            <span style={{ fontWeight: s.isActieRij ? 400 : 600, fontSize: s.isActieRij ? 11.5 : 12, color: s.isActieRij ? KLEUR.mutedTekst : KLEUR.tekst }}>{s.naam}</span>
+                            {s.nummer ? <span style={{ color: KLEUR.mutedTekst, fontWeight: 400 }}> · {s.nummer}</span> : null}
+                            {zonder.length > 0 && <div style={{ fontSize: 9.5, color: KLEUR.amber, fontWeight: 700 }} title={zonder.map((i) => i.activiteitLabel).join(", ")}>{zonder.length} zonder maand</div>}
+                          </div>
+                        </td>
+                        {cellen.map(maandCel)}
+                        <td style={{ ...td, fontWeight: 600, whiteSpace: "nowrap" }}>{urenTekst(s.uren)}</td>
+                      </tr>
+                    );
+                  }
+                }
+                return rows;
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
