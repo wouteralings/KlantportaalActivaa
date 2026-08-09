@@ -153,28 +153,59 @@ export default function PlanningJaar() {
     return { rijen, maandTotalen, jaarTotaal };
   }, [config, activiteitById, klantenMap, teamFilter, zoekLaag]);
 
-  // ── Groeperen-weergave: losse jaarregels (MET status), gegroepeerd + geneste boom ──
+  // ── Groeperen-weergave: de vaste JAARtaken uit de per-klant configuratie (de basis; geen status →
+  //    "Gepland") PLUS de losse jaarregels (bewust opgevoerde eenmalige opdrachten/advies, MÉT
+  //    status). Gegroepeerd per medewerker/klant/klantgroep in een uitklapbare, geneste boom. ──
   const jaarRegels = useMemo(() => (regels || []).filter((r) => (r.type || "maand") === "jaar"), [regels]);
 
   const groepData = useMemo(() => {
-    if (weergave === "kalender") return { groepen: [], aantal: 0, uren: 0 };
+    if (weergave === "kalender" || weergave === "bezetting") return { groepen: [], aantal: 0, uren: 0 };
     const items = [];
+    const past = (klant, wie, activiteitLabel) => {
+      if (teamFilter !== "alle" && (klant?.team || "") !== teamFilter) return false;
+      if (zoekLaag) {
+        const hooi = `${klant?.klantnummer || ""} ${klant?.klantnaam || ""} ${wie} ${activiteitLabel}`.toLowerCase();
+        if (!hooi.includes(zoekLaag)) return false;
+      }
+      return true;
+    };
+    // 1) Vaste jaartaken uit de per-klant configuratie (status onbekend → "Gepland").
+    for (const r of config || []) {
+      if (r.actief === false) continue;
+      const act = activiteitById[r.activiteit];
+      if (!act || act.type !== "jaar") continue;
+      const key = String(r.klantAccountId || "").toLowerCase();
+      const klant = klantenMap[key] || null;
+      const override = (r.toegewezenAan || "").trim();
+      const team = teamPersoon(klant, act.rol);
+      const wie = override || team || "— niet toegewezen";
+      const activiteitLabel = act.label || r.activiteit;
+      if (!past(klant, wie, activiteitLabel)) continue;
+      const uren = (r.indicatieUren != null ? Number(r.indicatieUren) : Number(act.standaardUren || 0)) || 0;
+      items.push({
+        id: `c:${r.id || key + ":" + r.activiteit}`, bron: "config", act, key,
+        activiteitLabel,
+        klantnaam: klant?.klantnaam || "Onbekende klant", klantnummer: klant?.klantnummer || "",
+        klantgroep: klant?.groepsnaam || "— geen groep —",
+        wie, uren, statusKey: "gepland", deadline: null,
+        afwijkend: !!override && override.toLowerCase() !== (team || "").toLowerCase(),
+      });
+    }
+    // 2) Losse jaarregels (bewuste eenmalige opdrachten/advies) — mét echte status.
     for (const r of jaarRegels) {
       const act = activiteitById[r.activiteit] || null;
       const key = String(r.klantAccountId || "").toLowerCase();
       const klant = klantenMap[key] || null;
-      if (teamFilter !== "alle" && (klant?.team || "") !== teamFilter) continue;
       const wie = (r.toegewezenAan || "").trim() || (act ? teamPersoon(klant, act.rol) : "") || "— niet toegewezen";
-      if (zoekLaag) {
-        const hooi = `${klant?.klantnummer || ""} ${klant?.klantnaam || ""} ${wie} ${act?.label || r.activiteit}`.toLowerCase();
-        if (!hooi.includes(zoekLaag)) continue;
-      }
+      const activiteitLabel = act?.label || r.activiteit;
+      if (!past(klant, wie, activiteitLabel)) continue;
       const uren = (r.indicatieUren != null ? Number(r.indicatieUren) : Number(act?.standaardUren || 0)) || 0;
       items.push({
-        regel: r, act, key,
+        id: `r:${r.id}`, bron: "regel", act, key,
+        activiteitLabel,
         klantnaam: klant?.klantnaam || "Onbekende klant", klantnummer: klant?.klantnummer || "",
         klantgroep: klant?.groepsnaam || "— geen groep —",
-        wie, uren, statusKey: r.status || "",
+        wie, uren, statusKey: r.status || "", deadline: r.deadline || null,
       });
     }
     const vatSamen = (lijst) => {
@@ -194,7 +225,7 @@ export default function PlanningJaar() {
     }
     const groepen = [...top.entries()].map(([naam, lijst]) => {
       const samenvatting = vatSamen(lijst);
-      if (!heeftSub) return { key: naam, naam, ...samenvatting, leaves: lijst.slice().sort((a, b) => String(a.act?.label || a.regel.activiteit).localeCompare(String(b.act?.label || b.regel.activiteit), "nl")) };
+      if (!heeftSub) return { key: naam, naam, ...samenvatting, leaves: lijst.slice().sort((a, b) => String(a.activiteitLabel).localeCompare(String(b.activiteitLabel), "nl")) };
       const subMap = new Map();
       for (const it of lijst) {
         const sk = it.key || it.klantnaam;
@@ -207,7 +238,7 @@ export default function PlanningJaar() {
     }).sort((a, b) => String(a.naam).localeCompare(String(b.naam), "nl"));
 
     return { groepen, aantal: items.length, uren: items.reduce((s, i) => s + i.uren, 0) };
-  }, [weergave, jaarRegels, activiteitById, klantenMap, teamFilter, zoekLaag]);
+  }, [weergave, config, jaarRegels, activiteitById, klantenMap, teamFilter, zoekLaag]);
 
   // ── Bezetting: totale werklast (jaarconfig + maandconfig + taken) vs. beschikbare uren, per medewerker ──
   const bezetting = useMemo(() => {
@@ -277,11 +308,18 @@ export default function PlanningJaar() {
       }}>{i.activiteit}</span>
   );
 
-  const statusChip = (sleutel) => {
-    if (!sleutel) return <span style={{ fontSize: 10.5, color: KLEUR.mutedTekst, fontWeight: 600 }}>Geen status</span>;
+  // "gepland" = een vaste jaartaak uit de configuratie (geen instance-status); losse regels dragen
+  // een echte status (statusInfo), en "" = een regel zonder status.
+  const statusMeta = (sleutel) => {
+    if (sleutel === "gepland") return { label: "Gepland", kleur: KLEUR.blauw };
+    if (!sleutel) return { label: "Geen status", kleur: KLEUR.mutedTekst };
     const s = statusInfo[sleutel];
-    const kleur = s?.kleur || KLEUR.mutedTekst;
-    return <span style={{ fontSize: 10.5, fontWeight: 700, color: kleur, background: `${kleur}1A`, padding: "2px 8px", borderRadius: 20, whiteSpace: "nowrap" }}>{s?.label || sleutel}</span>;
+    return { label: s?.label || sleutel, kleur: s?.kleur || KLEUR.mutedTekst };
+  };
+  const statusChip = (sleutel) => {
+    const { label, kleur } = statusMeta(sleutel);
+    if (!sleutel) return <span style={{ fontSize: 10.5, color: KLEUR.mutedTekst, fontWeight: 600 }}>{label}</span>;
+    return <span style={{ fontSize: 10.5, fontWeight: 700, color: kleur, background: `${kleur}1A`, padding: "2px 8px", borderRadius: 20, whiteSpace: "nowrap" }}>{label}</span>;
   };
   const statusBalk = (telling) => {
     const paren = Object.entries(telling || {}).filter(([, n]) => n > 0);
@@ -289,9 +327,7 @@ export default function PlanningJaar() {
     return (
       <span style={{ display: "inline-flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>
         {paren.map(([sl, n]) => {
-          const s = statusInfo[sl];
-          const kleur = sl ? (s?.kleur || KLEUR.mutedTekst) : KLEUR.mutedTekst;
-          const label = sl ? (s?.label || sl) : "Geen status";
+          const { label, kleur } = statusMeta(sl);
           return <span key={sl || "_leeg"} title={label} style={{ fontSize: 10.5, fontWeight: 700, color: kleur, background: `${kleur}1A`, padding: "1px 7px", borderRadius: 20, whiteSpace: "nowrap" }}>{n} {label}</span>;
         })}
       </span>
@@ -303,10 +339,10 @@ export default function PlanningJaar() {
       <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
         <tbody>
           {leaves.map((it) => (
-            <tr key={it.regel.id}>
-              <td style={{ ...leafTd, fontWeight: 600 }}>{it.act?.label || it.regel.activiteit}</td>
+            <tr key={it.id}>
+              <td style={{ ...leafTd, fontWeight: 600 }}>{it.activiteitLabel}{it.bron === "regel" ? <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, color: KLEUR.mutedTekst, background: KLEUR.rand, padding: "1px 5px", borderRadius: 4, verticalAlign: "middle" }}>los</span> : null}</td>
               <td style={leafTd}>{statusChip(it.statusKey)}</td>
-              <td style={{ ...leafTd, color: KLEUR.mutedTekst, whiteSpace: "nowrap" }}>{it.regel.deadline ? new Date(it.regel.deadline).toLocaleDateString("nl-NL") : "—"}</td>
+              <td style={{ ...leafTd, color: KLEUR.mutedTekst, whiteSpace: "nowrap" }}>{it.deadline ? new Date(it.deadline).toLocaleDateString("nl-NL") : "—"}</td>
               <td style={leafTd}>{it.wie}</td>
               <td style={{ ...leafTd, textAlign: "right", whiteSpace: "nowrap", fontWeight: 600 }}>{urenTekst(it.uren)}</td>
             </tr>
@@ -351,7 +387,7 @@ export default function PlanningJaar() {
         {isBezetting
           ? <span><strong>{bezetting.rijen.length}</strong> medewerker{bezetting.rijen.length === 1 ? "" : "s"} · werklast <strong>{urenTekst(bezetting.totaal.config + bezetting.totaal.taken)}</strong> · beschikbaar <strong>{urenTekst(bezetting.totaal.beschikbaar)}</strong></span>
           : isGroep
-          ? <span><strong>{groepData.aantal}</strong> jaarregel{groepData.aantal === 1 ? "" : "s"} · <strong>{urenTekst(groepData.uren)}</strong> indicatie</span>
+          ? <span><strong>{groepData.aantal}</strong> jaartaak{groepData.aantal === 1 ? "" : "en"} · <strong>{urenTekst(groepData.uren)}</strong> indicatie</span>
           : <span><strong>{rijen.length}</strong> klant{rijen.length === 1 ? "" : "en"} · <strong>{urenTekst(jaarTotaal)}</strong> indicatie over het jaar</span>}
         <span style={{ color: KLEUR.rand }}>|</span>
         <label style={{ display: "inline-flex", alignItems: "center", gap: 5, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "3px 8px", background: "#fff" }}>
@@ -376,6 +412,13 @@ export default function PlanningJaar() {
           <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: KLEUR.lichtblauw, display: "inline-block" }} /> maandactiviteit</span>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: KLEUR.amberAchtergrond, display: "inline-block" }} /> jaaractiviteit</span>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, border: `1px solid ${KLEUR.amber}`, display: "inline-block" }} /> afwijkend van team</span>
+        </div>
+      )}
+      {isGroep && (
+        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 8, lineHeight: 1.5 }}>
+          Basis = de vaste <strong>jaartaken</strong> uit de per-klant configuratie (status <span style={{ color: KLEUR.blauw, fontWeight: 700 }}>Gepland</span>). Regels met de tag
+          <span style={{ margin: "0 4px", fontSize: 9.5, fontWeight: 700, color: KLEUR.mutedTekst, background: KLEUR.rand, padding: "1px 5px", borderRadius: 4 }}>los</span>
+          zijn bewust opgevoerde eenmalige opdrachten (advies e.d.) met hun eigen status.
         </div>
       )}
 
@@ -486,8 +529,8 @@ export default function PlanningJaar() {
         <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
           {groepData.groepen.length === 0 && (
             <div style={{ padding: 22, fontSize: 12.5, color: KLEUR.mutedTekst, textAlign: "center", lineHeight: 1.6 }}>
-              Geen jaarplanningsregels{zoek || teamFilter !== "alle" ? " voor deze filter" : ""}.<br />
-              Deze weergave gebruikt de losse planningsregels met een status (type "jaar") — voeg ze toe via Planning → Overzicht of op de klantkaart.
+              Geen jaartaken{zoek || teamFilter !== "alle" ? " voor deze filter" : ""}.<br />
+              Deze weergave toont de vaste jaartaken uit de per-klant configuratie ("Gepland") plus de losse jaarregels met status — stel ze in via Planning → Per klant, of voeg een losse regel toe via Planning → Overzicht.
             </div>
           )}
           {groepData.groepen.map((g) => {
