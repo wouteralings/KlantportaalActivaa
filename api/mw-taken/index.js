@@ -19,8 +19,10 @@
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const {
   SOORT_VELD, KLANT_VELD, KLANT_VALUE, FV, DYNAMICS_HEADERS,
-  haalSystemuser, haalAutomatischAfgewikkeldeSoorten, afwikkelingVoorSoort, dynamicsAppUrl,
+  haalSystemuser, haalAutomatischAfgewikkeldeSoorten, afwikkelingVoorSoort,
+  haalStandaardUrenPerSoort, effectieveTaakUren, dynamicsAppUrl,
 } = require("../_gedeeld/takenGedeeld");
+const takenTijd = require("../_gedeeld/takenTijd");
 
 // Verbergt de interne "[dossier-ref: ...]"-koppeling die sommige flows in de omschrijving
 // verstoppen (zie api/taken) — nooit bedoeld voor weergave.
@@ -35,7 +37,7 @@ function magErin(req) {
   return rollen.includes("beheerder") || rollen.includes("medewerker");
 }
 
-async function haalTaken(resource, token, statecode, automatischeSet, mijnId) {
+async function haalTaken(resource, token, statecode, automatischeSet, mijnId, standaardPerSoort, tijdOverrides) {
   const orderby = statecode === 1 ? "modifiedon desc" : "createdon desc";
   const top = statecode === 1 ? 1000 : 2000;
   const query =
@@ -48,13 +50,19 @@ async function haalTaken(resource, token, statecode, automatischeSet, mijnId) {
   const res = await fetch(query, { headers: DYNAMICS_HEADERS(token) });
   if (!res.ok) throw new Error(`Ophalen taken mislukt: ${await res.text()}`);
   const data = await res.json();
+  const overrides = tijdOverrides || {};
+  const stdPerSoort = standaardPerSoort || {};
 
   return (data.value || []).map((rij) => {
     const soortWaarde = SOORT_VELD ? rij[SOORT_VELD] : null;
     const eigenaarId = rij._ownerid_value || "";
     const klantAccountId = rij[KLANT_VALUE] || rij._regardingobjectid_value || "";
+    const id = rij.activityid;
+    const override = id != null ? overrides[String(id).toLowerCase()] : undefined;
+    const standaardUren = soortWaarde == null ? null : (stdPerSoort[String(soortWaarde)] != null ? stdPerSoort[String(soortWaarde)] : null);
+    const urenOverride = override == null ? null : Number(override);
     return {
-      id: rij.activityid,
+      id,
       onderwerp: rij.subject || "(geen onderwerp)",
       omschrijving: verbergDossierRef(rij.description),
       deadline: rij.scheduledend || null,
@@ -65,6 +73,11 @@ async function haalTaken(resource, token, statecode, automatischeSet, mijnId) {
       soort: SOORT_VELD ? rij[SOORT_VELD + FV] || "" : "",
       soortWaarde: soortWaarde == null ? null : String(soortWaarde),
       afwikkeling: afwikkelingVoorSoort(soortWaarde, automatischeSet),
+      // Indicatie-tijd voor de planning/bezetting: standaard van de soort (Beheer → Taken),
+      // per taak overschrijfbaar. `uren` is de effectieve waarde (overschrijving wint).
+      standaardUren,
+      urenOverride,
+      uren: effectieveTaakUren(soortWaarde, stdPerSoort, override),
       eigenaar: rij[`_ownerid_value${FV}`] || "",
       eigenaarId,
       eigenaarVanMij: !!mijnId && eigenaarId.toLowerCase() === mijnId.toLowerCase(),
@@ -93,11 +106,13 @@ module.exports = async function (context, req) {
 
     if (req.method === "GET") {
       const statusParam = (req.query && req.query.status) === "afgehandeld" ? 1 : 0;
-      const [automatischeSet, mij] = await Promise.all([
+      const [automatischeSet, mij, standaardPerSoort, tijdOverrides] = await Promise.all([
         haalAutomatischAfgewikkeldeSoorten(),
         haalSystemuser(resource, token, email),
+        haalStandaardUrenPerSoort().catch(() => ({})),
+        takenTijd.haalAlle().catch(() => ({})),
       ]);
-      const taken = await haalTaken(resource, token, statusParam, automatischeSet, mij.id);
+      const taken = await haalTaken(resource, token, statusParam, automatischeSet, mij.id, standaardPerSoort, tijdOverrides);
       context.res = {
         headers: { "Content-Type": "application/json" },
         body: { taken, appUrl: dynamicsAppUrl(resource), mijnNaam: mij.naam, configuratieNodig: !SOORT_VELD },
@@ -112,6 +127,20 @@ module.exports = async function (context, req) {
         context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef het id van de taak mee." } };
         return;
       }
+
+      // Indicatie-tijd voor de planning/bezetting overschrijven (of leeg = terug naar de standaard
+      // van de soort). Schrijft alleen naar de eigen blob, raakt Dynamics niet aan.
+      if (actie === "tijd") {
+        try {
+          const nieuw = await takenTijd.zetTijd(taakId, req.body ? req.body.uren : "");
+          context.res = { status: 200, headers: { "Content-Type": "application/json" }, body: { ok: true, urenOverride: nieuw } };
+        } catch (e) {
+          const validatie = String(e.message || "").startsWith("VALIDATIE:");
+          context.res = { status: validatie ? 400 : 500, headers: { "Content-Type": "application/json" }, body: { error: validatie ? e.message.replace("VALIDATIE: ", "") : "Kon de tijd niet opslaan." } };
+        }
+        return;
+      }
+
       if (actie !== "afronden") {
         context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Onbekende actie." } };
         return;

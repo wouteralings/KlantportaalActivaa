@@ -32,6 +32,18 @@ const RECHT_LABELS = {
 };
 const RECHT_KEYS = Object.keys(RECHT_LABELS);
 
+// Waar elk recht concreet toegang toe geeft (map/sectie in het klantdossier of actie), zodat je bij
+// het doorklikken ziet tot welke documenten iemand recht heeft. De documenttoegang is map-/sectie-
+// gebaseerd (niet per los bestand), dus dit toont de mappen die iemand mag zien of gebruiken.
+const RECHT_UITLEG = {
+  inzien: "Map 'Correspondentie' — inzien & downloaden",
+  aanleveren: "Aanleveren op openstaande verzoeken",
+  akkorderen: "Akkoord geven / ondertekenen",
+  inzienDirectie: "Map 'Directie' — inzien",
+  inzienAdministratie: "Map 'Administratie' — inzien",
+  bewerkenAdministratie: "Map 'Administratie' — uploaden",
+};
+
 // Zelfde normalisatie als de backend (kleine letters + #EXT#-omzetting), zodat het joinen klopt.
 function normaliseerEmail(waarde) {
   let s = String(waarde || "").trim();
@@ -83,6 +95,8 @@ export default function GastaccountsOverzicht() {
   const [bezigId, setBezigId] = useState("");
   const [melding, setMelding] = useState({}); // contactId -> { type: "ok"|"fout", tekst }
   const [bevestigVerwijder, setBevestigVerwijder] = useState("");
+  const [openRechten, setOpenRechten] = useState(() => new Set()); // welke rijen hun documentrechten uitgeklapt hebben
+  const toggleRechten = (id) => setOpenRechten((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   const laadGasten = useCallback(async (vernieuw) => {
     const url = vernieuw ? "/api/beheer-gastaccounts?vernieuw=1" : "/api/beheer-gastaccounts";
@@ -292,9 +306,28 @@ export default function GastaccountsOverzicht() {
                       </span>
                     </td>
                     <td style={td}>
-                      {row.rechten.length === 0
-                        ? <span style={{ color: KLEUR.mutedTekst }}>Geen</span>
-                        : <span title={row.rechten.map((k) => RECHT_LABELS[k]).join(", ")}>{row.rechten.length} recht{row.rechten.length === 1 ? "" : "en"}</span>}
+                      {row.rechten.length === 0 ? (
+                        <span style={{ color: KLEUR.mutedTekst }}>Geen</span>
+                      ) : (
+                        <div>
+                          <button
+                            onClick={() => toggleRechten(row.contactId)}
+                            title="Klik om te zien tot welke mappen/documenten deze persoon recht heeft"
+                            style={{ background: "none", border: "none", padding: 0, color: KLEUR.blauw, fontSize: 12.5, fontWeight: 600, cursor: "pointer", textDecoration: "underline" }}
+                          >
+                            {row.rechten.length} recht{row.rechten.length === 1 ? "" : "en"} {openRechten.has(row.contactId) ? "▾" : "▸"}
+                          </button>
+                          {openRechten.has(row.contactId) && (
+                            <ul style={{ margin: "6px 0 0", padding: 0, listStyle: "none" }}>
+                              {row.rechten.map((k) => (
+                                <li key={k} style={{ fontSize: 11.5, color: KLEUR.subtekst, padding: "1px 0", whiteSpace: "nowrap" }}>
+                                  <span style={{ color: KLEUR.groen, fontWeight: 700 }}>✓</span> {RECHT_UITLEG[k] || RECHT_LABELS[k]}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td style={{ ...td, textAlign: "right" }}>
                       {bezig ? (

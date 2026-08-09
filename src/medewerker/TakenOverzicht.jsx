@@ -61,6 +61,7 @@ function TAKEN_KOLOMMEN(modus) {
     { key: "eigenaar", label: "Eigenaar", cel: (t) => t.eigenaar || "" },
     { key: "deadline", label: "Deadline", cel: (t) => datum(t.deadline), sortVal: (t) => tijd(t.deadline) },
     { key: "prioriteit", label: "Prioriteit", cel: (t) => t.prioriteit || "" },
+    { key: "uren", label: "Indic. uren", cel: (t) => (t.uren ? `${Number(t.uren).toLocaleString("nl-NL", { maximumFractionDigits: 2 })} u${t.urenOverride != null ? "*" : ""}` : ""), sortVal: (t) => Number(t.uren) || 0, uitlijnen: "right" },
     { key: "klantnummer", label: "Cliëntnr", cel: (t) => (t.klant && (t.klant.klantnummer ?? "") !== "" ? String(t.klant.klantnummer) : "") },
     { key: "groepsnaam", label: "Groep", cel: (t) => (t.klant && t.klant.groepsnaam) || "" },
   ];
@@ -74,7 +75,7 @@ function TAKEN_KOLOMMEN(modus) {
 }
 const STANDAARD_VERBORGEN = {
   open: ["prioriteit", "klantnummer", "groepsnaam"],
-  afgehandeld: ["prioriteit", "klantnummer", "groepsnaam", "afwikkeling"],
+  afgehandeld: ["prioriteit", "klantnummer", "groepsnaam", "afwikkeling", "uren"],
 };
 
 // ── Scope-schakelaar (3-weg) ─────────────────────────────────────────────────
@@ -113,10 +114,31 @@ function AfwikkelingBadge({ waarde }) {
 }
 
 // ── Detailweergave van één taak ──────────────────────────────────────────────
-function TaakDetail({ taak, modus, appUrl, onTerug, onAfgehandeld }) {
+function TaakDetail({ taak, modus, appUrl, onTerug, onAfgehandeld, onTijd }) {
   const [bezig, setBezig] = useState(false);
   const [fout, setFout] = useState("");
+  const [urenInput, setUrenInput] = useState(taak.urenOverride == null ? "" : String(taak.urenOverride));
+  const [urenBezig, setUrenBezig] = useState(false);
+  const [urenStatus, setUrenStatus] = useState(""); // "" | "gelukt" | foutmelding
   const dynamicsLink = appUrl ? `${appUrl}/main.aspx?pagetype=entityrecord&etn=task&id=${taak.id}` : "";
+
+  const bewaarUren = async () => {
+    setUrenBezig(true); setUrenStatus("");
+    try {
+      const r = await fetch("/api/mw-taken", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: taak.id, actie: "tijd", uren: urenInput }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      const d = await r.json().catch(() => ({}));
+      onTijd && onTijd(taak.id, d.urenOverride == null ? null : Number(d.urenOverride));
+      setUrenStatus("gelukt");
+    } catch (e) {
+      setUrenStatus(e.message || "Opslaan mislukt.");
+    } finally {
+      setUrenBezig(false);
+    }
+  };
 
   const rond = async () => {
     if (!window.confirm("Deze taak markeren als afgehandeld (voltooid)?")) return;
@@ -183,6 +205,30 @@ function TaakDetail({ taak, modus, appUrl, onTerug, onAfgehandeld }) {
           <div style={{ marginTop: 8 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 4 }}>Omschrijving</div>
             <div style={{ fontSize: 13, color: KLEUR.tekst, whiteSpace: "pre-wrap" }}>{taak.omschrijving}</div>
+          </div>
+        )}
+
+        {modus === "open" && (
+          <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${KLEUR.rand}` }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 6 }}>Indicatie-uren (planning &amp; bezetting)</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <input
+                type="number" min="0" step="0.25" value={urenInput}
+                onChange={(e) => { setUrenInput(e.target.value); setUrenStatus(""); }}
+                placeholder={taak.standaardUren != null ? `${taak.standaardUren} (standaard)` : "uren"}
+                style={{ width: 120, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 13, background: "#fff" }}
+              />
+              <button onClick={bewaarUren} disabled={urenBezig} style={{ padding: "7px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: urenBezig ? "default" : "pointer", opacity: urenBezig ? 0.7 : 1 }}>
+                {urenBezig ? "Bezig…" : "Opslaan"}
+              </button>
+              {urenStatus === "gelukt" && <span style={{ fontSize: 12, color: KLEUR.groen, fontWeight: 600 }}>Opgeslagen</span>}
+              {urenStatus && urenStatus !== "gelukt" && <span style={{ fontSize: 12, color: KLEUR.rood }}>{urenStatus}</span>}
+            </div>
+            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 6 }}>
+              {taak.standaardUren != null
+                ? <>Standaard voor deze soort: <strong>{taak.standaardUren} u</strong> (Beheer → Taken). Laat leeg om de standaard te gebruiken.</>
+                : <>Nog geen standaard-tijd voor deze soort ingesteld (Beheer → Taken). Vul hier eventueel handmatig uren in.</>}
+            </div>
           </div>
         )}
       </div>
@@ -337,6 +383,11 @@ function TakenTabel({ modus }) {
           appUrl={appUrl}
           onTerug={() => setDetailId(null)}
           onAfgehandeld={(id) => { setTaken((h) => (h || []).filter((x) => x.id !== id)); setDetailId(null); }}
+          onTijd={(id, override) => setTaken((h) => (h || []).map((x) => {
+            if (x.id !== id) return x;
+            const eff = override != null ? override : (x.standaardUren != null ? x.standaardUren : 0);
+            return { ...x, urenOverride: override, uren: eff };
+          }))}
         />
       );
     }

@@ -75,7 +75,7 @@ export default function PlanningMaand() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setActiviteiten(d.activiteiten || []))
       .catch(() => setActiviteiten([]));
-    fetch("/api/beheer-klanten")
+    fetch("/api/beheer-klanten?alle=1")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => { const bij = {}; (d.klanten || []).forEach((k) => { bij[String(k.accountId || "").toLowerCase()] = k; }); setKlantenMap(bij); })
       .catch(() => setKlantenMap({}));

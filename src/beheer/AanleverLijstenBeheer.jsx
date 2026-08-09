@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, Trash2, CheckCircle2, ListChecks, FileText, ChevronDown, ChevronUp, Search } from "lucide-react";
+import { Plus, Trash2, CheckCircle2, ListChecks, FileText, ChevronDown, ChevronUp, Search, X } from "lucide-react";
 
 /** Zelfde palet als de rest van het beheerdersportaal (bewust hier herhaald zodat dit bestand op
  *  zichzelf staat). */
@@ -38,6 +38,50 @@ const invoerStijl = { width: "100%", boxSizing: "border-box", border: `1px solid
 const labelStijl = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3 };
 
 /**
+ * Zoekbare keuzelijst (combobox): toont de gekozen waarde en klapt open met een zoekveld dat de
+ * opties op naam filtert. Voor de tabel- en kolomkeuze bij het koppelen (lange lijsten). `opties`:
+ * [{ value, label }]. Een lege value ("") mag als "geen keuze"-optie worden meegegeven.
+ */
+function ZoekSelect({ waarde, opties, onKies, placeholder = "— kies —", disabled }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const huidig = opties.find((o) => o.value === (waarde || "")) || null;
+  const term = q.trim().toLowerCase();
+  const lijst = term ? opties.filter((o) => String(o.label).toLowerCase().includes(term)) : opties;
+  const toon = huidig && huidig.value ? huidig.label : placeholder;
+  return (
+    <div style={{ position: "relative" }}>
+      <button
+        type="button"
+        onClick={() => !disabled && setOpen((v) => !v)}
+        title={typeof toon === "string" ? toon : ""}
+        style={{ ...invoerStijl, cursor: disabled ? "default" : "pointer", textAlign: "left", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, background: "#fff", color: huidig && huidig.value ? KLEUR.tekst : KLEUR.mutedTekst }}
+      >
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{toon}</span>
+        <ChevronDown size={14} color={KLEUR.mutedTekst} style={{ flexShrink: 0 }} />
+      </button>
+      {open && !disabled && (
+        <>
+          <div onClick={() => { setOpen(false); setQ(""); }} style={{ position: "fixed", inset: 0, zIndex: 20 }} />
+          <div style={{ position: "absolute", zIndex: 21, top: "calc(100% + 3px)", left: 0, right: 0, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, boxShadow: "0 6px 20px rgba(0,0,0,.12)", maxHeight: 260, overflow: "auto" }}>
+            <div style={{ position: "sticky", top: 0, background: "#fff", padding: 6, borderBottom: `1px solid ${KLEUR.rand}` }}>
+              <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Zoek op naam…" style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "6px 8px", fontSize: 12.5, outline: "none" }} />
+            </div>
+            {lijst.length === 0 && <div style={{ padding: "8px 10px", fontSize: 12, color: KLEUR.mutedTekst }}>Niets gevonden.</div>}
+            {lijst.slice(0, 300).map((o) => (
+              <button key={o.value || "_leeg"} type="button" onClick={() => { onKies(o.value); setOpen(false); setQ(""); }}
+                style={{ display: "block", width: "100%", textAlign: "left", padding: "7px 10px", background: o.value === (waarde || "") ? KLEUR.lichtblauw : "#fff", border: "none", borderTop: `1px solid ${KLEUR.rand}55`, fontSize: 12.5, color: KLEUR.tekst, cursor: "pointer" }}>
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
  * Beheer van de aanleverlijsten (herbruikbare sjablonen van uit te vragen documenten). Vrij samen te
  * stellen: per lijst een naam + omschrijving en een reeks regels, waarbij elke regel om één document
  * vraagt met een vaste bestandsnaam-structuur. Deze lijsten worden later uitgezet als aanlever-
@@ -55,6 +99,10 @@ export default function AanleverLijstenBeheer() {
   const [tabellen, setTabellen] = useState(null); // null = laden; [] = niet beschikbaar
   const [kolommenCache, setKolommenCache] = useState({}); // { tabelLogicalName: [{ logicalName, label, type, vraagtype }] }
   const kolomFetchRef = useRef(new Set()); // tabellen waarvoor de kolommen al opgehaald (worden)
+  // Beheer → korte lijst beschikbare Dynamics-tabellen voor de koppel-keuzelijst (leeg = alle).
+  const [uitvraagTabellen, setUitvraagTabellen] = useState([]); // [{ logicalName, entitySet, label }]
+  const [tabConfigOpen, setTabConfigOpen] = useState(false);
+  const [tabInstStatus, setTabInstStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
 
   // Kolommen van één tabel ophalen (1× per tabel; ref voorkomt dubbele calls).
   const laadKolommen = useCallback((tabel) => {
@@ -86,6 +134,11 @@ export default function AanleverLijstenBeheer() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => { if (actief) setTabellen(d.tabellen || []); })
       .catch(() => { if (actief) setTabellen([]); });
+    // De in Beheer gekozen korte tabellenlijst (leeg = alle tabellen beschikbaar).
+    fetch("/api/beheer-instellingen")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => { const inst = d && d.instellingen ? d.instellingen : (d || {}); if (actief) setUitvraagTabellen(Array.isArray(inst.uitvraagTabellen) ? inst.uitvraagTabellen : []); })
+      .catch(() => {});
     return () => { actief = false; };
   }, []);
 
@@ -150,6 +203,24 @@ export default function AanleverLijstenBeheer() {
   const zetVoorwaarde = (lijstId, regelId, patch) =>
     wijzig((h) => h.map((l) => (l.id !== lijstId ? l : { ...l, regels: l.regels.map((r) => (r.id !== regelId ? r : { ...r, voorwaarde: patch === null ? null : { ...(r.voorwaarde || {}), ...patch } })) })));
 
+  // ── Beheer: welke Dynamics-tabellen in de koppel-keuzelijst verschijnen (korte lijst; leeg = alle) ──
+  const beschikbareTabellen = uitvraagTabellen.length ? uitvraagTabellen : (tabellen || []);
+  const voegTabelToe = (logicalName) => {
+    const t = (tabellen || []).find((x) => x.logicalName === logicalName);
+    if (!t) return;
+    setUitvraagTabellen((lijst) => (lijst.some((x) => x.logicalName === t.logicalName) ? lijst : [...lijst, { logicalName: t.logicalName, entitySet: t.entitySet, label: t.label }]));
+    setTabInstStatus("rust");
+  };
+  const verwijderTabel = (logicalName) => { setUitvraagTabellen((lijst) => lijst.filter((x) => x.logicalName !== logicalName)); setTabInstStatus("rust"); };
+  const bewaarUitvraagTabellen = async () => {
+    setTabInstStatus("bezig");
+    try {
+      const r = await fetch("/api/beheer-instellingen", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ uitvraagTabellen }) });
+      if (!r.ok) throw new Error();
+      setTabInstStatus("opgeslagen");
+    } catch { setTabInstStatus("fout"); }
+  };
+
   const opslaan = async () => {
     setStatus("bezig");
     setFout("");
@@ -194,6 +265,51 @@ export default function AanleverLijstenBeheer() {
       </div>
 
       {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, margin: "8px 0" }}>{fout}</div>}
+
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: "10px 14px", marginTop: 12 }}>
+        <button onClick={() => setTabConfigOpen((v) => !v)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: 0 }}>
+          <ChevronDown size={15} color={KLEUR.mutedTekst} style={{ transform: tabConfigOpen ? "none" : "rotate(-90deg)", transition: "transform .15s" }} />
+          <span style={{ fontSize: 13, fontWeight: 700, color: KLEUR.tekst }}>Beschikbare Dynamics-tabellen voor het koppelen</span>
+          <span style={{ fontSize: 12, color: KLEUR.mutedTekst }}>{uitvraagTabellen.length ? `${uitvraagTabellen.length} gekozen` : "alle tabellen"}</span>
+        </button>
+        {tabConfigOpen && (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 8, maxWidth: 720 }}>
+              Kies welke Dynamics-tabellen in de koppel-keuzelijst (bij een vraag) verschijnen, zodat je niet door álle tabellen hoeft te zoeken. Laat je dit leeg, dan zijn alle tabellen beschikbaar.
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+              {uitvraagTabellen.length === 0 && <span style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Nog geen tabellen gekozen — alle tabellen zijn beschikbaar.</span>}
+              {uitvraagTabellen.map((t) => (
+                <span key={t.logicalName} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: KLEUR.lichtblauw, color: KLEUR.blauw, borderRadius: 20, padding: "4px 6px 4px 11px", fontSize: 12, fontWeight: 600 }}>
+                  {t.label || t.logicalName}
+                  <button onClick={() => verwijderTabel(t.logicalName)} title="Verwijderen" style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.blauw, display: "flex", padding: 0 }}><X size={13} /></button>
+                </span>
+              ))}
+            </div>
+            <div style={{ maxWidth: 420 }}>
+              {tabellen === null ? (
+                <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Tabellen laden…</div>
+              ) : tabellen.length === 0 ? (
+                <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Dynamics-metadata is niet beschikbaar (controleer de koppeling).</div>
+              ) : (
+                <ZoekSelect
+                  waarde=""
+                  opties={(tabellen || []).filter((t) => !uitvraagTabellen.some((u) => u.logicalName === t.logicalName)).map((t) => ({ value: t.logicalName, label: t.label }))}
+                  onKies={(v) => voegTabelToe(v)}
+                  placeholder="+ Tabel toevoegen (zoek op naam)…"
+                />
+              )}
+            </div>
+            <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10 }}>
+              <button onClick={bewaarUitvraagTabellen} disabled={tabInstStatus === "bezig"} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+                {tabInstStatus === "bezig" ? "Opslaan…" : "Tabellenlijst opslaan"}
+              </button>
+              {tabInstStatus === "opgeslagen" && <span style={{ fontSize: 12, color: KLEUR.groen }}>Opgeslagen.</span>}
+              {tabInstStatus === "fout" && <span style={{ fontSize: 12, color: KLEUR.rood }}>Opslaan mislukt.</span>}
+            </div>
+          </div>
+        )}
+      </div>
 
       {lijsten.length === 0 && (
         <div style={{ fontSize: 13, color: KLEUR.mutedTekst, border: `1px dashed ${KLEUR.rand}`, borderRadius: 10, padding: 24, textAlign: "center", margin: "12px 0" }}>
@@ -339,15 +455,20 @@ export default function AanleverLijstenBeheer() {
                           ) : (
                             <>
                               <div style={{ display: "grid", gridTemplateColumns: dyn.tabel ? "1fr 1fr 1fr" : "1fr", gap: 8 }}>
-                                <select value={dyn.tabel || ""} onChange={(e) => kiesTabel(lijst.id, regel.id, dyn, e.target.value)} style={{ ...invoerStijl, cursor: "pointer" }} title="Dynamics-tabel">
-                                  <option value="">— niet koppelen —</option>
-                                  {tabellen.map((t) => <option key={t.logicalName} value={t.logicalName}>{t.label}</option>)}
-                                </select>
+                                <ZoekSelect
+                                  waarde={dyn.tabel || ""}
+                                  opties={[{ value: "", label: "— niet koppelen —" }, ...beschikbareTabellen.map((t) => ({ value: t.logicalName, label: t.label }))]}
+                                  onKies={(v) => kiesTabel(lijst.id, regel.id, dyn, v)}
+                                  placeholder="— niet koppelen —"
+                                />
                                 {dyn.tabel && (
-                                  <select value={dyn.kolom || ""} onChange={(e) => kiesKolom(lijst.id, regel.id, dyn.tabel, e.target.value)} style={{ ...invoerStijl, cursor: "pointer" }} title="Kolom (veld)">
-                                    <option value="">{kolommenCache[dyn.tabel] ? "— kies kolom —" : "kolommen laden…"}</option>
-                                    {kols.map((k) => <option key={k.logicalName} value={k.logicalName}>{k.label}</option>)}
-                                  </select>
+                                  <ZoekSelect
+                                    waarde={dyn.kolom || ""}
+                                    opties={[{ value: "", label: kolommenCache[dyn.tabel] ? "— kies kolom —" : "kolommen laden…" }, ...kols.map((k) => ({ value: k.logicalName, label: k.label }))]}
+                                    onKies={(v) => kiesKolom(lijst.id, regel.id, dyn.tabel, v)}
+                                    placeholder={kolommenCache[dyn.tabel] ? "— kies kolom —" : "kolommen laden…"}
+                                    disabled={!kolommenCache[dyn.tabel]}
+                                  />
                                 )}
                                 {dyn.tabel && (
                                   <select value={dyn.record || "account"} onChange={(e) => zetDynamics(lijst.id, regel.id, { record: e.target.value })} style={{ ...invoerStijl, cursor: "pointer" }} title="Welk record wordt gevuld">

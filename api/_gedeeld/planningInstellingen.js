@@ -32,7 +32,9 @@ let cachedContainerClient = null;
 // De rollen waaraan een activiteit gekoppeld kan worden (het "Type" dat de activiteit uitvoert).
 // De sleutel matcht een rol-persoon die /api/beheer-klanten per klant teruggeeft (uit Dynamics),
 // zodat de planning automatisch het TEAM van de klant toewijst. Vrij per activiteit te kiezen.
-const GELDIGE_ROLLEN = ["assistent", "manager", "accountant", "fiscaal", "loonadministratie", "backup"];
+// 'backoffice' en 'backup' hebben geen vaste rol-persoon per klant in /api/beheer-klanten; activiteiten
+// met die rol krijgen dus geen automatische team-toewijzing en wijs je handmatig toe.
+const GELDIGE_ROLLEN = ["assistent", "manager", "accountant", "fiscaal", "loonadministratie", "backoffice", "backup"];
 
 const STANDAARD_ACTIVITEITEN = [
   { sleutel: "administratie", label: "Administratie", type: "maand", rol: "assistent", actief: true },
@@ -99,6 +101,14 @@ function geldigeKleur(v) {
   return /^#[0-9a-fA-F]{6}$/.test(s) ? s : "#8A9089";
 }
 
+/** Standaard-uren van een activiteit: een getal ≥ 0 of null (= geen standaard ingesteld). */
+function urenOfNull(v) {
+  if (v === undefined || v === null || v === "") return null;
+  const n = Number(v);
+  if (isNaN(n) || n < 0) return null;
+  return Math.round(n * 100) / 100;
+}
+
 function normaliseerActiviteiten(lijst) {
   if (!Array.isArray(lijst)) return [];
   const gezien = new Set();
@@ -110,7 +120,9 @@ function normaliseerActiviteiten(lijst) {
     if (!sleutel || gezien.has(sleutel)) continue;
     gezien.add(sleutel);
     const rol = GELDIGE_ROLLEN.includes(t && t.rol) ? t.rol : "";
-    uit.push({ sleutel, label, type: (t && t.type) === "jaar" ? "jaar" : "maand", rol, actief: t && t.actief === false ? false : true });
+    // standaardUren = de standaard indicatie-uren van deze activiteit. Per klant overschrijfbaar
+    // (planning_config_klanten.indicatie_uren); leeg per klant = erf deze standaard.
+    uit.push({ sleutel, label, type: (t && t.type) === "jaar" ? "jaar" : "maand", rol, standaardUren: urenOfNull(t && t.standaardUren), actief: t && t.actief === false ? false : true });
   }
   return uit;
 }

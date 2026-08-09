@@ -126,7 +126,7 @@ export default function PlanningOverzicht() {
   };
 
   useEffect(() => {
-    fetch("/api/beheer-klanten")
+    fetch("/api/beheer-klanten?alle=1")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => {
         const bij = {};

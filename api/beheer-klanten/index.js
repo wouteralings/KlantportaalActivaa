@@ -35,7 +35,7 @@ const SECUNDAIR_NAV = process.env.DYNAMICS_KLANT_SECUNDAIRCONTACT_NAV || "cr283_
 const MAX_KLANTEN = Number(process.env.BEHEER_MAX_KLANTEN || 3000);
 const FV = "@OData.Community.Display.V1.FormattedValue";
 
-async function haalAlleKlanten(resource, token, extraKolommen) {
+async function haalAlleKlanten(resource, token, extraKolommen, inclusiefZonderContact) {
   const keuzeVelden = [CLIENTTYPE_VELD, STATUS_VELD, TEAM_VELD, KANTOOR_VELD].filter(Boolean);
   const lookupVelden = [ASSISTENT_VELD, FISCAALMEDEWERKER_VELD, LOONADMIN_VELD, BACKUP_VELD, BELASTINGKANTOOR_VELD].filter(Boolean);
 
@@ -62,10 +62,17 @@ async function haalAlleKlanten(resource, token, extraKolommen) {
     `${SECUNDAIR_NAV}($select=contactid,fullname,firstname,middlename,lastname,jobtitle,emailaddress1,mobilephone,telephone1,address1_line1,cr283_huisnummer,cr283_huisnummertoevoeging,address1_postalcode,address1_city,address1_country)`,
   ].join(",");
 
+  // Standaard tonen we alleen actieve klanten mét een primair contact (het klantoverzicht/CRM-beeld).
+  // De planningsmodule vraagt met ?alle=1 óók de actieve klanten zónder primair contact op, zodat
+  // bestaande planningsregels van zulke klanten niet als "Onbekende klant" tonen.
+  const filter = inclusiefZonderContact
+    ? "statecode eq 0"
+    : "_primarycontactid_value ne null and statecode eq 0";
+
   const startQuery =
     `${resource}/api/data/v9.2/accounts` +
     `?$select=${selectVelden.join(",")}` +
-    `&$filter=_primarycontactid_value ne null and statecode eq 0` +
+    `&$filter=${filter}` +
     `&$expand=${expand}` +
     `&$orderby=name asc`;
 
@@ -141,8 +148,9 @@ module.exports = async function (context, req) {
     const token = await haalDynamicsToken();
     const instellingen = await haalInstellingen().catch(() => ({}));
     const extraKolommen = (instellingen.klantoverzicht && instellingen.klantoverzicht.extraKolommen) || [];
+    const inclusiefZonderContact = !!(req.query && (req.query.alle === "1" || req.query.metZonderContact === "1"));
     const [{ rijen, afgekapt }, reviews, uitnodigingen] = await Promise.all([
-      haalAlleKlanten(resource, token, extraKolommen),
+      haalAlleKlanten(resource, token, extraKolommen, inclusiefZonderContact),
       haalReviews().catch(() => []),
       haalUitnodigingen().catch(() => ({})),
     ]);

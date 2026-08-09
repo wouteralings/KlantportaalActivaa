@@ -81,6 +81,34 @@ function afwikkelingVoorSoort(soortWaarde, automatischeSet) {
 }
 
 /**
+ * De in Beheer → Taken per taaksoort ingestelde standaard-tijd (uren) voor de planning/bezetting.
+ * Geeft een map { "<optieset-waarde>": <uren-getal> } terug (alleen soorten met een geldig getal).
+ */
+async function haalStandaardUrenPerSoort() {
+  const instellingen = await haalInstellingen().catch(() => ({}));
+  const config = (instellingen && instellingen.taaksoorten) || {};
+  const map = {};
+  for (const [waarde, opties] of Object.entries(config)) {
+    if (!opties) continue;
+    const n = Number(opties.standaardUren);
+    if (opties.standaardUren != null && opties.standaardUren !== "" && !isNaN(n) && n >= 0) {
+      map[String(waarde)] = Math.round(n * 100) / 100;
+    }
+  }
+  return map;
+}
+
+/** De effectieve uren van een taak: de per-taak-overschrijving wint, anders de standaard van de soort. */
+function effectieveTaakUren(soortWaarde, standaardPerSoort, override) {
+  if (override != null && override !== "") {
+    const n = Number(override);
+    if (!isNaN(n) && n >= 0) return Math.round(n * 100) / 100;
+  }
+  const std = soortWaarde == null ? undefined : standaardPerSoort[String(soortWaarde)];
+  return std != null ? std : 0;
+}
+
+/**
  * De app-URL (waar een medewerker een taak in Dynamics opent) afgeleid uit de resource-URL. De
  * resource is bv. https://orgxxx.api.crm4.dynamics.com; de web-app draait op dezelfde host zonder
  * het ".api"-deel. Zo kan het overzicht een "Open in Dynamics"-link tonen.
@@ -99,5 +127,7 @@ module.exports = {
   haalSystemuser,
   haalAutomatischAfgewikkeldeSoorten,
   afwikkelingVoorSoort,
+  haalStandaardUrenPerSoort,
+  effectieveTaakUren,
   dynamicsAppUrl,
 };

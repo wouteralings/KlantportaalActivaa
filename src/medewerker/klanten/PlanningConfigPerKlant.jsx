@@ -20,7 +20,7 @@ const inputStijl = { width: "100%", padding: "8px 10px", border: `1px solid ${KL
 const th = { textAlign: "left", fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", padding: "6px 10px", borderBottom: `1px solid ${KLEUR.rand}`, whiteSpace: "nowrap" };
 const td = { fontSize: 12.5, padding: "8px 10px", borderBottom: `1px solid ${KLEUR.rand}`, verticalAlign: "middle" };
 
-const ROL_LABELS = { assistent: "Assistent", manager: "Manager", accountant: "Accountant", fiscaal: "Fiscaal medewerker", loonadministratie: "Loonadministratie", backup: "Backup" };
+const ROL_LABELS = { assistent: "Assistent", manager: "Manager", accountant: "Accountant", fiscaal: "Fiscaal medewerker", loonadministratie: "Loonadministratie", backoffice: "Backoffice", backup: "Backup" };
 const FREQ = [["maandelijks", "Maandelijks"], ["kwartaal", "Per kwartaal"], ["jaarlijks", "Jaarlijks"], ["eenmalig", "Eenmalig"]];
 const freqLabel = (f) => (FREQ.find(([k]) => k === f) || [null, f])[1];
 const MAANDEN = ["januari", "februari", "maart", "april", "mei", "juni", "juli", "augustus", "september", "oktober", "november", "december"];
@@ -69,7 +69,7 @@ export default function PlanningConfigPerKlant() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setActiviteiten(d.activiteiten || []))
       .catch(() => setActiviteiten([]));
-    fetch("/api/beheer-klanten")
+    fetch("/api/beheer-klanten?alle=1")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setKlantenLijst((d.klanten || []).slice().sort((a, b) => String(a.klantnaam || "").localeCompare(String(b.klantnaam || ""), "nl"))))
       .catch(() => setKlantenLijst([]));
@@ -143,7 +143,8 @@ export default function PlanningConfigPerKlant() {
         <Users size={17} color={KLEUR.blauw} /> Planning-configuratie per klant
       </div>
       <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 16, maxWidth: 820 }}>
-        Stel per klant in wat we doen: welke activiteiten, met welke frequentie en indicatie-uren. De
+        Stel per klant in wat we doen: welke activiteiten, met welke frequentie en indicatie-uren. Laat je
+        de uren leeg, dan geldt de <strong>standaard-uren</strong> van de activiteit (Beheer → Planning). De
         uitvoerder volgt standaard het <strong>team</strong> van de klant (de rol per activiteit, uit
         Beheer → Planning). Wijs je iemand anders toe, dan zie je dat gemarkeerd als
         <span style={{ color: KLEUR.amber, fontWeight: 600 }}> afwijkend van team</span>.
@@ -224,6 +225,8 @@ export default function PlanningConfigPerKlant() {
                         <td style={td}>
                           <input type="number" min="0" step="0.25" defaultValue={r.indicatieUren == null ? "" : r.indicatieUren}
                             onBlur={(e) => { const v = e.target.value; if (String(v) !== String(r.indicatieUren ?? "")) wijzig(r.id, { indicatieUren: v === "" ? null : v }); }}
+                            placeholder={info.act?.standaardUren != null ? String(info.act.standaardUren) : "uren"}
+                            title={info.act?.standaardUren != null ? `Leeg = de standaard-uren van deze activiteit (${info.act.standaardUren} u)` : "Indicatie-uren"}
                             style={{ ...inputStijl, width: 90, padding: "5px 8px" }} />
                         </td>
                         <td style={td}>
@@ -276,7 +279,7 @@ export default function PlanningConfigPerKlant() {
                 {MAANDEN.map((m, idx) => <option key={idx} value={idx + 1}>{m}</option>)}
               </select>
             )}
-            <input type="number" min="0" step="0.25" value={nwUren} onChange={(e) => setNwUren(e.target.value)} placeholder="uren (bv. 2)" style={{ ...inputStijl, width: 120 }} />
+            <input type="number" min="0" step="0.25" value={nwUren} onChange={(e) => setNwUren(e.target.value)} placeholder={activiteitById[nwActiviteit]?.standaardUren != null ? `${activiteitById[nwActiviteit].standaardUren} (standaard)` : "uren (bv. 2)"} title="Leeg = de standaard-uren van de activiteit" style={{ ...inputStijl, width: 150 }} />
             <button onClick={voegToe} disabled={!nwActiviteit || bezig} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: nwActiviteit ? "pointer" : "default", opacity: nwActiviteit ? 1 : 0.6 }}>
               <Plus size={14} /> Toevoegen
             </button>

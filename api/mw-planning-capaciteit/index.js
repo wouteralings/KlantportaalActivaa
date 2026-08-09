@@ -53,22 +53,42 @@ module.exports = metPlanningRecht(async function (context, req) {
     }
     const email = haalEmailUitPrincipal(req);
     const isBeheerder = haalRollenUitPrincipal(req).includes("beheerder");
-    const maand = (req.query && req.query.maand) || maandVanNu();
     const alle = (req.query && req.query.scope) === "alle" && isBeheerder;
     const naam = await mijnNaam(req, email);
 
-    const [jaar, mnd] = maand.split("-").map(Number);
-    if (!jaar || !mnd || mnd < 1 || mnd > 12) {
-      context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef maand als YYYY-MM mee." } };
-      return;
-    }
-    const laatsteDag = new Date(Date.UTC(jaar, mnd, 0)).getUTCDate();
-    const eerste = `${jaar}-${pad(mnd)}-01`;
-    const laatste = `${jaar}-${pad(mnd)}-${pad(laatsteDag)}`;
-    let werkdagen = 0;
-    for (let d = 1; d <= laatsteDag; d++) {
-      const dow = new Date(Date.UTC(jaar, mnd - 1, d)).getUTCDay();
-      if (dow !== 0 && dow !== 6) werkdagen++;
+    // Periode: standaard één maand (YYYY-MM), of — voor de jaarplanning-bezetting — een heel jaar
+    // (?jaar=YYYY). In beide gevallen tellen we de werkdagen (ma-vr) in de periode en berekenen we
+    // per medewerker de roosteruren = werkdagen × normPerDag × parttime-factor.
+    const jaarParam = req.query && req.query.jaar ? Number(req.query.jaar) : null;
+    const heelJaar = !!(jaarParam && jaarParam >= 2000 && jaarParam <= 2100);
+    let jaar, mnd, eerste, laatste, werkdagen = 0, periodeLabel;
+    if (heelJaar) {
+      jaar = jaarParam; mnd = null;
+      eerste = `${jaar}-01-01`;
+      laatste = `${jaar}-12-31`;
+      for (let m = 0; m < 12; m++) {
+        const dagen = new Date(Date.UTC(jaar, m + 1, 0)).getUTCDate();
+        for (let d = 1; d <= dagen; d++) {
+          const dow = new Date(Date.UTC(jaar, m, d)).getUTCDay();
+          if (dow !== 0 && dow !== 6) werkdagen++;
+        }
+      }
+      periodeLabel = String(jaar);
+    } else {
+      const maand = (req.query && req.query.maand) || maandVanNu();
+      [jaar, mnd] = maand.split("-").map(Number);
+      if (!jaar || !mnd || mnd < 1 || mnd > 12) {
+        context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef maand als YYYY-MM of jaar als YYYY mee." } };
+        return;
+      }
+      const laatsteDag = new Date(Date.UTC(jaar, mnd, 0)).getUTCDate();
+      eerste = `${jaar}-${pad(mnd)}-01`;
+      laatste = `${jaar}-${pad(mnd)}-${pad(laatsteDag)}`;
+      for (let d = 1; d <= laatsteDag; d++) {
+        const dow = new Date(Date.UTC(jaar, mnd - 1, d)).getUTCDay();
+        if (dow !== 0 && dow !== 6) werkdagen++;
+      }
+      periodeLabel = `${jaar}-${pad(mnd)}`;
     }
     const normPerDag = uren.WEEK_UREN_EIS / 5;
 
@@ -121,7 +141,7 @@ module.exports = metPlanningRecht(async function (context, req) {
       };
     }).sort((a, b) => String(a.naam).localeCompare(String(b.naam), "nl"));
 
-    context.res = { headers: { "Content-Type": "application/json" }, body: { maand, werkdagen, normPerDag, medewerkers } };
+    context.res = { headers: { "Content-Type": "application/json" }, body: { periode: periodeLabel, maand: heelJaar ? null : periodeLabel, jaar: heelJaar ? jaar : null, werkdagen, normPerDag, medewerkers } };
   } catch (err) {
     if (err.message === "MISSING_CONFIG") {
       context.res = { status: 501, headers: { "Content-Type": "application/json" }, body: { error: "De database of Dynamics-koppeling is nog niet geconfigureerd." } };

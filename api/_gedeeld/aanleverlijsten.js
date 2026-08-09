@@ -53,6 +53,13 @@ function normaliseer(lijsten) {
     regels: Array.isArray(l && l.regels)
       ? l.regels.slice(0, 200).map((r) => ({
           id: tekst(r && r.id, 60) || crypto.randomUUID(),
+          // Vraagtype + bijbehorende velden (Uitvraag Fase A/B/C). Zonder deze bleef bij het opslaan
+          // alleen "document" over — het beheer-scherm zag z'n gekozen type terugspringen. Zelfde
+          // velden/normalisatie als maakRegel in aanleververzoeken.js.
+          type: r && r.type ? String(r.type).slice(0, 20) : "document",
+          opties: r && Array.isArray(r.opties) ? r.opties.map((o) => String(o).slice(0, 200)).slice(0, 50) : [],
+          dynamics: r && r.dynamics && typeof r.dynamics === "object" ? r.dynamics : null,
+          voorwaarde: r && r.voorwaarde && typeof r.voorwaarde === "object" ? r.voorwaarde : null,
           naam: tekst(r && r.naam, 200),
           bestandsnaam: tekst(r && r.bestandsnaam, 200),
           toelichting: tekst(r && r.toelichting, 600),
