@@ -1247,6 +1247,11 @@ export default function BeheerPortaal() {
       if (veld === "zichtbaar" && !aan) { nieuw.magGoedkeuren = false; nieuw.vereistHandtekening = false; }
       if (veld === "magGoedkeuren" && aan) nieuw.zichtbaar = true;
       if (veld === "vereistHandtekening" && aan) nieuw.zichtbaar = true;
+      // Standaard-uren (planning/bezetting) als getal opslaan; leeg = geen standaard.
+      if (veld === "standaardUren") {
+        const n = aan === "" || aan == null ? null : Number(aan);
+        nieuw.standaardUren = n == null || isNaN(n) || n < 0 ? null : Math.round(n * 100) / 100;
+      }
       return { ...huidig, [key]: nieuw };
     });
     setTaaksoortenOpslaanStatus("idle");
@@ -3075,7 +3080,9 @@ export default function BeheerPortaal() {
             klant akkoord gaf. Soorten die niet zijn aangevinkt blijven voor de klant verborgen.
             Zet "Vervolgtaak backoffice" aan om na een akkoord (via de akkoord-knop, of via
             ondertekenen bij "Vereist handtekening") automatisch een interne taak voor backoffice
-            klaar te zetten — bijv. "versturen aangifte" na een geaccordeerde aangifte.
+            klaar te zetten — bijv. "versturen aangifte" na een geaccordeerde aangifte. Met
+            "Std. uren" geef je per soort een standaard-tijd mee die in de planning en bezetting
+            meetelt; die is per losse taak te overschrijven in het Taken-overzicht.
           </div>
 
           {taaksoortenOpties === null ? (
@@ -3102,8 +3109,9 @@ export default function BeheerPortaal() {
                   style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px 8px 32px", fontSize: 13 }}
                 />
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto", gap: "0 18px", alignItems: "center" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto auto", gap: "0 18px", alignItems: "center" }}>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}` }}>Soort</div>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }} title="Standaard-tijd per taak van deze soort, voor de planning/bezetting. Per losse taak overschrijfbaar in het Taken-overzicht.">Std. uren</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Zichtbaar</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Mag goedkeuren</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Vereist handtekening</div>
@@ -3116,6 +3124,18 @@ export default function BeheerPortaal() {
                   return (
                     <React.Fragment key={optie.waarde}>
                       <div style={{ fontSize: 13, padding: "10px 0", borderBottom: rijRand }}>{optie.label}</div>
+                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: rijRand }}>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.25"
+                          value={cfg.standaardUren ?? ""}
+                          onChange={(e) => wijzigTaaksoort(optie.waarde, "standaardUren", e.target.value, optie.label)}
+                          placeholder="—"
+                          title="Standaard-tijd (uren) per taak van deze soort"
+                          style={{ width: 62, textAlign: "center", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "5px 6px", fontSize: 12.5, background: "#fff" }}
+                        />
+                      </div>
                       <div style={{ textAlign: "center", padding: "10px 0", borderBottom: rijRand }}>
                         <input
                           type="checkbox"
