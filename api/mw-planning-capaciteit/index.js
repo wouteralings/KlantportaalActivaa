@@ -25,6 +25,34 @@ const { haalUitgeslotenMedewerkers } = require("../_gedeeld/planningInstellingen
 
 const pad = (n) => String(n).padStart(2, "0");
 
+// Verdeelt de uren van één goedgekeurd verlofrecord over de 12 maanden van `jaar`, naar rato van het
+// aantal werkdagen (ma-vr) dat het verlof in elke maand valt. Zo krijgt de per-maand-bezetting het
+// verlof in de juiste maand(en), ook bij een vakantie die twee maanden overlapt.
+function verdeelVerlofOverMaanden(record, jaar) {
+  const out = Array.from({ length: 12 }, () => 0);
+  const urenTot = Number(record && record.aantalUren) || 0;
+  if (!urenTot || !record) return out;
+  const s = record.startdatum ? new Date(record.startdatum) : null;
+  if (!s || isNaN(s.getTime())) return out;
+  const eRaw = record.einddatum ? new Date(record.einddatum) : s;
+  const e = eRaw && !isNaN(eRaw.getTime()) ? eRaw : s;
+  const jaarStart = new Date(Date.UTC(jaar, 0, 1));
+  const jaarEind = new Date(Date.UTC(jaar, 11, 31));
+  let from = s < jaarStart ? jaarStart : s;
+  const to = e > jaarEind ? jaarEind : e;
+  from = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()));
+  if (from > to) return out;
+  const perMaand = Array.from({ length: 12 }, () => 0);
+  let totaal = 0;
+  for (let dt = new Date(from); dt <= to; dt.setUTCDate(dt.getUTCDate() + 1)) {
+    const dow = dt.getUTCDay();
+    if (dow !== 0 && dow !== 6) { perMaand[dt.getUTCMonth()] += 1; totaal += 1; }
+  }
+  if (totaal === 0) { out[from.getUTCMonth()] = urenTot; return out; }
+  for (let m = 0; m < 12; m++) out[m] = urenTot * (perMaand[m] / totaal);
+  return out;
+}
+
 function maandVanNu() {
   const d = new Date();
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}`;
@@ -62,6 +90,7 @@ module.exports = metPlanningRecht(async function (context, req) {
     const jaarParam = req.query && req.query.jaar ? Number(req.query.jaar) : null;
     const heelJaar = !!(jaarParam && jaarParam >= 2000 && jaarParam <= 2100);
     let jaar, mnd, eerste, laatste, werkdagen = 0, periodeLabel;
+    const werkdagenPerMaand = Array.from({ length: 12 }, () => 0); // alleen gevuld bij ?jaar
     if (heelJaar) {
       jaar = jaarParam; mnd = null;
       eerste = `${jaar}-01-01`;
@@ -70,7 +99,7 @@ module.exports = metPlanningRecht(async function (context, req) {
         const dagen = new Date(Date.UTC(jaar, m + 1, 0)).getUTCDate();
         for (let d = 1; d <= dagen; d++) {
           const dow = new Date(Date.UTC(jaar, m, d)).getUTCDay();
-          if (dow !== 0 && dow !== 6) werkdagen++;
+          if (dow !== 0 && dow !== 6) { werkdagen++; werkdagenPerMaand[m]++; }
         }
       }
       periodeLabel = String(jaar);
@@ -120,15 +149,39 @@ module.exports = metPlanningRecht(async function (context, req) {
     const goedPerEmail = somPerEmail(goedgekeurd, overlaptMaand);
     const aangePerEmail = somPerEmail(aangevraagd, overlaptMaand);
 
+    // Bij een jaar-opvraag: goedgekeurd verlof per maand per medewerker, voor de per-maand-bezetting.
+    const verlofMaandPerEmail = {};
+    if (heelJaar) {
+      for (const a of goedgekeurd) {
+        if (!overlaptMaand(a)) continue;
+        const e = String(a.medewerkerEmail || "").toLowerCase();
+        if (!e) continue;
+        const verdeeld = verdeelVerlofOverMaanden(a, jaar);
+        if (!verlofMaandPerEmail[e]) verlofMaandPerEmail[e] = Array.from({ length: 12 }, () => 0);
+        for (let m = 0; m < 12; m++) verlofMaandPerEmail[e][m] += verdeeld[m];
+      }
+    }
+
     // Rooster-factor per medewerker (parallel).
     const factoren = await Promise.all(tarieven.map((t) =>
       verlof.berekenParttimeFactor(t.medewerker_email).catch(() => 1)
     ));
 
+    const rond = (n) => Math.round(n * 100) / 100;
     const medewerkers = tarieven.map((t, i) => {
       const e = String(t.medewerker_email || "").toLowerCase();
       const factor = factoren[i];
-      const roosterUren = Math.round(werkdagen * normPerDag * factor * 100) / 100;
+      const roosterUren = rond(werkdagen * normPerDag * factor);
+      // Per-maand-uitsplitsing (alleen bij ?jaar): rooster − goedgekeurd verlof per maand.
+      let maanden = null;
+      if (heelJaar) {
+        const verlofM = verlofMaandPerEmail[e] || null;
+        maanden = werkdagenPerMaand.map((wd, m) => {
+          const rooster = rond(wd * normPerDag * factor);
+          const ver = rond((verlofM && verlofM[m]) || 0);
+          return { rooster, verlof: ver, beschikbaar: rond(Math.max(0, rooster - ver)) };
+        });
+      }
       return {
         email: t.medewerker_email || "",
         naam: t.medewerker_naam || t.medewerker_email || "",
@@ -136,8 +189,9 @@ module.exports = metPlanningRecht(async function (context, req) {
         parttimeFactor: Math.round(factor * 1000) / 1000,
         roosterUren,
         declarabelDoel: t.declarabel_doel != null ? Number(t.declarabel_doel) : null,
-        verlofGoedgekeurd: Math.round((goedPerEmail[e] || 0) * 100) / 100,
-        verlofAangevraagd: Math.round((aangePerEmail[e] || 0) * 100) / 100,
+        verlofGoedgekeurd: rond(goedPerEmail[e] || 0),
+        verlofAangevraagd: rond(aangePerEmail[e] || 0),
+        maanden,
       };
     }).sort((a, b) => String(a.naam).localeCompare(String(b.naam), "nl"));
 

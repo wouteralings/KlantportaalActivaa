@@ -77,6 +77,12 @@ export default function PlanningJaar({ onInstellen }) {
 
   const activiteitById = useMemo(() => Object.fromEntries(activiteiten.map((a) => [a.sleutel, a])), [activiteiten]);
   const statusInfo = useMemo(() => Object.fromEntries((statussen || []).map((s) => [s.sleutel, s])), [statussen]);
+  // Capaciteit per medewerker (op naam), met de per-maand-uitsplitsing rooster/verlof/beschikbaar.
+  const capPerNaam = useMemo(() => {
+    const m = new Map();
+    for (const mw of (capaciteit && capaciteit.medewerkers) || []) m.set(String(mw.naam || "").trim().toLowerCase(), mw);
+    return m;
+  }, [capaciteit]);
 
   useEffect(() => {
     fetch("/api/mw-planning-config")
@@ -468,6 +474,7 @@ export default function PlanningJaar({ onInstellen }) {
           <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, border: `1px solid ${KLEUR.amber}`, display: "inline-block" }} /> afwijkend van team</span>
           <span><strong>•</strong> = losse regel (eenmalige opdracht/advies)</span>
           {weergave !== "klant" && <span style={{ color: KLEUR.blauw }}>klik een {weergave === "medewerker" ? "medewerker" : "klantgroep"} open voor de klanten</span>}
+          {weergave === "medewerker" && <span>onder elke medewerker: <span style={{ color: KLEUR.subtekst, fontWeight: 600 }}>Beschikbaar</span> (rooster − verlof) en <span style={{ color: "#2E7D46", fontWeight: 700 }}>vrij</span>/<span style={{ color: KLEUR.rood, fontWeight: 700 }}>over</span> per maand</span>}
         </div>
       )}
 
@@ -610,6 +617,41 @@ export default function PlanningJaar({ onInstellen }) {
                     <td style={{ ...td, fontWeight: 700, whiteSpace: "nowrap" }}>{urenTekst(g.uren)}</td>
                   </tr>
                 );
+                // Per medewerker: capaciteit-rijen — beschikbare uren en vrij/over per maand.
+                if (weergave === "medewerker") {
+                  const mw = capPerNaam.get(String(g.naam).trim().toLowerCase());
+                  if (mw && Array.isArray(mw.maanden)) {
+                    rows.push(
+                      <tr key={g.key + ":besch"} style={{ background: "#F4F7FA" }}>
+                        <td style={{ ...td, ...stickyLinks, background: "#F4F7FA" }}><span style={{ paddingLeft: 20, fontSize: 11, color: KLEUR.subtekst, fontWeight: 600 }}>Beschikbaar</span></td>
+                        {mw.maanden.map((c, mi) => (
+                          <td key={mi} style={{ ...td, background: "#F4F7FA", fontSize: 11, color: KLEUR.subtekst, whiteSpace: "nowrap" }}>{c.beschikbaar ? urenTekst(c.beschikbaar) : "·"}</td>
+                        ))}
+                        <td style={{ ...td, background: "#F4F7FA", fontSize: 11, color: KLEUR.subtekst, fontWeight: 700, whiteSpace: "nowrap" }}>{urenTekst(mw.maanden.reduce((s, c) => s + c.beschikbaar, 0))}</td>
+                      </tr>
+                    );
+                    rows.push(
+                      <tr key={g.key + ":vrij"} style={{ background: "#F4F7FA", borderBottom: `1px solid ${KLEUR.rand}` }}>
+                        <td style={{ ...td, ...stickyLinks, background: "#F4F7FA" }}><span style={{ paddingLeft: 20, fontSize: 11, fontWeight: 700, color: KLEUR.tekst }}>Vrij / over</span></td>
+                        {mw.maanden.map((c, mi) => {
+                          const vrij = Math.round((c.beschikbaar - (g.maanden[mi] || 0)) * 100) / 100;
+                          const over = vrij < 0;
+                          return (
+                            <td key={mi} title={`Beschikbaar ${urenTekst(c.beschikbaar)} − ingepland ${urenTekst(g.maanden[mi] || 0)}`}
+                              style={{ ...td, background: "#F4F7FA", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", color: over ? KLEUR.rood : (vrij > 0 ? "#2E7D46" : KLEUR.mutedTekst) }}>
+                              {vrij === 0 ? "0" : (over ? `${urenTekst(vrij)}` : `+${urenTekst(vrij)}`)}
+                            </td>
+                          );
+                        })}
+                        {(() => {
+                          const totVrij = Math.round(mw.maanden.reduce((s, c, mi) => s + (c.beschikbaar - (g.maanden[mi] || 0)), 0) * 100) / 100;
+                          const over = totVrij < 0;
+                          return <td style={{ ...td, background: "#F4F7FA", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap", color: over ? KLEUR.rood : (totVrij > 0 ? "#2E7D46" : KLEUR.mutedTekst) }}>{totVrij === 0 ? "0" : (over ? `${urenTekst(totVrij)}` : `+${urenTekst(totVrij)}`)}</td>;
+                        })()}
+                      </tr>
+                    );
+                  }
+                }
                 // Uitgeklapt (alleen bij medewerker/klantgroep): de klanten als sub-rijen met hun chips per maand.
                 if (gopen && heeftSub) {
                   for (const s of g.subgroepen) {
