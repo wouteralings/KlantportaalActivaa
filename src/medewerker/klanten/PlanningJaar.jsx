@@ -15,7 +15,7 @@
  * van de activiteit (Beheer → Planning). Filterbaar op team (A&R/FS) en op klant/medewerker (zoek).
  */
 import { useState, useEffect, useMemo } from "react";
-import { CalendarRange, ChevronLeft, ChevronRight, AlertTriangle, Search, ClipboardList } from "lucide-react";
+import { CalendarRange, ChevronLeft, ChevronRight, AlertTriangle, Search, ClipboardList, Settings2 } from "lucide-react";
 
 const KLEUR = {
   blauw: "#1C5D8C", tekst: "#1C2321", subtekst: "#5B6259", mutedTekst: "#8A9089", rand: "#E2E4DF",
@@ -52,7 +52,7 @@ function valtInMaand(r, maand1) {
   return false;
 }
 
-export default function PlanningJaar() {
+export default function PlanningJaar({ onInstellen }) {
   const nu = new Date();
   const [jaar, setJaar] = useState(nu.getFullYear());
   const [teamFilter, setTeamFilter] = useState("alle");
@@ -164,7 +164,7 @@ export default function PlanningJaar() {
     const past = (klant, wie, activiteitLabel) => {
       if (teamFilter !== "alle" && (klant?.team || "") !== teamFilter) return false;
       if (zoekLaag) {
-        const hooi = `${klant?.klantnummer || ""} ${klant?.klantnaam || ""} ${wie} ${activiteitLabel}`.toLowerCase();
+        const hooi = `${klant?.klantnummer || ""} ${klant?.klantnaam || ""} ${klant?.groepsnaam || ""} ${wie} ${activiteitLabel}`.toLowerCase();
         if (!hooi.includes(zoekLaag)) return false;
       }
       return true;
@@ -173,7 +173,7 @@ export default function PlanningJaar() {
     for (const r of config || []) {
       if (r.actief === false) continue;
       const act = activiteitById[r.activiteit];
-      if (!act || act.type !== "jaar") continue;
+      if (!act) continue;
       const key = String(r.klantAccountId || "").toLowerCase();
       const klant = klantenMap[key] || null;
       const override = (r.toegewezenAan || "").trim();
@@ -190,7 +190,7 @@ export default function PlanningJaar() {
       const nz = maanden.map((u, i) => (u ? i : -1)).filter((i) => i >= 0);
       items.push({
         id: `c:${r.id || key + ":" + r.activiteit}`, bron: "config", act, key,
-        activiteitLabel, maanden, zonderMaand: !geplaatst,
+        activiteitLabel, type: act.type, frequentie: r.frequentie, maanden, zonderMaand: !geplaatst,
         wanneer: nz.length ? nz.map((i) => MAANDEN_KORT[i]).join(", ") : "geen maand",
         klantnaam: klant?.klantnaam || "Onbekende klant", klantnummer: klant?.klantnummer || "",
         klantgroep: klant?.groepsnaam || "— geen groep —",
@@ -213,7 +213,8 @@ export default function PlanningJaar() {
       if (r.deadline) { const d = new Date(r.deadline); if (!isNaN(d.getTime())) { maand = d.getMonth(); maanden[maand] += uren; } }
       items.push({
         id: `r:${r.id}`, bron: "regel", act, key,
-        activiteitLabel, maanden, zonderMaand: maand === null,
+        activiteitLabel, type: act?.type || "jaar", frequentie: null, afwijkend: false,
+        maanden, zonderMaand: maand === null,
         wanneer: r.deadline ? new Date(r.deadline).toLocaleDateString("nl-NL") : "geen datum",
         klantnaam: klant?.klantnaam || "Onbekende klant", klantnummer: klant?.klantnummer || "",
         klantgroep: klant?.groepsnaam || "— geen groep —",
@@ -244,19 +245,21 @@ export default function PlanningJaar() {
     }
     const groepen = [...top.entries()].map(([naam, lijst]) => {
       const samenvatting = vatSamen(lijst);
-      if (!heeftSub) return { key: naam, naam, ...samenvatting, leaves: lijst.slice().sort((a, b) => String(a.activiteitLabel).localeCompare(String(b.activiteitLabel), "nl")) };
+      const alleLeaves = lijst.slice().sort((a, b) => String(a.activiteitLabel).localeCompare(String(b.activiteitLabel), "nl"));
+      if (!heeftSub) return { key: naam, naam, accountId: lijst[0]?.key || "", ...samenvatting, alleLeaves, leaves: alleLeaves };
       const subMap = new Map();
       for (const it of lijst) {
         const sk = it.key || it.klantnaam;
-        if (!subMap.has(sk)) subMap.set(sk, { naam: it.klantnaam, nummer: it.klantnummer, lijst: [] });
+        if (!subMap.has(sk)) subMap.set(sk, { naam: it.klantnaam, nummer: it.klantnummer, accountId: it.key || "", lijst: [] });
         subMap.get(sk).lijst.push(it);
       }
-      const subgroepen = [...subMap.entries()].map(([sk, s]) => ({ key: naam + "|" + sk, naam: s.naam, nummer: s.nummer, ...vatSamen(s.lijst), leaves: s.lijst }))
+      const subgroepen = [...subMap.entries()].map(([sk, s]) => ({ key: naam + "|" + sk, naam: s.naam, nummer: s.nummer, accountId: s.accountId, ...vatSamen(s.lijst), leaves: s.lijst }))
         .sort((a, b) => String(a.naam).localeCompare(String(b.naam), "nl"));
-      return { key: naam, naam, ...samenvatting, subgroepen };
+      return { key: naam, naam, ...samenvatting, alleLeaves, subgroepen };
     }).sort((a, b) => String(a.naam).localeCompare(String(b.naam), "nl"));
 
-    return { groepen, aantal: items.length, uren: items.reduce((s, i) => s + i.uren, 0) };
+    const maandTotalen = Array.from({ length: 12 }, (_, m) => items.reduce((s, it) => s + it.maanden[m], 0));
+    return { groepen, aantal: items.length, uren: items.reduce((s, i) => s + i.uren, 0), maandTotalen };
   }, [weergave, config, jaarRegels, activiteitById, klantenMap, teamFilter, zoekLaag]);
 
   // ── Bezetting: totale werklast (jaarconfig + maandconfig + taken) vs. beschikbare uren, per medewerker ──
@@ -364,13 +367,16 @@ export default function PlanningJaar() {
     }
     return { cellen, zonder };
   };
-  // Eén activiteit als gekleurd chip (kleur = status: Gepland/Te doen/…); "•" markeert een losse regel.
+  // Eén activiteit als gekleurd chip — zelfde stijl als de kalender: maandactiviteit lichtblauw,
+  // jaaractiviteit amber, rand bij afwijkend van team. "•" markeert een losse regel (met status in tooltip).
   const groepChip = (it) => {
-    const { label, kleur } = statusMeta(it.statusKey);
+    const { label } = statusMeta(it.statusKey);
+    const jaar = it.type === "jaar";
     return (
-      <span key={it.id} title={`${it.activiteitLabel} · ${label} · ${it.wie} · ${urenTekst(it.uren)}${it.bron === "regel" ? " · losse regel" : ""}`}
+      <span key={it.id} title={`${it.activiteitLabel} · ${it.wie} · ${urenTekst(it.uren)}${it.bron === "regel" ? ` · losse regel (${label})` : ""}${it.afwijkend ? " · afwijkend van team" : ""}`}
         style={{ display: "block", fontSize: 10.5, lineHeight: 1.35, padding: "1px 5px", marginBottom: 2, borderRadius: 5,
-          background: `${kleur}1A`, color: kleur, border: it.afwijkend ? `1px solid ${KLEUR.amber}` : "1px solid transparent",
+          background: jaar ? KLEUR.amberAchtergrond : KLEUR.lichtblauw, color: jaar ? KLEUR.amber : KLEUR.blauw,
+          border: it.afwijkend ? `1px solid ${KLEUR.amber}` : "1px solid transparent",
           whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 130 }}>
         {it.bron === "regel" ? "• " : ""}{it.activiteitLabel}
       </span>
@@ -384,6 +390,17 @@ export default function PlanningJaar() {
 
   const stickyLinks = { position: "sticky", left: 0, zIndex: 1, background: "#fff", boxShadow: `1px 0 0 ${KLEUR.rand}` };
   const laden = config === null;
+  // Klantnaam als doorklik-knop naar "Per klant" (instellen), of gewone tekst als er geen callback is.
+  const instelBaar = typeof onInstellen === "function";
+  const klantLink = (naam, nummer, accountId) => (instelBaar && accountId ? (
+    <button onClick={(e) => { e.stopPropagation(); onInstellen(accountId); }} title="Klik om in te stellen (Planning → Per klant)"
+      style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "none", border: "none", padding: 0, cursor: "pointer", color: KLEUR.blauw, font: "inherit", fontWeight: 600, textAlign: "left" }}>
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{naam}{nummer ? <span style={{ color: KLEUR.mutedTekst, fontWeight: 400 }}> · {nummer}</span> : null}</span>
+      <Settings2 size={12} style={{ opacity: 0.65, flexShrink: 0 }} />
+    </button>
+  ) : (
+    <span style={{ fontWeight: 600 }}>{naam}{nummer ? <span style={{ color: KLEUR.mutedTekst, fontWeight: 400 }}> · {nummer}</span> : null}</span>
+  ));
   const isBezetting = weergave === "bezetting";
   const isGroep = weergave === "medewerker" || weergave === "klant" || weergave === "klantgroep";
 
@@ -417,12 +434,12 @@ export default function PlanningJaar() {
         {isBezetting
           ? <span><strong>{bezetting.rijen.length}</strong> medewerker{bezetting.rijen.length === 1 ? "" : "s"} · werklast <strong>{urenTekst(bezetting.totaal.config + bezetting.totaal.taken)}</strong> · beschikbaar <strong>{urenTekst(bezetting.totaal.beschikbaar)}</strong></span>
           : isGroep
-          ? <span><strong>{groepData.aantal}</strong> jaartaak{groepData.aantal === 1 ? "" : "en"} · <strong>{urenTekst(groepData.uren)}</strong> indicatie</span>
+          ? <span><strong>{groepData.groepen.length}</strong> {weergave === "medewerker" ? "medewerker" : weergave === "klantgroep" ? "klantgroep" : "klant"}{groepData.groepen.length === 1 ? "" : (weergave === "klantgroep" ? "en" : weergave === "klant" ? "en" : "s")} · <strong>{urenTekst(groepData.uren)}</strong> indicatie over het jaar</span>
           : <span><strong>{rijen.length}</strong> klant{rijen.length === 1 ? "" : "en"} · <strong>{urenTekst(jaarTotaal)}</strong> indicatie over het jaar</span>}
         <span style={{ color: KLEUR.rand }}>|</span>
         <label style={{ display: "inline-flex", alignItems: "center", gap: 5, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "3px 8px", background: "#fff" }}>
           <Search size={13} color={KLEUR.mutedTekst} />
-          <input value={zoek} onChange={(e) => setZoek(e.target.value)} placeholder={isBezetting ? "Zoek medewerker…" : isGroep ? "Zoek klant of medewerker…" : "Zoek klant…"} style={{ border: "none", outline: "none", fontSize: 12, width: 160 }} />
+          <input value={zoek} onChange={(e) => setZoek(e.target.value)} placeholder={isBezetting ? "Zoek medewerker…" : isGroep ? "Zoek klant, medewerker of groep…" : "Zoek klant…"} style={{ border: "none", outline: "none", fontSize: 12, width: 160 }} />
         </label>
         {teams.length > 0 && (
           <label style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: KLEUR.subtekst }}>
@@ -445,8 +462,12 @@ export default function PlanningJaar() {
         </div>
       )}
       {isGroep && (
-        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 8, lineHeight: 1.5 }}>
-          Klik een {weergave === "medewerker" ? "medewerker" : weergave === "klantgroep" ? "klantgroep" : "klant"} open voor de activiteiten per maand. De top-rij toont de uren-totalen per maand; eronder de activiteit-chips (kleur = status: <span style={{ color: KLEUR.blauw, fontWeight: 700 }}>Gepland</span> = vaste jaartaak uit de configuratie, <span style={{ fontWeight: 700 }}>•</span> = losse regel / eenmalige opdracht).
+        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 8, display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: KLEUR.lichtblauw, display: "inline-block" }} /> maandactiviteit</span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: KLEUR.amberAchtergrond, display: "inline-block" }} /> jaaractiviteit</span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, border: `1px solid ${KLEUR.amber}`, display: "inline-block" }} /> afwijkend van team</span>
+          <span><strong>•</strong> = losse regel (eenmalige opdracht/advies)</span>
+          {weergave !== "klant" && <span style={{ color: KLEUR.blauw }}>klik een {weergave === "medewerker" ? "medewerker" : "klantgroep"} open voor de klanten</span>}
         </div>
       )}
 
@@ -564,44 +585,40 @@ export default function PlanningJaar() {
             <tbody>
               {groepData.groepen.length === 0 && (
                 <tr><td colSpan={14} style={{ ...td, color: KLEUR.mutedTekst, textAlign: "center", padding: 24, lineHeight: 1.6 }}>
-                  Geen jaartaken{zoek || teamFilter !== "alle" ? " voor deze filter" : ""}. Deze weergave toont de vaste jaartaken uit de configuratie ("Gepland") plus de losse jaarregels met status.
+                  Geen planning{zoek || teamFilter !== "alle" ? " voor deze filter" : ""}. Deze weergave toont de activiteiten uit de per-klant configuratie plus de losse jaarregels, per maand.
                 </td></tr>
               )}
               {groepData.groepen.flatMap((g) => {
                 const gopen = openGroep.has(g.key);
                 const heeftSub = !!g.subgroepen;
                 const rows = [];
-                // Top-rij: medewerker / klantgroep / klant — uren-totaal per maand, klikbaar om open te klappen.
+                const topCellen = chipsPerMaand(g.alleLeaves).cellen;
+                // Top-rij: medewerker / klantgroep / klant — de activiteit-chips per maand (zoals de kalender).
+                // Bij medewerker/klantgroep klikbaar om uit te klappen naar de klanten eronder.
                 rows.push(
-                  <tr key={g.key} onClick={() => toggleGroep(g.key)} style={{ cursor: "pointer" }}>
+                  <tr key={g.key} onClick={heeftSub ? () => toggleGroep(g.key) : undefined} style={heeftSub ? { cursor: "pointer" } : undefined}>
                     <td style={{ ...td, ...stickyLinks }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <ChevronRight size={14} style={{ transform: gopen ? "rotate(90deg)" : "none", transition: "transform .15s", flexShrink: 0 }} color={KLEUR.mutedTekst} />
-                        <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.naam}</span>
+                        {heeftSub && <ChevronRight size={14} style={{ transform: gopen ? "rotate(90deg)" : "none", transition: "transform .15s", flexShrink: 0 }} color={KLEUR.mutedTekst} />}
+                        {heeftSub
+                          ? <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.naam}</span>
+                          : <span style={{ fontWeight: 700, overflow: "hidden", minWidth: 0 }}>{klantLink(g.naam, "", g.accountId)}</span>}
                       </div>
-                      <div style={{ paddingLeft: 20, marginTop: 3, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                        {statusBalk(g.telling)}
-                        {g.zonderMaand > 0 && <span title="Uren zonder maand/deadline" style={{ fontSize: 9.5, fontWeight: 700, color: KLEUR.amber }}>z. mnd {Math.round(g.zonderMaand)}</span>}
-                      </div>
+                      {g.zonderMaand > 0 && <div style={{ paddingLeft: heeftSub ? 20 : 0, marginTop: 2, fontSize: 9.5, fontWeight: 700, color: KLEUR.amber }} title="Uren zonder maand/deadline">z. mnd {Math.round(g.zonderMaand)}</div>}
                     </td>
-                    {g.maanden.map((u, mi) => (
-                      <td key={mi} style={{ ...td, background: mi % 2 ? "#FbFcFb" : "#fff", fontWeight: 600, whiteSpace: "nowrap", color: u ? KLEUR.tekst : KLEUR.rand }}>{u ? urenTekst(u) : "·"}</td>
-                    ))}
+                    {topCellen.map(maandCel)}
                     <td style={{ ...td, fontWeight: 700, whiteSpace: "nowrap" }}>{urenTekst(g.uren)}</td>
                   </tr>
                 );
-                // Open: bij medewerker/klantgroep de klanten als sub-rijen met de activiteit-chips per maand
-                // (zoals de klantenkalender); bij "Per klant" direct de activiteiten.
-                if (gopen) {
-                  const subrijen = heeftSub ? g.subgroepen : [{ key: g.key + ":act", naam: "Activiteiten", nummer: "", leaves: g.leaves, uren: g.uren, isActieRij: true }];
-                  for (const s of subrijen) {
+                // Uitgeklapt (alleen bij medewerker/klantgroep): de klanten als sub-rijen met hun chips per maand.
+                if (gopen && heeftSub) {
+                  for (const s of g.subgroepen) {
                     const { cellen, zonder } = chipsPerMaand(s.leaves);
                     rows.push(
                       <tr key={s.key} style={{ background: "#FbFcFb" }}>
                         <td style={{ ...td, ...stickyLinks, background: "#FbFcFb", verticalAlign: "top" }}>
                           <div style={{ paddingLeft: 22 }}>
-                            <span style={{ fontWeight: s.isActieRij ? 400 : 600, fontSize: s.isActieRij ? 11.5 : 12, color: s.isActieRij ? KLEUR.mutedTekst : KLEUR.tekst }}>{s.naam}</span>
-                            {s.nummer ? <span style={{ color: KLEUR.mutedTekst, fontWeight: 400 }}> · {s.nummer}</span> : null}
+                            {klantLink(s.naam, s.nummer, s.accountId)}
                             {zonder.length > 0 && <div style={{ fontSize: 9.5, color: KLEUR.amber, fontWeight: 700 }} title={zonder.map((i) => i.activiteitLabel).join(", ")}>{zonder.length} zonder maand</div>}
                           </div>
                         </td>
@@ -614,6 +631,15 @@ export default function PlanningJaar() {
                 return rows;
               })}
             </tbody>
+            {groepData.groepen.length > 0 && (
+              <tfoot><tr>
+                <td style={{ ...td, ...stickyLinks, fontWeight: 700, borderTop: `2px solid ${KLEUR.rand}` }}>Totaal per maand</td>
+                {groepData.maandTotalen.map((t, mi) => (
+                  <td key={mi} style={{ ...td, fontWeight: 700, borderTop: `2px solid ${KLEUR.rand}`, color: t ? KLEUR.tekst : KLEUR.mutedTekst, background: mi % 2 ? "#FbFcFb" : "#fff", whiteSpace: "nowrap" }}>{urenTekst(t)}</td>
+                ))}
+                <td style={{ ...td, fontWeight: 700, borderTop: `2px solid ${KLEUR.rand}`, whiteSpace: "nowrap" }}>{urenTekst(groepData.uren)}</td>
+              </tr></tfoot>
+            )}
           </table>
         </div>
       )}

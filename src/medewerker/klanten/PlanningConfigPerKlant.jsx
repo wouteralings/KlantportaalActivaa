@@ -46,7 +46,7 @@ function urenTekst(n) {
   return `${Number(n).toLocaleString("nl-NL", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} u`;
 }
 
-export default function PlanningConfigPerKlant() {
+export default function PlanningConfigPerKlant({ initieelAccountId } = {}) {
   const [activiteiten, setActiviteiten] = useState([]);
   const [klantenLijst, setKlantenLijst] = useState([]);
   const [klantZoek, setKlantZoek] = useState("");
@@ -84,6 +84,17 @@ export default function PlanningConfigPerKlant() {
   };
 
   const kiesKlant = (k) => { setKlant(k); setFout(""); laadConfig(String(k.accountId).toLowerCase()); };
+
+  // Voorselecteren wanneer we vanuit de Jaarplanning binnenkomen met een klant ("instellen"-doorklik):
+  // zodra de klantenlijst geladen is, de klant met dat account-id automatisch openen.
+  useEffect(() => {
+    if (!initieelAccountId || !klantenLijst.length) return;
+    const doel = String(initieelAccountId).toLowerCase();
+    if (klant && String(klant.accountId).toLowerCase() === doel) return;
+    const gevonden = klantenLijst.find((k) => String(k.accountId).toLowerCase() === doel);
+    if (gevonden) kiesKlant(gevonden);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initieelAccountId, klantenLijst]);
 
   const gefilterdeKlanten = useMemo(() => {
     const term = klantZoek.trim().toLowerCase();

@@ -23,6 +23,10 @@ const SUBTABS = [
 
 export default function PlanningModule() {
   const [sub, setSub] = useState("maand");
+  // Vanuit de Jaarplanning kan een klant worden aangeklikt om 'm meteen in te stellen: schakel naar
+  // "Per klant" en geef de gekozen klant-account-id door (PlanningConfigPerKlant selecteert 'm dan).
+  const [instelKlant, setInstelKlant] = useState("");
+  const gaInstellen = (accountId) => { setInstelKlant(accountId || ""); setSub("config"); };
   return (
     <div>
       <div style={{ display: "flex", gap: 4, marginBottom: 16, flexWrap: "wrap" }}>
@@ -41,8 +45,8 @@ export default function PlanningModule() {
         })}
       </div>
       {sub === "maand" && <PlanningMaand />}
-      {sub === "jaar" && <PlanningJaar />}
-      {sub === "config" && <PlanningConfigPerKlant />}
+      {sub === "jaar" && <PlanningJaar onInstellen={gaInstellen} />}
+      {sub === "config" && <PlanningConfigPerKlant initieelAccountId={instelKlant} />}
       {sub === "overzicht" && <PlanningOverzicht />}
     </div>
   );
