@@ -182,9 +182,16 @@ export default function PlanningJaar() {
       const activiteitLabel = act.label || r.activiteit;
       if (!past(klant, wie, activiteitLabel)) continue;
       const uren = (r.indicatieUren != null ? Number(r.indicatieUren) : Number(act.standaardUren || 0)) || 0;
+      // Spreiding over de maanden: zelfde logica als de kalender (valtInMaand). Elke maand waarin
+      // de taak valt krijgt de uren; jaar-/eenmalige taken zonder uitvoermaand vallen "zonder maand".
+      const maanden = Array.from({ length: 12 }, () => 0);
+      let geplaatst = false;
+      for (let m = 1; m <= 12; m++) { if (valtInMaand(r, m)) { maanden[m - 1] += uren; geplaatst = true; } }
+      const nz = maanden.map((u, i) => (u ? i : -1)).filter((i) => i >= 0);
       items.push({
         id: `c:${r.id || key + ":" + r.activiteit}`, bron: "config", act, key,
-        activiteitLabel,
+        activiteitLabel, maanden, zonderMaand: !geplaatst,
+        wanneer: nz.length ? nz.map((i) => MAANDEN_KORT[i]).join(", ") : "geen maand",
         klantnaam: klant?.klantnaam || "Onbekende klant", klantnummer: klant?.klantnummer || "",
         klantgroep: klant?.groepsnaam || "— geen groep —",
         wie, uren, statusKey: "gepland", deadline: null,
@@ -200,9 +207,14 @@ export default function PlanningJaar() {
       const activiteitLabel = act?.label || r.activiteit;
       if (!past(klant, wie, activiteitLabel)) continue;
       const uren = (r.indicatieUren != null ? Number(r.indicatieUren) : Number(act?.standaardUren || 0)) || 0;
+      // Spreiding: een losse regel valt in de maand van zijn deadline (anders "zonder maand").
+      const maanden = Array.from({ length: 12 }, () => 0);
+      let maand = null;
+      if (r.deadline) { const d = new Date(r.deadline); if (!isNaN(d.getTime())) { maand = d.getMonth(); maanden[maand] += uren; } }
       items.push({
         id: `r:${r.id}`, bron: "regel", act, key,
-        activiteitLabel,
+        activiteitLabel, maanden, zonderMaand: maand === null,
+        wanneer: r.deadline ? new Date(r.deadline).toLocaleDateString("nl-NL") : "geen datum",
         klantnaam: klant?.klantnaam || "Onbekende klant", klantnummer: klant?.klantnummer || "",
         klantgroep: klant?.groepsnaam || "— geen groep —",
         wie, uren, statusKey: r.status || "", deadline: r.deadline || null,
@@ -211,8 +223,15 @@ export default function PlanningJaar() {
     const vatSamen = (lijst) => {
       const telling = {};
       let uren = 0;
-      for (const it of lijst) { telling[it.statusKey] = (telling[it.statusKey] || 0) + 1; uren += it.uren; }
-      return { aantal: lijst.length, uren, telling };
+      const maanden = Array.from({ length: 12 }, () => 0);
+      let zonderMaand = 0;
+      for (const it of lijst) {
+        telling[it.statusKey] = (telling[it.statusKey] || 0) + 1;
+        uren += it.uren;
+        for (let m = 0; m < 12; m++) maanden[m] += it.maanden[m];
+        if (it.zonderMaand) zonderMaand += it.uren;
+      }
+      return { aantal: lijst.length, uren, telling, maanden, zonderMaand };
     };
     const groepeerOp = weergave === "medewerker" ? (i) => i.wie : weergave === "klantgroep" ? (i) => i.klantgroep : (i) => i.klantnaam;
     const heeftSub = weergave !== "klant";
@@ -334,6 +353,29 @@ export default function PlanningJaar() {
     );
   };
   const groepKnop = { display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", textAlign: "left" };
+  // Compacte maandstrook (spreiding over jan–dec) voor een groep/klant: staafje per maand.
+  const maandStrip = (maanden, zonderMaand) => {
+    const max = Math.max(1, ...maanden);
+    return (
+      <div style={{ display: "flex", gap: 3, alignItems: "flex-end", padding: "8px 12px 10px 30px", flexWrap: "wrap" }}>
+        {maanden.map((u, i) => (
+          <div key={i} title={`${MAANDEN_KORT[i]}: ${urenTekst(u)}`} style={{ textAlign: "center", minWidth: 30, flex: "1 1 30px" }}>
+            <div style={{ height: 26, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+              <div style={{ width: "70%", height: `${u ? Math.max(3, Math.round((u / max) * 26)) : 2}px`, background: u ? `rgba(28,93,140,${0.35 + 0.5 * (u / max)})` : KLEUR.rand, borderRadius: 3 }} />
+            </div>
+            <div style={{ fontSize: 8.5, color: KLEUR.mutedTekst, marginTop: 2 }}>{MAANDEN_KORT[i]}</div>
+            <div style={{ fontSize: 9, color: u ? KLEUR.blauw : KLEUR.rand, fontWeight: u ? 700 : 400 }}>{u ? Math.round(u) : "·"}</div>
+          </div>
+        ))}
+        {zonderMaand > 0 && (
+          <div title={`Zonder maand/deadline: ${urenTekst(zonderMaand)}`} style={{ textAlign: "center", minWidth: 40, alignSelf: "flex-end" }}>
+            <div style={{ fontSize: 8.5, color: KLEUR.amber }}>z. mnd</div>
+            <div style={{ fontSize: 9, color: KLEUR.amber, fontWeight: 700 }}>{Math.round(zonderMaand)}</div>
+          </div>
+        )}
+      </div>
+    );
+  };
   const leafTabel = (leaves) => (
     <div style={{ padding: "0 12px 10px 30px", overflowX: "auto" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
@@ -342,7 +384,7 @@ export default function PlanningJaar() {
             <tr key={it.id}>
               <td style={{ ...leafTd, fontWeight: 600 }}>{it.activiteitLabel}{it.bron === "regel" ? <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, color: KLEUR.mutedTekst, background: KLEUR.rand, padding: "1px 5px", borderRadius: 4, verticalAlign: "middle" }}>los</span> : null}</td>
               <td style={leafTd}>{statusChip(it.statusKey)}</td>
-              <td style={{ ...leafTd, color: KLEUR.mutedTekst, whiteSpace: "nowrap" }}>{it.deadline ? new Date(it.deadline).toLocaleDateString("nl-NL") : "—"}</td>
+              <td style={{ ...leafTd, color: it.zonderMaand ? KLEUR.amber : KLEUR.mutedTekst, whiteSpace: "nowrap" }} title={it.bron === "config" ? "Maand(en) uit de configuratie" : "Deadline"}>{it.wanneer}</td>
               <td style={leafTd}>{it.wie}</td>
               <td style={{ ...leafTd, textAlign: "right", whiteSpace: "nowrap", fontWeight: 600 }}>{urenTekst(it.uren)}</td>
             </tr>
@@ -543,9 +585,10 @@ export default function PlanningJaar() {
                   {statusBalk(g.telling)}
                   <span style={{ fontSize: 12, color: KLEUR.mutedTekst, whiteSpace: "nowrap", marginLeft: 4 }}>{g.aantal} · {urenTekst(g.uren)}</span>
                 </button>
-                {gopen && (g.subgroepen ? (
+                {gopen && (
                   <div style={{ background: "#FbFcFb" }}>
-                    {g.subgroepen.map((s) => {
+                    {maandStrip(g.maanden, g.zonderMaand)}
+                    {g.subgroepen ? g.subgroepen.map((s) => {
                       const sopen = openSub.has(s.key);
                       return (
                         <div key={s.key} style={{ borderTop: `1px solid ${KLEUR.rand}` }}>
@@ -555,12 +598,12 @@ export default function PlanningJaar() {
                             {statusBalk(s.telling)}
                             <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst, whiteSpace: "nowrap", marginLeft: 4 }}>{s.aantal} · {urenTekst(s.uren)}</span>
                           </button>
-                          {sopen && <div style={{ background: "#fff" }}>{leafTabel(s.leaves)}</div>}
+                          {sopen && <div style={{ background: "#fff" }}>{maandStrip(s.maanden, s.zonderMaand)}{leafTabel(s.leaves)}</div>}
                         </div>
                       );
-                    })}
+                    }) : leafTabel(g.leaves)}
                   </div>
-                ) : <div style={{ background: "#FbFcFb" }}>{leafTabel(g.leaves)}</div>)}
+                )}
               </div>
             );
           })}
