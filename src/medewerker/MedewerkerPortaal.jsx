@@ -11,6 +11,7 @@ import Ontwikkelverzoeken from "./Ontwikkelverzoeken";
 import ScopeToggle, { useMijnNaam, isKlantVanMij } from "./MijnFilter";
 import ContactpersonenOverzicht from "./klanten/ContactpersonenOverzicht";
 import PlanningModule from "./klanten/PlanningModule";
+import MijnWerk from "./klanten/MijnWerk";
 import PlanningConfigPerKlant from "./klanten/PlanningConfigPerKlant";
 import BrievenOverzicht from "./klanten/BrievenOverzicht";
 import BrievenLogboek from "./klanten/BrievenLogboek";
@@ -4248,6 +4249,7 @@ export default function MedewerkerPortaal() {
   const tabs = [
     ["klantoverzicht", "Klantoverzicht", 0],
     ["taken", "Taken", tellingen.nieuweTaken],
+    ["mijnwerk", "Mijn werk", 0],
     ...(magPlanning || isBeheerder ? [["planning", "Planning", 0]] : []),
     ["vragenlijsten", "Vragenlijsten", tellingen.vragenlijstenAandacht],
     ["uren", "Uren", 0],
@@ -4341,6 +4343,7 @@ export default function MedewerkerPortaal() {
 
       {tab === "klantoverzicht" && <KlantenModule magContracten={magContracten} isBeheerder={isBeheerder} magPlanning={magPlanning} />}
       {tab === "taken" && <TakenOverzicht />}
+      {tab === "mijnwerk" && <MijnWerk />}
       {tab === "planning" && (magPlanning || isBeheerder) && <PlanningModule />}
       {tab === "vragenlijsten" && <Vragenlijsten />}
       {tab === "uren" && <Urenregistratie isBeheerder={isBeheerder} />}

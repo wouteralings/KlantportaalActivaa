@@ -9,7 +9,7 @@
  *   DELETE ?id=...        → { verwijderd: true }
  */
 const { haalEmailUitPrincipal } = require("../_gedeeld/identiteit");
-const { metPlanningRecht } = require("../_gedeeld/planningRecht");
+const { magPlanningLezen, magPlanningGebruiken } = require("../_gedeeld/planningRecht");
 const { haalVoorKlant, haalAlle, maakRegel, wijzigRegel, verwijderRegel } = require("../_gedeeld/planningConfig");
 
 function afhandelFout(context, err) {
@@ -25,7 +25,7 @@ function afhandelFout(context, err) {
   context.res = { status: 500, headers: { "Content-Type": "application/json" }, body: { error: "Er ging iets mis. Probeer het later opnieuw.", detail: String(err.message || err) } };
 }
 
-module.exports = metPlanningRecht(async function (context, req) {
+const verwerk = async function (context, req) {
   try {
     const email = haalEmailUitPrincipal(req);
 
@@ -65,4 +65,19 @@ module.exports = metPlanningRecht(async function (context, req) {
   } catch (err) {
     afhandelFout(context, err);
   }
-});
+};
+
+// Lezen (GET) mag elke medewerker — nodig voor "Mijn werk"; muteren (POST/PUT/DELETE) vereist het
+// granulaire Planning-recht. Klanten hebben de rol 'medewerker' niet en worden hier (en via de
+// SWA-route-regel) geweerd.
+module.exports = async function (context, req) {
+  if (!magPlanningLezen(req)) {
+    context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Geen toegang tot de planning." } };
+    return;
+  }
+  if (req.method !== "GET" && !(await magPlanningGebruiken(req))) {
+    context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Je hebt geen recht om de planning te wijzigen. Vraag een beheerder om het Planning-recht." } };
+    return;
+  }
+  return verwerk(context, req);
+};

@@ -9,11 +9,13 @@
  *
  * GET → { regels: [...], activiteiten: [...], statussen: [...] }
  */
-const { metPlanningRecht } = require("../_gedeeld/planningRecht");
+const { magPlanningLezen } = require("../_gedeeld/planningRecht");
 const { haalAlleVoorOverzicht } = require("../_gedeeld/planningKlanten");
 const { haalActieveActiviteiten, haalActieveStatussen } = require("../_gedeeld/planningInstellingen");
 
-module.exports = metPlanningRecht(async function (context, req) {
+// Alleen-lezen overzicht: elke ingelogde medewerker (voor "Mijn werk"); klanten worden geweerd via de
+// rol-check hieronder en de SWA-route-regel.
+const verwerk = async function (context, req) {
   try {
     if (req.method !== "GET") {
       context.res = { status: 405, headers: { "Content-Type": "application/json" }, body: { error: "Methode niet ondersteund." } };
@@ -37,4 +39,12 @@ module.exports = metPlanningRecht(async function (context, req) {
       body: { error: "Onverwachte fout bij het ophalen van de planning.", detail: String(err.message || err) },
     };
   }
-});
+};
+
+module.exports = async function (context, req) {
+  if (!magPlanningLezen(req)) {
+    context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Geen toegang tot de planning." } };
+    return;
+  }
+  return verwerk(context, req);
+};

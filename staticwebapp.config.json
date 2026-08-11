@@ -717,6 +717,13 @@
       ]
     },
     {
+      "route": "/api/mw-planning-deelactiviteiten",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
       "route": "/*",
       "allowedRoles": [
         "authenticated"

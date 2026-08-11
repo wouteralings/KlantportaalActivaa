@@ -19,11 +19,22 @@
 const { haalEmailUitPrincipal, haalRollenUitPrincipal } = require("./identiteit");
 const { magPlanning } = require("./wijzigrechten");
 
-/** Mag deze aanvraag de Planning-medewerkerskant gebruiken? Beheerders altijd; medewerkers als ze het recht hebben. */
+/** Mag deze aanvraag de Planning-medewerkerskant gebruiken (muteren)? Beheerders altijd; medewerkers als ze het recht hebben. */
 async function magPlanningGebruiken(req) {
   const rollen = haalRollenUitPrincipal(req);
   if (rollen.includes("beheerder")) return true;
   return magPlanning(haalEmailUitPrincipal(req), false);
+}
+
+/**
+ * Mag deze aanvraag de Planning LEZEN / eigen werk aftekenen? Elke ingelogde MEDEWERKER (of beheerder)
+ * — dit is bewust ruimer dan het granulaire Planning-recht, zodat een medewerker zijn eigen werk kan
+ * aftekenen ("Mijn werk"). KLANT-gastgebruikers hebben de rol 'medewerker' niet en vallen dus buiten
+ * de boot (naast de SWA-route-regel die klanten al op /api/mw-planning-* weert).
+ */
+function magPlanningLezen(req) {
+  const rollen = haalRollenUitPrincipal(req);
+  return rollen.includes("medewerker") || rollen.includes("beheerder");
 }
 
 /** Wikkelt een Function-handler in de rechtencontrole hierboven. */
@@ -54,4 +65,4 @@ function metPlanningRecht(handler) {
   };
 }
 
-module.exports = { magPlanningGebruiken, metPlanningRecht };
+module.exports = { magPlanningGebruiken, magPlanningLezen, metPlanningRecht };

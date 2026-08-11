@@ -13,10 +13,10 @@
  * PUT  { actie: "klantstappen", accountId, activiteit, deelstappen: [ { label } ] }
  */
 const { haalEmailUitPrincipal, haalNaamUitPrincipal } = require("../_gedeeld/identiteit");
-const { metPlanningRecht } = require("../_gedeeld/planningRecht");
+const { magPlanningLezen, magPlanningGebruiken } = require("../_gedeeld/planningRecht");
 const deel = require("../_gedeeld/planningDeelactiviteiten");
 
-module.exports = metPlanningRecht(async function (context, req) {
+const verwerk = async function (context, req) {
   try {
     if (req.method === "GET") {
       const periode = (req.query && req.query.periode) || "";
@@ -67,4 +67,20 @@ module.exports = metPlanningRecht(async function (context, req) {
     context.log && context.log.error && context.log.error(err);
     context.res = { status: 500, headers: { "Content-Type": "application/json" }, body: { error: "Onverwachte fout.", detail: String(err.message || err) } };
   }
-});
+};
+
+// Aftekenen (GET status + PUT afvink) mag elke ingelogde MEDEWERKER — dat is "Mijn werk". Het per-klant
+// aanpassen van de deelstappen-sjablonen (PUT klantstappen) blijft voorbehouden aan het Planning-recht.
+// Klant-gastgebruikers hebben de rol 'medewerker' niet en worden geweerd (ook via de SWA-route-regel).
+module.exports = async function (context, req) {
+  if (!magPlanningLezen(req)) {
+    context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Geen toegang tot de planning." } };
+    return;
+  }
+  const actie = (req.method === "PUT" && req.body && req.body.actie) || "";
+  if (actie === "klantstappen" && !(await magPlanningGebruiken(req))) {
+    context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Alleen met het Planning-recht kun je de deelstappen-sjablonen aanpassen." } };
+    return;
+  }
+  return verwerk(context, req);
+};
