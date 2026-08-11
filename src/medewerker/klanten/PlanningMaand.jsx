@@ -14,6 +14,7 @@
  */
 import { useState, useEffect, useMemo } from "react";
 import { CalendarClock, ChevronLeft, ChevronRight, AlertTriangle, Plane } from "lucide-react";
+import { ScopeKnoppen, ToggleKnop, Paginatie, pagineer, getoondAantal } from "./PlanningUI";
 
 const KLEUR = {
   blauw: "#1C5D8C", tekst: "#1C2321", subtekst: "#5B6259", mutedTekst: "#8A9089", rand: "#E2E4DF",
@@ -68,6 +69,7 @@ export default function PlanningMaand() {
   const [capaciteit, setCapaciteit] = useState(null); // { werkdagen, normPerDag, medewerkers:[...] }
   const [alleMedewerkers, setAlleMedewerkers] = useState([]); // volledige lijst (niet gescoped) voor de verplaats-keuzelijst
   const [maandToewijzing, setMaandToewijzing] = useState({}); // { regelId: naam } — eenmalige verschuivingen deze maand
+  const [toonAct, setToonAct] = useState(25); // paginagrootte "Ingeplande activiteiten"
   const [fout, setFout] = useState("");
 
   const maandStr = `${jaar}-${String(maand).padStart(2, "0")}`;
@@ -268,12 +270,6 @@ export default function PlanningMaand() {
   const volgende = () => { if (maand === 12) { setMaand(1); setJaar((j) => j + 1); } else setMaand((m) => m + 1); };
   const totaalMaand = maanditems.reduce((s, i) => s + i.uren, 0);
 
-  const checkbox = (aan, setAan, label, titel) => (
-    <label title={titel} style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: "pointer", fontSize: 12, color: KLEUR.subtekst }}>
-      <input type="checkbox" checked={aan} onChange={(e) => setAan(e.target.checked)} /> {label}
-    </label>
-  );
-
   return (
     <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 4 }}>
@@ -298,9 +294,9 @@ export default function PlanningMaand() {
             </select>
           </label>
         )}
-        {checkbox(roosterAan, setRoosterAan, "Rooster", "Beschikbaar op basis van het werkrooster (parttime-factor) i.p.v. de volle norm")}
-        {checkbox(doelAan, setDoelAan, "Declarabel-doel", "Beschikbaar × declarabel-doel % per medewerker")}
-        {checkbox(alle, setAlle, "Kantoorbreed", "Beheerder: alle medewerkers i.p.v. alleen je eigen team")}
+        <ToggleKnop aan={roosterAan} setAan={setRoosterAan} label="Rooster" titel="Beschikbaar op basis van het werkrooster (parttime-factor) i.p.v. de volle norm" />
+        <ToggleKnop aan={doelAan} setAan={setDoelAan} label="Declarabel-doel" titel="Beschikbaar × declarabel-doel % per medewerker" />
+        <ScopeKnoppen kantoorbreed={alle} setKantoorbreed={setAlle} titel="Kantoorbreed: alle medewerkers i.p.v. alleen je eigen team (beheerder)" />
       </div>
 
       {fout && <div style={{ background: `${KLEUR.rood}12`, border: `1px solid ${KLEUR.rood}33`, color: KLEUR.rood, borderRadius: 8, padding: "9px 12px", marginBottom: 14, fontSize: 12.5 }}>{fout}</div>}
@@ -420,7 +416,7 @@ export default function PlanningMaand() {
             <th style={th}>Klant</th><th style={th}>Activiteit</th><th style={th}>Frequentie</th><th style={th}>Uitvoerder</th><th style={th}>Indicatie-uren</th>
           </tr></thead>
           <tbody>
-            {maanditems.map((i) => (
+            {pagineer(maanditems, toonAct).map((i) => (
               <tr key={i.id}>
                 <td style={td}><div style={{ fontWeight: 600 }}>{i.klantnummer}</div><div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{i.klantnaam}</div></td>
                 <td style={td}>{i.activiteit}</td>
@@ -433,6 +429,7 @@ export default function PlanningMaand() {
           </tbody>
         </table>
       </div>
+      {maanditems.length > 0 && <Paginatie totaal={maanditems.length} getoond={getoondAantal(maanditems.length, toonAct)} grootte={toonAct} setGrootte={setToonAct} eenheid="activiteiten" />}
 
       {zonderMaand.length > 0 && (
         <>

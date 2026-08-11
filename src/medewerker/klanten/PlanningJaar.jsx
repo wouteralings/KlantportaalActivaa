@@ -16,6 +16,7 @@
  */
 import { useState, useEffect, useMemo } from "react";
 import { CalendarRange, ChevronLeft, ChevronRight, AlertTriangle, Search, ClipboardList, Settings2 } from "lucide-react";
+import { ScopeKnoppen, Paginatie, pagineer, getoondAantal } from "./PlanningUI";
 
 const KLEUR = {
   blauw: "#1C5D8C", tekst: "#1C2321", subtekst: "#5B6259", mutedTekst: "#8A9089", rand: "#E2E4DF",
@@ -61,6 +62,8 @@ export default function PlanningJaar({ onInstellen }) {
   const [teamFilter, setTeamFilter] = useState("alle");
   const [zoek, setZoek] = useState("");
   const [weergave, setWeergave] = useState("kalender"); // kalender | medewerker | klant | klantgroep
+  const [alle, setAlle] = useState(true); // Kantoorbreed (medewerkers/bezetting). Standaard aan = huidige gedrag.
+  const [toon, setToon] = useState(25);   // paginagrootte voor de actieve lijst
 
   const [config, setConfig] = useState(null);
   const [activiteiten, setActiviteiten] = useState([]);
@@ -108,13 +111,14 @@ export default function PlanningJaar({ onInstellen }) {
   }, []);
 
   // Beschikbare capaciteit per medewerker voor het gekozen jaar (rooster − goedgekeurd verlof).
+  // Kantoorbreed = iedereen; anders je eigen team (op leidinggevende, incl. jezelf) — zie de capaciteits-API.
   useEffect(() => {
     setCapaciteit(null);
-    fetch(`/api/mw-planning-capaciteit?jaar=${jaar}&scope=alle`)
+    fetch(`/api/mw-planning-capaciteit?jaar=${jaar}${alle ? "&scope=alle" : ""}`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setCapaciteit(d && Array.isArray(d.medewerkers) ? d : { medewerkers: [] }))
       .catch(() => setCapaciteit({ medewerkers: [] }));
-  }, [jaar]);
+  }, [jaar, alle]);
 
   const teams = useMemo(
     () => [...new Set(Object.values(klantenMap).map((k) => k.team).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), "nl")),
@@ -460,6 +464,7 @@ export default function PlanningJaar({ onInstellen }) {
             </select>
           </label>
         )}
+        <ScopeKnoppen kantoorbreed={alle} setKantoorbreed={setAlle} titel="Kantoorbreed: alle medewerkers i.p.v. alleen je eigen team (voor Beschikbaar/bezetting)" />
       </div>
 
       {fout && <div style={{ background: `${KLEUR.rood}12`, border: `1px solid ${KLEUR.rood}33`, color: KLEUR.rood, borderRadius: 8, padding: "9px 12px", marginBottom: 14, fontSize: 12.5 }}>{fout}</div>}
@@ -485,6 +490,7 @@ export default function PlanningJaar({ onInstellen }) {
       {laden ? (
         <div style={{ color: KLEUR.mutedTekst, fontSize: 13, padding: "16px 0" }}>Laden…</div>
       ) : weergave === "kalender" ? (
+        <>
         <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10 }}>
           <table style={{ borderCollapse: "collapse", minWidth: 1180 }}>
             <thead><tr>
@@ -493,7 +499,7 @@ export default function PlanningJaar({ onInstellen }) {
               <th style={{ ...th, minWidth: 78 }}>Totaal</th>
             </tr></thead>
             <tbody>
-              {rijen.map((rij) => (
+              {pagineer(rijen, toon).map((rij) => (
                 <tr key={rij.key}>
                   <td style={{ ...td, ...stickyLinks }}>
                     <div style={{ fontWeight: 600 }}>{rij.klantnummer}</div>
@@ -526,6 +532,8 @@ export default function PlanningJaar({ onInstellen }) {
             )}
           </table>
         </div>
+        {rijen.length > 0 && <Paginatie totaal={rijen.length} getoond={getoondAantal(rijen.length, toon)} grootte={toon} setGrootte={setToon} eenheid="klanten" />}
+        </>
       ) : isBezetting ? (
         <div>
           <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 10, lineHeight: 1.6 }}>
@@ -539,7 +547,7 @@ export default function PlanningJaar({ onInstellen }) {
                 Geen werklast of medewerkers{zoek || teamFilter !== "alle" ? " voor deze filter" : ""}.
               </div>
             )}
-            {bezetting.rijen.map((r) => {
+            {pagineer(bezetting.rijen, toon).map((r) => {
               const bopen = openBez.has(r.naam);
               const kleur = r.pct == null ? KLEUR.mutedTekst : r.pct > 100 ? KLEUR.rood : r.pct >= 85 ? KLEUR.amber : "#2E7D46";
               const heeftTaken = r.takenLijst.length > 0;
@@ -578,6 +586,7 @@ export default function PlanningJaar({ onInstellen }) {
               );
             })}
           </div>
+          {bezetting.rijen.length > 0 && <Paginatie totaal={bezetting.rijen.length} getoond={getoondAantal(bezetting.rijen.length, toon)} grootte={toon} setGrootte={setToon} eenheid="medewerkers" />}
           <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 8, display: "flex", gap: 14, flexWrap: "wrap" }}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: "#2E7D46", display: "inline-block" }} /> ruim (&lt; 85%)</span>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: KLEUR.amber, display: "inline-block" }} /> vol (85–100%)</span>
@@ -586,6 +595,7 @@ export default function PlanningJaar({ onInstellen }) {
           </div>
         </div>
       ) : (
+        <>
         <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10 }}>
           <table style={{ borderCollapse: "collapse", minWidth: 1180 }}>
             <thead><tr>
@@ -599,7 +609,7 @@ export default function PlanningJaar({ onInstellen }) {
                   Geen planning{zoek || teamFilter !== "alle" ? " voor deze filter" : ""}. Deze weergave toont de activiteiten uit de per-klant configuratie plus de losse jaarregels, per maand.
                 </td></tr>
               )}
-              {groepData.groepen.flatMap((g) => {
+              {pagineer(groepData.groepen, toon).flatMap((g) => {
                 const gopen = openGroep.has(g.key);
                 const heeftSub = !!g.subgroepen;
                 const rows = [];
@@ -688,6 +698,8 @@ export default function PlanningJaar({ onInstellen }) {
             )}
           </table>
         </div>
+        {groepData.groepen.length > 0 && <Paginatie totaal={groepData.groepen.length} getoond={getoondAantal(groepData.groepen.length, toon)} grootte={toon} setGrootte={setToon} eenheid={weergave === "medewerker" ? "medewerkers" : weergave === "klantgroep" ? "klantgroepen" : "klanten"} />}
+        </>
       )}
     </div>
   );
