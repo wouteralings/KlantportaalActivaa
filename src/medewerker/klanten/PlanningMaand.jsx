@@ -24,16 +24,21 @@ const td = { fontSize: 12.5, padding: "8px 10px", borderBottom: `1px solid ${KLE
 
 const MAANDEN = ["januari", "februari", "maart", "april", "mei", "juni", "juli", "augustus", "september", "oktober", "november", "december"];
 
-function teamPersoon(klant, rol) {
-  if (!klant || !rol) return "";
+// Rolpersoon van de klant (uit Dynamics). Geeft NAAM + E-MAIL terug: op e-mail koppelen we hierna aan
+// het rooster, zodat een afwijkende schrijfwijze van de naam (bv. de "AA"-titel erachter) geen
+// "buiten rooster" meer oplevert. De klant-rolpersonen dragen { naam, email, id } vanuit beheer-klanten.
+function teamPersoonInfo(klant, rol) {
+  const leeg = { naam: "", email: "" };
+  if (!klant || !rol) return leeg;
+  const uit = (o, naamFallback) => ({ naam: (o && o.naam) || naamFallback || "", email: (o && o.email) || "" });
   switch (rol) {
-    case "assistent": return klant.assistent?.naam || "";
-    case "manager": return klant.manager?.naam || klant.relatiebeheerder || "";
-    case "accountant": return klant.accountantPersoon?.naam || klant.accountant || "";
-    case "fiscaal": return klant.fiscaalMedewerker?.naam || "";
-    case "loonadministratie": return klant.loonadministratie?.naam || "";
-    case "backup": return klant.backup?.naam || "";
-    default: return "";
+    case "assistent": return uit(klant.assistent);
+    case "manager": return uit(klant.manager, klant.relatiebeheerder);
+    case "accountant": return uit(klant.accountantPersoon, klant.accountant);
+    case "fiscaal": return uit(klant.fiscaalMedewerker);
+    case "loonadministratie": return uit(klant.loonadministratie);
+    case "backup": return uit(klant.backup);
+    default: return leeg;
   }
 }
 function urenTekst(n) {
@@ -61,6 +66,7 @@ export default function PlanningMaand() {
   const [activiteiten, setActiviteiten] = useState([]);
   const [klantenMap, setKlantenMap] = useState({});
   const [capaciteit, setCapaciteit] = useState(null); // { werkdagen, normPerDag, medewerkers:[...] }
+  const [maandToewijzing, setMaandToewijzing] = useState({}); // { regelId: naam } — eenmalige verschuivingen deze maand
   const [fout, setFout] = useState("");
 
   const maandStr = `${jaar}-${String(maand).padStart(2, "0")}`;
@@ -89,9 +95,35 @@ export default function PlanningMaand() {
       .catch(() => setCapaciteit({ werkdagen: 0, normPerDag: 8, medewerkers: [] }));
   }, [maandStr, alle]);
 
+  // Eenmalige (per-maand) verschuivingen ophalen voor de gekozen maand.
+  useEffect(() => {
+    fetch(`/api/mw-planning-maand-toewijzing?maand=${maandStr}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setMaandToewijzing(d.toewijzingen || {}))
+      .catch(() => setMaandToewijzing({}));
+  }, [maandStr]);
+
   const { maanditems, zonderMaand, perMedewerker } = useMemo(() => {
     const maanditems = [], zonderMaand = [];
     const perMedewerker = {};
+    // Rooster-index om een toewijzing te koppelen op E-MAIL (primair) en anders op naam. Zo landt
+    // "Wouter Alings AA" op dezelfde roosterregel als "Wouter Alings" en verdwijnt "buiten rooster".
+    const roosterOpEmail = new Map(), roosterOpNaam = new Map();
+    for (const m of capaciteit?.medewerkers || []) {
+      const em = String(m.email || "").trim().toLowerCase();
+      const nm = String(m.naam || "").trim().toLowerCase();
+      if (em && !roosterOpEmail.has(em)) roosterOpEmail.set(em, m.naam || "");
+      if (nm && !roosterOpNaam.has(nm)) roosterOpNaam.set(nm, m.naam || "");
+    }
+    // Geef de canonieke roosternaam terug bij een match op e-mail (of anders op naam); zonder match
+    // de eigen naam (die dan als 'buiten rooster' getoond wordt).
+    const koppelAanRooster = (naam, email) => {
+      const em = String(email || "").trim().toLowerCase();
+      if (em && roosterOpEmail.has(em)) return roosterOpEmail.get(em);
+      const nm = String(naam || "").trim().toLowerCase();
+      if (nm && roosterOpNaam.has(nm)) return roosterOpNaam.get(nm);
+      return naam;
+    };
     for (const r of config || []) {
       if (r.actief === false) continue;
       const act = activiteitById[r.activiteit];
@@ -99,12 +131,22 @@ export default function PlanningMaand() {
       const klant = klantenMap[String(r.klantAccountId || "").toLowerCase()] || null;
       if (teamFilter !== "alle" && (klant?.team || "") !== teamFilter) continue;
       const override = (r.toegewezenAan || "").trim();
-      const team = teamPersoon(klant, act.rol);
-      const wie = override || team || "— niet toegewezen";
+      const team = teamPersoonInfo(klant, act.rol); // { naam, email }
+      // Rauwe (getoonde) naam + de e-mail die we kennen — alleen bij de Dynamics-rolpersoon, niet bij
+      // een handmatig getypte override of eenmalige verschuiving (dat is vrije tekst zonder e-mail).
+      const vastNaamRauw = override || team.naam || "— niet toegewezen";
+      const vastEmail = override ? "" : (team.email || "");
+      const maandOverride = (maandToewijzing[r.id] || "").trim(); // eenmalige verschuiving deze maand
+      const eenmalig = !!maandOverride;
+      const rauweNaam = maandOverride || vastNaamRauw; // effectief deze maand: per-maand > vast > team
+      const rauwEmail = maandOverride ? "" : vastEmail;
+      // Identiteit waarop we optellen én die de bezettingsregel matcht: de roosternaam (op e-mail).
+      const wie = koppelAanRooster(rauweNaam, rauwEmail);
+      const vastWie = koppelAanRooster(vastNaamRauw, vastEmail);
       const uren = Number(r.indicatieUren) || 0;
       const item = { id: r.id, klantnaam: klant?.klantnaam || "Onbekende klant", klantnummer: klant?.klantnummer || "",
-        activiteit: act.label, frequentie: r.frequentie, uitvoerMaand: r.uitvoerMaand, uren, wie,
-        afwijkend: !!override && override.toLowerCase() !== (team || "").toLowerCase() };
+        activiteit: act.label, frequentie: r.frequentie, uitvoerMaand: r.uitvoerMaand, uren, wie, vastWie, eenmalig,
+        afwijkend: !!override && override.toLowerCase() !== (team.naam || "").toLowerCase() };
       if (valtInMaand(r, maand)) {
         maanditems.push(item);
         perMedewerker[wie] = (perMedewerker[wie] || 0) + uren;
@@ -113,7 +155,7 @@ export default function PlanningMaand() {
       }
     }
     return { maanditems, zonderMaand, perMedewerker };
-  }, [config, activiteitById, klantenMap, maand, teamFilter]);
+  }, [config, activiteitById, klantenMap, maand, teamFilter, maandToewijzing, capaciteit]);
 
   const teams = useMemo(
     () => [...new Set(Object.values(klantenMap).map((k) => k.team).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), "nl")),
@@ -145,6 +187,65 @@ export default function PlanningMaand() {
     }
     return rijen.sort((a, b) => (b.planning - a.planning) || String(a.naam).localeCompare(String(b.naam), "nl"));
   }, [capaciteit, perMedewerker, roosterAan, doelAan]);
+
+  // Uitklappen per medewerker + snel werk verplaatsen naar een andere medewerker.
+  const [openMw, setOpenMw] = useState(() => new Set());
+  const toggleMw = (naam) => setOpenMw((s) => { const n = new Set(s); if (n.has(naam)) n.delete(naam); else n.add(naam); return n; });
+  const [verplaatsBezig, setVerplaatsBezig] = useState(null); // id van de regel die verplaatst wordt
+  const [verplaatsFout, setVerplaatsFout] = useState("");
+
+  const medewerkerNamen = useMemo(() => {
+    const s = new Set((capaciteit?.medewerkers || []).map((m) => m.naam).filter(Boolean));
+    for (const r of bezettingRijen) if (r.naam && r.naam !== "— niet toegewezen") s.add(r.naam);
+    return [...s].sort((a, b) => String(a).localeCompare(String(b), "nl"));
+  }, [capaciteit, bezettingRijen]);
+
+  const itemsVoor = (naam) => {
+    const lc = String(naam || "").toLowerCase();
+    return maanditems.filter((i) => String(i.wie || "").toLowerCase() === lc);
+  };
+
+  // Zet de toegewezene van een config-regel om (""= terug naar het team). Optimistisch, met terugval.
+  const verplaats = async (item, doelNaam) => {
+    if (verplaatsBezig) return;
+    const nieuwOverride = doelNaam || ""; // "" = terug naar team
+    setVerplaatsBezig(item.id); setVerplaatsFout("");
+    const vorigeConfig = config;
+    setConfig((prev) => (prev || []).map((r) => (r.id === item.id ? { ...r, toegewezenAan: nieuwOverride } : r)));
+    try {
+      const res = await fetch("/api/mw-planning-config", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: item.id, toegewezenAan: nieuwOverride }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+    } catch (e) {
+      setConfig(vorigeConfig); // terugdraaien
+      setVerplaatsFout(e.message || "Verplaatsen mislukt.");
+    } finally {
+      setVerplaatsBezig(null);
+    }
+  };
+
+  // Eenmalig verschuiven: alleen voor DEZE maand, laat de vaste toewijzing ongemoeid. ""= herstel.
+  const verplaatsEenmalig = async (item, doelNaam) => {
+    if (verplaatsBezig) return;
+    const naam = doelNaam || "";
+    setVerplaatsBezig(item.id); setVerplaatsFout("");
+    const vorige = maandToewijzing;
+    setMaandToewijzing((prev) => { const n = { ...prev }; if (naam) n[item.id] = naam; else delete n[item.id]; return n; });
+    try {
+      const res = await fetch("/api/mw-planning-maand-toewijzing", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: item.id, maand: maandStr, naam }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+    } catch (e) {
+      setMaandToewijzing(vorige); // terugdraaien
+      setVerplaatsFout(e.message || "Eenmalig verplaatsen mislukt.");
+    } finally {
+      setVerplaatsBezig(null);
+    }
+  };
 
   const vorige = () => { if (maand === 1) { setMaand(12); setJaar((j) => j - 1); } else setMaand((m) => m - 1); };
   const volgende = () => { if (maand === 12) { setMaand(1); setJaar((j) => j + 1); } else setMaand((m) => m + 1); };
@@ -187,7 +288,11 @@ export default function PlanningMaand() {
 
       {fout && <div style={{ background: `${KLEUR.rood}12`, border: `1px solid ${KLEUR.rood}33`, color: KLEUR.rood, borderRadius: 8, padding: "9px 12px", marginBottom: 14, fontSize: 12.5 }}>{fout}</div>}
 
-      <div style={{ fontSize: 13, fontWeight: 700, margin: "6px 0 8px" }}>Bezetting per medewerker</div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, margin: "6px 0 8px", flexWrap: "wrap" }}>
+        <span style={{ fontSize: 13, fontWeight: 700 }}>Bezetting per medewerker</span>
+        <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>klik een medewerker open om zijn werk te zien en snel te verplaatsen</span>
+      </div>
+      {verplaatsFout && <div style={{ background: `${KLEUR.rood}12`, border: `1px solid ${KLEUR.rood}33`, color: KLEUR.rood, borderRadius: 8, padding: "8px 12px", marginBottom: 10, fontSize: 12.5 }}>Verplaatsen mislukt: {verplaatsFout}</div>}
       {capaciteit === null || config === null ? (
         <div style={{ color: KLEUR.mutedTekst, fontSize: 13, padding: "16px 0" }}>Laden…</div>
       ) : (
@@ -198,16 +303,21 @@ export default function PlanningMaand() {
               <th style={th}>Verlof goedgekeurd</th><th style={th}>Verlof aangevraagd</th><th style={th}>Bezetting</th>
             </tr></thead>
             <tbody>
-              {bezettingRijen.map((m) => {
+              {bezettingRijen.flatMap((m) => {
                 const pct = m.beschikbaar ? Math.round((m.planning / m.beschikbaar) * 100) : 0;
                 const barKleur = pct > 100 ? KLEUR.rood : pct >= 80 ? KLEUR.amber : KLEUR.groen;
-                return (
-                  <tr key={m.naam}>
+                const uitklapbaar = m.planning > 0;
+                const open = openMw.has(m.naam);
+                const rows = [
+                  <tr key={m.naam} onClick={uitklapbaar ? () => toggleMw(m.naam) : undefined} style={{ cursor: uitklapbaar ? "pointer" : "default" }}>
                     <td style={td}>
-                      {m.naam}
-                      {!m.inRooster && m.naam !== "— niet toegewezen" && (
-                        <span title="Niet gevonden in het rooster (mogelijk een afwijkende, vrije toewijzing)" style={{ marginLeft: 6, display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, color: KLEUR.amber, background: KLEUR.amberAchtergrond, padding: "1px 6px", borderRadius: 20 }}><AlertTriangle size={10} /> buiten rooster</span>
-                      )}
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        {uitklapbaar ? <ChevronRight size={14} style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform .15s", flexShrink: 0 }} color={KLEUR.mutedTekst} /> : <span style={{ width: 14, display: "inline-block", flexShrink: 0 }} />}
+                        <span>{m.naam}</span>
+                        {!m.inRooster && m.naam !== "— niet toegewezen" && (
+                          <span title="Niet gevonden in het rooster (mogelijk een afwijkende, vrije toewijzing)" style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, color: KLEUR.amber, background: KLEUR.amberAchtergrond, padding: "1px 6px", borderRadius: 20 }}><AlertTriangle size={10} /> buiten rooster</span>
+                        )}
+                      </div>
                     </td>
                     <td style={{ ...td, fontWeight: 700 }}>{urenTekst(m.planning)}</td>
                     <td style={td}>{m.inRooster ? urenTekst(m.beschikbaar) : "—"}{m.inRooster && m.declarabelDoel != null && doelAan ? <span style={{ color: KLEUR.mutedTekst, fontSize: 11 }}> ({Math.round(doelFactor(m.declarabelDoel) * 100)}%)</span> : null}</td>
@@ -223,8 +333,62 @@ export default function PlanningMaand() {
                         </div>
                       ) : <span style={{ color: KLEUR.mutedTekst }}>—</span>}
                     </td>
-                  </tr>
-                );
+                  </tr>,
+                ];
+                if (open) {
+                  const items = itemsVoor(m.naam);
+                  rows.push(
+                    <tr key={m.naam + ":items"} style={{ background: "#FbFcFb" }}>
+                      <td colSpan={6} style={{ padding: "4px 10px 12px 34px", borderBottom: `1px solid ${KLEUR.rand}` }}>
+                        {items.length === 0 ? (
+                          <div style={{ fontSize: 12, color: KLEUR.mutedTekst, padding: "6px 0" }}>Geen activiteiten voor {m.naam} deze maand.</div>
+                        ) : (
+                          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                            <tbody>
+                              {items.map((it) => {
+                                const kiesStijl = { border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "4px 6px", fontSize: 12, background: "#fff", cursor: "pointer" };
+                                return (
+                                <tr key={it.id}>
+                                  <td style={{ fontSize: 12, padding: "5px 8px", borderBottom: `1px solid ${KLEUR.rand}55` }}>
+                                    <span style={{ fontWeight: 600 }}>{it.activiteit}</span>
+                                    <span style={{ color: KLEUR.mutedTekst }}> · {it.klantnaam}{it.klantnummer ? ` (${it.klantnummer})` : ""}</span>
+                                    {it.afwijkend && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: KLEUR.amber }}>afwijkend van team</span>}
+                                    {it.eenmalig && <span title={`Vast toegewezen aan ${it.vastWie}`} style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, padding: "1px 6px", borderRadius: 20 }}>eenmalig deze maand (vast: {it.vastWie})</span>}
+                                  </td>
+                                  <td style={{ fontSize: 12, padding: "5px 8px", borderBottom: `1px solid ${KLEUR.rand}55`, whiteSpace: "nowrap", textAlign: "right", fontWeight: 600, width: 70 }}>{urenTekst(it.uren)}</td>
+                                  <td style={{ fontSize: 12, padding: "5px 8px", borderBottom: `1px solid ${KLEUR.rand}55`, whiteSpace: "nowrap", textAlign: "right" }}>
+                                    <div style={{ display: "inline-flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                      <label style={{ color: KLEUR.mutedTekst, display: "inline-flex", alignItems: "center", gap: 4 }} title="Verplaatst de vaste toewijzing — geldt elke maand.">
+                                        vast →
+                                        <select value="" disabled={verplaatsBezig === it.id} onClick={(e) => e.stopPropagation()}
+                                          onChange={(e) => { const v = e.target.value; if (v !== "") verplaats(it, v === "__team__" ? "" : v); }} style={kiesStijl}>
+                                          <option value="">verplaats…</option>
+                                          <option value="__team__">Team (standaard)</option>
+                                          {medewerkerNamen.filter((n) => n.toLowerCase() !== String(m.naam).toLowerCase()).map((n) => <option key={n} value={n}>{n}</option>)}
+                                        </select>
+                                      </label>
+                                      <label style={{ color: KLEUR.blauw, display: "inline-flex", alignItems: "center", gap: 4 }} title="Alleen voor deze maand; de vaste toewijzing blijft ongewijzigd.">
+                                        eenmalig →
+                                        <select value="" disabled={verplaatsBezig === it.id} onClick={(e) => e.stopPropagation()}
+                                          onChange={(e) => { const v = e.target.value; if (v !== "") verplaatsEenmalig(it, v); }} style={kiesStijl}>
+                                          <option value="">deze maand…</option>
+                                          {medewerkerNamen.filter((n) => n.toLowerCase() !== String(m.naam).toLowerCase()).map((n) => <option key={n} value={n}>{n}</option>)}
+                                        </select>
+                                      </label>
+                                      {it.eenmalig && <button onClick={(e) => { e.stopPropagation(); verplaatsEenmalig(it, ""); }} disabled={verplaatsBezig === it.id} title="Eenmalige verschuiving ongedaan maken (terug naar de vaste toewijzing)" style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 11.5, cursor: "pointer" }}>↺ herstel</button>}
+                                    </div>
+                                  </td>
+                                </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                }
+                return rows;
               })}
               {bezettingRijen.length === 0 && <tr><td colSpan={6} style={{ ...td, color: KLEUR.mutedTekst, textAlign: "center", padding: 20 }}>Geen medewerkers/planning voor deze maand.</td></tr>}
             </tbody>
