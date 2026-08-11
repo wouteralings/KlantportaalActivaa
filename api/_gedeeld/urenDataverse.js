@@ -142,10 +142,14 @@ function boekingNaarBuiten(r) {
 function tariefNaarBuiten(r) {
   if (!r) return null;
   const n = (v) => (v == null ? null : Number(v));
+  // systemuser-GUID van de medewerker (lookup cr283_Medewerker → /systemusers). Case-ongevoelig
+  // uitlezen; leeg als de lookup niet gevuld/geselecteerd is. Hierop matcht de planning-bezetting.
+  const idKey = Object.keys(r).find((x) => x.toLowerCase() === `_${P}_medewerker_value`);
   return {
     id: r[`${P}_urentariefid`],
     medewerker_email: r[`${P}_medewerkeremail`] || "",
     medewerker_naam: r[`${P}_medewerkernaam`] || "",
+    medewerker_id: (idKey ? r[idKey] : "") || "",
     tarief_normaal: n(r[`${P}_tariefnormaal`]),
     tarief_hoog: n(r[`${P}_tariefhoog`]),
     tarief_laag: n(r[`${P}_tarieflaag`]),
@@ -177,7 +181,12 @@ async function lijstTarieven() {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   const token = await haalDynamicsToken();
   const set = await entitySet(resource, token, TARIEF);
-  const res = await fetch(`${resource}/api/data/v9.2/${set}?$select=${P}_medewerkeremail,${P}_medewerkernaam,${P}_tariefnormaal,${P}_tariefhoog,${P}_tarieflaag,${P}_declarabeldoel,${P}_leidinggevendenaam,${P}_deadlineweekdag,${P}_indiensttredingsdatum,${P}_actief`, { headers: leesHeaders(token) });
+  const basis = `${P}_medewerkeremail,${P}_medewerkernaam,${P}_tariefnormaal,${P}_tariefhoog,${P}_tarieflaag,${P}_declarabeldoel,${P}_leidinggevendenaam,${P}_deadlineweekdag,${P}_indiensttredingsdatum,${P}_actief`;
+  const url = (select) => `${resource}/api/data/v9.2/${set}?$select=${select}`;
+  // Probeer de medewerker-lookup (_value) mee te selecteren; val bij een schema-verschil terug op de
+  // basisvelden zodat de rest van de urenmodule blijft werken (medewerker_id wordt dan gewoon "").
+  let res = await fetch(url(`${basis},_${P}_Medewerker_value`), { headers: leesHeaders(token) });
+  if (!res.ok) res = await fetch(url(basis), { headers: leesHeaders(token) });
   if (!res.ok) throw new Error(`Tarieven ophalen mislukt: ${await res.text()}`);
   return (await res.json()).value.map(tariefNaarBuiten);
 }

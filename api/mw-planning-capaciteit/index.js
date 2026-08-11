@@ -190,6 +190,7 @@ module.exports = metPlanningRecht(async function (context, req) {
       }
       return {
         email: t.medewerker_email || "",
+        id: t.medewerker_id || "", // systemuser-GUID: hierop koppelt de bezetting aan de toewijzing
         naam: t.medewerker_naam || t.medewerker_email || "",
         leidinggevende: t.leidinggevende || "",
         parttimeFactor: Math.round(factor * 1000) / 1000,

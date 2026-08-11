@@ -28,9 +28,9 @@ const MAANDEN = ["januari", "februari", "maart", "april", "mei", "juni", "juli",
 // het rooster, zodat een afwijkende schrijfwijze van de naam (bv. de "AA"-titel erachter) geen
 // "buiten rooster" meer oplevert. De klant-rolpersonen dragen { naam, email, id } vanuit beheer-klanten.
 function teamPersoonInfo(klant, rol) {
-  const leeg = { naam: "", email: "" };
+  const leeg = { naam: "", email: "", id: "" };
   if (!klant || !rol) return leeg;
-  const uit = (o, naamFallback) => ({ naam: (o && o.naam) || naamFallback || "", email: (o && o.email) || "" });
+  const uit = (o, naamFallback) => ({ naam: (o && o.naam) || naamFallback || "", email: (o && o.email) || "", id: (o && o.id) || "" });
   switch (rol) {
     case "assistent": return uit(klant.assistent);
     case "manager": return uit(klant.manager, klant.relatiebeheerder);
@@ -106,18 +106,23 @@ export default function PlanningMaand() {
   const { maanditems, zonderMaand, perMedewerker } = useMemo(() => {
     const maanditems = [], zonderMaand = [];
     const perMedewerker = {};
-    // Rooster-index om een toewijzing te koppelen op E-MAIL (primair) en anders op naam. Zo landt
-    // "Wouter Alings AA" op dezelfde roosterregel als "Wouter Alings" en verdwijnt "buiten rooster".
-    const roosterOpEmail = new Map(), roosterOpNaam = new Map();
+    // Rooster-index om een toewijzing te koppelen op systemuser-GUID (primair), anders e-mail, anders
+    // naam. Zo landt "Wouter Alings AA" op dezelfde roosterregel als "Wouter Alings" — ongeacht een
+    // afwijkende naam of e-mail — en verdwijnt "buiten rooster".
+    const roosterOpId = new Map(), roosterOpEmail = new Map(), roosterOpNaam = new Map();
     for (const m of capaciteit?.medewerkers || []) {
+      const idv = String(m.id || "").trim().toLowerCase();
       const em = String(m.email || "").trim().toLowerCase();
       const nm = String(m.naam || "").trim().toLowerCase();
+      if (idv && !roosterOpId.has(idv)) roosterOpId.set(idv, m.naam || "");
       if (em && !roosterOpEmail.has(em)) roosterOpEmail.set(em, m.naam || "");
       if (nm && !roosterOpNaam.has(nm)) roosterOpNaam.set(nm, m.naam || "");
     }
-    // Geef de canonieke roosternaam terug bij een match op e-mail (of anders op naam); zonder match
-    // de eigen naam (die dan als 'buiten rooster' getoond wordt).
-    const koppelAanRooster = (naam, email) => {
+    // Geef de canonieke roosternaam terug bij een match op GUID → e-mail → naam; zonder match de eigen
+    // naam (die dan als 'buiten rooster' getoond wordt).
+    const koppelAanRooster = (naam, email, id) => {
+      const idv = String(id || "").trim().toLowerCase();
+      if (idv && roosterOpId.has(idv)) return roosterOpId.get(idv);
       const em = String(email || "").trim().toLowerCase();
       if (em && roosterOpEmail.has(em)) return roosterOpEmail.get(em);
       const nm = String(naam || "").trim().toLowerCase();
@@ -131,18 +136,20 @@ export default function PlanningMaand() {
       const klant = klantenMap[String(r.klantAccountId || "").toLowerCase()] || null;
       if (teamFilter !== "alle" && (klant?.team || "") !== teamFilter) continue;
       const override = (r.toegewezenAan || "").trim();
-      const team = teamPersoonInfo(klant, act.rol); // { naam, email }
-      // Rauwe (getoonde) naam + de e-mail die we kennen — alleen bij de Dynamics-rolpersoon, niet bij
-      // een handmatig getypte override of eenmalige verschuiving (dat is vrije tekst zonder e-mail).
+      const team = teamPersoonInfo(klant, act.rol); // { naam, email, id }
+      // Rauwe (getoonde) naam + de GUID/e-mail die we kennen — alleen bij de Dynamics-rolpersoon, niet
+      // bij een handmatig getypte override of eenmalige verschuiving (dat is vrije tekst zonder GUID).
       const vastNaamRauw = override || team.naam || "— niet toegewezen";
       const vastEmail = override ? "" : (team.email || "");
+      const vastId = override ? "" : (team.id || "");
       const maandOverride = (maandToewijzing[r.id] || "").trim(); // eenmalige verschuiving deze maand
       const eenmalig = !!maandOverride;
       const rauweNaam = maandOverride || vastNaamRauw; // effectief deze maand: per-maand > vast > team
       const rauwEmail = maandOverride ? "" : vastEmail;
-      // Identiteit waarop we optellen én die de bezettingsregel matcht: de roosternaam (op e-mail).
-      const wie = koppelAanRooster(rauweNaam, rauwEmail);
-      const vastWie = koppelAanRooster(vastNaamRauw, vastEmail);
+      const rauwId = maandOverride ? "" : vastId;
+      // Identiteit waarop we optellen én die de bezettingsregel matcht: de roosternaam (op GUID/e-mail).
+      const wie = koppelAanRooster(rauweNaam, rauwEmail, rauwId);
+      const vastWie = koppelAanRooster(vastNaamRauw, vastEmail, vastId);
       const uren = Number(r.indicatieUren) || 0;
       const item = { id: r.id, klantnaam: klant?.klantnaam || "Onbekende klant", klantnummer: klant?.klantnummer || "",
         activiteit: act.label, frequentie: r.frequentie, uitvoerMaand: r.uitvoerMaand, uren, wie, vastWie, eenmalig,
