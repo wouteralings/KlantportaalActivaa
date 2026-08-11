@@ -124,7 +124,7 @@ export default function Deelactiviteiten() {
         perAct[act.sleutel] = { act, eff, done, total, gereed };
       }
       rijen.push({
-        acc, klantnaam: klant?.klantnaam || "Onbekende klant", klantnummer: klant?.klantnummer || "",
+        acc: e.acc, klantnaam: klant?.klantnaam || "Onbekende klant", klantnummer: klant?.klantnummer || "",
         klantgroep: klant?.groepsnaam || "", team: klant?.team || "", uitvoerders: [...e.uitvoerders],
         perAct, afgewikkeld: alles && Object.keys(perAct).length > 0,
       });
