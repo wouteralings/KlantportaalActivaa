@@ -124,11 +124,14 @@ module.exports = metPlanningRecht(async function (context, req) {
     // Medewerkers (uit de urentarieven), gescoped op leidinggevende tenzij beheerder + scope=alle.
     // Uitgesloten medewerkers (Beheer → Planning, bijv. secretaresses/loonadministratie) vallen weg.
     const mij = String(naam || "").trim().toLowerCase();
+    const mijnEmail = String(email || "").trim().toLowerCase();
     const uitgesloten = new Set((await haalUitgeslotenMedewerkers().catch(() => [])).map((u) => String(u.email || "").toLowerCase()));
     const tarieven = (await uren.lijstTarieven())
       .filter((t) => t.actief !== false && (t.medewerker_email || t.medewerker_naam))
       .filter((t) => !uitgesloten.has(String(t.medewerker_email || "").toLowerCase()))
-      .filter((t) => alle || (t.leidinggevende || "").trim().toLowerCase() === mij);
+      // Team-scope (op leidinggevende), maar toon de INGELOGDE medewerker altijd — ook z'n eigen bezetting,
+      // zodat je je eigen planning niet als "buiten rooster" ziet als je zelf geen teamlid van jezelf bent.
+      .filter((t) => alle || (t.leidinggevende || "").trim().toLowerCase() === mij || String(t.medewerker_email || "").trim().toLowerCase() === mijnEmail);
 
     // Verlof: goedgekeurd (overlap met de maand) en aangevraagd (nog te beoordelen), per e-mail opgeteld.
     const [goedgekeurd, aangevraagd] = await Promise.all([

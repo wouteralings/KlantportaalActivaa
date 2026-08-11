@@ -66,6 +66,7 @@ export default function PlanningMaand() {
   const [activiteiten, setActiviteiten] = useState([]);
   const [klantenMap, setKlantenMap] = useState({});
   const [capaciteit, setCapaciteit] = useState(null); // { werkdagen, normPerDag, medewerkers:[...] }
+  const [alleMedewerkers, setAlleMedewerkers] = useState([]); // volledige lijst (niet gescoped) voor de verplaats-keuzelijst
   const [maandToewijzing, setMaandToewijzing] = useState({}); // { regelId: naam } — eenmalige verschuivingen deze maand
   const [fout, setFout] = useState("");
 
@@ -85,6 +86,12 @@ export default function PlanningMaand() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => { const bij = {}; (d.klanten || []).forEach((k) => { bij[String(k.accountId || "").toLowerCase()] = k; }); setKlantenMap(bij); })
       .catch(() => setKlantenMap({}));
+    // Volledige medewerkerslijst (alle actieve, niet gescoped op team) — voor de verplaats-keuzelijst,
+    // zodat je altijd naar iedereen kunt verplaatsen, ook als de bezetting op jouw team gefilterd is.
+    fetch("/api/mw-planning-medewerkers")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setAlleMedewerkers(d.medewerkers || []))
+      .catch(() => setAlleMedewerkers([]));
   }, []);
 
   useEffect(() => {
@@ -202,10 +209,13 @@ export default function PlanningMaand() {
   const [verplaatsFout, setVerplaatsFout] = useState("");
 
   const medewerkerNamen = useMemo(() => {
-    const s = new Set((capaciteit?.medewerkers || []).map((m) => m.naam).filter(Boolean));
+    // Keuzelijst voor verplaatsen = ALLE actieve medewerkers (los van de team-scope), aangevuld met wie
+    // in de bezetting/planning voorkomt. Zo kun je ook verplaatsen als je bezetting op je team staat.
+    const s = new Set(alleMedewerkers.map((m) => m.naam).filter(Boolean));
+    for (const m of capaciteit?.medewerkers || []) if (m.naam) s.add(m.naam);
     for (const r of bezettingRijen) if (r.naam && r.naam !== "— niet toegewezen") s.add(r.naam);
     return [...s].sort((a, b) => String(a).localeCompare(String(b), "nl"));
-  }, [capaciteit, bezettingRijen]);
+  }, [alleMedewerkers, capaciteit, bezettingRijen]);
 
   const itemsVoor = (naam) => {
     const lc = String(naam || "").toLowerCase();
