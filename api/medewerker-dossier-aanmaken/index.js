@@ -57,17 +57,30 @@ module.exports = async function (context, req) {
   }
 
   const email = haalEmailUitPrincipal(req);
-  const { soort: soortKey, kopieerVanId, accountId: accountIdIn, jaar, fiscaalPartnerschap, fiscaalPartnerAccountId, partnerSituatie } = req.body || {};
+  const { soort: soortKey, kopieerVanId, accountId: accountIdIn, jaar, begindatum, fiscaalPartnerschap, fiscaalPartnerAccountId, partnerSituatie } = req.body || {};
   const soort = SOORTEN.find((s) => s.key === soortKey);
   if (!soort) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef een geldige 'soort' mee." } }; return; }
   if (!Array.isArray(soort.catalogus)) {
     context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: `Nieuwe dossiers aanmaken wordt voor ${soort.label} nog niet ondersteund.` } };
     return;
   }
+  // Periode: soorten met een jaar (IB/VPB/Dividend) vragen een geldig jaartal; soorten met een
+  // datum-periode (Notulen) een optionele datum. Zo werkt aanmaken/kopiëren voor allebei.
+  const heeftJaar = !!soort.optioneel.jaar;
+  const heeftBegindatum = !!soort.optioneel.begindatum;
   const jaarGetal = Number(jaar);
-  if (!Number.isInteger(jaarGetal) || jaarGetal < 2000 || jaarGetal > 2100) {
+  if (heeftJaar && (!Number.isInteger(jaarGetal) || jaarGetal < 2000 || jaarGetal > 2100)) {
     context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef een geldig jaartal (2000–2100) mee." } };
     return;
+  }
+  let begindatumSchoon = null;
+  if (heeftBegindatum && begindatum) {
+    const d = new Date(begindatum);
+    if (isNaN(d.getTime())) {
+      context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef een geldige datum mee." } };
+      return;
+    }
+    begindatumSchoon = String(begindatum).slice(0, 10);
   }
   if (!kopieerVanId && !accountIdIn) {
     context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef een cliënt mee, of een dossier om van te kopiëren." } };
@@ -88,7 +101,10 @@ module.exports = async function (context, req) {
     }
     if (!accountId) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Kon geen cliënt bepalen." } }; return; }
 
-    if (await bestaatDossierAl(resource, token, soortEffectief, accountId, jaarGetal)) {
+    // Eén dossier per cliënt per jaar geldt alleen voor de fiscale aangiftes (IB/VPB). Van
+    // dividenduitkeringen kunnen er meerdere in een jaar zijn (interim/slot) en notulen zijn
+    // datum-gebaseerd — daar dus geen dubbel-blokkade.
+    if ((soort.key === "ib" || soort.key === "vpb") && await bestaatDossierAl(resource, token, soortEffectief, accountId, jaarGetal)) {
       context.res = { status: 409, headers: { "Content-Type": "application/json" }, body: { error: `Er bestaat al een ${soort.label.toLowerCase()}-dossier voor deze cliënt in ${jaarGetal}.` } };
       return;
     }
@@ -102,7 +118,7 @@ module.exports = async function (context, req) {
     // Alleen bij een nieuwe (niet-gekopieerde) aangifte; bij kopiëren neemt maakDossier de
     // gezinssituatie van het brondossier over.
     const heeftFiscaalPartner = !!(fiscaalPartnerAccountId || (kopieerVanDossier && kopieerVanDossier.fiscaalPartnerAccountId));
-    if (!kopieerVanDossier && velden.gezinssituatie === undefined) {
+    if (soort.key === "ib" && !kopieerVanDossier && velden.gezinssituatie === undefined) {
       velden.gezinssituatie = !heeftFiscaalPartner
         ? GEZINSSITUATIE.alleenstaand
         : partnerSituatie === "samenwonend"
@@ -112,7 +128,8 @@ module.exports = async function (context, req) {
 
     const nieuwId = await maakDossier(resource, token, soortEffectief, {
       accountId,
-      jaar: jaarGetal,
+      jaar: heeftJaar ? jaarGetal : undefined,
+      begindatum: begindatumSchoon,
       fiscaalPartnerAccountId: fiscaalPartnerAccountId || null,
       kopieerVanDossier,
       velden,
@@ -125,7 +142,7 @@ module.exports = async function (context, req) {
       accountId,
       accountIds: [accountId],
       klantnaam: nieuwDossier ? nieuwDossier.klantnaam : "",
-      tekst: `Nieuw dossier ${soort.label} ${jaarGetal} aangemaakt${kopieerVanDossier ? ` (gekopieerd van ${kopieerVanDossier.jaar || "vorig jaar"})` : ""}.`,
+      tekst: `Nieuw dossier ${soort.label}${heeftJaar ? ` ${jaarGetal}` : (begindatumSchoon ? ` ${begindatumSchoon}` : "")} aangemaakt${kopieerVanDossier ? " (gekopieerd van bestaand dossier)" : ""}.`,
     });
 
     context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, dossier: nieuwDossier } };

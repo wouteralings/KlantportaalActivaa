@@ -1830,7 +1830,15 @@ function NieuwDossierModal({ soort, soortLabel, periodeLabel, dossiers, vasteBro
   const [heeftPartner, setHeeftPartner] = useState(false);
   const [partner, setPartner] = useState(null); // { id, naam }
   const [partnerSituatie, setPartnerSituatie] = useState(""); // "" | "gehuwd" | "samenwonend" — bepaalt de verplichte gezinssituatie bij een fiscaal partner
+  // Periode-type per soort: de meeste soorten werken met een jaar; Notulen met een datum.
+  const periodeType = soort === "notulen" ? "datum" : "jaar";
+  const isFiscaal = soort === "ib" || soort === "vpb";
   const [jaar, setJaar] = useState(() => (vasteBron && vasteBron.jaar != null ? String(Number(vasteBron.jaar) + 1) : ""));
+  const [datum, setDatum] = useState(() => {
+    if (periodeType !== "datum") return "";
+    const t = new Date(); // vandaag als startpunt (nieuwe/gekopieerde notulen)
+    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+  });
   const [bezig, setBezig] = useState(false);
   const [fout, setFout] = useState("");
 
@@ -1848,7 +1856,7 @@ function NieuwDossierModal({ soort, soortLabel, periodeLabel, dossiers, vasteBro
   // Als de gebruiker naar "Nieuw" wisselt zonder al een jaar te hebben ingevuld: het lopende
   // jaar als sensibel startpunt voorstellen (i.p.v. leeg, of het "kopieren"-jaar te laten staan).
   useEffect(() => {
-    if (jaar || vasteBron) return;
+    if (periodeType !== "jaar" || jaar || vasteBron) return;
     if (modus === "nieuw") setJaar(String(new Date().getFullYear()));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modus]);
@@ -1856,13 +1864,13 @@ function NieuwDossierModal({ soort, soortLabel, periodeLabel, dossiers, vasteBro
   const zoekBron = (term) => {
     const t = term.trim().toLowerCase();
     const lijst = (dossiers || []).filter((d) => !t || `${d.klantnaam} ${d.jaar ?? ""}`.toLowerCase().includes(t));
-    return lijst.slice(0, 20).map((d) => ({ id: d.id, naam: d.klantnaam || "—", sub: `${periodeLabel} ${d.jaar ?? "—"}` }));
+    return lijst.slice(0, 20).map((d) => ({ id: d.id, naam: d.klantnaam || "—", sub: `${periodeLabel} ${periodeType === "jaar" ? (d.jaar ?? "—") : (formatteerDossierDatum(d.begindatum) || "—")}` }));
   };
   const kiesBron = (id) => {
     const d = (dossiers || []).find((x) => x.id === id);
     if (!d) return;
     setBron(d);
-    setJaar(d.jaar != null ? String(Number(d.jaar) + 1) : "");
+    if (periodeType === "jaar") setJaar(d.jaar != null ? String(Number(d.jaar) + 1) : "");
   };
 
   const zoekKlant = (term) => {
@@ -1873,19 +1881,22 @@ function NieuwDossierModal({ soort, soortLabel, periodeLabel, dossiers, vasteBro
   const zoekPartner = (term) => zoekKlant(term).filter((k) => !client || k.id !== client.id);
 
   const jaarGeldig = jaar.trim() !== "" && Number.isInteger(Number(jaar));
+  const periodeGeldig = periodeType === "jaar" ? jaarGeldig : true; // datum is optioneel bij Notulen
   // Bij een nieuwe aangifte mét fiscaal partner moet ook de situatie (getrouwd/samenwonend) gekozen
   // zijn — die bepaalt de in Dynamics verplichte gezinssituatie ("Huidige situatie").
   const partnerSituatieGeldig = !heeftPartner || partnerSituatie === "gehuwd" || partnerSituatie === "samenwonend";
-  const klaarOmAanTeMaken = jaarGeldig && (modus === "kopieren" ? !!bron : (!!client && partnerSituatieGeldig));
+  const klaarOmAanTeMaken = periodeGeldig && (modus === "kopieren" ? !!bron : (!!client && partnerSituatieGeldig));
 
   const aanmaken = async () => {
     if (!klaarOmAanTeMaken || bezig) return;
     setBezig(true);
     setFout("");
     try {
+      const periodeBody = periodeType === "jaar" ? { jaar: Number(jaar) } : { begindatum: datum || null };
+      const partnerBody = soort === "ib" ? { fiscaalPartnerschap: heeftPartner, fiscaalPartnerAccountId: heeftPartner && partner ? partner.id : null, partnerSituatie: heeftPartner ? partnerSituatie : null } : {};
       const body = modus === "kopieren"
-        ? { soort, kopieerVanId: bron.id, jaar: Number(jaar) }
-        : { soort, accountId: client.id, jaar: Number(jaar), fiscaalPartnerschap: heeftPartner, fiscaalPartnerAccountId: heeftPartner && partner ? partner.id : null, partnerSituatie: heeftPartner ? partnerSituatie : null };
+        ? { soort, kopieerVanId: bron.id, ...periodeBody }
+        : { soort, accountId: client.id, ...periodeBody, ...partnerBody };
       const r = await fetch("/api/medewerker-dossier-aanmaken", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
@@ -1908,14 +1919,14 @@ function NieuwDossierModal({ soort, soortLabel, periodeLabel, dossiers, vasteBro
       <div onClick={onKlaar} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 70 }} />
       <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 71, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.2)", padding: 22, width: 440, maxWidth: "92vw", maxHeight: "88vh", overflowY: "auto" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: vasteBron ? 4 : 12 }}>
-          <div style={{ fontSize: 15, fontWeight: 700 }}>{vasteBron ? "Aangifte kopiëren naar volgend jaar" : `Nieuwe ${soortLabel.toLowerCase()}`}</div>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>{vasteBron ? (isFiscaal ? "Aangifte kopiëren naar volgend jaar" : (periodeType === "jaar" ? `${soortLabel} kopiëren naar volgend jaar` : `${soortLabel} kopiëren`)) : `Nieuwe ${soortLabel.toLowerCase()}`}</div>
           <button onClick={onKlaar} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.mutedTekst, display: "flex", padding: 0 }}><X size={16} /></button>
         </div>
 
         {!vasteBron && (
           <div style={{ display: "flex", marginBottom: 14, borderRadius: 7, overflow: "hidden" }}>
-            <button onClick={() => setModus("kopieren")} style={{ ...tabStijl(modus === "kopieren"), borderRadius: "7px 0 0 7px" }}>Kopiëren van vorig jaar</button>
-            <button onClick={() => setModus("nieuw")} style={{ ...tabStijl(modus === "nieuw"), borderRadius: "0 7px 7px 0", borderLeft: "none" }}>Nieuwe aangifte</button>
+            <button onClick={() => setModus("kopieren")} style={{ ...tabStijl(modus === "kopieren"), borderRadius: "7px 0 0 7px" }}>{periodeType === "jaar" ? "Kopiëren van vorig jaar" : "Kopiëren van bestaand"}</button>
+            <button onClick={() => setModus("nieuw")} style={{ ...tabStijl(modus === "nieuw"), borderRadius: "0 7px 7px 0", borderLeft: "none" }}>{isFiscaal ? "Nieuwe aangifte" : "Nieuw dossier"}</button>
           </div>
         )}
 
@@ -1923,21 +1934,25 @@ function NieuwDossierModal({ soort, soortLabel, periodeLabel, dossiers, vasteBro
           <>
             {vasteBron ? (
               <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 10 }}>
-                Cliënt: <strong>{vasteBron.klantnaam || "—"}</strong> · huidig {periodeLabel.toLowerCase()} {vasteBron.jaar ?? "—"}
+                Cliënt: <strong>{vasteBron.klantnaam || "—"}</strong> · huidig {periodeLabel.toLowerCase()} {periodeType === "jaar" ? (vasteBron.jaar ?? "—") : (formatteerDossierDatum(vasteBron.begindatum) || "—")}
               </div>
             ) : (
               <ZoekKiezer
                 label="Aangifte om van te kopiëren"
-                huidigeNaam={bron ? `${bron.klantnaam || "—"} · ${periodeLabel} ${bron.jaar ?? "—"}` : ""}
+                huidigeNaam={bron ? `${bron.klantnaam || "—"} · ${periodeLabel} ${periodeType === "jaar" ? (bron.jaar ?? "—") : (formatteerDossierDatum(bron.begindatum) || "—")}` : ""}
                 zoek={zoekBron}
                 onKies={(id) => kiesBron(id)}
                 onWis={() => { setBron(null); setJaar(""); }}
               />
             )}
             <div style={label}>Nieuw {periodeLabel.toLowerCase()}</div>
-            <input type="number" value={jaar} onChange={(e) => setJaar(e.target.value)} style={veld} />
+            {periodeType === "jaar" ? (
+              <input type="number" value={jaar} onChange={(e) => setJaar(e.target.value)} style={veld} />
+            ) : (
+              <input type="date" value={datum} onChange={(e) => setDatum(e.target.value)} style={veld} />
+            )}
             <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: -4 }}>
-              Alle gegevens worden overgenomen, behalve review-/reactienotities en opmerkingen. Toelichtingen blijven staan.
+              Alle ingevulde gegevens worden overgenomen{isFiscaal ? ", behalve review-/reactienotities en opmerkingen" : ""}. Je kunt daarna alles nog aanpassen.
             </div>
           </>
         ) : (
@@ -1964,7 +1979,11 @@ function NieuwDossierModal({ soort, soortLabel, periodeLabel, dossiers, vasteBro
             )}
             </>)}
             <div style={label}>{periodeLabel}</div>
-            <input type="number" value={jaar} onChange={(e) => setJaar(e.target.value)} style={{ ...veld, marginBottom: 0 }} />
+            {periodeType === "jaar" ? (
+              <input type="number" value={jaar} onChange={(e) => setJaar(e.target.value)} style={{ ...veld, marginBottom: 0 }} />
+            ) : (
+              <input type="date" value={datum} onChange={(e) => setDatum(e.target.value)} style={{ ...veld, marginBottom: 0 }} />
+            )}
           </>
         )}
 
@@ -1972,7 +1991,7 @@ function NieuwDossierModal({ soort, soortLabel, periodeLabel, dossiers, vasteBro
 
         <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
           <button onClick={aanmaken} disabled={!klaarOmAanTeMaken || bezig} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: klaarOmAanTeMaken ? "#2E7D46" : "#9DB4A5", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: klaarOmAanTeMaken ? "pointer" : "default" }}>
-            {bezig ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Plus size={14} />} {bezig ? "Bezig…" : "Aangifte aanmaken"}
+            {bezig ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Plus size={14} />} {bezig ? "Bezig…" : `${isFiscaal ? "Aangifte" : "Dossier"} aanmaken`}
           </button>
           <button onClick={onKlaar} style={{ padding: "9px 14px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Annuleren</button>
         </div>
@@ -2378,12 +2397,12 @@ function MedewerkerDossiers({ soort }) {
             Filters wissen
           </button>
         )}
-        {(soort === "ib" || soort === "vpb") && (
+        {(soort === "ib" || soort === "vpb" || soort === "dividend" || soort === "notulen") && (
           <button
             onClick={() => setNieuwOpen(true)}
             style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "#2E7D46", color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
           >
-            <Plus size={14} /> Nieuwe {soortLabelText}
+            <Plus size={14} /> {soort === "notulen" ? "Nieuwe notulen" : `Nieuwe ${soortLabelText}`}
           </button>
         )}
       </div>
@@ -3220,9 +3239,9 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
           <ArrowLeft size={15} /> Terug naar {soortLabel}
         </button>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          {dossier.soort === "ib" && onDossierAangemaakt && (
+          {(dossier.soort === "ib" || dossier.soort === "dividend" || dossier.soort === "notulen") && onDossierAangemaakt && (
             <button onClick={() => setKopieOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#fff", border: `1px solid ${KLEUR.rand}`, color: KLEUR.tekst, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: "6px 12px", borderRadius: 7 }}>
-              <Copy size={14} /> Aangifte kopiëren naar volgend jaar
+              <Copy size={14} /> {dossier.soort === "notulen" ? "Kopiëren naar nieuw dossier" : dossier.soort === "ib" ? "Aangifte kopiëren naar volgend jaar" : "Kopiëren naar volgend jaar"}
             </button>
           )}
           {magVerwijderen && (
