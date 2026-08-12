@@ -5,7 +5,9 @@
  *
  *   - GET  ?soort=ib|vpb&id=<guid>
  *       → { dossier, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen,
- *           picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId, onderwerpId, defaultContact }
+ *           picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId, onderwerpId, defaultContact,
+ *           sjabloon }   (sjabloon = { standaard, perSoort } — het voorbeeld-documentsjabloon voor
+ *           notulen/dividend uit Beheer → Dossiers; leeg voor andere soorten. Zie haalSjabloonVoor().)
  *         (catalogus bevat naast de vrije catalogus ook de "vaste" velden __status/__urlDossier/
  *         __documentUrl (zie vasteVeldenVoorSoort() in dossierVelden.js) en eventuele door Wouter
  *         zelf via Beheer → Dossiers aangemaakte extra velden (dossierIndeling.<soort>.
@@ -123,6 +125,25 @@ async function gekoppeldeLijstIdVoorDossier(onderwerpId) {
   }
 }
 
+/** Voorbeeld-sjabloon (standaardtekst + per soort-optie een extra tekst) voor de "Voorbeeld"-knop in
+ *  het notulen-/dividenddossier — ingesteld via Beheer → Dossiers (DossierSjablonenBeheer.jsx),
+ *  opgeslagen onder de generieke instellingen-sleutel dossierSjablonen. Alleen zinvol voor
+ *  notulen/dividend; andere soorten krijgen een leeg sjabloon terug. Best-effort: zonder (leesbare)
+ *  instellingen gewoon leeg — dat mag het openen van het dossier niet blokkeren. */
+async function haalSjabloonVoor(soortKey) {
+  if (soortKey !== "notulen" && soortKey !== "dividend") return { standaard: "", perSoort: {} };
+  try {
+    const { dossierSjablonen } = await haalInstellingen();
+    const eigen = dossierSjablonen && dossierSjablonen[soortKey];
+    return {
+      standaard: eigen && typeof eigen.standaard === "string" ? eigen.standaard : "",
+      perSoort: eigen && eigen.perSoort && typeof eigen.perSoort === "object" ? eigen.perSoort : {},
+    };
+  } catch {
+    return { standaard: "", perSoort: {} };
+  }
+}
+
 /** Haalt de primaire contactpersoon van de cliënt van dit dossier op (Dynamics account.
  *  primarycontactid) — gebruikt om de ingebedde "Vaste uitvragen" (zie KlantVasteUitvragen) in het
  *  dossier meteen op die contactpersoon voor te vullen, net als op de klantkaart zelf (daar komt
@@ -178,12 +199,13 @@ module.exports = async function (context, req) {
       // Gekoppelde uitvraaglijst(en) (aanleververzoeken) — alleen als Wouter in Beheer → Dossiers
       // een onderwerp aan deze dossiersoort heeft gekoppeld (indeling.onderwerpId). Primaire
       // contactpersoon van de cliënt — voor het voorinvullen van de ingebedde "Vaste uitvragen".
-      const [gekoppeldeUitvragen, gekoppeldeLijstId, defaultContact] = await Promise.all([
+      const [gekoppeldeUitvragen, gekoppeldeLijstId, defaultContact, sjabloon] = await Promise.all([
         gekoppeldeUitvragenVoorDossier(dossier, indeling.onderwerpId),
         gekoppeldeLijstIdVoorDossier(indeling.onderwerpId),
         haalPrimairContactVoorDossier(resource, token, dossier.accountId),
+        haalSjabloonVoor(soort.key),
       ]);
-      context.res = { headers: { "Content-Type": "application/json" }, body: { dossier, statusOpties: soort.statusOpties, catalogus, secties: indeling.secties, verborgen: indeling.verborgen, voorwaarden: indeling.voorwaarden, alleenLezen: indeling.alleenLezen, picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId, onderwerpId: indeling.onderwerpId || "", defaultContact } };
+      context.res = { headers: { "Content-Type": "application/json" }, body: { dossier, statusOpties: soort.statusOpties, catalogus, secties: indeling.secties, verborgen: indeling.verborgen, voorwaarden: indeling.voorwaarden, alleenLezen: indeling.alleenLezen, picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId, onderwerpId: indeling.onderwerpId || "", defaultContact, sjabloon } };
       return;
     }
 

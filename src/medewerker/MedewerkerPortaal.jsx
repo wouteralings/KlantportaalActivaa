@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload, Lightbulb, Binoculars, BookOpen, FileSignature } from "lucide-react";
+import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload, Lightbulb, Binoculars, BookOpen, FileSignature, Printer } from "lucide-react";
 import { startMeekijken } from "../meekijken";
 import OffertesModule from "./OffertesModule";
 import ContractenOverzicht from "./ContractenOverzicht";
@@ -2208,6 +2208,7 @@ function MedewerkerDossiers({ soort }) {
         voorwaarden={detail.voorwaarden || {}}
         alleenLezen={detail.alleenLezen || []}
         picklistOpties={detail.picklistOpties || {}}
+        sjabloon={detail.sjabloon || { standaard: "", perSoort: {} }}
         gekoppeldeUitvragen={detail.gekoppeldeUitvragen || []}
         gekoppeldeLijstId={detail.gekoppeldeLijstId || ""}
         gekoppeldOnderwerpId={detail.onderwerpId || ""}
@@ -3043,6 +3044,127 @@ function AangifteVersturenKaart({ dossier, disabled }) {
   );
 }
 
+// ── Voorbeelddocument (notulen & dividenduitkering) ─────────────────────────────────────────────
+// Een "Voorbeeld"-knop in het notulen-/dividenddossier opent een blanco A4-voorbeeld: de in Beheer →
+// Dossiers ingestelde standaardtekst (met, op de plek van {{soorttekst}} of anders eronder, de extra
+// tekst die bij de gekozen "Soort notulen"/"Soort dividenduitkering" hoort), met alle {{merge-velden}}
+// ingevuld vanuit dit dossier. Zelfde idee als het briefvoorbeeld in de Brieven-module.
+
+/** Zelfde sleutel-normalisatie als de Brieven-merge (vulIn): kleine letters, alleen a-z0-9. */
+function normaliseerSleutel(s) { return String(s == null ? "" : s).toLowerCase().replace(/[^a-z0-9]/g, ""); }
+
+/** Vervangt {{sleutel}} door de bijbehorende (al genormaliseerde) waarde; onbekend → leeg. */
+function vulSjabloonIn(tekst, waarden) {
+  return String(tekst || "").replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_, sleutel) => {
+    const key = normaliseerSleutel(sleutel);
+    return Object.prototype.hasOwnProperty.call(waarden, key) ? waarden[key] : "";
+  });
+}
+
+/** Leesbare weergave van één dossierveld-waarde voor in het voorbeeld: ja/nee, keuzelijst-label,
+ *  gekoppelde-relatienaam (lookup), nette datum en getallen met duizendtalscheiding. */
+function menselijkeVeldwaarde(veldDef, waarde, picklistOpties, lookupNamen) {
+  if (waarde === null || waarde === undefined || waarde === "") return veldDef.type === "boolean" ? "Nee" : "";
+  switch (veldDef.type) {
+    case "boolean": return waarde ? "Ja" : "Nee";
+    case "picklist": {
+      const opts = (picklistOpties && picklistOpties[veldDef.key]) || [];
+      const g = opts.find((o) => String(o.waarde) === String(waarde));
+      return g ? g.label : String(waarde);
+    }
+    case "lookup": return (lookupNamen && lookupNamen[veldDef.key]) || "";
+    case "datetime": {
+      const d = new Date(waarde);
+      return isNaN(d.getTime()) ? String(waarde) : d.toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" });
+    }
+    case "decimal": { const n = Number(waarde); return Number.isFinite(n) ? n.toLocaleString("nl-NL", { maximumFractionDigits: 2 }) : String(waarde); }
+    case "integer": { const n = Number(waarde); return Number.isFinite(n) ? n.toLocaleString("nl-NL", { maximumFractionDigits: 0 }) : String(waarde); }
+    default: return String(waarde);
+  }
+}
+
+/** Stelt de voorbeeldtekst samen uit het sjabloon + de dossierwaarden. Los gehouden van het component
+ *  zodat het ook door de afdruk-functie hergebruikt kan worden. */
+function stelVoorbeeldSamen({ dossier, periodeTekst, catalogus, veldenState, picklistOpties, lookupNamen, sjabloon }) {
+  const soortKeyVeld = dossier.soort === "notulen" ? "soortnotulen" : "soortdividenduitkering";
+  const mergeWaarden = {};
+  const zet = (k, v) => { mergeWaarden[normaliseerSleutel(k)] = v == null ? "" : String(v); };
+  zet("klantnaam", dossier.klantnaam);
+  zet("groepsnaam", dossier.groepsnaam);
+  zet("accountant", dossier.accountant);
+  zet("assistent", dossier.assistent);
+  zet("manager", dossier.manager && (dossier.manager.naam || dossier.manager));
+  zet("periode", periodeTekst);
+  zet("datum", new Date().toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" }));
+  for (const v of catalogus || []) {
+    if (!v || !v.key || String(v.key).startsWith("__")) continue;
+    zet(v.key, menselijkeVeldwaarde(v, veldenState[v.key], picklistOpties, lookupNamen));
+  }
+  const std = (sjabloon && sjabloon.standaard) || "";
+  const perSoortMap = (sjabloon && sjabloon.perSoort) || {};
+  const gekozen = veldenState[soortKeyVeld];
+  const extra = (gekozen != null && gekozen !== "" && perSoortMap[String(gekozen)]) || "";
+  let samengesteld;
+  if (/\{\{\s*soorttekst\s*\}\}/.test(std)) samengesteld = std.replace(/\{\{\s*soorttekst\s*\}\}/g, extra);
+  else samengesteld = std + (extra ? (std ? "\n\n" : "") + extra : "");
+  return { tekst: vulSjabloonIn(samengesteld, mergeWaarden), leeg: !std && !extra };
+}
+
+function DossierVoorbeeldModal({ dossier, soortLabel, periodeTekst, catalogus, veldenState, picklistOpties, lookupNamen, sjabloon, onSluit }) {
+  const { tekst, leeg } = stelVoorbeeldSamen({ dossier, periodeTekst, catalogus, veldenState, picklistOpties, lookupNamen, sjabloon });
+  const alineas = String(tekst || "").replace(/\r\n/g, "\n").split(/\n[ \t]*\n/);
+  const subkop = `${soortLabel}${periodeTekst ? " · " + periodeTekst : ""}`;
+
+  const afdrukken = () => {
+    const w = typeof window !== "undefined" ? window.open("", "_blank", "width=840,height=1180") : null;
+    if (!w) return; // popup geblokkeerd — de preview op het scherm blijft beschikbaar
+    const esc = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const alineasHtml = alineas.map((a) => `<p>${esc(a).replace(/\n/g, "<br>")}</p>`).join("");
+    w.document.write(
+      `<!doctype html><html lang="nl"><head><meta charset="utf-8"><title>${esc(soortLabel)} — ${esc(dossier.klantnaam || "")}</title>` +
+      `<style>@page{size:A4;margin:20mm}body{font-family:Helvetica,Arial,sans-serif;color:#1C2321;font-size:12pt;line-height:1.55}` +
+      `h1{font-size:16pt;margin:0 0 2px}.sub{color:#5B6259;font-size:10.5pt;margin-bottom:26px}p{margin:0 0 10px;white-space:pre-wrap}</style>` +
+      `</head><body><h1>${esc(dossier.klantnaam || "—")}</h1><div class="sub">${esc(subkop)}</div>${alineasHtml}</body></html>`
+    );
+    w.document.close();
+    w.focus();
+    setTimeout(() => { try { w.print(); } catch { /* afdruk best-effort */ } }, 300);
+  };
+
+  return (
+    <div onClick={onSluit} style={{ position: "fixed", inset: 0, background: "rgba(28,35,33,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 14, width: "100%", maxWidth: 820, maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "14px 18px", borderBottom: `1px solid ${KLEUR.rand}` }}>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>Voorbeeld — {soortLabel}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={afdrukken} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#fff", border: `1px solid ${KLEUR.rand}`, color: KLEUR.tekst, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: "6px 12px", borderRadius: 7 }}>
+              <Printer size={14} /> Afdrukken / PDF
+            </button>
+            <button onClick={onSluit} title="Sluiten" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, cursor: "pointer" }}>
+              <X size={15} />
+            </button>
+          </div>
+        </div>
+
+        <div style={{ overflowY: "auto", padding: 20, background: "#EEF0EC" }}>
+          {/* Blanco A4 */}
+          <div style={{ background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 4, boxShadow: "0 6px 24px rgba(0,0,0,0.08)", margin: "0 auto", maxWidth: 620, aspectRatio: "1 / 1.414", padding: "56px 60px", boxSizing: "border-box", color: KLEUR.tekst, fontFamily: "Helvetica, Arial, sans-serif", fontSize: 13, lineHeight: 1.55, overflow: "auto" }}>
+            <div style={{ fontSize: 19, fontWeight: 700 }}>{dossier.klantnaam || "—"}</div>
+            <div style={{ color: KLEUR.subtekst, fontSize: 12, marginBottom: 26 }}>{subkop}</div>
+            {leeg ? (
+              <div style={{ color: KLEUR.mutedTekst, fontStyle: "italic" }}>
+                Er is nog geen voorbeeldtekst ingesteld voor deze soort. Stel die in via Beheer → Dossiers → “Voorbeelddocumenten”.
+              </div>
+            ) : (
+              alineas.map((a, i) => <div key={i} style={{ marginBottom: 11, whiteSpace: "pre-wrap" }}>{a}</div>)
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* Detail van één fiscaal dossier (IB/VPB) voor de medewerker. Kop met alleen de vaste, niet
    door Beheer indeelbare identiteitsvelden (cliënt/periode/behandelaars) plus, eronder, één
    kaart per hoofdrubriek (met evt. subrubrieken) uit de Beheer-indeling (Beheer → Dossiers) —
@@ -3055,7 +3177,7 @@ function AangifteVersturenKaart({ dossier, disabled }) {
    kaart bovenaan (vóór de secties) de gekoppelde uitvraaglijst(en) — de volledige vragenlijst
    (documenten aftekenen/heropenen, vragen van de klant beantwoorden) rechtstreeks ingebouwd via
    VragenlijstDetail, dezelfde functionaliteit als het tabblad Vragenlijsten. */
-function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen, picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId, gekoppeldOnderwerpId, defaultContact, magVerwijderen, magWijzigen, onDossierVerwijderd, onTerug, onOpgeslagen, onDossierAangemaakt }) {
+function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen, picklistOpties, sjabloon, gekoppeldeUitvragen, gekoppeldeLijstId, gekoppeldOnderwerpId, defaultContact, magVerwijderen, magWijzigen, onDossierVerwijderd, onTerug, onOpgeslagen, onDossierAangemaakt }) {
   const [status, setStatus] = useState(dossier.status != null ? String(dossier.status) : "");
   const [urlDossier, setUrlDossier] = useState(dossier.urlDossier || "");
   const [documentUrl, setDocumentUrl] = useState(dossier.documentUrl || "");
@@ -3072,6 +3194,7 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
   const [opslaan, setOpslaan] = useState("rust"); // rust | bezig | gelukt | fout
   const [fout, setFout] = useState("");
   const [kopieOpen, setKopieOpen] = useState(false); // "Aangifte kopiëren naar volgend jaar"-popup
+  const [voorbeeldOpen, setVoorbeeldOpen] = useState(false); // "Voorbeeld"-document (notulen/dividend)
   const [verwijderBezig, setVerwijderBezig] = useState(false);
   const [verwijderFout, setVerwijderFout] = useState("");
   const bewerkbaar = dossier.actief !== false;
@@ -3322,6 +3445,11 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
           <ArrowLeft size={15} /> Terug naar {soortLabel}
         </button>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {(dossier.soort === "notulen" || dossier.soort === "dividend") && (
+            <button onClick={() => setVoorbeeldOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#fff", border: `1px solid ${KLEUR.rand}`, color: KLEUR.blauw, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: "6px 12px", borderRadius: 7 }}>
+              <Eye size={14} /> Voorbeeld
+            </button>
+          )}
           {(dossier.soort === "ib" || dossier.soort === "dividend" || dossier.soort === "notulen") && onDossierAangemaakt && (
             <button onClick={() => setKopieOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#fff", border: `1px solid ${KLEUR.rand}`, color: KLEUR.tekst, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: "6px 12px", borderRadius: 7 }}>
               <Copy size={14} /> {dossier.soort === "notulen" ? "Kopiëren naar nieuw dossier" : dossier.soort === "ib" ? "Aangifte kopiëren naar volgend jaar" : "Kopiëren naar volgend jaar"}
@@ -3345,6 +3473,20 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
           vasteBron={dossier}
           onKlaar={() => setKopieOpen(false)}
           onAangemaakt={(nieuw) => { setKopieOpen(false); onDossierAangemaakt(nieuw); }}
+        />
+      )}
+
+      {voorbeeldOpen && (
+        <DossierVoorbeeldModal
+          dossier={dossier}
+          soortLabel={soortLabel}
+          periodeTekst={periode(dossier) || ""}
+          catalogus={catalogus}
+          veldenState={veldenState}
+          picklistOpties={picklistOpties}
+          lookupNamen={lookupNamen}
+          sjabloon={sjabloon || { standaard: "", perSoort: {} }}
+          onSluit={() => setVoorbeeldOpen(false)}
         />
       )}
 
