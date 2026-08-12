@@ -1,26 +1,29 @@
 /**
- * /api/medewerker-dossier-bijlage — bijlagen bij een dividenddossier: uploaden naar, opsommen uit en
- * downloaden van de SharePoint-map van de cliënt.
+ * /api/medewerker-dossier-bijlage — bijlagen bij een dividenddossier: uploaden naar, opsommen uit,
+ * downloaden van én mailen vanuit de SharePoint-map van de cliënt.
  *
  * Zodra "Dividendbelasting" in het dividenddossier op Ja staat, verschijnt een sleepvak (zie
  * DividendBijlageKaart in MedewerkerPortaal.jsx) waarmee de medewerker een bestand (alle typen)
  * uploadt. Dat wordt via app-only Graph opgeslagen in de SharePoint-map van de klant
  * (cr283_sharepoint), in een submap die instelbaar is via Beheer → Dossiers (instelling
- * dividendBijlageMap, standaard "Dividendbelasting"). In de Brieven-module (BrievenOverzicht.jsx) kan
- * de medewerker zo'n bestand vervolgens via een keuzelijst als bijlage kiezen en meemailen — daarvoor
- * dienen de accountId-modus (opsommen) en de download-modus (bestand als data-URL terug).
+ * dividendBijlageMap, standaard "Dividendbelasting"). Per bestand kan de medewerker het vervolgens
+ * "Versturen": het wordt als bijlage gemaild naar de contactpersoon van de klant, met een onderwerp/
+ * tekst die vooraf te controleren/aanpassen is en vanaf een in Beheer → Dossiers ingesteld afzender-
+ * adres (instelling dividendMail = { afzender, onderwerp, tekst }). Daarnaast kan een SharePoint-bestand
+ * in de Brieven-module als bijlage worden gekozen (accountId-modus hieronder).
  *
- *   Dossier-modus (voor het sleepvak in het dividenddossier):
- *     GET  ?soort=dividend&id=<dossier-guid>                       → { map, bestanden: [...] }
- *     POST { soort:"dividend", id, bestandsnaam, bestandBase64, contentType? } → { ok, bestandsnaam, webUrl }
+ *   Dossier-modus (sleepvak + versturen in het dividenddossier):
+ *     GET  ?soort=dividend&id=<dossier-guid>
+ *          → { map, bestanden:[...], ontvanger:{naam,email}, mailDefaults:{afzender,onderwerp,tekst} }
+ *     POST { soort:"dividend", id, bestandsnaam, bestandBase64, contentType? }        → { ok, bestandsnaam, webUrl }
+ *     POST { soort:"dividend", id, actie:"versturen", bestandNaam, ontvanger, onderwerp, tekst } → { ok, verzonden, naar }
  *
- *   Cliënt-modus (voor de Brieven-module — bestanden van de klant zelf):
- *     GET  ?accountId=<account-guid>                               → { map, bestanden: [{naam,webUrl,grootte,gewijzigd}] }
+ *   Cliënt-modus (Brieven-module — bestanden van de klant zelf):
+ *     GET  ?accountId=<account-guid>                               → { map, bestanden:[...] }
  *     GET  ?accountId=<account-guid>&bestandNaam=<naam>&download=1  → { naam, contentType, grootte, dataUrl }
  *
- * App-only upload/download (Files.ReadWrite.All via haalAppGraphToken): de klant hoeft zelf geen
- * SharePoint-rechten op deze map te hebben. Route beveiligd via staticwebapp.config.json (rol
- * 'medewerker'/'beheerder'); extra rolcheck hier.
+ * App-only upload/download (Files.ReadWrite.All via haalAppGraphToken) en mail (Mail.Send via mail.js).
+ * Route beveiligd via staticwebapp.config.json (rol 'medewerker'/'beheerder'); extra rolcheck hier.
  */
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const { SOORTEN, haalEenDossier } = require("../_gedeeld/dossiers");
@@ -28,6 +31,7 @@ const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/
 const { haalAppGraphToken } = require("../_gedeeld/graphApp");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
+const { verstuurMailMetBijlage } = require("../_gedeeld/mail");
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 const SHAREPOINT_VELD = process.env.DYNAMICS_KLANT_SHAREPOINT_VELD || "cr283_sharepoint";
@@ -35,6 +39,12 @@ const MAX_BYTES = 15 * 1024 * 1024; // 15 MB — kleine-bestand-upload/download 
 const STANDAARD_MAP = "Dividendbelasting";
 const TOEGESTANE_SOORTEN = new Set(["dividend"]); // alleen dividend heeft (voorlopig) dit sleepvak
 const GUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+// Terugval-mailteksten als er in Beheer → Dossiers nog niets is ingesteld (dividendMail).
+const STANDAARD_MAIL_ONDERWERP = "Aangifte dividendbelasting{{jaar}}";
+const STANDAARD_MAIL_TEKST =
+  "Beste {{klantnaam}},\n\nBijgaand ontvangt u de aangifte dividendbelasting{{jaar}}.\n\n" +
+  "Heeft u vragen? Neem gerust contact met ons op.\n\nMet vriendelijke groet,\nActivaa Accountants en Adviseurs";
 
 const json = (status, body) => ({ status, headers: { "Content-Type": "application/json" }, body });
 
@@ -64,17 +74,37 @@ function decodeer(bestandBase64) {
   return { buffer };
 }
 
-// SharePoint-basismap (cr283_sharepoint) van een cliënt (op accountId) ophalen.
+// Plaatshouders in mailonderwerp/-tekst — bewust een kleine, vaste set (server-side gevuld). {{jaar}}
+// wordt als " <jaar>" ingevuld (of leeg), en dubbele spaties opgeschoond, zodat een leeg jaar niet
+// "dividendbelasting  ." oplevert.
+function vulMailIn(sjabloon, { klantnaam, jaar, datum }) {
+  const jaarDeel = jaar != null && jaar !== "" ? ` ${jaar}` : "";
+  return String(sjabloon || "")
+    .replace(/\{\{\s*klantnaam\s*\}\}/gi, klantnaam || "")
+    .replace(/\{\{\s*jaar\s*\}\}/gi, jaarDeel)
+    .replace(/\{\{\s*datum\s*\}\}/gi, datum || "")
+    .replace(/[ \t]{2,}/g, " ");
+}
+
+function tekstNaarHtml(tekst) {
+  const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return esc(tekst)
+    .replace(/(https?:\/\/[^\s<]+)/g, (u) => `<a href="${u}" style="color:#1C5D8C;text-decoration:underline;">${u}</a>`)
+    .replace(/\n/g, "<br/>");
+}
+
+// SharePoint-basismap (cr283_sharepoint) + primaire contactpersoon van een cliënt (op accountId).
 async function basisUrlVoorAccount(resource, token, accountId, valNaam) {
   const accRes = await fetch(
-    `${resource}/api/data/v9.2/accounts(${accountId})?$select=name,${SHAREPOINT_VELD}`,
+    `${resource}/api/data/v9.2/accounts(${accountId})?$select=name,${SHAREPOINT_VELD}&$expand=primarycontactid($select=emailaddress1,fullname)`,
     { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
   );
   if (!accRes.ok) return { fout: `Ophalen cliënt mislukt: ${await accRes.text()}` };
   const acc = await accRes.json();
   const basisUrl = acc[SHAREPOINT_VELD];
   if (!basisUrl) return { fout: `Voor ${acc.name || valNaam || "deze cliënt"} is nog geen SharePoint-map ingesteld (${SHAREPOINT_VELD} in Dynamics).` };
-  return { basisUrl, naam: acc.name || valNaam || "de cliënt" };
+  const c = acc.primarycontactid || {};
+  return { basisUrl, naam: acc.name || valNaam || "de cliënt", contact: { naam: c.fullname || "", email: c.emailaddress1 || "" } };
 }
 
 module.exports = async function (context, req) {
@@ -114,6 +144,7 @@ module.exports = async function (context, req) {
 
     const instellingen = await haalInstellingen().catch(() => ({}));
     const segmenten = mapSegmentenVan(instellingen.dividendBijlageMap);
+    const dividendMail = (instellingen.dividendMail && typeof instellingen.dividendMail === "object") ? instellingen.dividendMail : {};
 
     const appToken = await haalAppGraphToken();
     const map = await resolveFolder(appToken, basis.basisUrl);
@@ -149,11 +180,67 @@ module.exports = async function (context, req) {
         .filter((i) => i.file)
         .map((i) => ({ naam: i.name, webUrl: i.webUrl, grootte: i.size, gewijzigd: i.lastModifiedDateTime }))
         .sort((a, b) => String(b.gewijzigd || "").localeCompare(String(a.gewijzigd || "")));
+
+      // In dossier-modus ook de ontvanger (primaire contactpersoon) + de standaard mailgegevens
+      // meesturen, zodat het "Versturen"-venster meteen voorgevuld is.
+      if (dossier) {
+        const mergeCtx = { klantnaam: dossier.klantnaam || basis.naam, jaar: dossier.jaar, datum: new Date().toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" }) };
+        context.res = json(200, {
+          map: segmenten.join("/"), bestanden,
+          ontvanger: { naam: basis.contact.naam, email: basis.contact.email },
+          mailDefaults: {
+            afzender: typeof dividendMail.afzender === "string" ? dividendMail.afzender : "",
+            onderwerp: vulMailIn(typeof dividendMail.onderwerp === "string" && dividendMail.onderwerp.trim() ? dividendMail.onderwerp : STANDAARD_MAIL_ONDERWERP, mergeCtx),
+            tekst: vulMailIn(typeof dividendMail.tekst === "string" && dividendMail.tekst.trim() ? dividendMail.tekst : STANDAARD_MAIL_TEKST, mergeCtx),
+          },
+        });
+        return;
+      }
       context.res = json(200, { map: segmenten.join("/"), bestanden });
       return;
     }
 
     if (methode === "POST") {
+      const actie = String((req.body && req.body.actie) || "");
+
+      // ── Versturen: bestand uit SharePoint als bijlage mailen naar de klant ──
+      if (actie === "versturen") {
+        if (!dossier) { context.res = json(400, { error: "Versturen kan alleen vanuit een dividenddossier (soort=dividend + id)." }); return; }
+        const bestandNaam = String((req.body && req.body.bestandNaam) || "").trim();
+        const naar = String((req.body && req.body.ontvanger) || "").trim();
+        const onderwerp = String((req.body && req.body.onderwerp) || "").trim();
+        const tekst = String((req.body && req.body.tekst) || "").trim();
+        if (!bestandNaam) { context.res = json(400, { error: "Geef 'bestandNaam' mee." }); return; }
+        if (!naar) { context.res = json(400, { error: "Geef een ontvanger (e-mailadres) mee." }); return; }
+        if (!onderwerp || !tekst) { context.res = json(400, { error: "Mailonderwerp en -tekst zijn verplicht." }); return; }
+
+        const dl = await fetch(
+          `${GRAPH}/drives/${map.driveId}/items/${doelId}:/${encodeURIComponent(bestandNaam)}:/content`,
+          { headers: { Authorization: `Bearer ${appToken}` } }
+        );
+        if (dl.status === 404) { context.res = json(404, { error: "Bestand niet gevonden in de SharePoint-map." }); return; }
+        if (!dl.ok) throw new Error(`Bestand ophalen mislukt (${dl.status}): ${await dl.text()}`);
+        const buffer = Buffer.from(await dl.arrayBuffer());
+        const contentType = dl.headers.get("content-type") || "application/octet-stream";
+        const afzender = typeof dividendMail.afzender === "string" ? dividendMail.afzender.trim() : "";
+
+        try {
+          await verstuurMailMetBijlage({ naar, onderwerp, html: tekstNaarHtml(tekst), bijlagen: [{ naam: bestandNaam, contentType, inhoud: buffer }], afzender });
+        } catch (e) {
+          if (e.message === "MISSING_MAIL_SENDER") { context.res = json(409, { error: "Er is nog geen afzender-mailadres ingesteld (Beheer → Dossiers), en er is geen standaard postvak geconfigureerd." }); return; }
+          if (e.message === "GEEN_ONTVANGERS") { context.res = json(400, { error: "Geen geldig ontvanger-e-mailadres." }); return; }
+          throw e;
+        }
+        await logGebeurtenis({
+          door: email || "onbekend", actie: "dossier", accountId, accountIds: [accountId],
+          klantnaam: klantnaam || basis.naam,
+          tekst: `Dividendbelasting-bijlage "${bestandNaam}" gemaild naar ${naar}${dossier.jaar ? ` (dossier ${dossier.jaar})` : ""}.`,
+        }).catch(() => {});
+        context.res = json(200, { ok: true, verzonden: true, naar });
+        return;
+      }
+
+      // ── Upload (sleepvak) ──
       const { bestandsnaam, bestandBase64, contentType } = req.body || {};
       const { buffer, fout } = decodeer(bestandBase64);
       if (fout) { context.res = json(400, { error: fout }); return; }

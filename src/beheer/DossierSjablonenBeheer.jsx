@@ -73,6 +73,12 @@ export default function DossierSjablonenPerSoort({ soort }) {
   // geüpload (zie DividendBijlageKaart in MedewerkerPortaal.jsx + api/medewerker-dossier-bijlage).
   // Wordt met dezelfde "Opslaan"-knop bewaard (instellingen-sleutel dividendBijlageMap).
   const [bijlageMap, setBijlageMap] = useState("");
+  // Alleen dividend: mailinstellingen voor het "Versturen" van een bijlage vanuit het dividenddossier
+  // (afzenderadres + standaard onderwerp/tekst). Instellingen-sleutel dividendMail = { afzender,
+  // onderwerp, tekst }. Plaatshouders {{klantnaam}} / {{jaar}} / {{datum}} in onderwerp/tekst.
+  const [mailAfzender, setMailAfzender] = useState("");
+  const [mailOnderwerp, setMailOnderwerp] = useState("");
+  const [mailTekst, setMailTekst] = useState("");
 
   // De laatst gefocuste tekstarea + welk sjabloon dat is — zodat een klik op een merge-veld-chip de
   // plaatshouder op de cursorpositie in dát sjabloon invoegt.
@@ -89,7 +95,13 @@ export default function DossierSjablonenPerSoort({ soort }) {
         setCatalogus(velden.catalogus || []);
         const eigen = inst && inst.dossierSjablonen && inst.dossierSjablonen[soort];
         setSjablonen(naarLijst(eigen));
-        if (soort === "dividend") setBijlageMap(inst && typeof inst.dividendBijlageMap === "string" && inst.dividendBijlageMap.trim() ? inst.dividendBijlageMap : "Dividendbelasting");
+        if (soort === "dividend") {
+          setBijlageMap(inst && typeof inst.dividendBijlageMap === "string" && inst.dividendBijlageMap.trim() ? inst.dividendBijlageMap : "Dividendbelasting");
+          const dm = (inst && inst.dividendMail && typeof inst.dividendMail === "object") ? inst.dividendMail : {};
+          setMailAfzender(typeof dm.afzender === "string" ? dm.afzender : "");
+          setMailOnderwerp(typeof dm.onderwerp === "string" ? dm.onderwerp : "");
+          setMailTekst(typeof dm.tekst === "string" ? dm.tekst : "");
+        }
         setGeladen(true);
       })
       .catch(() => { if (actief) { setFout("De voorbeeld-sjablonen konden niet worden geladen."); setGeladen(true); } });
@@ -132,7 +144,11 @@ export default function DossierSjablonenPerSoort({ soort }) {
       const schoon = sjablonen.map((s) => ({ id: s.id, naam: String(s.naam || "").trim() || "Naamloos sjabloon", tekst: String(s.tekst || "") }));
       const nieuweAlle = { ...alle, [soort]: { sjablonen: schoon } };
       const body = soort === "dividend"
-        ? { dossierSjablonen: nieuweAlle, dividendBijlageMap: (bijlageMap.trim() || "Dividendbelasting") }
+        ? {
+            dossierSjablonen: nieuweAlle,
+            dividendBijlageMap: (bijlageMap.trim() || "Dividendbelasting"),
+            dividendMail: { afzender: mailAfzender.trim(), onderwerp: mailOnderwerp, tekst: mailTekst },
+          }
         : { dossierSjablonen: nieuweAlle };
       const res = await fetch("/api/beheer-instellingen", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const d = await res.json().catch(() => ({}));
@@ -180,6 +196,32 @@ export default function DossierSjablonenPerSoort({ soort }) {
               <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4 }}>
                 Submap onder de SharePoint-map van de klant waarin een in het dividenddossier geüploade bijlage
                 (zodra “Dividendbelasting” op Ja staat) belandt. Leeg = “Dividendbelasting”.
+              </div>
+            </div>
+          )}
+
+          {soort === "dividend" && (
+            <div style={{ marginBottom: 18, paddingBottom: 16, borderBottom: `1px solid ${KLEUR.rand}` }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700, color: KLEUR.tekst, marginBottom: 8 }}>Mail — bijlage versturen</div>
+              <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 10 }}>
+                Afzenderadres en standaardtekst voor het “Versturen” van een bijlage vanuit het dividenddossier.
+                Plaatshouders <code style={{ background: "#fff", padding: "1px 4px", borderRadius: 4, border: `1px solid ${KLEUR.rand}` }}>{"{{klantnaam}}"}</code>,
+                <code style={{ background: "#fff", padding: "1px 4px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>{"{{jaar}}"}</code> en
+                <code style={{ background: "#fff", padding: "1px 4px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, marginLeft: 3 }}>{"{{datum}}"}</code>
+                worden bij het versturen ingevuld. De medewerker kan onderwerp en tekst per verzending nog aanpassen.
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <span style={labelStijl}>Afzender-mailadres</span>
+                <input value={mailAfzender} onChange={(e) => setMailAfzender(e.target.value)} placeholder="bijv. correspondentie@activaa.nl" style={{ ...invoerStijl, maxWidth: 360 }} />
+                <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4 }}>Moet een bestaand postvak in de tenant zijn. Leeg = het standaard postvak (GRAPH_MAIL_SENDER).</div>
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <span style={labelStijl}>Standaard mailonderwerp</span>
+                <input value={mailOnderwerp} onChange={(e) => setMailOnderwerp(e.target.value)} placeholder="Aangifte dividendbelasting {{jaar}}" style={invoerStijl} />
+              </div>
+              <div>
+                <span style={labelStijl}>Standaard mailtekst</span>
+                <textarea value={mailTekst} onChange={(e) => setMailTekst(e.target.value)} rows={7} placeholder={"Beste {{klantnaam}},\n\nBijgaand ontvangt u de aangifte dividendbelasting {{jaar}}.\n\n…"} style={{ ...invoerStijl, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }} />
               </div>
             </div>
           )}

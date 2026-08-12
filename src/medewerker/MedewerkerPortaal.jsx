@@ -2880,12 +2880,20 @@ function DividendBijlageKaart({ dossier, disabled }) {
   const [uploadFout, setUploadFout] = useState("");
   const [sleep, setSleep] = useState(false);
   const inputRef = useRef(null);
+  // Voor het "Versturen" van een bijlage: ontvanger (primaire contactpersoon) + standaard mailgegevens
+  // (afzender/onderwerp/tekst uit Beheer → Dossiers), meegestuurd door de GET hieronder.
+  const [ontvanger, setOntvanger] = useState({ naam: "", email: "" });
+  const [mailDefaults, setMailDefaults] = useState({ afzender: "", onderwerp: "", tekst: "" });
+  const [verstuurModal, setVerstuurModal] = useState(null); // { bestandNaam, naar, onderwerp, tekst }
+  const [verstuurBezig, setVerstuurBezig] = useState(false);
+  const [verstuurFout, setVerstuurFout] = useState("");
+  const [verstuurMelding, setVerstuurMelding] = useState("");
 
   const laad = () => {
     setFout("");
     fetch(`/api/medewerker-dossier-bijlage?soort=${encodeURIComponent(dossier.soort)}&id=${encodeURIComponent(dossier.id)}`)
       .then((r) => (r.ok ? r.json() : r.json().then((d) => Promise.reject(new Error((d && d.error) || `HTTP ${r.status}`)))))
-      .then((d) => setBestanden(d.bestanden || []))
+      .then((d) => { setBestanden(d.bestanden || []); if (d.ontvanger) setOntvanger(d.ontvanger); if (d.mailDefaults) setMailDefaults(d.mailDefaults); })
       .catch((e) => { setBestanden([]); setFout(e.message || "Kon de bijlagen niet ophalen."); });
   };
   useEffect(() => { laad(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [dossier.id]);
@@ -2921,12 +2929,34 @@ function DividendBijlageKaart({ dossier, disabled }) {
     return `${(b / 1024 / 1024).toFixed(1)} MB`;
   };
 
+  const openVersturen = (bestandNaam) => {
+    setVerstuurFout(""); setVerstuurMelding("");
+    setVerstuurModal({ bestandNaam, naar: ontvanger.email || "", onderwerp: mailDefaults.onderwerp || "", tekst: mailDefaults.tekst || "" });
+  };
+  const verstuur = async () => {
+    if (!verstuurModal) return;
+    setVerstuurBezig(true); setVerstuurFout("");
+    try {
+      const r = await fetch("/api/medewerker-dossier-bijlage", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ soort: dossier.soort, id: dossier.id, actie: "versturen", bestandNaam: verstuurModal.bestandNaam, ontvanger: verstuurModal.naar, onderwerp: verstuurModal.onderwerp, tekst: verstuurModal.tekst }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      setVerstuurMelding(`“${verstuurModal.bestandNaam}” gemaild naar ${verstuurModal.naar}.`);
+      setVerstuurModal(null);
+    } catch (e) { setVerstuurFout(e.message || "Versturen is mislukt."); }
+    finally { setVerstuurBezig(false); }
+  };
+  const mailVeld = { width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 10px", fontSize: 13, fontFamily: "inherit" };
+
   return (
     <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
       <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Bijlage dividendbelasting</div>
       <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 14, maxWidth: 640 }}>
         Voeg hier het document toe (bijv. de aangifte dividendbelasting). Het wordt bewaard in de
-        SharePoint-map van de klant en is straks in de Brieven-module als bijlage te kiezen om mee te mailen.
+        SharePoint-map van de klant, is per stuk te <strong>versturen</strong> naar de klant, en in de
+        Brieven-module als bijlage te kiezen.
       </div>
 
       <div
@@ -2965,11 +2995,44 @@ function DividendBijlageKaart({ dossier, disabled }) {
                 <FileText size={15} color={KLEUR.blauw} style={{ flexShrink: 0 }} />
                 <a href={b.webUrl || "#"} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: KLEUR.blauw, fontWeight: 600, textDecoration: "none", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.naam}</a>
                 {b.grootte ? <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst, flexShrink: 0 }}>{formatteerGrootte(b.grootte)}</span> : null}
+                <button onClick={() => openVersturen(b.naam)} disabled={disabled} title="Als bijlage naar de klant mailen" style={{ display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0, background: "#fff", border: `1px solid ${KLEUR.rand}`, color: KLEUR.blauw, fontSize: 12, fontWeight: 600, cursor: disabled ? "default" : "pointer", padding: "5px 10px", borderRadius: 7, opacity: disabled ? 0.6 : 1 }}>
+                  <Mail size={13} /> Versturen
+                </button>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {verstuurMelding && <div style={{ fontSize: 12.5, color: KLEUR.groen, marginTop: 10 }}>{verstuurMelding}</div>}
+
+      {verstuurModal && (
+        <div onClick={() => !verstuurBezig && setVerstuurModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(28,35,33,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 14, padding: 24, width: "100%", maxWidth: 560, maxHeight: "85vh", overflowY: "auto" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Bijlage versturen</div>
+            <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 16 }}>Bijlage: <strong>{verstuurModal.bestandNaam}</strong> · {dossier.klantnaam || "de cliënt"}</div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3 }}>Aan (e-mailadres)</div>
+              <input value={verstuurModal.naar} onChange={(e) => setVerstuurModal((h) => ({ ...h, naar: e.target.value }))} placeholder="naam@voorbeeld.nl" style={mailVeld} />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3 }}>Onderwerp</div>
+              <input value={verstuurModal.onderwerp} onChange={(e) => setVerstuurModal((h) => ({ ...h, onderwerp: e.target.value }))} style={mailVeld} />
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3 }}>Tekst</div>
+              <textarea value={verstuurModal.tekst} onChange={(e) => setVerstuurModal((h) => ({ ...h, tekst: e.target.value }))} rows={9} style={{ ...mailVeld, resize: "vertical", lineHeight: 1.5 }} />
+            </div>
+            {verstuurFout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 10 }}>{verstuurFout}</div>}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button onClick={() => setVerstuurModal(null)} disabled={verstuurBezig} style={{ padding: "9px 16px", background: "none", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: verstuurBezig ? "default" : "pointer" }}>Annuleren</button>
+              <button onClick={verstuur} disabled={verstuurBezig || !verstuurModal.naar.trim()} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: verstuurBezig || !verstuurModal.naar.trim() ? "#9DB4A5" : KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: verstuurBezig || !verstuurModal.naar.trim() ? "default" : "pointer" }}>
+                <Mail size={14} /> {verstuurBezig ? "Versturen…" : "Versturen"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
