@@ -3142,21 +3142,23 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
   const veldStijlen = { label, veld };
   // Verborgen (Beheer → Dossiers, oog-icoon) → nooit tonen. Voorwaarden (Beheer → Dossiers,
   // "Alleen tonen als") → alleen tonen als het gekoppelde veld op DIT dossier de juiste uitkomst heeft.
-  // Twee vormen (voor terugwaartse compatibiliteit):
-  //   - string parentKey            → oud: parent is een ja/nee-veld; tonen zodra parent "Ja" is.
-  //   - { veld, waarde, negatie? }  → nieuw: tonen zodra de uitkomst van "veld" gelijk is aan "waarde"
-  //                                    (of juist NIET gelijk, als negatie true is). Werkt voor ja/nee-
-  //                                    velden (waarde true/false) én keuzelijsten (waarde = optiewaarde).
+  // Vormen (voor terugwaartse compatibiliteit):
+  //   - string parentKey                 → oud: parent is een ja/nee-veld; tonen zodra parent "Ja" is.
+  //   - { veld, waarde, negatie? }       → één doelwaarde (ja/nee true/false of één keuzelijst-optie).
+  //   - { veld, waarden: [...], negatie? } → meerdere keuzelijst-antwoorden: tonen zodra de uitkomst
+  //                                    ÉÉN van de aangevinkte antwoorden is (of juist géén, als negatie).
   const verborgenSet = new Set(verborgen || []);
   const alleenLezenSet = new Set(alleenLezen || []);
   const voorwaardeVervuld = (cond) => {
     if (!cond) return true;
     if (typeof cond === "string") return !!veldenState[cond]; // oude ja/nee-vorm
     if (!cond.veld) return true;
-    const actueel = veldenState[cond.veld];
-    // Robuuste vergelijking ongeacht number/boolean/string (keuzelijst-optiewaarden zijn getallen,
-    // ja/nee is true/false); een niet-ingevuld gate-veld telt als "niet gelijk".
-    const gelijk = String(actueel ?? "") === String(cond.waarde ?? "");
+    const actueelStr = String(veldenState[cond.veld] ?? "");
+    // Doelwaarden: één (waarde) of meerdere (waarden[]). Keuzelijst-optiewaarden zijn getallen en
+    // ja/nee is true/false — daarom als string vergeleken.
+    const doelen = Array.isArray(cond.waarden) ? cond.waarden : (cond.waarde !== undefined ? [cond.waarde] : []);
+    if (doelen.length === 0) return true; // geen antwoord gekozen = (nog) geen filter
+    const gelijk = doelen.some((w) => String(w ?? "") === actueelStr);
     return cond.negatie ? !gelijk : gelijk;
   };
   const magTonen = (key) => {

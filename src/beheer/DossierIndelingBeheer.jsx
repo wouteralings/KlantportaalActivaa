@@ -42,33 +42,37 @@ function maakSleutelSlug(tekst) {
  * voorwaarde, alleen-lezen, verbergen, herordenen, verplaatsen en uit de sectie halen. */
 function VeldRij({ veldKey, veld, weergaveLabel, pad, padOpties, index, laatsteIndex, isVerborgen, isAlleenLezen, voorwaarde, conditieVelden, picklistOpties, onZetLabel, onLabelBlur, onZetVoorwaarde, onToggleVerborgen, onToggleAlleenLezen, onOmhoog, onOmlaag, onVerplaats, onVerwijderUitSectie }) {
   // Voorwaarde-editor: een veld kan afhankelijk van de UITKOMST van een ander veld getoond worden —
-  // een ja/nee-veld (Ja/Nee) of een keuzelijst (= / ≠ een bepaalde optie). Terugwaarts compatibel met
-  // de oude vorm waarin de voorwaarde alleen een ja/nee-veldsleutel (string) was.
+  // een ja/nee-veld (Ja/Nee) of een keuzelijst (is / is niet één van meerdere aangevinkte antwoorden).
+  // Terugwaarts compatibel met de oude vormen: een enkele string (ja/nee-veld) én { veld, waarde }.
   const condVeld = voorwaarde ? (typeof voorwaarde === "string" ? voorwaarde : voorwaarde.veld) : "";
   const condParent = (conditieVelden || []).find((v) => v.key === condVeld) || null;
   const condOpties = condParent && condParent.type === "picklist" ? ((picklistOpties && picklistOpties[condVeld]) || []) : [];
-  const condToken = (() => {
-    if (!voorwaarde) return "";
-    if (typeof voorwaarde === "string") return "ja"; // oude vorm: ja/nee-veld op "Ja"
-    if (condParent && condParent.type === "boolean") return voorwaarde.waarde === false ? "nee" : "ja";
-    if (condParent && condParent.type === "picklist") return `${voorwaarde.negatie ? "isniet" : "is"}:${voorwaarde.waarde}`;
-    return "";
+  const condNegatie = voorwaarde && typeof voorwaarde === "object" ? !!voorwaarde.negatie : false;
+  // Ja/nee-conditie: token voor de "is Ja / is Nee"-dropdown.
+  const boolToken = voorwaarde && typeof voorwaarde === "object" && voorwaarde.waarde === false ? "nee" : "ja";
+  // Keuzelijst-conditie: de aangevinkte doelwaarden (uit waarden[] of de oude enkele waarde).
+  const condWaardenArr = (() => {
+    if (voorwaarde && typeof voorwaarde === "object") {
+      if (Array.isArray(voorwaarde.waarden)) return voorwaarde.waarden;
+      if (voorwaarde.waarde !== undefined && voorwaarde.waarde !== null) return [voorwaarde.waarde];
+    }
+    return [];
   })();
+  const condWaardenSet = new Set(condWaardenArr.map((w) => String(w)));
   const kiesParent = (nieuwVeld) => {
     if (!nieuwVeld) { onZetVoorwaarde(null); return; }
     const p = (conditieVelden || []).find((v) => v.key === nieuwVeld);
     if (p && p.type === "boolean") { onZetVoorwaarde({ veld: nieuwVeld, waarde: true }); return; }
     const opts = (picklistOpties && picklistOpties[nieuwVeld]) || [];
-    onZetVoorwaarde({ veld: nieuwVeld, waarde: opts.length ? opts[0].waarde : null });
+    // Keuzelijst: start met de eerste optie aangevinkt (meteen effect; verder zelf aan/uit te vinken).
+    onZetVoorwaarde({ veld: nieuwVeld, waarden: opts.length ? [opts[0].waarde] : [], negatie: false });
   };
-  const kiesUitkomst = (token) => {
-    if (!condVeld || !token) return;
-    if (condParent && condParent.type === "boolean") { onZetVoorwaarde({ veld: condVeld, waarde: token !== "nee" }); return; }
-    const scheiding = token.indexOf(":");
-    const op = token.slice(0, scheiding);
-    const ruw = token.slice(scheiding + 1);
-    const opt = condOpties.find((o) => String(o.waarde) === ruw);
-    onZetVoorwaarde({ veld: condVeld, waarde: opt ? opt.waarde : ruw, negatie: op === "isniet" });
+  const kiesBoolUitkomst = (token) => onZetVoorwaarde({ veld: condVeld, waarde: token !== "nee" });
+  const zetNegatie = (neg) => onZetVoorwaarde({ veld: condVeld, waarden: condWaardenArr, negatie: neg });
+  const toggleWaarde = (w) => {
+    const heeft = condWaardenSet.has(String(w));
+    const waarden = heeft ? condWaardenArr.filter((x) => String(x) !== String(w)) : [...condWaardenArr, w];
+    onZetVoorwaarde({ veld: condVeld, waarden, negatie: condNegatie });
   };
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 6, background: "#FBFBF9", opacity: isVerborgen ? 0.6 : 1 }}>
@@ -93,27 +97,41 @@ function VeldRij({ veldKey, veld, weergaveLabel, pad, padOpties, index, laatsteI
           <option key={b.key} value={b.key}>Alleen als: {b.label}{b.type === "picklist" ? " (keuze)" : ""}</option>
         ))}
       </select>
-      {condVeld && (
+      {condVeld && condParent && condParent.type === "boolean" && (
         <select
-          value={condToken}
-          onChange={(e) => kiesUitkomst(e.target.value)}
+          value={boolToken}
+          onChange={(e) => kiesBoolUitkomst(e.target.value)}
           title="Bij welke uitkomst dit veld getoond wordt"
-          style={{ ...invoerStijl, padding: "4px 6px", fontSize: 11.5, maxWidth: 190 }}
+          style={{ ...invoerStijl, padding: "4px 6px", fontSize: 11.5, maxWidth: 110 }}
         >
-          {condParent && condParent.type === "boolean" ? (
-            <>
-              <option value="ja">is Ja</option>
-              <option value="nee">is Nee</option>
-            </>
-          ) : condOpties.length ? (
-            condOpties.flatMap((o) => [
-              <option key={`is:${o.waarde}`} value={`is:${o.waarde}`}>is {o.label}</option>,
-              <option key={`isniet:${o.waarde}`} value={`isniet:${o.waarde}`}>is niet {o.label}</option>,
-            ])
-          ) : (
-            <option value="">(opties onbekend)</option>
-          )}
+          <option value="ja">is Ja</option>
+          <option value="nee">is Nee</option>
         </select>
+      )}
+      {condVeld && condParent && condParent.type === "picklist" && (
+        <div style={{ display: "inline-flex", alignItems: "flex-start", gap: 6 }}>
+          <select
+            value={condNegatie ? "isniet" : "is"}
+            onChange={(e) => zetNegatie(e.target.value === "isniet")}
+            title="Tonen als het keuzeveld één van de aangevinkte antwoorden is (is), of juist niet (is niet)"
+            style={{ ...invoerStijl, padding: "4px 6px", fontSize: 11.5 }}
+          >
+            <option value="is">is</option>
+            <option value="isniet">is niet</option>
+          </select>
+          {condOpties.length ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: 96, overflowY: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "4px 6px", background: "#fff", minWidth: 140 }} title="Vink één of meerdere antwoorden aan">
+              {condOpties.map((o) => (
+                <label key={String(o.waarde)} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, cursor: "pointer", whiteSpace: "nowrap" }}>
+                  <input type="checkbox" checked={condWaardenSet.has(String(o.waarde))} onChange={() => toggleWaarde(o.waarde)} />
+                  {o.label}
+                </label>
+              ))}
+            </div>
+          ) : (
+            <span style={{ fontSize: 11, color: KLEUR.mutedTekst, alignSelf: "center" }}>(opties onbekend)</span>
+          )}
+        </div>
       )}
       <button onClick={onToggleAlleenLezen} title={isAlleenLezen ? "Weer bewerkbaar maken in medewerkersportaal" : "Alleen-lezen maken in medewerkersportaal"} style={{ background: "none", border: "none", color: isAlleenLezen ? KLEUR.goud : KLEUR.subtekst, cursor: "pointer", padding: 2, display: "flex" }}>
         {isAlleenLezen ? <Lock size={14} /> : <Unlock size={14} />}
