@@ -41,110 +41,150 @@ function maakSleutelSlug(tekst) {
  * subrubriek (pad = "sectieSleutel::subSleutel") — met alle beheeracties: label hernoemen,
  * voorwaarde, alleen-lezen, verbergen, herordenen, verplaatsen en uit de sectie halen. */
 function VeldRij({ veldKey, veld, weergaveLabel, pad, padOpties, index, laatsteIndex, isVerborgen, isAlleenLezen, voorwaarde, conditieVelden, picklistOpties, onZetLabel, onLabelBlur, onZetVoorwaarde, onToggleVerborgen, onToggleAlleenLezen, onOmhoog, onOmlaag, onVerplaats, onVerwijderUitSectie }) {
-  // Voorwaarde-editor: een veld kan afhankelijk van de UITKOMST van een ander veld getoond worden —
-  // een ja/nee-veld (Ja/Nee) of een keuzelijst (is / is niet één van meerdere aangevinkte antwoorden).
-  // Terugwaarts compatibel met de oude vormen: een enkele string (ja/nee-veld) én { veld, waarde }.
-  const condVeld = voorwaarde ? (typeof voorwaarde === "string" ? voorwaarde : voorwaarde.veld) : "";
-  const condParent = (conditieVelden || []).find((v) => v.key === condVeld) || null;
-  const condOpties = condParent && condParent.type === "picklist" ? ((picklistOpties && picklistOpties[condVeld]) || []) : [];
-  const condNegatie = voorwaarde && typeof voorwaarde === "object" ? !!voorwaarde.negatie : false;
-  // Ja/nee-conditie: token voor de "is Ja / is Nee"-dropdown.
-  const boolToken = voorwaarde && typeof voorwaarde === "object" && voorwaarde.waarde === false ? "nee" : "ja";
-  // Keuzelijst-conditie: de aangevinkte doelwaarden (uit waarden[] of de oude enkele waarde).
-  const condWaardenArr = (() => {
-    if (voorwaarde && typeof voorwaarde === "object") {
-      if (Array.isArray(voorwaarde.waarden)) return voorwaarde.waarden;
-      if (voorwaarde.waarde !== undefined && voorwaarde.waarde !== null) return [voorwaarde.waarde];
-    }
-    return [];
+  // Voorwaarde-editor: een veld kan afhankelijk van de UITKOMST van één of meer andere velden getoond
+  // worden. Per veld één of meer "regels" (elk: een ja/nee-veld op Ja/Nee, of een keuzelijst die één van
+  // meerdere aangevinkte antwoorden IS / NIET is), gecombineerd met "en" (alle) of "of" (minstens één).
+  // Terugwaarts compatibel met de oude vormen: string (ja/nee-veld), { veld, waarde/waarden, negatie }
+  // (één regel) en { modus, regels:[...] } (meerdere regels).
+  const genormaliseerd = (() => {
+    if (!voorwaarde) return { modus: "of", regels: [] };
+    if (typeof voorwaarde === "string") return { modus: "of", regels: [{ veld: voorwaarde, waarde: true }] };
+    if (Array.isArray(voorwaarde.regels)) return { modus: voorwaarde.modus === "en" ? "en" : "of", regels: voorwaarde.regels.filter((r) => r && r.veld) };
+    if (voorwaarde.veld) return { modus: "of", regels: [voorwaarde] };
+    return { modus: "of", regels: [] };
   })();
-  const condWaardenSet = new Set(condWaardenArr.map((w) => String(w)));
-  const kiesParent = (nieuwVeld) => {
-    if (!nieuwVeld) { onZetVoorwaarde(null); return; }
-    const p = (conditieVelden || []).find((v) => v.key === nieuwVeld);
-    if (p && p.type === "boolean") { onZetVoorwaarde({ veld: nieuwVeld, waarde: true }); return; }
-    const opts = (picklistOpties && picklistOpties[nieuwVeld]) || [];
-    // Keuzelijst: start met de eerste optie aangevinkt (meteen effect; verder zelf aan/uit te vinken).
-    onZetVoorwaarde({ veld: nieuwVeld, waarden: opts.length ? [opts[0].waarde] : [], negatie: false });
+  const modus = genormaliseerd.modus;
+  const regels = genormaliseerd.regels;
+  const parentVan = (k) => (conditieVelden || []).find((v) => v.key === k) || null;
+  const nieuweRegelVoor = (k) => {
+    const p = parentVan(k);
+    if (p && p.type === "boolean") return { veld: k, waarde: true };
+    const opts = (picklistOpties && picklistOpties[k]) || [];
+    return { veld: k, waarden: opts.length ? [opts[0].waarde] : [], negatie: false };
   };
-  const kiesBoolUitkomst = (token) => onZetVoorwaarde({ veld: condVeld, waarde: token !== "nee" });
-  const zetNegatie = (neg) => onZetVoorwaarde({ veld: condVeld, waarden: condWaardenArr, negatie: neg });
-  const toggleWaarde = (w) => {
-    const heeft = condWaardenSet.has(String(w));
-    const waarden = heeft ? condWaardenArr.filter((x) => String(x) !== String(w)) : [...condWaardenArr, w];
-    onZetVoorwaarde({ veld: condVeld, waarden, negatie: condNegatie });
+  // Opslaan in de compacte vorm: 0 regels = geen voorwaarde, 1 regel = die regel zelf (oude vorm),
+  // ≥2 regels = { modus, regels } — zo blijven bestaande enkele voorwaarden ongewijzigd opgeslagen.
+  const bewaarRegels = (nieuweRegels, nieuweModus = modus) => {
+    const schoon = (nieuweRegels || []).filter((r) => r && r.veld);
+    if (schoon.length === 0) { onZetVoorwaarde(null); return; }
+    if (schoon.length === 1) { onZetVoorwaarde(schoon[0]); return; }
+    onZetVoorwaarde({ modus: nieuweModus === "en" ? "en" : "of", regels: schoon });
   };
+  const kiesEersteVeld = (k) => { if (k) bewaarRegels([...regels, nieuweRegelVoor(k)]); };
+  const voegRegelToe = () => {
+    const gebruikt = new Set(regels.map((r) => r.veld));
+    const kandidaat = (conditieVelden || []).find((v) => v.key !== veldKey && !gebruikt.has(v.key)) || (conditieVelden || []).find((v) => v.key !== veldKey);
+    if (kandidaat) bewaarRegels([...regels, nieuweRegelVoor(kandidaat.key)]);
+  };
+  const verwijderRegel = (i) => bewaarRegels(regels.filter((_, idx) => idx !== i));
+  const zetRegelVeld = (i, k) => bewaarRegels(regels.map((x, idx) => (idx === i ? nieuweRegelVoor(k) : x)));
+  const zetRegelBool = (i, token) => bewaarRegels(regels.map((x, idx) => (idx === i ? { veld: x.veld, waarde: token !== "nee" } : x)));
+  const zetRegelNegatie = (i, neg) => bewaarRegels(regels.map((x, idx) => (idx === i ? { ...x, negatie: neg } : x)));
+  const toggleRegelWaarde = (i, w) => bewaarRegels(regels.map((x, idx) => {
+    if (idx !== i) return x;
+    const arr = Array.isArray(x.waarden) ? x.waarden : (x.waarde !== undefined && x.waarde !== null ? [x.waarde] : []);
+    const heeft = arr.some((v) => String(v) === String(w));
+    const waarden = heeft ? arr.filter((v) => String(v) !== String(w)) : [...arr, w];
+    return { veld: x.veld, waarden, negatie: !!x.negatie };
+  }));
+  const zetModus = (m) => bewaarRegels(regels, m);
+  const regelWaardenSet = (r) => new Set((Array.isArray(r.waarden) ? r.waarden : (r.waarde !== undefined && r.waarde !== null ? [r.waarde] : [])).map((w) => String(w)));
+  const veldSelectStijl = { ...invoerStijl, padding: "4px 6px", fontSize: 11.5, maxWidth: 160 };
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 6, background: "#FBFBF9", opacity: isVerborgen ? 0.6 : 1 }}>
-      <input
-        value={weergaveLabel}
-        onChange={(e) => onZetLabel(e.target.value)}
-        onBlur={onLabelBlur}
-        title="Weergavenaam van dit veld in Beheer en het medewerkersportaal"
-        style={{ ...invoerStijl, flex: 1, minWidth: 0, fontSize: 12.5, padding: "4px 7px", background: "#fff" }}
-      />
-      {isVerborgen && <span style={{ fontSize: 10, fontWeight: 700, color: KLEUR.rood, textTransform: "uppercase", letterSpacing: ".02em" }}>Verborgen</span>}
-      {isAlleenLezen && <span style={{ fontSize: 10, fontWeight: 700, color: KLEUR.goud, textTransform: "uppercase", letterSpacing: ".02em" }}>Alleen-lezen</span>}
-      <span style={{ fontSize: 10.5, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".02em" }}>{veld ? veld.type.replace("vast-", "") : ""}</span>
-      <select
-        value={condVeld}
-        onChange={(e) => kiesParent(e.target.value)}
-        title="Dit veld alleen tonen afhankelijk van de uitkomst van een ander veld"
-        style={{ ...invoerStijl, padding: "4px 6px", fontSize: 11.5, maxWidth: 150 }}
-      >
-        <option value="">Altijd tonen</option>
-        {(conditieVelden || []).filter((b) => b.key !== veldKey).map((b) => (
-          <option key={b.key} value={b.key}>Alleen als: {b.label}{b.type === "picklist" ? " (keuze)" : ""}</option>
-        ))}
-      </select>
-      {condVeld && condParent && condParent.type === "boolean" && (
-        <select
-          value={boolToken}
-          onChange={(e) => kiesBoolUitkomst(e.target.value)}
-          title="Bij welke uitkomst dit veld getoond wordt"
-          style={{ ...invoerStijl, padding: "4px 6px", fontSize: 11.5, maxWidth: 110 }}
-        >
-          <option value="ja">is Ja</option>
-          <option value="nee">is Nee</option>
-        </select>
-      )}
-      {condVeld && condParent && condParent.type === "picklist" && (
-        <div style={{ display: "inline-flex", alignItems: "flex-start", gap: 6 }}>
-          <select
-            value={condNegatie ? "isniet" : "is"}
-            onChange={(e) => zetNegatie(e.target.value === "isniet")}
-            title="Tonen als het keuzeveld één van de aangevinkte antwoorden is (is), of juist niet (is niet)"
-            style={{ ...invoerStijl, padding: "4px 6px", fontSize: 11.5 }}
-          >
-            <option value="is">is</option>
-            <option value="isniet">is niet</option>
+    <div style={{ padding: "6px 8px", borderRadius: 6, background: "#FBFBF9", opacity: isVerborgen ? 0.6 : 1 }}>
+      {/* Hoofdregel: naam + status + type + acties. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <input
+          value={weergaveLabel}
+          onChange={(e) => onZetLabel(e.target.value)}
+          onBlur={onLabelBlur}
+          title="Weergavenaam van dit veld in Beheer en het medewerkersportaal"
+          style={{ ...invoerStijl, flex: 1, minWidth: 0, fontSize: 12.5, padding: "4px 7px", background: "#fff" }}
+        />
+        {isVerborgen && <span style={{ fontSize: 10, fontWeight: 700, color: KLEUR.rood, textTransform: "uppercase", letterSpacing: ".02em" }}>Verborgen</span>}
+        {isAlleenLezen && <span style={{ fontSize: 10, fontWeight: 700, color: KLEUR.goud, textTransform: "uppercase", letterSpacing: ".02em" }}>Alleen-lezen</span>}
+        <span style={{ fontSize: 10.5, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".02em" }}>{veld ? veld.type.replace("vast-", "") : ""}</span>
+        {regels.length === 0 && (
+          <select value="" onChange={(e) => kiesEersteVeld(e.target.value)} title="Dit veld alleen tonen afhankelijk van (de uitkomst van) een ander veld" style={veldSelectStijl}>
+            <option value="">Altijd tonen</option>
+            {(conditieVelden || []).filter((b) => b.key !== veldKey).map((b) => (
+              <option key={b.key} value={b.key}>Alleen als: {b.label}{b.type === "picklist" ? " (keuze)" : ""}</option>
+            ))}
           </select>
-          {condOpties.length ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: 96, overflowY: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "4px 6px", background: "#fff", minWidth: 140 }} title="Vink één of meerdere antwoorden aan">
-              {condOpties.map((o) => (
-                <label key={String(o.waarde)} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, cursor: "pointer", whiteSpace: "nowrap" }}>
-                  <input type="checkbox" checked={condWaardenSet.has(String(o.waarde))} onChange={() => toggleWaarde(o.waarde)} />
-                  {o.label}
-                </label>
-              ))}
-            </div>
-          ) : (
-            <span style={{ fontSize: 11, color: KLEUR.mutedTekst, alignSelf: "center" }}>(opties onbekend)</span>
-          )}
+        )}
+        <button onClick={onToggleAlleenLezen} title={isAlleenLezen ? "Weer bewerkbaar maken in medewerkersportaal" : "Alleen-lezen maken in medewerkersportaal"} style={{ background: "none", border: "none", color: isAlleenLezen ? KLEUR.goud : KLEUR.subtekst, cursor: "pointer", padding: 2, display: "flex" }}>
+          {isAlleenLezen ? <Lock size={14} /> : <Unlock size={14} />}
+        </button>
+        <button onClick={onToggleVerborgen} title={isVerborgen ? "Weer zichtbaar maken" : "Verbergen (blijft op deze plek staan)"} style={{ background: "none", border: "none", color: isVerborgen ? KLEUR.rood : KLEUR.subtekst, cursor: "pointer", padding: 2, display: "flex" }}>
+          {isVerborgen ? <EyeOff size={14} /> : <Eye size={14} />}
+        </button>
+        <button onClick={onOmhoog} disabled={index === 0} title="Omhoog" style={{ background: "none", border: "none", color: index === 0 ? KLEUR.rand : KLEUR.subtekst, cursor: index === 0 ? "default" : "pointer", padding: 2, display: "flex" }}><ChevronUp size={14} /></button>
+        <button onClick={onOmlaag} disabled={index === laatsteIndex} title="Omlaag" style={{ background: "none", border: "none", color: index === laatsteIndex ? KLEUR.rand : KLEUR.subtekst, cursor: index === laatsteIndex ? "default" : "pointer", padding: 2, display: "flex" }}><ChevronDown size={14} /></button>
+        <select value={pad} onChange={(e) => onVerplaats(e.target.value)} style={{ ...invoerStijl, padding: "4px 6px", fontSize: 11.5 }}>
+          {padOpties(pad)}
+        </select>
+        <button onClick={onVerwijderUitSectie} title="Uit deze indeling halen (naar 'Niet ingedeeld')" style={{ background: "none", border: "none", color: KLEUR.mutedTekst, cursor: "pointer", padding: 2, display: "flex" }}><X size={13} /></button>
+      </div>
+
+      {/* Voorwaarde-editor: één of meer regels, gecombineerd met en/of. */}
+      {regels.length > 0 && (
+        <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px dashed ${KLEUR.rand}`, display: "flex", flexDirection: "column", gap: 5 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: KLEUR.subtekst, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 700 }}>Alleen tonen als</span>
+            {regels.length >= 2 && (
+              <select value={modus} onChange={(e) => zetModus(e.target.value)} title="Alle voorwaarden moeten kloppen (en), of minstens één (of)" style={{ ...invoerStijl, padding: "2px 5px", fontSize: 11 }}>
+                <option value="of">minstens één (of)</option>
+                <option value="en">alle (en)</option>
+              </select>
+            )}
+            <span>{regels.length >= 2 ? "van deze voorwaarden klopt:" : "deze voorwaarde klopt:"}</span>
+          </div>
+          {regels.map((r, i) => {
+            const p = parentVan(r.veld);
+            const opts = p && p.type === "picklist" ? ((picklistOpties && picklistOpties[r.veld]) || []) : [];
+            const wset = regelWaardenSet(r);
+            return (
+              <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 6, flexWrap: "wrap" }}>
+                <select value={r.veld} onChange={(e) => zetRegelVeld(i, e.target.value)} style={veldSelectStijl}>
+                  {(conditieVelden || []).filter((b) => b.key !== veldKey).map((b) => (
+                    <option key={b.key} value={b.key}>{b.label}{b.type === "picklist" ? " (keuze)" : ""}</option>
+                  ))}
+                </select>
+                {p && p.type === "boolean" && (
+                  <select value={r.waarde === false ? "nee" : "ja"} onChange={(e) => zetRegelBool(i, e.target.value)} style={{ ...invoerStijl, padding: "4px 6px", fontSize: 11.5, maxWidth: 90 }}>
+                    <option value="ja">is Ja</option>
+                    <option value="nee">is Nee</option>
+                  </select>
+                )}
+                {p && p.type === "picklist" && (
+                  <>
+                    <select value={r.negatie ? "isniet" : "is"} onChange={(e) => zetRegelNegatie(i, e.target.value === "isniet")} title="Tonen als het keuzeveld één van de aangevinkte antwoorden is (is), of juist niet (is niet)" style={{ ...invoerStijl, padding: "4px 6px", fontSize: 11.5 }}>
+                      <option value="is">is</option>
+                      <option value="isniet">is niet</option>
+                    </select>
+                    {opts.length ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: 96, overflowY: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "4px 6px", background: "#fff", minWidth: 140 }} title="Vink één of meerdere antwoorden aan">
+                        {opts.map((o) => (
+                          <label key={String(o.waarde)} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, cursor: "pointer", whiteSpace: "nowrap" }}>
+                            <input type="checkbox" checked={wset.has(String(o.waarde))} onChange={() => toggleRegelWaarde(i, o.waarde)} />
+                            {o.label}
+                          </label>
+                        ))}
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: 11, color: KLEUR.mutedTekst, alignSelf: "center" }}>(opties onbekend)</span>
+                    )}
+                  </>
+                )}
+                <button onClick={() => verwijderRegel(i)} title="Deze voorwaarde verwijderen" style={{ background: "none", border: "none", color: KLEUR.mutedTekst, cursor: "pointer", padding: 2, display: "flex", alignSelf: "center" }}><X size={13} /></button>
+              </div>
+            );
+          })}
+          <div>
+            <button onClick={voegRegelToe} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "none", border: `1px dashed ${KLEUR.rand}`, color: KLEUR.blauw, cursor: "pointer", padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 600 }}><Plus size={12} /> voorwaarde</button>
+          </div>
         </div>
       )}
-      <button onClick={onToggleAlleenLezen} title={isAlleenLezen ? "Weer bewerkbaar maken in medewerkersportaal" : "Alleen-lezen maken in medewerkersportaal"} style={{ background: "none", border: "none", color: isAlleenLezen ? KLEUR.goud : KLEUR.subtekst, cursor: "pointer", padding: 2, display: "flex" }}>
-        {isAlleenLezen ? <Lock size={14} /> : <Unlock size={14} />}
-      </button>
-      <button onClick={onToggleVerborgen} title={isVerborgen ? "Weer zichtbaar maken" : "Verbergen (blijft op deze plek staan)"} style={{ background: "none", border: "none", color: isVerborgen ? KLEUR.rood : KLEUR.subtekst, cursor: "pointer", padding: 2, display: "flex" }}>
-        {isVerborgen ? <EyeOff size={14} /> : <Eye size={14} />}
-      </button>
-      <button onClick={onOmhoog} disabled={index === 0} title="Omhoog" style={{ background: "none", border: "none", color: index === 0 ? KLEUR.rand : KLEUR.subtekst, cursor: index === 0 ? "default" : "pointer", padding: 2, display: "flex" }}><ChevronUp size={14} /></button>
-      <button onClick={onOmlaag} disabled={index === laatsteIndex} title="Omlaag" style={{ background: "none", border: "none", color: index === laatsteIndex ? KLEUR.rand : KLEUR.subtekst, cursor: index === laatsteIndex ? "default" : "pointer", padding: 2, display: "flex" }}><ChevronDown size={14} /></button>
-      <select value={pad} onChange={(e) => onVerplaats(e.target.value)} style={{ ...invoerStijl, padding: "4px 6px", fontSize: 11.5 }}>
-        {padOpties(pad)}
-      </select>
-      <button onClick={onVerwijderUitSectie} title="Uit deze indeling halen (naar 'Niet ingedeeld')" style={{ background: "none", border: "none", color: KLEUR.mutedTekst, cursor: "pointer", padding: 2, display: "flex" }}><X size={13} /></button>
     </div>
   );
 }

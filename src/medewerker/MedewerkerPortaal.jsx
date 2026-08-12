@@ -3147,19 +3147,30 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
   //   - { veld, waarde, negatie? }       → één doelwaarde (ja/nee true/false of één keuzelijst-optie).
   //   - { veld, waarden: [...], negatie? } → meerdere keuzelijst-antwoorden: tonen zodra de uitkomst
   //                                    ÉÉN van de aangevinkte antwoorden is (of juist géén, als negatie).
+  //   - { modus: "en"|"of", regels: [...] } → meerdere voorwaarden (elk een regel van bovenstaande vorm),
+  //                                    gecombineerd met "en" (alle moeten kloppen) of "of" (minstens één).
   const verborgenSet = new Set(verborgen || []);
   const alleenLezenSet = new Set(alleenLezen || []);
+  // Eén enkele voorwaarde-regel evalueren.
+  const enkeleVervuld = (r) => {
+    if (!r || !r.veld) return true;
+    const actueelStr = String(veldenState[r.veld] ?? "");
+    // Doelwaarden: één (waarde) of meerdere (waarden[]). Keuzelijst-optiewaarden zijn getallen en
+    // ja/nee is true/false — daarom als string vergeleken.
+    const doelen = Array.isArray(r.waarden) ? r.waarden : (r.waarde !== undefined ? [r.waarde] : []);
+    if (doelen.length === 0) return true; // geen antwoord gekozen = (nog) geen filter
+    const gelijk = doelen.some((w) => String(w ?? "") === actueelStr);
+    return r.negatie ? !gelijk : gelijk;
+  };
   const voorwaardeVervuld = (cond) => {
     if (!cond) return true;
     if (typeof cond === "string") return !!veldenState[cond]; // oude ja/nee-vorm
-    if (!cond.veld) return true;
-    const actueelStr = String(veldenState[cond.veld] ?? "");
-    // Doelwaarden: één (waarde) of meerdere (waarden[]). Keuzelijst-optiewaarden zijn getallen en
-    // ja/nee is true/false — daarom als string vergeleken.
-    const doelen = Array.isArray(cond.waarden) ? cond.waarden : (cond.waarde !== undefined ? [cond.waarde] : []);
-    if (doelen.length === 0) return true; // geen antwoord gekozen = (nog) geen filter
-    const gelijk = doelen.some((w) => String(w ?? "") === actueelStr);
-    return cond.negatie ? !gelijk : gelijk;
+    if (Array.isArray(cond.regels)) {
+      const regels = cond.regels.filter((r) => r && r.veld);
+      if (regels.length === 0) return true;
+      return cond.modus === "en" ? regels.every(enkeleVervuld) : regels.some(enkeleVervuld);
+    }
+    return enkeleVervuld(cond);
   };
   const magTonen = (key) => {
     if (verborgenSet.has(key)) return false;
