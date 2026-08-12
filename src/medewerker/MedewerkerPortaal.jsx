@@ -3030,6 +3030,15 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
   const [urlDossier, setUrlDossier] = useState(dossier.urlDossier || "");
   const [documentUrl, setDocumentUrl] = useState(dossier.documentUrl || "");
   const [veldenState, setVeldenState] = useState(() => waardenUitDossier(dossier, catalogus));
+  // Leesbare naam van de gekoppelde record per lookup-veld (los van de GUID in veldenState), voor de
+  // zoek-kiezer. Geseed vanuit de dossier-respons (velden[key].label).
+  const [lookupNamen, setLookupNamen] = useState(() => {
+    const m = {};
+    for (const v of (catalogus || [])) {
+      if (v.type === "lookup") m[v.key] = (dossier.velden && dossier.velden[v.key] && dossier.velden[v.key].label) || "";
+    }
+    return m;
+  });
   const [opslaan, setOpslaan] = useState("rust"); // rust | bezig | gelukt | fout
   const [fout, setFout] = useState("");
   const [kopieOpen, setKopieOpen] = useState(false); // "Aangifte kopiëren naar volgend jaar"-popup
@@ -3229,6 +3238,37 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
             </div>
           )}
         </div>
+      );
+    }
+    // Lookup-veld (via Beheer → Dossiers "Bestaande kolom toevoegen"): een zoek-kiezer die records van
+    // de doel-entiteit zoekt (account/contact/systemuser) en de koppeling wegschrijft. Alleen-lezen of
+    // op een inactief dossier: alleen de gekoppelde naam tonen.
+    if (veldDef.type === "lookup") {
+      const doel = Array.isArray(veldDef.doel) ? veldDef.doel[0] : veldDef.doel;
+      if (!bewerkbaar || isAlleenLezen) {
+        return (
+          <div key={key}>
+            <div style={{ ...label, display: "flex", alignItems: "center", gap: 5 }}>{veldDef.label}{isAlleenLezen && <Lock size={10} color={KLEUR.mutedTekst} />}</div>
+            <div style={waarde}>{lookupNamen[key] || "—"}</div>
+          </div>
+        );
+      }
+      const zoekLookup = (term) => {
+        if (!doel) return Promise.resolve([]);
+        return fetch(`/api/dossier-lookup-zoeken?doel=${encodeURIComponent(doel)}&q=${encodeURIComponent(term || "")}`)
+          .then((r) => (r.ok ? r.json() : { resultaten: [] }))
+          .then((d) => (d.resultaten || []).map((x) => ({ id: x.id, naam: x.naam })))
+          .catch(() => []);
+      };
+      return (
+        <ZoekKiezer
+          key={key}
+          label={veldDef.label}
+          huidigeNaam={lookupNamen[key] || ""}
+          zoek={zoekLookup}
+          onKies={(id, naam) => { zetVeld(key, id); setLookupNamen((m) => ({ ...m, [key]: naam })); setOpslaan("rust"); }}
+          onWis={() => { zetVeld(key, ""); setLookupNamen((m) => ({ ...m, [key]: "" })); setOpslaan("rust"); }}
+        />
       );
     }
     return (

@@ -319,6 +319,9 @@ function catalogusVeldNaarBuiten(rij, veldDef) {
       return { waarde: ruw || null };
     case "decimal":
       return { waarde: ruw == null ? null : ruw };
+    case "lookup":
+      // veldDef.veld is de _<naam>_value-vorm: waarde = de GUID, label = de leesbare recordnaam.
+      return { waarde: ruw || null, label: rij[veldDef.veld + FV] || "" };
     default: // string, memo
       return { waarde: ruw || "" };
   }
@@ -441,6 +444,8 @@ function catalogusWaardeNaarDynamics(veldDef, waarde) {
       return waarde ? String(waarde) : null;
     case "memo":
       return waarde ? String(waarde) : null;
+    case "lookup":
+      return undefined; // lookups worden apart gekoppeld/losgekoppeld (zie werkDossierBij)
     default: // string
       return waarde ? String(waarde).slice(0, 2000) : null;
   }
@@ -490,6 +495,26 @@ async function werkDossierBij(resource, token, soort, id, velden) {
       if (dynamicsWaarde !== undefined) body[veldDef.veld] = dynamicsWaarde;
     }
   }
+  // Catalog-lookupvelden (via Beheer → Dossiers "Bestaande kolom toevoegen"): koppelen via
+  // @odata.bind (mee in de PATCH), loskoppelen via een aparte $ref DELETE erna — net als de fiscaal
+  // partner hieronder. veldDef.veld is de _<naam>_value-vorm; de navigatienaam en de doel-entiteitset
+  // halen we uit de metadata (gecached).
+  const lookupLos = [];
+  if (velden.velden && typeof velden.velden === "object" && Array.isArray(soort.catalogus)) {
+    for (const [key, waarde] of Object.entries(velden.velden)) {
+      const veldDef = soort.catalogus.find((v) => v.key === key);
+      if (!veldDef || veldDef.type !== "lookup") continue;
+      const doel = Array.isArray(veldDef.doel) ? veldDef.doel[0] : veldDef.doel;
+      if (!doel) continue;
+      const nav = await haalNavigatieNaam(resource, soort.entiteit, kernNaam(veldDef.veld), token);
+      if (waarde) {
+        const doelSet = await haalEntitySetNaam(resource, doel, token);
+        body[`${nav}@odata.bind`] = `/${doelSet}(${waarde})`;
+      } else {
+        lookupLos.push(nav);
+      }
+    }
+  }
   // Fiscaal partner (single-valued lookup): KOPPELEN kan mee in de PATCH via @odata.bind; het
   // LOSKOPPELEN moet via een aparte DELETE op de navigatie-eigenschap ($ref) — dat kan niet in een
   // PATCH-body. De navigatienaam is niet per se de logische kolomnaam (zie haalNavigatieNaam).
@@ -520,6 +545,14 @@ async function werkDossierBij(resource, token, soort, id, velden) {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "OData-MaxVersion": "4.0", "OData-Version": "4.0" },
     });
     if (!res.ok && res.status !== 404) throw new Error(`Fiscaal partner loskoppelen mislukt (${res.status}): ${await res.text()}`);
+  }
+
+  for (const nav of lookupLos) {
+    const res = await fetch(`${resource}/api/data/v9.2/${entitySet}(${id})/${nav}/$ref`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "OData-MaxVersion": "4.0", "OData-Version": "4.0" },
+    });
+    if (!res.ok && res.status !== 404) throw new Error(`Koppeling loskoppelen mislukt (${res.status}): ${await res.text()}`);
   }
 }
 

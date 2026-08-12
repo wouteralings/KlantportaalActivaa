@@ -666,11 +666,12 @@ function SoortIndelingPaneel({ soort }) {
     setKolomBezig(kol.veld);
     try {
       const bestaandeKeys = new Set((catalogus || []).map((v) => v.key));
-      const basis = maakSleutelSlug(String(kol.veld || "").replace(/^cr283_/, "").replace(/^sk_/, "")) || "kolom";
+      const basis = maakSleutelSlug(String(kol.veld || "").replace(/^_/, "").replace(/_value$/, "").replace(/^cr283_/, "").replace(/^sk_/, "")) || "kolom";
       let key = `kol_${basis}`;
       let n = 2;
       while (bestaandeKeys.has(key)) { key = `kol_${basis}_${n}`; n++; }
-      const nieuwVeld = { key, veld: kol.veld, type: kol.type, label: kol.label };
+      // Voor een lookup nemen we het doel (entiteit) mee — nodig voor de zoek-kiezer + wegschrijven.
+      const nieuwVeld = { key, veld: kol.veld, type: kol.type, label: kol.label, ...(kol.type === "lookup" ? { doel: kol.doel || [] } : {}) };
       setCatalogus((c) => [...(c || []), nieuwVeld]);
       setBeschikbareKolommen((lijst) => (lijst || []).filter((k) => k.veld !== kol.veld));
       await bewaar({ aangepasteVelden: [...aangepasteVelden, nieuwVeld] });
@@ -1143,8 +1144,8 @@ function SoortIndelingPaneel({ soort }) {
         <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 10, maxWidth: 640 }}>
           Kolommen die al op de tabel {(SOORTEN_TABS.find((s) => s.key === soort) || {}).dynamicsTabel || ""} in Dynamics bestaan
           maar nog niet in dit dossier zitten. Klik op <strong>Toevoegen</strong> om er één als veld op te nemen — hij verschijnt dan
-          bij "Niet ingedeeld" hierboven, klaar om in een rubriek te zetten en (eventueel) te hernoemen. Lookups (koppelingen naar een
-          persoon/relatie) en niet-ondersteunde typen worden hier niet getoond.
+          bij "Niet ingedeeld" hierboven, klaar om in een rubriek te zetten en (eventueel) te hernoemen. Ook lookups (koppelingen naar een
+          persoon/relatie zoals voorzitter/aandeelhouder) staan erbij — die krijgen in het dossier een zoek-kiezer. Niet-ondersteunde typen worden niet getoond.
         </div>
         {kolommenOpen && (
           <div>

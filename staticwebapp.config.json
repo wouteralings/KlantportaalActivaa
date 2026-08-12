@@ -379,6 +379,13 @@
       ]
     },
     {
+      "route": "/api/dossier-lookup-zoeken",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
       "route": "/api/medewerker-contactpersoon",
       "allowedRoles": [
         "beheerder",
