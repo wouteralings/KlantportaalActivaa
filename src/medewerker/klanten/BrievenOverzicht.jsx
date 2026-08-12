@@ -166,6 +166,11 @@ export default function BrievenOverzicht({ onTerug }) {
   const [bijlage, setBijlage] = useState(null); // { naam, dataUrl, grootte } of null
   const [sleepBijlage, setSleepBijlage] = useState(false);
   const bijlageInputRef = useRef(null);
+  // SharePoint-bestanden van de klant (submap "Dividendbelasting", zie het dividenddossier) — als
+  // keuzelijst-alternatief voor het sleepvak: kies er één en die wordt als bijlage overgenomen.
+  const [spBijlagen, setSpBijlagen] = useState([]); // [{ naam, webUrl, grootte, gewijzigd }]
+  const [spBezig, setSpBezig] = useState(false);
+  const [spFout, setSpFout] = useState("");
 
   const [bezig, setBezig] = useState("");
   const [melding, setMelding] = useState(null);
@@ -355,6 +360,34 @@ export default function BrievenOverzicht({ onTerug }) {
     finally { if (levend.current) setVerzondenBezig(false); }
   }
   useEffect(() => { laadVerzonden(klant && klant.accountId); }, [klant]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // SharePoint-bijlagen van de gekozen klant ophalen (Dividendbelasting-map) — voor de keuzelijst in
+  // het bijlage-blok. Best-effort: geen map/geen bestanden = lege lijst, dan verschijnt de keuzelijst niet.
+  useEffect(() => {
+    setSpBijlagen([]); setSpFout("");
+    const acc = klant && klant.accountId;
+    if (!acc) return;
+    let levendLokaal = true;
+    fetch(`/api/medewerker-dossier-bijlage?accountId=${encodeURIComponent(acc)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => { if (levendLokaal) setSpBijlagen(d.bestanden || []); })
+      .catch(() => { if (levendLokaal) setSpBijlagen([]); });
+    return () => { levendLokaal = false; };
+  }, [klant]);
+
+  // Een SharePoint-bestand als bijlage overnemen: inhoud (data-URL) ophalen en in dezelfde
+  // bijlage-state zetten als een geüpload bestand — de rest van de mail-/dossierflow blijft gelijk.
+  async function kiesSharepointBijlage(naam) {
+    if (!naam || !klant || !klant.accountId) return;
+    setSpBezig(true); setSpFout(""); setMelding(null);
+    try {
+      const r = await fetch(`/api/medewerker-dossier-bijlage?accountId=${encodeURIComponent(klant.accountId)}&bestandNaam=${encodeURIComponent(naam)}&download=1`);
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      if (levend.current) setBijlage({ naam: d.naam || naam, dataUrl: d.dataUrl, grootte: d.grootte || 0 });
+    } catch (e) { if (levend.current) setSpFout(e.message || "Kon het SharePoint-bestand niet ophalen."); }
+    finally { if (levend.current) setSpBezig(false); }
+  }
 
   async function doeActie(actie, fmt) {
     if (!klaarVoorActie) { setMelding({ type: "fout", tekst: "Kies eerst een klant, een brief en een geldige geadresseerde." }); return; }
@@ -639,6 +672,21 @@ export default function BrievenOverzicht({ onTerug }) {
               )}
               <input ref={bijlageInputRef} type="file" style={{ display: "none" }} onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; kiesBijlage(f); }} />
             </div>
+            {spBijlagen.length > 0 && (
+              <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>Of kies uit SharePoint:</span>
+                <select
+                  value=""
+                  disabled={spBezig}
+                  onChange={(e) => { const v = e.target.value; e.target.value = ""; if (v) kiesSharepointBijlage(v); }}
+                  style={{ ...input, maxWidth: 320, padding: "6px 8px" }}
+                >
+                  <option value="">{spBezig ? "Ophalen…" : "Kies een bestand (Dividendbelasting)…"}</option>
+                  {spBijlagen.map((b, i) => <option key={i} value={b.naam}>{b.naam}</option>)}
+                </select>
+              </div>
+            )}
+            {spFout && <div style={{ fontSize: 11.5, color: KLEUR.rood, marginTop: 6 }}>{spFout}</div>}
             <div style={{ marginTop: 6, fontSize: 11.5, color: KLEUR.mutedTekst }}>Gaat mee als bijlage bij het mailen en wordt met “In klantdossier” ook in de SharePoint-map opgeslagen. Grote bestanden (boven ± 3 MB) passen soms niet in een e-mail, maar worden wél in het dossier bewaard.</div>
           </div>
 

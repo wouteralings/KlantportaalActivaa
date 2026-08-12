@@ -2208,7 +2208,7 @@ function MedewerkerDossiers({ soort }) {
         voorwaarden={detail.voorwaarden || {}}
         alleenLezen={detail.alleenLezen || []}
         picklistOpties={detail.picklistOpties || {}}
-        sjabloon={detail.sjabloon || { standaard: "", perSoort: {} }}
+        sjabloon={detail.sjabloon || { sjablonen: [] }}
         gekoppeldeUitvragen={detail.gekoppeldeUitvragen || []}
         gekoppeldeLijstId={detail.gekoppeldeLijstId || ""}
         gekoppeldOnderwerpId={detail.onderwerpId || ""}
@@ -2868,6 +2868,112 @@ function AangifteLog({ dossier, ververs }) {
  * (POST /api/medewerker-aangifte-versturen: upload naar SharePoint "Correspondentie", Dynamics-taak
  * "In afwachting reactie client", mail vanaf correspondentie@activaa.nl). Alleen voor IB — VPB
  * heeft geen fiscaal-partner-concept en dit is specifiek voor de aangifte inkomstenbelasting. */
+/** Bijlagen bij een dividenddossier — verschijnt zodra "Dividendbelasting" op Ja staat. Sleep/kies een
+ *  bestand (alle typen); het wordt via app-only Graph opgeslagen in de SharePoint-map van de klant
+ *  (submap instelbaar via Beheer → Dossiers, standaard "Dividendbelasting") en verschijnt in de lijst.
+ *  Later kies je zo'n bestand in de Brieven-module als bijlage om mee te mailen. Zie
+ *  api/medewerker-dossier-bijlage. */
+function DividendBijlageKaart({ dossier, disabled }) {
+  const [bestanden, setBestanden] = useState(null); // null = laden
+  const [fout, setFout] = useState("");
+  const [bezig, setBezig] = useState(false);
+  const [uploadFout, setUploadFout] = useState("");
+  const [sleep, setSleep] = useState(false);
+  const inputRef = useRef(null);
+
+  const laad = () => {
+    setFout("");
+    fetch(`/api/medewerker-dossier-bijlage?soort=${encodeURIComponent(dossier.soort)}&id=${encodeURIComponent(dossier.id)}`)
+      .then((r) => (r.ok ? r.json() : r.json().then((d) => Promise.reject(new Error((d && d.error) || `HTTP ${r.status}`)))))
+      .then((d) => setBestanden(d.bestanden || []))
+      .catch((e) => { setBestanden([]); setFout(e.message || "Kon de bijlagen niet ophalen."); });
+  };
+  useEffect(() => { laad(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [dossier.id]);
+
+  const leesAlsBase64 = (file) => new Promise((resolve, reject) => {
+    const lezer = new FileReader();
+    lezer.onload = () => resolve(String(lezer.result).replace(/^data:.*;base64,/, ""));
+    lezer.onerror = reject;
+    lezer.readAsDataURL(file);
+  });
+
+  const upload = async (file) => {
+    if (!file || disabled) return;
+    setBezig(true); setUploadFout("");
+    try {
+      const bestandBase64 = await leesAlsBase64(file);
+      const r = await fetch("/api/medewerker-dossier-bijlage", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ soort: dossier.soort, id: dossier.id, bestandsnaam: file.name, contentType: file.type || "application/octet-stream", bestandBase64 }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      laad();
+    } catch (e) { setUploadFout(e.message || "Uploaden is mislukt."); }
+    finally { setBezig(false); }
+  };
+
+  const formatteerGrootte = (n) => {
+    const b = Number(n);
+    if (!Number.isFinite(b) || b <= 0) return "";
+    if (b < 1024) return `${b} B`;
+    if (b < 1024 * 1024) return `${(b / 1024).toFixed(0)} KB`;
+    return `${(b / 1024 / 1024).toFixed(1)} MB`;
+  };
+
+  return (
+    <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
+      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Bijlage dividendbelasting</div>
+      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 14, maxWidth: 640 }}>
+        Voeg hier het document toe (bijv. de aangifte dividendbelasting). Het wordt bewaard in de
+        SharePoint-map van de klant en is straks in de Brieven-module als bijlage te kiezen om mee te mailen.
+      </div>
+
+      <div
+        onDragOver={(e) => { if (disabled || bezig) return; e.preventDefault(); setSleep(true); }}
+        onDragLeave={() => setSleep(false)}
+        onDrop={(e) => { e.preventDefault(); setSleep(false); if (disabled || bezig) return; upload(e.dataTransfer.files && e.dataTransfer.files[0]); }}
+        onClick={() => !disabled && !bezig && inputRef.current && inputRef.current.click()}
+        style={{
+          border: `1.5px dashed ${sleep ? KLEUR.blauw : KLEUR.rand}`, borderRadius: 10, padding: "20px 14px",
+          textAlign: "center", cursor: disabled || bezig ? "default" : "pointer",
+          background: sleep ? KLEUR.lichtblauw : "#FAFBF9", opacity: disabled ? 0.55 : 1,
+          display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+        }}
+      >
+        <Upload size={18} color={KLEUR.mutedTekst} />
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: KLEUR.tekst }}>{bezig ? "Uploaden…" : "Sleep een bestand hierheen, of klik om te kiezen"}</div>
+        <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>Alle bestandstypen · max. 15 MB</div>
+        <input ref={inputRef} type="file" disabled={disabled || bezig} onChange={(e) => { upload(e.target.files && e.target.files[0]); e.target.value = ""; }} style={{ display: "none" }} />
+      </div>
+
+      {uploadFout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginTop: 10 }}>{uploadFout}</div>}
+
+      <div style={{ marginTop: 14 }}>
+        {bestanden === null ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst }}>
+            <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Bijlagen ophalen…
+          </div>
+        ) : fout ? (
+          <div style={{ fontSize: 12.5, color: KLEUR.rood }}>{fout}</div>
+        ) : bestanden.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Nog geen bijlagen in de SharePoint-map.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {bestanden.map((b, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
+                <FileText size={15} color={KLEUR.blauw} style={{ flexShrink: 0 }} />
+                <a href={b.webUrl || "#"} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: KLEUR.blauw, fontWeight: 600, textDecoration: "none", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.naam}</a>
+                {b.grootte ? <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst, flexShrink: 0 }}>{formatteerGrootte(b.grootte)}</span> : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AangifteVersturenKaart({ dossier, disabled }) {
   const soortWoord = dossier.soort === "vpb" ? "vennootschapsbelasting" : "inkomstenbelasting";
   const heeftPartner = dossier.soort === "ib"; // alleen IB kent een fiscaal partner
@@ -3083,10 +3189,9 @@ function menselijkeVeldwaarde(veldDef, waarde, picklistOpties, lookupNamen) {
   }
 }
 
-/** Stelt de voorbeeldtekst samen uit het sjabloon + de dossierwaarden. Los gehouden van het component
- *  zodat het ook door de afdruk-functie hergebruikt kan worden. */
-function stelVoorbeeldSamen({ dossier, periodeTekst, catalogus, veldenState, picklistOpties, lookupNamen, sjabloon }) {
-  const soortKeyVeld = dossier.soort === "notulen" ? "soortnotulen" : "soortdividenduitkering";
+/** Bouwt de merge-waarden-map ({{sleutel}} → leesbare waarde) uit één dossier. Los gehouden zodat
+ *  zowel de schermweergave als de afdruk-functie ermee kunnen invullen. */
+function bouwMergeWaarden({ dossier, periodeTekst, catalogus, veldenState, picklistOpties, lookupNamen }) {
   const mergeWaarden = {};
   const zet = (k, v) => { mergeWaarden[normaliseerSleutel(k)] = v == null ? "" : String(v); };
   zet("klantnaam", dossier.klantnaam);
@@ -3100,22 +3205,22 @@ function stelVoorbeeldSamen({ dossier, periodeTekst, catalogus, veldenState, pic
     if (!v || !v.key || String(v.key).startsWith("__")) continue;
     zet(v.key, menselijkeVeldwaarde(v, veldenState[v.key], picklistOpties, lookupNamen));
   }
-  const std = (sjabloon && sjabloon.standaard) || "";
-  const perSoortMap = (sjabloon && sjabloon.perSoort) || {};
-  const gekozen = veldenState[soortKeyVeld];
-  const extra = (gekozen != null && gekozen !== "" && perSoortMap[String(gekozen)]) || "";
-  let samengesteld;
-  if (/\{\{\s*soorttekst\s*\}\}/.test(std)) samengesteld = std.replace(/\{\{\s*soorttekst\s*\}\}/g, extra);
-  else samengesteld = std + (extra ? (std ? "\n\n" : "") + extra : "");
-  return { tekst: vulSjabloonIn(samengesteld, mergeWaarden), leeg: !std && !extra };
+  return mergeWaarden;
 }
 
 function DossierVoorbeeldModal({ dossier, soortLabel, periodeTekst, catalogus, veldenState, picklistOpties, lookupNamen, sjabloon, onSluit }) {
-  const { tekst, leeg } = stelVoorbeeldSamen({ dossier, periodeTekst, catalogus, veldenState, picklistOpties, lookupNamen, sjabloon });
+  const sjablonen = sjabloon && Array.isArray(sjabloon.sjablonen) ? sjabloon.sjablonen : [];
+  const [gekozenId, setGekozenId] = useState(sjablonen.length ? sjablonen[0].id : "");
+  const gekozen = sjablonen.find((s) => s.id === gekozenId) || sjablonen[0] || null;
+
+  const mergeWaarden = bouwMergeWaarden({ dossier, periodeTekst, catalogus, veldenState, picklistOpties, lookupNamen });
+  const tekst = gekozen ? vulSjabloonIn(gekozen.tekst, mergeWaarden) : "";
   const alineas = String(tekst || "").replace(/\r\n/g, "\n").split(/\n[ \t]*\n/);
   const subkop = `${soortLabel}${periodeTekst ? " · " + periodeTekst : ""}`;
+  const leeg = !gekozen || !String(gekozen.tekst || "").trim();
 
   const afdrukken = () => {
+    if (leeg) return;
     const w = typeof window !== "undefined" ? window.open("", "_blank", "width=840,height=1180") : null;
     if (!w) return; // popup geblokkeerd — de preview op het scherm blijft beschikbaar
     const esc = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -3134,10 +3239,21 @@ function DossierVoorbeeldModal({ dossier, soortLabel, periodeTekst, catalogus, v
   return (
     <div onClick={onSluit} style={{ position: "fixed", inset: 0, background: "rgba(28,35,33,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 20 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 14, width: "100%", maxWidth: 820, maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "14px 18px", borderBottom: `1px solid ${KLEUR.rand}` }}>
-          <div style={{ fontSize: 15, fontWeight: 700 }}>Voorbeeld — {soortLabel}</div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "14px 18px", borderBottom: `1px solid ${KLEUR.rand}`, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>Voorbeeld — {soortLabel}</div>
+            {sjablonen.length > 1 && (
+              <select
+                value={gekozen ? gekozen.id : ""}
+                onChange={(e) => setGekozenId(e.target.value)}
+                style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "6px 10px", fontSize: 12.5, background: "#fff", color: KLEUR.tekst, maxWidth: 280 }}
+              >
+                {sjablonen.map((s) => <option key={s.id} value={s.id}>{s.naam || "Naamloos sjabloon"}</option>)}
+              </select>
+            )}
+          </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <button onClick={afdrukken} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#fff", border: `1px solid ${KLEUR.rand}`, color: KLEUR.tekst, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: "6px 12px", borderRadius: 7 }}>
+            <button onClick={afdrukken} disabled={leeg} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#fff", border: `1px solid ${KLEUR.rand}`, color: leeg ? KLEUR.mutedTekst : KLEUR.tekst, fontSize: 12.5, fontWeight: 600, cursor: leeg ? "default" : "pointer", padding: "6px 12px", borderRadius: 7, opacity: leeg ? 0.6 : 1 }}>
               <Printer size={14} /> Afdrukken / PDF
             </button>
             <button onClick={onSluit} title="Sluiten" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, cursor: "pointer" }}>
@@ -3153,7 +3269,9 @@ function DossierVoorbeeldModal({ dossier, soortLabel, periodeTekst, catalogus, v
             <div style={{ color: KLEUR.subtekst, fontSize: 12, marginBottom: 26 }}>{subkop}</div>
             {leeg ? (
               <div style={{ color: KLEUR.mutedTekst, fontStyle: "italic" }}>
-                Er is nog geen voorbeeldtekst ingesteld voor deze soort. Stel die in via Beheer → Dossiers → “Voorbeelddocumenten”.
+                {sjablonen.length === 0
+                  ? "Er zijn nog geen voorbeeld-sjablonen ingesteld voor deze soort. Stel ze in via Beheer → Dossiers → “Voorbeelddocumenten”."
+                  : "Dit sjabloon heeft nog geen tekst."}
               </div>
             ) : (
               alineas.map((a, i) => <div key={i} style={{ marginBottom: 11, whiteSpace: "pre-wrap" }}>{a}</div>)
@@ -3485,7 +3603,7 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
           veldenState={veldenState}
           picklistOpties={picklistOpties}
           lookupNamen={lookupNamen}
-          sjabloon={sjabloon || { standaard: "", perSoort: {} }}
+          sjabloon={sjabloon || { sjablonen: [] }}
           onSluit={() => setVoorbeeldOpen(false)}
         />
       )}
@@ -3515,6 +3633,9 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
       )}
 
       {(dossier.soort === "ib" || dossier.soort === "vpb") && <AangifteVersturenKaart dossier={dossier} disabled={!bewerkbaar} />}
+
+      {/* Dividendbelasting-bijlage: alleen bij een dividenddossier én zodra "Dividendbelasting" op Ja staat. */}
+      {dossier.soort === "dividend" && !!veldenState.dividendbelasting && <DividendBijlageKaart dossier={dossier} disabled={!bewerkbaar} />}
 
       {uitvragen.length > 0 && uitvragen.map((u) => {
         const opengeklapt = uitvraagOpen[u.id] ?? (u.status !== "afgerond");

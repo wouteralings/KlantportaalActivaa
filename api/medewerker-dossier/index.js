@@ -6,8 +6,9 @@
  *   - GET  ?soort=ib|vpb&id=<guid>
  *       → { dossier, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen,
  *           picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId, onderwerpId, defaultContact,
- *           sjabloon }   (sjabloon = { standaard, perSoort } — het voorbeeld-documentsjabloon voor
- *           notulen/dividend uit Beheer → Dossiers; leeg voor andere soorten. Zie haalSjabloonVoor().)
+ *           sjabloon }   (sjabloon = { sjablonen: [{ id, naam, tekst }] } — de voorbeeld-document-
+ *           sjablonen voor notulen/dividend uit Beheer → Dossiers; lege lijst voor andere soorten.
+ *           Zie haalSjabloonVoor().)
  *         (catalogus bevat naast de vrije catalogus ook de "vaste" velden __status/__urlDossier/
  *         __documentUrl (zie vasteVeldenVoorSoort() in dossierVelden.js) en eventuele door Wouter
  *         zelf via Beheer → Dossiers aangemaakte extra velden (dossierIndeling.<soort>.
@@ -125,22 +126,34 @@ async function gekoppeldeLijstIdVoorDossier(onderwerpId) {
   }
 }
 
-/** Voorbeeld-sjabloon (standaardtekst + per soort-optie een extra tekst) voor de "Voorbeeld"-knop in
- *  het notulen-/dividenddossier — ingesteld via Beheer → Dossiers (DossierSjablonenBeheer.jsx),
- *  opgeslagen onder de generieke instellingen-sleutel dossierSjablonen. Alleen zinvol voor
- *  notulen/dividend; andere soorten krijgen een leeg sjabloon terug. Best-effort: zonder (leesbare)
- *  instellingen gewoon leeg — dat mag het openen van het dossier niet blokkeren. */
+/** Voorbeeld-sjablonen (één of meer benoemde sjablonen) voor de "Voorbeeld"-knop in het notulen-/
+ *  dividenddossier — ingesteld via Beheer → Dossiers, per soort onder de indelingskaart
+ *  (DossierSjablonenPerSoort in DossierSjablonenBeheer.jsx), opgeslagen onder de generieke
+ *  instellingen-sleutel dossierSjablonen[soort] = { sjablonen: [{ id, naam, tekst }] }. De medewerker
+ *  kiest in het dossier welk sjabloon hij als voorbeeld op blanco A4 opent. Alleen zinvol voor
+ *  notulen/dividend; andere soorten krijgen een lege lijst terug. Terugwaarts compatibel met de oude
+ *  vorm { standaard, perSoort } (die wordt naar de sjablonen-lijst gemigreerd). Best-effort: zonder
+ *  (leesbare) instellingen gewoon leeg — dat mag het openen van het dossier niet blokkeren. */
 async function haalSjabloonVoor(soortKey) {
-  if (soortKey !== "notulen" && soortKey !== "dividend") return { standaard: "", perSoort: {} };
+  if (soortKey !== "notulen" && soortKey !== "dividend") return { sjablonen: [] };
   try {
     const { dossierSjablonen } = await haalInstellingen();
     const eigen = dossierSjablonen && dossierSjablonen[soortKey];
-    return {
-      standaard: eigen && typeof eigen.standaard === "string" ? eigen.standaard : "",
-      perSoort: eigen && eigen.perSoort && typeof eigen.perSoort === "object" ? eigen.perSoort : {},
-    };
+    if (eigen && Array.isArray(eigen.sjablonen)) {
+      const sjablonen = eigen.sjablonen
+        .filter((s) => s && (s.naam != null || s.tekst != null))
+        .map((s, i) => ({ id: s.id || `s${i}`, naam: String(s.naam || "Naamloos sjabloon"), tekst: String(s.tekst || "") }));
+      return { sjablonen };
+    }
+    // Terugwaartse compat: oude vorm { standaard, perSoort } → één of meer sjablonen.
+    const sjablonen = [];
+    if (eigen && typeof eigen.standaard === "string" && eigen.standaard.trim()) sjablonen.push({ id: "standaard", naam: "Standaard", tekst: eigen.standaard });
+    if (eigen && eigen.perSoort && typeof eigen.perSoort === "object") {
+      for (const [k, v] of Object.entries(eigen.perSoort)) if (v && String(v).trim()) sjablonen.push({ id: `soort_${k}`, naam: `Soort ${k}`, tekst: String(v) });
+    }
+    return { sjablonen };
   } catch {
-    return { standaard: "", perSoort: {} };
+    return { sjablonen: [] };
   }
 }
 

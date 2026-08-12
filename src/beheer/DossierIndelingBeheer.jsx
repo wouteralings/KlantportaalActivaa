@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
 import { FolderKanban, Plus, Trash2, ChevronUp, ChevronDown, ChevronRight, X, Eye, EyeOff, Lock, Unlock, Sparkles } from "lucide-react";
+import DossierSjablonenPerSoort from "./DossierSjablonenBeheer";
+
+// Soorten met een voorbeeld-documentmodule (blanco A4 in het dossier) — het bijbehorende
+// "Voorbeelddocumenten"-blok komt onder de indelingskaart van die soort te hangen (zie de export
+// onderaan). Vooralsnog alleen notulen en dividenduitkering (op verzoek van Wouter).
+const SOORTEN_MET_SJABLONEN = new Set(["notulen", "dividend"]);
 
 /** Zelfde palet als de rest van het beheerdersportaal (bewust hier herhaald, zie bijv.
  *  ContractenTypesBeheer.jsx — deze bestanden staan bewust op zichzelf). */
@@ -1190,7 +1196,11 @@ export default function DossierIndelingBeheer() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
       {SOORTEN_TABS.map((s) => (
-        <SoortIndelingPaneel key={s.key} soort={s.key} />
+        <div key={s.key} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <SoortIndelingPaneel soort={s.key} />
+          {/* Voorbeelddocumenten (blanco A4) — onder de indelingskaart van dezelfde soort. */}
+          {SOORTEN_MET_SJABLONEN.has(s.key) && <DossierSjablonenPerSoort soort={s.key} />}
+        </div>
       ))}
     </div>
   );

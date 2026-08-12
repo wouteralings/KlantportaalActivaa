@@ -360,6 +360,13 @@
       ]
     },
     {
+      "route": "/api/medewerker-dossier-bijlage",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
       "route": "/api/dossier-velden",
       "allowedRoles": [
         "beheerder",

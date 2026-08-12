@@ -4,7 +4,6 @@ import UitvraagBeheer from "./UitvraagBeheer";
 import UrenTarievenBeheer from "./UrenTarievenBeheer";
 import VerlofBeheer from "./VerlofBeheer";
 import DossierIndelingBeheer from "./DossierIndelingBeheer";
-import DossierSjablonenBeheer from "./DossierSjablonenBeheer";
 import RapportagesBeheer from "./RapportagesBeheer";
 import ContractenTypesBeheer from "./ContractenTypesBeheer";
 import PlanningInstellingenBeheer from "./PlanningInstellingenBeheer";
@@ -1475,7 +1474,6 @@ export default function BeheerPortaal() {
             alleen-lezen velden, labels en gekoppelde uitvraag in te stellen.
           </div>
           <DossierIndelingBeheer />
-          <DossierSjablonenBeheer />
         </div>
       )}
 
