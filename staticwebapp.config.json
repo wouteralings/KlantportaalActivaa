@@ -373,6 +373,12 @@
       ]
     },
     {
+      "route": "/api/dossier-kolommen-beschikbaar",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
       "route": "/api/medewerker-contactpersoon",
       "allowedRoles": [
         "beheerder",

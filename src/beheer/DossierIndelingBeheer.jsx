@@ -222,6 +222,12 @@ function SoortIndelingPaneel({ soort }) {
   const [nieuwVeldType, setNieuwVeldType] = useState("boolean");
   const [nieuwVeldBezig, setNieuwVeldBezig] = useState(false);
   const [nieuwVeldFout, setNieuwVeldFout] = useState("");
+  // "Bestaande kolom toevoegen": nog niet gebruikte custom-kolommen uit de Dynamics-tabel (lazy geladen).
+  const [beschikbareKolommen, setBeschikbareKolommen] = useState(null); // null = nog niet geladen
+  const [kolommenOpen, setKolommenOpen] = useState(false);
+  const [kolommenLaden, setKolommenLaden] = useState(false);
+  const [kolommenFout, setKolommenFout] = useState("");
+  const [kolomBezig, setKolomBezig] = useState(""); // logische naam van de kolom die nu wordt toegevoegd
 
   // De "Aangifte versturen"-sjablonen worden per soort apart bewaard: IB houdt de bestaande
   // (legacy) instellingen-sleutels, VPB krijgt parallelle sleutels met een "_vpb"-achtervoegsel.
@@ -595,6 +601,41 @@ function SoortIndelingPaneel({ soort }) {
       setNieuwVeldFout(e.message || "Aanmaken van het veld is mislukt.");
     } finally {
       setNieuwVeldBezig(false);
+    }
+  };
+
+  // Bestaande (nog ongebruikte) Dynamics-kolommen ophalen — pas bij het openklappen (lazy).
+  const laadBeschikbareKolommen = () => {
+    setKolommenLaden(true);
+    setKolommenFout("");
+    fetch(`/api/dossier-kolommen-beschikbaar?soort=${encodeURIComponent(soort)}`)
+      .then((r) => (r.ok ? r.json() : r.json().then((d) => Promise.reject(new Error((d && d.error) || `HTTP ${r.status}`)))))
+      .then((d) => setBeschikbareKolommen(d.kolommen || []))
+      .catch((e) => { setBeschikbareKolommen([]); setKolommenFout(e.message || "Kon de kolommen niet ophalen."); })
+      .finally(() => setKolommenLaden(false));
+  };
+  const toggleKolommen = () => {
+    const nieuw = !kolommenOpen;
+    setKolommenOpen(nieuw);
+    if (nieuw && beschikbareKolommen === null && !kolommenLaden) laadBeschikbareKolommen();
+  };
+  // Een bestaande Dynamics-kolom toevoegen als (aangepast) dossierveld — géén nieuwe kolom in
+  // Dynamics, alleen opnemen in de catalogus/aangepasteVelden (zelfde mechaniek als "Nieuw veld
+  // aanmaken", maar dan wijzend naar een kolom die al bestaat). Verschijnt daarna bij "Niet ingedeeld".
+  const voegBestaandeKolomToe = async (kol) => {
+    setKolomBezig(kol.veld);
+    try {
+      const bestaandeKeys = new Set((catalogus || []).map((v) => v.key));
+      const basis = maakSleutelSlug(String(kol.veld || "").replace(/^cr283_/, "").replace(/^sk_/, "")) || "kolom";
+      let key = `kol_${basis}`;
+      let n = 2;
+      while (bestaandeKeys.has(key)) { key = `kol_${basis}_${n}`; n++; }
+      const nieuwVeld = { key, veld: kol.veld, type: kol.type, label: kol.label };
+      setCatalogus((c) => [...(c || []), nieuwVeld]);
+      setBeschikbareKolommen((lijst) => (lijst || []).filter((k) => k.veld !== kol.veld));
+      await bewaar({ aangepasteVelden: [...aangepasteVelden, nieuwVeld] });
+    } finally {
+      setKolomBezig("");
     }
   };
 
@@ -1053,6 +1094,49 @@ function SoortIndelingPaneel({ soort }) {
             <Plus size={14} /> {nieuwVeldBezig ? "Bezig…" : "Veld aanmaken"}
           </button>
         </div>
+      </div>
+
+      <div style={{ borderTop: `1px solid ${KLEUR.rand}`, paddingTop: 14, marginTop: 20 }}>
+        <div onClick={toggleKolommen} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700, marginBottom: 6, cursor: "pointer" }}>
+          {kolommenOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />} Bestaande kolom toevoegen
+        </div>
+        <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 10, maxWidth: 640 }}>
+          Kolommen die al op de tabel {(SOORTEN_TABS.find((s) => s.key === soort) || {}).dynamicsTabel || ""} in Dynamics bestaan
+          maar nog niet in dit dossier zitten. Klik op <strong>Toevoegen</strong> om er één als veld op te nemen — hij verschijnt dan
+          bij "Niet ingedeeld" hierboven, klaar om in een rubriek te zetten en (eventueel) te hernoemen. Lookups (koppelingen naar een
+          persoon/relatie) en niet-ondersteunde typen worden hier niet getoond.
+        </div>
+        {kolommenOpen && (
+          <div>
+            {kolommenLaden ? (
+              <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Kolommen ophalen…</div>
+            ) : kolommenFout ? (
+              <div style={{ fontSize: 12.5, color: KLEUR.rood }}>
+                {kolommenFout}{" "}
+                <button onClick={laadBeschikbareKolommen} style={{ marginLeft: 6, background: "none", border: "none", color: KLEUR.blauw, fontWeight: 600, cursor: "pointer", padding: 0 }}>Opnieuw proberen</button>
+              </div>
+            ) : (beschikbareKolommen && beschikbareKolommen.length === 0) ? (
+              <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Geen ongebruikte kolommen gevonden — alle bestaande (ondersteunde) kolommen zitten al in dit dossier.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 340, overflowY: "auto" }}>
+                {(beschikbareKolommen || []).map((k) => (
+                  <div key={k.veld} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 6, background: "#FBFBF9" }}>
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, color: KLEUR.tekst, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={k.label}>{k.label}</span>
+                    <span style={{ fontFamily: "monospace", fontSize: 11, color: KLEUR.mutedTekst, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }} title={k.veld}>{k.veld}</span>
+                    <span style={{ fontSize: 10.5, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".02em" }}>{k.type}</span>
+                    <button
+                      onClick={() => voegBestaandeKolomToe(k)}
+                      disabled={kolomBezig === k.veld}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 10px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: kolomBezig === k.veld ? "default" : "pointer", opacity: kolomBezig === k.veld ? 0.6 : 1 }}
+                    >
+                      <Plus size={13} /> {kolomBezig === k.veld ? "Bezig…" : "Toevoegen"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
       </>)}
     </div>
