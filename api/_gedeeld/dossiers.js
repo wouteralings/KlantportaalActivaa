@@ -7,11 +7,23 @@
  * Zie het projectdoc "Dossiers (IB-VPB) — Dynamics-schema" voor de volledige veldenlijst en de
  * exacte option-set-waarden (die per tabel verschillen).
  */
-const { IB_VELDEN, IB_DYNAMISCHE_PICKLISTS, VPB_VELDEN, VPB_DYNAMISCHE_PICKLISTS } = require("./dossierVelden");
+const {
+  IB_VELDEN, IB_DYNAMISCHE_PICKLISTS,
+  VPB_VELDEN, VPB_DYNAMISCHE_PICKLISTS,
+  DIVIDEND_VELDEN, DIVIDEND_DYNAMISCHE_PICKLISTS,
+  NOTULEN_VELDEN, NOTULEN_DYNAMISCHE_PICKLISTS,
+} = require("./dossierVelden");
 
 const FV = "@OData.Community.Display.V1.FormattedValue";
+// Standaard-statuskolom (IB/VPB). Dividend/Notulen hebben een EIGEN statuskolom — zie
+// SOORTEN.<soort>.statusVeld hieronder; alle status-lees/schrijf gebruikt statusVeldVan(soort).
 const STATUS_VELD = "cr283_statusaangifte";
 const CLIENT_VALUE = "_cr283_client_value";
+
+// De statuskolom van een soort — cr283_statusaangifte tenzij de soort een eigen statusVeld heeft.
+function statusVeldVan(soort) {
+  return (soort && soort.statusVeld) || STATUS_VELD;
+}
 
 const HEADERS = (token) => ({
   Authorization: `Bearer ${token}`,
@@ -44,6 +56,19 @@ const STATUS_OPTIES_VPB = [
   { waarde: 601280003, label: "Aangifte verzenden naar client" },
   { waarde: 601280004, label: "Aangifte verzonden naar client" },
   { waarde: 601280005, label: "Aangifte verzonden naar Belastingdienst" },
+];
+// Status-optieset cr283_statusdividenduitkering (eigen kolom, NIET cr283_statusaangifte).
+const STATUS_OPTIES_DIVIDEND = [
+  { waarde: 601280000, label: "In bewerking" },
+  { waarde: 601280001, label: "Verzonden naar client" },
+  { waarde: 601280002, label: "Dividend getekend door client" },
+  { waarde: 601280003, label: "Dividend en dividend aangifte getekend door client" },
+];
+// Status-optieset cr283_statusnotulen (eigen kolom).
+const STATUS_OPTIES_NOTULEN = [
+  { waarde: 601280000, label: "In bewerking" },
+  { waarde: 601280001, label: "Ter akkoord naar client" },
+  { waarde: 601280002, label: "Getekend" },
 ];
 
 const SOORTEN = [
@@ -105,6 +130,50 @@ const SOORTEN = [
       // De volledige catalogus erbij: key → Dynamics-kolomnaam, zodat haalRuweRijen/haalEenDossier
       // ze meeselecteren (met dezelfde defensieve terugval bij een onbekende/foute kolomnaam).
       ...Object.fromEntries(VPB_VELDEN.map((v) => [v.key, v.veld])),
+    },
+  },
+  {
+    key: "dividend",
+    label: "Dividenduitkeringen",
+    entiteit: "cr283_dividenduitkering",
+    idVeld: "cr283_dividenduitkeringid",
+    // Eigen statuskolom (NIET cr283_statusaangifte) — zie statusVeldVan().
+    statusVeld: "cr283_statusdividenduitkering",
+    statusOpties: STATUS_OPTIES_DIVIDEND,
+    catalogus: DIVIDEND_VELDEN,
+    dynamischePicklists: DIVIDEND_DYNAMISCHE_PICKLISTS,
+    optioneel: {
+      // Periode = "Jaar" (net als IB geen bewerkbaar detailveld, wel de dossierperiode).
+      jaar: "cr283_jaar",
+      // Lookups: alleen-lezen naam getoond (zelfde als IB/VPB).
+      accountant: "_cr283_accountant_value",
+      assistent: "_cr283_assistent_value",
+      manager: "_cr283_manager_value",
+      groepsnaam: "_cr283_groepsnaam_value",
+      // Vaste dossierlink (geen aparte "Documentlink" op deze tabel).
+      urlDossier: "cr283_urldossier",
+      // De volledige catalogus erbij: key → Dynamics-kolomnaam (met defensieve terugval).
+      ...Object.fromEntries(DIVIDEND_VELDEN.map((v) => [v.key, v.veld])),
+    },
+  },
+  {
+    key: "notulen",
+    label: "Notulen",
+    entiteit: "cr283_notulen",
+    idVeld: "cr283_notulenid",
+    statusVeld: "cr283_statusnotulen",
+    statusOpties: STATUS_OPTIES_NOTULEN,
+    catalogus: NOTULEN_VELDEN,
+    dynamischePicklists: NOTULEN_DYNAMISCHE_PICKLISTS,
+    optioneel: {
+      // Geen jaar; de periode is de vergaderdatum (cr283_datum) — getoond als "Datum".
+      begindatum: "cr283_datum",
+      accountant: "_cr283_accountant_value",
+      assistent: "_cr283_assistent_value",
+      manager: "_cr283_manager_value",
+      groepsnaam: "_cr283_groepsnaam_value",
+      urlDossier: "cr283_urlnotulen",
+      ...Object.fromEntries(NOTULEN_VELDEN.map((v) => [v.key, v.veld])),
     },
   },
 ];
@@ -213,7 +282,7 @@ async function metDossiernaam(resource, token, soort) {
  */
 async function haalRuweRijen(resource, token, soort, accountIds) {
   const entitySet = await haalEntitySetNaam(resource, soort.entiteit, token);
-  const verplicht = [soort.idVeld, CLIENT_VALUE, STATUS_VELD, "statecode"];
+  const verplicht = [soort.idVeld, CLIENT_VALUE, statusVeldVan(soort), "statecode"];
   let optioneleVelden = Object.values(soort.optioneel);
 
   const filter = Array.isArray(accountIds) && accountIds.length
@@ -257,6 +326,7 @@ function catalogusVeldNaarBuiten(rij, veldDef) {
 
 function naarBuiten(rij, soort) {
   const o = soort.optioneel;
+  const statusVeld = statusVeldVan(soort);
   const basis = {
     id: rij[soort.idVeld],
     soort: soort.key,
@@ -269,8 +339,8 @@ function naarBuiten(rij, soort) {
     jaar: o.jaar ? (rij[o.jaar] ?? null) : null,
     begindatum: o.begindatum ? (rij[o.begindatum] || null) : null,
     einddatum: o.einddatum ? (rij[o.einddatum] || null) : null,
-    status: rij[STATUS_VELD] ?? null,
-    statusLabel: rij[STATUS_VELD + FV] || "",
+    status: rij[statusVeld] ?? null,
+    statusLabel: rij[statusVeld + FV] || "",
     // statecode 0 = Actief, 1 = Inactief. Ontbreekt het veld, dan behandelen we het als actief.
     statecode: rij.statecode ?? null,
     statecodeLabel: rij["statecode" + FV] || "",
@@ -334,7 +404,7 @@ async function haalDossiersVoorSoort(resource, token, soort, accountIds) {
 /** Eén dossier op id (voor het detail/bewerken). Zelfde defensieve terugval bij onbekende velden. */
 async function haalEenDossier(resource, token, soort, id) {
   const entitySet = await haalEntitySetNaam(resource, soort.entiteit, token);
-  const verplicht = [soort.idVeld, CLIENT_VALUE, STATUS_VELD, "statecode"];
+  const verplicht = [soort.idVeld, CLIENT_VALUE, statusVeldVan(soort), "statecode"];
   let optioneleVelden = Object.values(soort.optioneel);
   let poging = 0;
   const maxPogingen = optioneleVelden.length + 1;
@@ -394,7 +464,7 @@ async function werkDossierBij(resource, token, soort, id, velden) {
   const entitySet = await haalEntitySetNaam(resource, soort.entiteit, token);
   const body = {};
   if (velden.status !== undefined && velden.status !== null && velden.status !== "") {
-    body[STATUS_VELD] = Number(velden.status);
+    body[statusVeldVan(soort)] = Number(velden.status);
   }
   if (velden.actief !== undefined && velden.actief !== null) {
     body.statecode = velden.actief ? 0 : 1;
@@ -403,7 +473,7 @@ async function werkDossierBij(resource, token, soort, id, velden) {
   if (velden.urlDossier !== undefined && soort.optioneel.urlDossier) {
     body[soort.optioneel.urlDossier] = velden.urlDossier ? String(velden.urlDossier).slice(0, 2000) : null;
   }
-  if (velden.documentUrl !== undefined) {
+  if (velden.documentUrl !== undefined && soort.optioneel.documentUrl) {
     body[soort.optioneel.documentUrl] = velden.documentUrl ? String(velden.documentUrl).slice(0, 2000) : null;
   }
   // Reactie op de review-notitie (van de klant). Gebruikt door de goedkeuring van een klant-
@@ -509,7 +579,7 @@ async function maakDossier(resource, token, soort, opties) {
   // kolomnaam cr283_client) — uit de metadata halen, anders 0x80048d19 "undeclared property".
   const clientNav = await haalNavigatieNaam(resource, soort.entiteit, "cr283_client", token);
   const body = { [`${clientNav}@odata.bind`]: `/accounts(${accountId})` };
-  body[STATUS_VELD] = 601280000; // "In bewerking" — een nieuw dossier start altijd hier.
+  body[statusVeldVan(soort)] = 601280000; // "In bewerking" — een nieuw dossier start altijd hier.
   if (soort.optioneel.jaar && jaar !== undefined && jaar !== null && jaar !== "") {
     body[soort.optioneel.jaar] = Number(jaar);
   }

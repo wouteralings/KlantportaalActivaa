@@ -214,6 +214,119 @@ const SECTIE_TITELS_STANDAARD = {
 };
 const SECTIE_VOLGORDE_STANDAARD = ["algemeen", "boxi", "boxii", "boxiii", "review"];
 
+/**
+ * Volledige veldencatalogus voor Dividenduitkeringen (tabel cr283_dividenduitkering). Zelfde opzet
+ * als IB_VELDEN/VPB_VELDEN, config-gedreven en door Beheer → Dossiers zelf in te delen.
+ *
+ * Bron: rechtstreeks uit de Dynamics Web-API-metadata gehaald (EntityDefinitions
+ * (LogicalName='cr283_dividenduitkering')/Attributes, 12-08-2026) — alle custom, bewerkbare kolommen.
+ * Bewust NIET in deze vrije catalogus (lopen al via een eigen, vast pad in dossiers.js — SOORTEN.dividend):
+ *   - cr283_statusdividenduitkering → de vaste "Status" (__status; let op: eigen statuskolom, niet
+ *                           cr283_statusaangifte zoals bij IB/VPB — zie dossiers.js SOORTEN.dividend.statusVeld)
+ *   - cr283_urldossier      → de vaste "URL dossier" (__urlDossier)
+ *   - cr283_client / cr283_accountant / cr283_assistent / cr283_manager / cr283_groepsnaam
+ *                           → lookups, getoond als alleen-lezen naam (SOORTEN.dividend.optioneel)
+ *   - cr283_jaar            → de periode ("Jaar"), net als bij IB geen bewerkbaar detailveld
+ *   - cr283_dossier         → de primaire "Dossier"-tekstkolom (via metDossiernaam)
+ *   - cr283_voorzitter / cr283_notulist / cr283_aandeelhouder(1)..5 → lookups; niet in het portaal
+ *                           getoond (alleen de e-mailtekstvelden emailvoorzitter/emailnotulist wel)
+ *   - cr283_nieuwekolom     → verouderd/dubbel (label "Onderwerp"), overgeslagen net als bij IB/VPB
+ */
+const DIVIDEND_VELDEN = [
+  // Algemeen
+  { key: "soortdividenduitkering", veld: "cr283_soortdividenduitkering", type: "picklist", label: "Soort dividenduitkering", sectie: "algemeen" },
+  { key: "datumdividend", veld: "cr283_datumdividend", type: "datetime", label: "Datum dividend", sectie: "algemeen" },
+  { key: "bedragdividenduitkering", veld: "cr283_bedragdividenduitkering", type: "integer", label: "Bedrag dividenduitkering", sectie: "algemeen" },
+  { key: "uitkeringstest", veld: "cr283_uitkeringstest", type: "boolean", label: "Uitkeringstest uitgevoerd", sectie: "algemeen" },
+  { key: "urlpermanentdossier", veld: "cr283_urlpermanentdossier", type: "vast-url", label: "URL permanent dossier", sectie: "algemeen" },
+
+  // Dividendbelasting
+  { key: "dividendbelasting", veld: "cr283_dividendbelasting", type: "boolean", label: "Dividendbelasting", sectie: "belasting" },
+  { key: "dividenduitkeringaannatuurlijkpersoon", veld: "cr283_dividenduitkeringaannatuurlijkpersoon", type: "boolean", label: "Uitkering aan natuurlijk persoon", sectie: "belasting" },
+  { key: "dividenduitkeringaanbuitenlandslichaam", veld: "cr283_dividenduitkeringaanbuitenlandslichaam", type: "boolean", label: "Uitkering aan buitenlands lichaam", sectie: "belasting" },
+  { key: "sprakevanuitkeringmetverdragstoepassing", veld: "cr283_sprakevanuitkeringmetverdragstoepassing", type: "string", label: "Uitkering met verdragstoepassing", sectie: "belasting" },
+
+  // Aandeelhouders
+  { key: "aantalaandeelhouders", veld: "cr283_aantalaandeelhouders", type: "picklist", label: "Aantal aandeelhouders", sectie: "aandeelhouders" },
+  { key: "aantalaandeelhoudersgeenklant", veld: "cr283_aantalaandeelhoudersgeenklant", type: "picklist", label: "Aantal aandeelhouders (geen klant)", sectie: "aandeelhouders" },
+  { key: "aandeelhoudergeenklant", veld: "cr283_aandeelhoudergeenklant", type: "boolean", label: "Aandeelhouder is geen klant", sectie: "aandeelhouders" },
+  { key: "aandeelhouders1", veld: "cr283_aandeelhouders1", type: "decimal", label: "Aandeelhouder 1 (%)", sectie: "aandeelhouders" },
+  { key: "aandeelhouders2", veld: "cr283_aandeelhouders2", type: "decimal", label: "Aandeelhouder 2 (%)", sectie: "aandeelhouders" },
+  { key: "aandeelhouders3", veld: "cr283_aandeelhouders3", type: "decimal", label: "Aandeelhouder 3 (%)", sectie: "aandeelhouders" },
+  { key: "aandeelhouders4", veld: "cr283_aandeelhouders4", type: "decimal", label: "Aandeelhouder 4 (%)", sectie: "aandeelhouders" },
+  { key: "aandeelhouders5", veld: "cr283_aandeelhouders5", type: "decimal", label: "Aandeelhouder 5 (%)", sectie: "aandeelhouders" },
+  { key: "aandeelhouders6", veld: "cr283_aandeelhouders6", type: "decimal", label: "Aandeelhouder 6 (%)", sectie: "aandeelhouders" },
+  { key: "aandeelhouders7", veld: "cr283_aandeelhouders7", type: "decimal", label: "Aandeelhouder 7 (%)", sectie: "aandeelhouders" },
+  { key: "aandeelhouder6", veld: "cr283_aandeelhouder6", type: "string", label: "Aandeelhouder 6 (naam)", sectie: "aandeelhouders" },
+  { key: "aandeelhouder7", veld: "cr283_aandeelhouder7", type: "string", label: "Aandeelhouder 7 (naam)", sectie: "aandeelhouders" },
+
+  // Vergadering (AvA)
+  { key: "emailvoorzitter", veld: "cr283_emailvoorzitter", type: "string", label: "E-mail voorzitter", sectie: "vergadering" },
+  { key: "emailnotulist", veld: "cr283_emailnotulist", type: "string", label: "E-mail notulist", sectie: "vergadering" },
+
+  // Opmerkingen
+  { key: "opmerkingen", veld: "cr283_opmerkingen", type: "memo", label: "Opmerkingen", sectie: "opmerkingen" },
+];
+const DIVIDEND_DYNAMISCHE_PICKLISTS = DIVIDEND_VELDEN.filter((v) => v.type === "picklist").map((v) => v.veld);
+const DIVIDEND_SECTIE_TITELS_STANDAARD = {
+  algemeen: "Algemeen",
+  belasting: "Dividendbelasting",
+  aandeelhouders: "Aandeelhouders",
+  vergadering: "Vergadering (AvA)",
+  opmerkingen: "Opmerkingen",
+};
+const DIVIDEND_SECTIE_VOLGORDE_STANDAARD = ["algemeen", "belasting", "aandeelhouders", "vergadering", "opmerkingen"];
+
+/**
+ * Volledige veldencatalogus voor Notulen (tabel cr283_notulen). Zelfde opzet als hierboven.
+ *
+ * Bron: Dynamics Web-API-metadata (EntityDefinitions(LogicalName='cr283_notulen')/Attributes,
+ * 12-08-2026). Bewust NIET in de vrije catalogus (lopen via SOORTEN.notulen in dossiers.js):
+ *   - cr283_statusnotulen   → de vaste "Status" (__status; eigen statuskolom, zie SOORTEN.notulen.statusVeld)
+ *   - cr283_urlnotulen      → de vaste "URL dossier" (__urlDossier)
+ *   - cr283_client / cr283_accountant / cr283_assistent / cr283_manager / cr283_groepsnaam → lookups
+ *   - cr283_datum           → de periode ("Datum"), net als "jaar" bij IB geen bewerkbaar detailveld
+ *   - cr283_dossier         → de primaire "Notulen"-tekstkolom (via metDossiernaam)
+ *   - cr283_voorzitter / cr283_notulist / cr283_aandeelhouder1..5 → lookups; niet getoond
+ *   - cr283_nieuwekolom (label "Notulen"), cr283_aandeelhouder7, cr283_cr283_aandeelhouder6 →
+ *                           verouderd/dubbel, overgeslagen
+ */
+const NOTULEN_VELDEN = [
+  // Algemeen
+  { key: "soortnotulen", veld: "cr283_soortnotulen", type: "picklist", label: "Soort notulen", sectie: "algemeen" },
+  { key: "datumnotulen", veld: "cr283_datumnotulen", type: "string", label: "Datum notulen (tekst)", sectie: "algemeen" },
+  { key: "datumactie", veld: "cr283_datumactie", type: "datetime", label: "Datum actie", sectie: "algemeen" },
+  { key: "directeur", veld: "cr283_directeur", type: "string", label: "Directeur", sectie: "algemeen" },
+  { key: "bedrag", veld: "cr283_bedrag", type: "integer", label: "Bedrag", sectie: "algemeen" },
+  { key: "percentage", veld: "cr283_percentage", type: "decimal", label: "Percentage", sectie: "algemeen" },
+
+  // Aandeelhouders
+  { key: "aantalaandeelhouders", veld: "cr283_aantalaandeelhouders", type: "picklist", label: "Aantal aandeelhouders", sectie: "aandeelhouders" },
+  { key: "aantalaandeelhoudersgeenklant", veld: "cr283_aantalaandeelhoudersgeenklant", type: "picklist", label: "Aantal aandeelhouders (geen klant)", sectie: "aandeelhouders" },
+  { key: "aandeelhoudergeenklant", veld: "cr283_aandeelhoudergeenklant", type: "boolean", label: "Aandeelhouder is geen klant", sectie: "aandeelhouders" },
+  { key: "aandeelhouders1", veld: "cr283_aandeelhouders1", type: "decimal", label: "Aandeelhouder 1 (%)", sectie: "aandeelhouders" },
+  { key: "aandeelhouders2", veld: "cr283_aandeelhouders2", type: "decimal", label: "Aandeelhouder 2 (%)", sectie: "aandeelhouders" },
+  { key: "aandeelhouders3", veld: "cr283_aandeelhouders3", type: "decimal", label: "Aandeelhouder 3 (%)", sectie: "aandeelhouders" },
+  { key: "aandeelhouders4", veld: "cr283_aandeelhouders4", type: "decimal", label: "Aandeelhouder 4 (%)", sectie: "aandeelhouders" },
+  { key: "aandeelhouders5", veld: "cr283_aandeelhouders5", type: "decimal", label: "Aandeelhouder 5 (%)", sectie: "aandeelhouders" },
+
+  // Vergadering (AvA)
+  { key: "emailvoorzitter", veld: "cr283_emailvoorzitter", type: "string", label: "E-mail voorzitter", sectie: "vergadering" },
+  { key: "emailnotulist", veld: "cr283_emailnotulist", type: "string", label: "E-mail notulist", sectie: "vergadering" },
+
+  // Toelichting
+  { key: "extratoelichting", veld: "cr283_extratoelichting", type: "boolean", label: "Extra toelichting van toepassing", sectie: "toelichting" },
+  { key: "toelichting", veld: "cr283_toelichting", type: "memo", label: "Toelichting", sectie: "toelichting" },
+];
+const NOTULEN_DYNAMISCHE_PICKLISTS = NOTULEN_VELDEN.filter((v) => v.type === "picklist").map((v) => v.veld);
+const NOTULEN_SECTIE_TITELS_STANDAARD = {
+  algemeen: "Algemeen",
+  aandeelhouders: "Aandeelhouders",
+  vergadering: "Vergadering (AvA)",
+  toelichting: "Toelichting",
+};
+const NOTULEN_SECTIE_VOLGORDE_STANDAARD = ["algemeen", "aandeelhouders", "vergadering", "toelichting"];
+
 /** De drie "vaste" dossiervelden (Status van de aangifte / URL dossier / Documentlink) zijn GEEN
  * onderdeel van de vrije veldencatalogus hierboven — ze staan al vast in dossiers.js
  * (werkDossierBij/naarBuiten, elk met hun eigen Dynamics-kolom per soort) en blijven dat ook.
@@ -301,9 +414,53 @@ function standaardIndelingVPB() {
   };
 }
 
-/** Minimale standaardindeling voor soorten zonder eigen veldencatalogus (vooralsnog VPB) — alleen
- * de vaste velden die voor die soort gelden, in één "Algemeen"-sectie. Zorgt dat Status/links
- * gewoon blijven verschijnen ook al heeft VPB (nog) geen eigen Beheer-indeling. */
+/** Standaardindeling voor Dividenduitkeringen — spiegelt de secties (Algemeen / Dividendbelasting /
+ * Aandeelhouders / Vergadering / Opmerkingen). Zelfde structuur als standaardIndelingIB(): de vaste
+ * velden (Status/URL dossier) staan vooraan in "Algemeen". Deze soort heeft geen "Documentlink"
+ * (geen cr283_urluitgaandedocumenten), dus __documentUrl komt hier bewust niet voor. */
+function standaardIndelingDividend() {
+  return {
+    secties: DIVIDEND_SECTIE_VOLGORDE_STANDAARD.map((sleutel, i) => ({
+      sleutel,
+      titel: DIVIDEND_SECTIE_TITELS_STANDAARD[sleutel],
+      velden: i === 0
+        ? ["__status", "__urlDossier", ...DIVIDEND_VELDEN.filter((v) => v.sectie === sleutel).map((v) => v.key)]
+        : DIVIDEND_VELDEN.filter((v) => v.sectie === sleutel).map((v) => v.key),
+      subsecties: [],
+    })),
+    verborgen: [],
+    voorwaarden: {},
+    alleenLezen: [],
+    labels: {},
+    aangepasteVelden: [],
+    onderwerpId: "",
+  };
+}
+
+/** Standaardindeling voor Notulen — spiegelt de secties (Algemeen / Aandeelhouders / Vergadering /
+ * Toelichting). Zelfde structuur als hierboven; ook hier alleen __status + __urlDossier vooraan. */
+function standaardIndelingNotulen() {
+  return {
+    secties: NOTULEN_SECTIE_VOLGORDE_STANDAARD.map((sleutel, i) => ({
+      sleutel,
+      titel: NOTULEN_SECTIE_TITELS_STANDAARD[sleutel],
+      velden: i === 0
+        ? ["__status", "__urlDossier", ...NOTULEN_VELDEN.filter((v) => v.sectie === sleutel).map((v) => v.key)]
+        : NOTULEN_VELDEN.filter((v) => v.sectie === sleutel).map((v) => v.key),
+      subsecties: [],
+    })),
+    verborgen: [],
+    voorwaarden: {},
+    alleenLezen: [],
+    labels: {},
+    aangepasteVelden: [],
+    onderwerpId: "",
+  };
+}
+
+/** Minimale standaardindeling voor soorten zonder eigen veldencatalogus — alleen de vaste velden
+ * die voor die soort gelden, in één "Algemeen"-sectie. Zorgt dat Status/links gewoon blijven
+ * verschijnen ook al heeft een soort (nog) geen eigen Beheer-indeling. */
 function standaardIndelingOverig(soort) {
   return {
     secties: [{ sleutel: "algemeen", titel: "Algemeen", velden: vasteVeldenVoorSoort(soort).map((v) => v.key), subsecties: [] }],
@@ -326,7 +483,10 @@ function metLabels(catalogus, labels) {
 }
 
 function veldOpKey(key) {
-  return IB_VELDEN.find((v) => v.key === key) || VPB_VELDEN.find((v) => v.key === key);
+  return IB_VELDEN.find((v) => v.key === key)
+    || VPB_VELDEN.find((v) => v.key === key)
+    || DIVIDEND_VELDEN.find((v) => v.key === key)
+    || NOTULEN_VELDEN.find((v) => v.key === key);
 }
 
 module.exports = {
@@ -334,8 +494,14 @@ module.exports = {
   IB_DYNAMISCHE_PICKLISTS,
   VPB_VELDEN,
   VPB_DYNAMISCHE_PICKLISTS,
+  DIVIDEND_VELDEN,
+  DIVIDEND_DYNAMISCHE_PICKLISTS,
+  NOTULEN_VELDEN,
+  NOTULEN_DYNAMISCHE_PICKLISTS,
   standaardIndelingIB,
   standaardIndelingVPB,
+  standaardIndelingDividend,
+  standaardIndelingNotulen,
   standaardIndelingOverig,
   vasteVeldenVoorSoort,
   metLabels,

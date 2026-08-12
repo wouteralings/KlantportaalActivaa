@@ -80,7 +80,7 @@ const WIJZIG_VELD_LABELS = {
   reactie: "Reactie op review-notitie",
 };
 
-const DOSSIER_SOORT_LABEL = { ib: "Inkomstenbelasting", vpb: "Vennootschapsbelasting" };
+const DOSSIER_SOORT_LABEL = { ib: "Inkomstenbelasting", vpb: "Vennootschapsbelasting", dividend: "Dividenduitkeringen", notulen: "Notulen" };
 
 function StatusBadge({ status }) {
   const kleuren = {
@@ -1678,7 +1678,8 @@ const KLANTEN_SUBTABS = [
   { key: "contracten", label: "Contracten", icon: FileSignature, alleenMet: "contracten" },
   { key: "ib", label: "Inkomstenbelasting", icon: FileText, watKomtEr: "Per cliënt de inkomstenbelasting-aangiftes: jaar, status, behandelaar en deadline, zodat je in één lijst ziet wat nog open staat en bij wie het ligt." },
   { key: "vpb", label: "Vennootschapsbelasting", icon: Building2, watKomtEr: "Per cliënt de vennootschapsbelasting-aangiftes: jaar, status, behandelaar en deadline, inclusief fiscale eenheden waar die van toepassing zijn." },
-  { key: "divb", label: "Dividendbelasting", icon: Coins, watKomtEr: "Per cliënt de dividendbelasting-aangiftes: aangiftedatum, uitgekeerd dividend, status en behandelaar." },
+  { key: "dividend", label: "Dividenduitkeringen", icon: Coins, watKomtEr: "Per cliënt de dividenduitkeringen: datum, uitgekeerd dividend, status en behandelaar." },
+  { key: "notulen", label: "Notulen", icon: BookOpen, watKomtEr: "Per cliënt de notulen (aandeelhouders-/directiebesluiten): datum, soort, status en behandelaar." },
   { key: "lonen", label: "Lonen", icon: Wallet, watKomtEr: "De loonadministratie per cliënt: aangifteperiode, status, verantwoordelijke loonadministratie en aantal werknemers." },
 ];
 
@@ -1750,8 +1751,8 @@ function KlantenModule({ magContracten = false, isBeheerder = false, magPlanning
         {sub === "contactpersonen" && <ContactpersonenOverzicht />}
         {sub === "brieven" && <BrievenTab />}
         {sub === "contracten" && (magContracten || isBeheerder) && <ContractenOverzicht />}
-        {(sub === "ib" || sub === "vpb") && <MedewerkerDossiers soort={sub} />}
-        {(sub === "divb" || sub === "lonen") && <NogInTeRichten titel={actief.label} watKomtEr={actief.watKomtEr} />}
+        {(sub === "ib" || sub === "vpb" || sub === "dividend" || sub === "notulen") && <MedewerkerDossiers soort={sub} />}
+        {sub === "lonen" && <NogInTeRichten titel={actief.label} watKomtEr={actief.watKomtEr} />}
       </div>
     </div>
   );
@@ -1767,6 +1768,13 @@ function dossierBoekjaar(d) {
   const tot = jr(d.einddatum);
   if (van && tot && van !== tot) return `${van}–${tot}`;
   return String(van || tot || "");
+}
+// Datumweergave voor soorten met een datum-periode i.p.v. een jaar (Notulen: cr283_datum) —
+// nl-NL-notatie (dd-mm-jjjj), leeg als er geen (geldige) datum is.
+function formatteerDossierDatum(s) {
+  if (!s) return "";
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? "" : d.toLocaleDateString("nl-NL");
 }
 
 // Kolomdefinities voor de dossieroverzichten (IB/VPB) — zelfde patroon (cel/label/sorteren via
@@ -2006,7 +2014,7 @@ function MedewerkerDossiers({ soort }) {
   const autoOpslaanTimerRef = useRef(null);
 
   const scherm = "dossiers-" + soort; // eigen namespace voor opgeslagen weergaven (zie api/_gedeeld/weergaven.js)
-  const soortLabelText = soort === "vpb" ? "Vennootschapsbelasting" : "Inkomstenbelasting";
+  const soortLabelText = DOSSIER_SOORT_LABEL[soort] || "Inkomstenbelasting";
 
   // Verwijder-recht voor déze dossiersoort ophalen (per soort een ander recht — magVerwijderIb/magVerwijderVpb),
   // en het algemene klant-wijzigrecht (zelfde recht als de klantkaart) voor de ingebedde "Vaste uitvragen".
@@ -2016,7 +2024,9 @@ function MedewerkerDossiers({ soort }) {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => {
         if (!actief) return;
-        setMagVerwijderen(!!d.beheerder || !!(soort === "vpb" ? d.magVerwijderVpb : d.magVerwijderIb));
+        // Per soort een eigen verwijder-recht; dividend/notulen hebben geen los recht → alleen beheerder.
+        const soortRecht = soort === "vpb" ? d.magVerwijderVpb : soort === "ib" ? d.magVerwijderIb : false;
+        setMagVerwijderen(!!d.beheerder || !!soortRecht);
         setMagWijzigen(!!d.magWijzigen);
       })
       .catch(() => { if (actief) { setMagVerwijderen(false); setMagWijzigen(false); } });
@@ -2068,8 +2078,11 @@ function MedewerkerDossiers({ soort }) {
     return () => { actief = false; };
   }, [soort]);
 
-  const periodeLabel = soort === "vpb" ? "Boekjaar" : "Jaar";
-  const periode = (d) => (d.jaar != null && d.jaar !== "" ? String(d.jaar) : dossierBoekjaar(d));
+  const periodeLabel = soort === "vpb" ? "Boekjaar" : soort === "notulen" ? "Datum" : "Jaar";
+  const periode = (d) =>
+    soort === "notulen"
+      ? formatteerDossierDatum(d.begindatum)
+      : (d.jaar != null && d.jaar !== "" ? String(d.jaar) : dossierBoekjaar(d));
   const KOLOMMEN = dossierKolommen(periodeLabel, periode, extraKolommen);
   const alleKeys = KOLOMMEN.map((c) => c.key);
   useEffect(() => {
@@ -2166,7 +2179,7 @@ function MedewerkerDossiers({ soort }) {
     return (
       <DossierDetail
         dossier={detail.dossier}
-        soortLabel={detail.dossier.soortLabel || (soort === "vpb" ? "Vennootschapsbelasting" : "Inkomstenbelasting")}
+        soortLabel={detail.dossier.soortLabel || DOSSIER_SOORT_LABEL[soort] || "Inkomstenbelasting"}
         periodeLabel={periodeLabel}
         periode={periode}
         statusOpties={detail.statusOpties || statusOpties}

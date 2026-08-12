@@ -100,6 +100,8 @@ function VeldRij({ veldKey, veld, weergaveLabel, pad, padOpties, index, laatsteI
 const SOORTEN_TABS = [
   { key: "ib", label: "Inkomstenbelasting", dynamicsTabel: "Inkomstenbelasting" },
   { key: "vpb", label: "Vennootschapsbelasting", dynamicsTabel: "Vennootschapsbelasting" },
+  { key: "dividend", label: "Dividenduitkeringen", dynamicsTabel: "Dividenduitkering" },
+  { key: "notulen", label: "Notulen", dynamicsTabel: "Notulen" },
 ];
 
 // Eén zelfstandig, inklapbaar indeling-paneel voor één dossiersoort (ib of vpb). De pagina rendert er
@@ -159,8 +161,14 @@ function SoortIndelingPaneel({ soort }) {
   const kTaakOnderwerp = `aangifteTaakOnderwerpTemplate${aangSuffix}`;
   const kTaakSoort = `aangifteTaakSoort${aangSuffix}`;
   const kTaakRubriek = `aangifteTaakRubriek${aangSuffix}`;
-  const soortWoord = soort === "vpb" ? "vennootschapsbelasting" : "inkomstenbelasting";
-  const soortLabelKort = soort === "vpb" ? "VPB" : "IB";
+  const soortWoord = soort === "vpb" ? "vennootschapsbelasting"
+    : soort === "dividend" ? "dividenduitkering"
+    : soort === "notulen" ? "notulen"
+    : "inkomstenbelasting";
+  const soortLabelKort = soort === "vpb" ? "VPB"
+    : soort === "dividend" ? "Dividend"
+    : soort === "notulen" ? "Notulen"
+    : "IB";
 
   // Zet de losse werk-states vanuit één (soort-)indelingsobject — de opgeslagen indeling, of de
   // standaardindeling van de soort als er nog niets eigens is opgeslagen.
@@ -610,7 +618,10 @@ function SoortIndelingPaneel({ soort }) {
       </div>
 
       {/* De "Aangifte versturen"-sjablonen (bestandsnaam/mail/opslag+taak) horen bij de aangifte-
-          dropzones in het dossier — per soort apart in te stellen. */}
+          dropzones in het dossier — per soort apart in te stellen. Alleen relevant voor de soorten
+          met een "Aangifte versturen"-flow in het portaal (IB/VPB); voor Dividend/Notulen verborgen. */}
+      {(soort === "ib" || soort === "vpb") && (
+      <>
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14, marginBottom: 18, background: KLEUR.lichtblauw }}>
         <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Bestandsnaam — aangifte versturen</div>
         <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 10, maxWidth: 640 }}>
@@ -768,6 +779,8 @@ function SoortIndelingPaneel({ soort }) {
           {taakInstellingStatus === "fout" && <span style={{ fontSize: 11.5, color: KLEUR.rood }}>Opslaan mislukt</span>}
         </div>
       </div>
+      </>
+      )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 18 }}>
         {(secties || []).map((sectie, sectieIndex) => {
@@ -937,7 +950,7 @@ function SoortIndelingPaneel({ soort }) {
           <Sparkles size={14} color={KLEUR.blauw} /> Nieuw veld aanmaken
         </div>
         <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 10, maxWidth: 640 }}>
-          Maakt een echte nieuwe kolom aan op de tabel Inkomstenbelasting in Dynamics en zet het
+          Maakt een echte nieuwe kolom aan op de tabel {(SOORTEN_TABS.find((s) => s.key === soort) || {}).dynamicsTabel || "Inkomstenbelasting"} in Dynamics en zet het
           veld daarna klaar bij "Niet ingedeeld" hierboven. Keuzelijsten (met eigen opties) kunnen
           op deze manier nog niet aangemaakt worden.
         </div>

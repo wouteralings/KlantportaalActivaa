@@ -47,7 +47,7 @@
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const { SOORTEN, haalEenDossier, werkDossierBij, verwijderDossier, haalDynamischePicklistOpties, metAangepasteVelden } = require("../_gedeeld/dossiers");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
-const { standaardIndelingIB, standaardIndelingVPB, standaardIndelingOverig, vasteVeldenVoorSoort, metLabels } = require("../_gedeeld/dossierVelden");
+const { standaardIndelingIB, standaardIndelingVPB, standaardIndelingDividend, standaardIndelingNotulen, standaardIndelingOverig, vasteVeldenVoorSoort, metLabels } = require("../_gedeeld/dossierVelden");
 const { haalVoorAccounts, haalLaatstGezien, verrijkVerzoek } = require("../_gedeeld/aanleververzoeken");
 const { haalOnderwerpen } = require("../_gedeeld/aanleveronderwerpen");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
@@ -60,7 +60,11 @@ const { magVerwijderIb, magVerwijderVpb } = require("../_gedeeld/wijzigrechten")
  * krijgen een minimale standaardindeling met alleen de vaste velden (Status/links), zodat die
  * blijven verschijnen ook zonder Beheer-indeling. */
 async function haalIndeling(soort) {
-  const standaard = soort.key === "ib" ? standaardIndelingIB() : soort.key === "vpb" ? standaardIndelingVPB() : standaardIndelingOverig(soort);
+  const standaard = soort.key === "ib" ? standaardIndelingIB()
+    : soort.key === "vpb" ? standaardIndelingVPB()
+    : soort.key === "dividend" ? standaardIndelingDividend()
+    : soort.key === "notulen" ? standaardIndelingNotulen()
+    : standaardIndelingOverig(soort);
   try {
     const { dossierIndeling } = await haalInstellingen();
     const eigen = dossierIndeling && dossierIndeling[soort.key];
@@ -190,7 +194,11 @@ module.exports = async function (context, req) {
 
       // ── Dossier definitief verwijderen (gate: beheerder, of het verwijder-recht voor deze soort) ──
       if (actie === "verwijderen") {
-        const rechthebbendeFunctie = soort.key === "vpb" ? magVerwijderVpb : magVerwijderIb;
+        // Per soort een eigen verwijder-recht. Soorten zonder eigen recht (dividend/notulen) mogen
+        // alleen door een beheerder verwijderd worden — nooit via het IB/VPB-recht.
+        const rechthebbendeFunctie = soort.key === "vpb" ? magVerwijderVpb
+          : soort.key === "ib" ? magVerwijderIb
+          : (async (_email, isBeheerder) => isBeheerder);
         if (!(await rechthebbendeFunctie(email, rollen.includes("beheerder")))) {
           context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: `Je hebt geen rechten om ${soort.label.toLowerCase()}-dossiers te verwijderen. Vraag een beheerder om dit recht toe te kennen via Beheer → Medewerkers.` } };
           return;

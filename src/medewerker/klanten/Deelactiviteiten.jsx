@@ -11,7 +11,9 @@
  * Status + per-klant-aanpassingen via /api/mw-planning-deelactiviteiten.
  */
 import { useState, useEffect, useMemo } from "react";
-import { ListChecks, ChevronLeft, ChevronRight, Search, CheckSquare, Square, Settings2, Plus, Trash2, X, RotateCcw, CheckCircle2 } from "lucide-react";
+import { ListChecks, ChevronLeft, ChevronRight, Search, CheckSquare, Square, Settings2, Plus, Trash2, X, RotateCcw, CheckCircle2, User, Users, Building2 } from "lucide-react";
+import { useMijnNaam } from "../MijnFilter";
+import { Paginatie, pagineer, getoondAantal } from "./PlanningUI";
 
 const KLEUR = {
   blauw: "#1C5D8C", tekst: "#1C2321", subtekst: "#5B6259", mutedTekst: "#8A9089", rand: "#E2E4DF",
@@ -59,8 +61,13 @@ export default function Deelactiviteiten() {
   const [klantDeelstappen, setKlantDeelstappen] = useState({}); // { "acc|act": [ {sleutel,label} ] }
   const [fout, setFout] = useState("");
   const [openCel, setOpenCel] = useState(null);       // { acc, actSleutel } → aftekenpopup
+  const { mijnNaam } = useMijnNaam();
+  const [scope, setScope] = useState("kantoor"); // mijzelf | team | kantoor — welke uitvoerders tonen
+  const [teamNamen, setTeamNamen] = useState(() => new Set()); // "mijn team" (uit de capaciteits-scope)
+  const [toon, setToon] = useState(25); // paginagrootte
 
   const periode = type === "maand" ? `${jaar}-${pad(maand)}` : `${jaar}`;
+  const mijnLc = String(mijnNaam || "").trim().toLowerCase();
   const activiteitById = useMemo(() => Object.fromEntries(activiteiten.map((a) => [a.sleutel, a])), [activiteiten]);
 
   useEffect(() => {
@@ -75,6 +82,16 @@ export default function Deelactiviteiten() {
       .then((d) => { setStatus(d.status || {}); setKlantDeelstappen(d.klantDeelstappen || {}); })
       .catch(() => { setStatus({}); setKlantDeelstappen({}); });
   }, [periode]);
+
+  // "Mijn team" = de medewerkers uit de capaciteits-scope (jouw leidinggevende-team + jezelf) — voor de
+  // scope-knop. Alleen zichtbaar op dit Planning-scherm (planning-recht), dus deze fetch mag hier.
+  useEffect(() => {
+    const q = type === "maand" ? `maand=${jaar}-${pad(maand)}` : `jaar=${jaar}`;
+    fetch(`/api/mw-planning-capaciteit?${q}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setTeamNamen(new Set((d.medewerkers || []).map((m) => String(m.naam || "").trim().toLowerCase()).filter(Boolean))))
+      .catch(() => setTeamNamen(new Set()));
+  }, [type, jaar, maand]);
 
   const maandActs = useMemo(() => activiteiten.filter((a) => (a.type || "maand") === "maand" && a.actief !== false), [activiteiten]);
   const jaarActs = useMemo(() => activiteiten.filter((a) => (a.type || "maand") === "jaar" && a.actief !== false), [activiteiten]);
@@ -101,8 +118,12 @@ export default function Deelactiviteiten() {
     for (const r of config) {
       if (r.actief === false) continue;
       const act = activiteitById[r.activiteit];
-      if (!act || (act.type || "maand") !== type) continue;
-      if (type === "maand" && !valtInMaand(r, maand)) continue;
+      if (!act) continue;
+      // Per maand: ALLES wat déze maand afmoet (maandelijks/kwartaal in de maand; jaar-/eenmalige taken
+      // in hun uitvoermaand) — ongeacht het activiteit-type, zodat je ook een jaartaak die deze maand
+      // valt hier kunt aftekenen. Per jaar: de jaar-activiteiten (het jaaroverzicht).
+      if (type === "maand") { if (!valtInMaand(r, maand)) continue; }
+      else if ((act.type || "maand") !== "jaar") continue;
       const acc = String(r.klantAccountId || "").toLowerCase();
       if (!map.has(acc)) map.set(acc, { acc, acts: new Map(), uitvoerders: new Set() });
       const e = map.get(acc);
@@ -146,10 +167,15 @@ export default function Deelactiviteiten() {
     return perKlant.filter((row) => {
       if (teamFilter !== "alle" && row.team !== teamFilter) return false;
       if (activiteitFilter !== "alle" && !row.perAct[activiteitFilter]) return false;
+      if (scope !== "kantoor") {
+        const namen = row.uitvoerders.map((n) => String(n).trim().toLowerCase());
+        if (scope === "mijzelf" && (!mijnLc || !namen.includes(mijnLc))) return false;
+        if (scope === "team" && !namen.some((n) => teamNamen.has(n))) return false;
+      }
       if (zl) { const hooi = `${row.klantnummer} ${row.klantnaam} ${row.klantgroep} ${row.uitvoerders.join(" ")}`.toLowerCase(); if (!hooi.includes(zl)) return false; }
       return true;
     });
-  }, [perKlant, teamFilter, activiteitFilter, zoek]);
+  }, [perKlant, teamFilter, activiteitFilter, zoek, scope, mijnLc, teamNamen]);
 
   const openstaand = gefilterd.filter((r) => !r.afgewikkeld);
   const afgewikkeld = gefilterd.filter((r) => r.afgewikkeld);
@@ -207,6 +233,15 @@ export default function Deelactiviteiten() {
       </div>
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", margin: "8px 0 12px" }}>
+        <div style={{ display: "inline-flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${KLEUR.rand}` }}>
+          {[["mijzelf", "Mijzelf", User], ["team", "Mijn team", Users], ["kantoor", "Kantoorbreed", Building2]].map(([val, label, Icon], i) => (
+            <button key={val} onClick={() => setScope(val)} title={val === "team" ? "Werk van jouw team (leidinggevende-scope)" : val === "mijzelf" ? "Alleen aan jou toegewezen werk" : "Iedereen (kantoorbreed)"} style={{
+              display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer",
+              border: "none", borderLeft: i ? `1px solid ${KLEUR.rand}` : "none",
+              background: scope === val ? KLEUR.blauw : "#fff", color: scope === val ? "#fff" : KLEUR.subtekst,
+            }}><Icon size={13} /> {label}</button>
+          ))}
+        </div>
         <label style={{ display: "inline-flex", alignItems: "center", gap: 5, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "3px 8px", background: "#fff" }}>
           <Search size={13} color={KLEUR.mutedTekst} />
           <input value={zoek} onChange={(e) => setZoek(e.target.value)} placeholder="Zoek medewerker, klant of groep…" style={{ border: "none", outline: "none", fontSize: 12, width: 190 }} />
@@ -242,6 +277,7 @@ export default function Deelactiviteiten() {
       ) : kolommen.length === 0 ? (
         <div style={{ color: KLEUR.mutedTekst, fontSize: 13, padding: "16px 0" }}>Geen {type}activiteiten in de planning voor deze periode.</div>
       ) : (
+        <>
         <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10 }}>
           <table style={{ borderCollapse: "collapse", minWidth: 720 }}>
             <thead><tr>
@@ -249,7 +285,7 @@ export default function Deelactiviteiten() {
               {kolommen.map((a) => <th key={a.sleutel} style={{ ...th, minWidth: 96 }}>{a.label}</th>)}
             </tr></thead>
             <tbody>
-              {zichtbaar.map((row) => (
+              {pagineer(zichtbaar, toon).map((row) => (
                 <tr key={row.acc}>
                   <td style={{ ...td, position: "sticky", left: 0, background: "#fff", zIndex: 1, boxShadow: `1px 0 0 ${KLEUR.rand}` }}>
                     <div style={{ fontWeight: 600 }}>{row.klantnummer}{row.afgewikkeld && <CheckCircle2 size={13} color={KLEUR.groen} style={{ marginLeft: 6, verticalAlign: "middle" }} />}</div>
@@ -262,6 +298,8 @@ export default function Deelactiviteiten() {
             </tbody>
           </table>
         </div>
+        {zichtbaar.length > 0 && <Paginatie totaal={zichtbaar.length} getoond={getoondAantal(zichtbaar.length, toon)} grootte={toon} setGrootte={setToon} eenheid="klanten" />}
+        </>
       )}
 
       <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8, lineHeight: 1.5 }}>

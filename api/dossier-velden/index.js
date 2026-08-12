@@ -17,14 +17,17 @@
  */
 const { haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const { SOORTEN } = require("../_gedeeld/dossiers");
-const { vasteVeldenVoorSoort, metLabels, standaardIndelingIB, standaardIndelingVPB, standaardIndelingOverig } = require("../_gedeeld/dossierVelden");
+const { vasteVeldenVoorSoort, metLabels, standaardIndelingIB, standaardIndelingVPB, standaardIndelingDividend, standaardIndelingNotulen, standaardIndelingOverig } = require("../_gedeeld/dossierVelden");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
 
 // De standaardindeling van een soort — zodat Beheer → Dossiers een nog niet geconfigureerde soort
-// (bijv. VPB voordat er iets is opgeslagen) tóch met de nette standaard-secties kan tonen i.p.v. leeg.
+// (bijv. Dividend/Notulen voordat er iets is opgeslagen) tóch met de nette standaard-secties kan
+// tonen i.p.v. leeg.
 function standaardIndelingVoor(soort) {
   if (soort.key === "ib") return standaardIndelingIB();
   if (soort.key === "vpb") return standaardIndelingVPB();
+  if (soort.key === "dividend") return standaardIndelingDividend();
+  if (soort.key === "notulen") return standaardIndelingNotulen();
   return standaardIndelingOverig(soort);
 }
 
