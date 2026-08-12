@@ -2581,6 +2581,9 @@ function waardenUitDossier(dossier, catalogus) {
 function VeldInvoer({ veldDef, waarde, onChange, picklistOpties, statusOpties, disabled, alleenLezen, stijlen }) {
   const { label, veld: veldStijl } = stijlen;
   const uitgeschakeld = disabled || alleenLezen;
+  // Lokale bewerk-tekst voor getalvelden (integer): tijdens het typen precies wat de gebruiker intikt,
+  // daarbuiten netjes geformatteerd met duizendtalscheiding (bijv. 10000 → "10.000"). null = niet aan het bewerken.
+  const [getalTekst, setGetalTekst] = useState(null);
   const labelMetSlot = (
     <div style={{ ...label, display: "flex", alignItems: "center", gap: 5 }}>
       {veldDef.label}
@@ -2673,6 +2676,33 @@ function VeldInvoer({ veldDef, waarde, onChange, picklistOpties, statusOpties, d
       <div>
         {labelMetSlot}
         <input type="date" disabled={uitgeschakeld} value={datumWaarde} onChange={(e) => onChange(e.target.value || null)} style={veldStijl} />
+      </div>
+    );
+  }
+  if (veldDef.type === "integer") {
+    // Bedrag-/getalvelden: getoond mét duizendtalscheiding (nl-NL), maar bewerkbaar als kaal getal.
+    const getal = (waarde === "" || waarde === null || waarde === undefined) ? null : Number(waarde);
+    const geformatteerd = getal !== null && Number.isFinite(getal) ? getal.toLocaleString("nl-NL", { maximumFractionDigits: 0 }) : "";
+    return (
+      <div>
+        {labelMetSlot}
+        <input
+          type="text"
+          inputMode="numeric"
+          disabled={uitgeschakeld}
+          value={getalTekst !== null ? getalTekst : geformatteerd}
+          onFocus={() => setGetalTekst(getal !== null && Number.isFinite(getal) ? String(getal) : "")}
+          onBlur={() => setGetalTekst(null)}
+          onChange={(e) => {
+            const inp = e.target.value;
+            setGetalTekst(inp);
+            const schoon = inp.replace(/[^\d-]/g, "");
+            if (schoon === "" || schoon === "-") { onChange(null); return; }
+            const n = Number(schoon);
+            onChange(Number.isFinite(n) ? n : null);
+          }}
+          style={veldStijl}
+        />
       </div>
     );
   }
