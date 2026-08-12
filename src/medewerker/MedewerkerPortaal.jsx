@@ -3122,14 +3122,27 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
   const veld = { width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 10px", fontSize: 13, background: "#fff" };
   const veldStijlen = { label, veld };
   // Verborgen (Beheer → Dossiers, oog-icoon) → nooit tonen. Voorwaarden (Beheer → Dossiers,
-  // "Alleen tonen als") → alleen tonen zodra het gekoppelde ja/nee-veld op DIT dossier "Ja" is.
+  // "Alleen tonen als") → alleen tonen als het gekoppelde veld op DIT dossier de juiste uitkomst heeft.
+  // Twee vormen (voor terugwaartse compatibiliteit):
+  //   - string parentKey            → oud: parent is een ja/nee-veld; tonen zodra parent "Ja" is.
+  //   - { veld, waarde, negatie? }  → nieuw: tonen zodra de uitkomst van "veld" gelijk is aan "waarde"
+  //                                    (of juist NIET gelijk, als negatie true is). Werkt voor ja/nee-
+  //                                    velden (waarde true/false) én keuzelijsten (waarde = optiewaarde).
   const verborgenSet = new Set(verborgen || []);
   const alleenLezenSet = new Set(alleenLezen || []);
+  const voorwaardeVervuld = (cond) => {
+    if (!cond) return true;
+    if (typeof cond === "string") return !!veldenState[cond]; // oude ja/nee-vorm
+    if (!cond.veld) return true;
+    const actueel = veldenState[cond.veld];
+    // Robuuste vergelijking ongeacht number/boolean/string (keuzelijst-optiewaarden zijn getallen,
+    // ja/nee is true/false); een niet-ingevuld gate-veld telt als "niet gelijk".
+    const gelijk = String(actueel ?? "") === String(cond.waarde ?? "");
+    return cond.negatie ? !gelijk : gelijk;
+  };
   const magTonen = (key) => {
     if (verborgenSet.has(key)) return false;
-    const parentKey = voorwaarden && voorwaarden[key];
-    if (parentKey) return !!veldenState[parentKey];
-    return true;
+    return voorwaardeVervuld(voorwaarden && voorwaarden[key]);
   };
   const zichtbareSecties = (secties || [])
     .map((s) => {

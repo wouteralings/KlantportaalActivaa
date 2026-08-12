@@ -40,7 +40,36 @@ function maakSleutelSlug(tekst) {
 /** Eén regel voor één veld — zowel in een hoofdrubriek (pad = sectieSleutel) als in een
  * subrubriek (pad = "sectieSleutel::subSleutel") — met alle beheeracties: label hernoemen,
  * voorwaarde, alleen-lezen, verbergen, herordenen, verplaatsen en uit de sectie halen. */
-function VeldRij({ veldKey, veld, weergaveLabel, pad, padOpties, index, laatsteIndex, isVerborgen, isAlleenLezen, voorwaardeParent, booleanVelden, onZetLabel, onLabelBlur, onZetVoorwaarde, onToggleVerborgen, onToggleAlleenLezen, onOmhoog, onOmlaag, onVerplaats, onVerwijderUitSectie }) {
+function VeldRij({ veldKey, veld, weergaveLabel, pad, padOpties, index, laatsteIndex, isVerborgen, isAlleenLezen, voorwaarde, conditieVelden, picklistOpties, onZetLabel, onLabelBlur, onZetVoorwaarde, onToggleVerborgen, onToggleAlleenLezen, onOmhoog, onOmlaag, onVerplaats, onVerwijderUitSectie }) {
+  // Voorwaarde-editor: een veld kan afhankelijk van de UITKOMST van een ander veld getoond worden —
+  // een ja/nee-veld (Ja/Nee) of een keuzelijst (= / ≠ een bepaalde optie). Terugwaarts compatibel met
+  // de oude vorm waarin de voorwaarde alleen een ja/nee-veldsleutel (string) was.
+  const condVeld = voorwaarde ? (typeof voorwaarde === "string" ? voorwaarde : voorwaarde.veld) : "";
+  const condParent = (conditieVelden || []).find((v) => v.key === condVeld) || null;
+  const condOpties = condParent && condParent.type === "picklist" ? ((picklistOpties && picklistOpties[condVeld]) || []) : [];
+  const condToken = (() => {
+    if (!voorwaarde) return "";
+    if (typeof voorwaarde === "string") return "ja"; // oude vorm: ja/nee-veld op "Ja"
+    if (condParent && condParent.type === "boolean") return voorwaarde.waarde === false ? "nee" : "ja";
+    if (condParent && condParent.type === "picklist") return `${voorwaarde.negatie ? "isniet" : "is"}:${voorwaarde.waarde}`;
+    return "";
+  })();
+  const kiesParent = (nieuwVeld) => {
+    if (!nieuwVeld) { onZetVoorwaarde(null); return; }
+    const p = (conditieVelden || []).find((v) => v.key === nieuwVeld);
+    if (p && p.type === "boolean") { onZetVoorwaarde({ veld: nieuwVeld, waarde: true }); return; }
+    const opts = (picklistOpties && picklistOpties[nieuwVeld]) || [];
+    onZetVoorwaarde({ veld: nieuwVeld, waarde: opts.length ? opts[0].waarde : null });
+  };
+  const kiesUitkomst = (token) => {
+    if (!condVeld || !token) return;
+    if (condParent && condParent.type === "boolean") { onZetVoorwaarde({ veld: condVeld, waarde: token !== "nee" }); return; }
+    const scheiding = token.indexOf(":");
+    const op = token.slice(0, scheiding);
+    const ruw = token.slice(scheiding + 1);
+    const opt = condOpties.find((o) => String(o.waarde) === ruw);
+    onZetVoorwaarde({ veld: condVeld, waarde: opt ? opt.waarde : ruw, negatie: op === "isniet" });
+  };
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 6, background: "#FBFBF9", opacity: isVerborgen ? 0.6 : 1 }}>
       <input
@@ -54,14 +83,38 @@ function VeldRij({ veldKey, veld, weergaveLabel, pad, padOpties, index, laatsteI
       {isAlleenLezen && <span style={{ fontSize: 10, fontWeight: 700, color: KLEUR.goud, textTransform: "uppercase", letterSpacing: ".02em" }}>Alleen-lezen</span>}
       <span style={{ fontSize: 10.5, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".02em" }}>{veld ? veld.type.replace("vast-", "") : ""}</span>
       <select
-        value={voorwaardeParent || ""}
-        onChange={(e) => onZetVoorwaarde(e.target.value)}
-        title="Alleen tonen als dit ja/nee-veld op het dossier 'Ja' is"
-        style={{ ...invoerStijl, padding: "4px 6px", fontSize: 11.5, maxWidth: 170 }}
+        value={condVeld}
+        onChange={(e) => kiesParent(e.target.value)}
+        title="Dit veld alleen tonen afhankelijk van de uitkomst van een ander veld"
+        style={{ ...invoerStijl, padding: "4px 6px", fontSize: 11.5, maxWidth: 150 }}
       >
         <option value="">Altijd tonen</option>
-        {booleanVelden.filter((b) => b.key !== veldKey).map((b) => <option key={b.key} value={b.key}>Alleen als: {b.label}</option>)}
+        {(conditieVelden || []).filter((b) => b.key !== veldKey).map((b) => (
+          <option key={b.key} value={b.key}>Alleen als: {b.label}{b.type === "picklist" ? " (keuze)" : ""}</option>
+        ))}
       </select>
+      {condVeld && (
+        <select
+          value={condToken}
+          onChange={(e) => kiesUitkomst(e.target.value)}
+          title="Bij welke uitkomst dit veld getoond wordt"
+          style={{ ...invoerStijl, padding: "4px 6px", fontSize: 11.5, maxWidth: 190 }}
+        >
+          {condParent && condParent.type === "boolean" ? (
+            <>
+              <option value="ja">is Ja</option>
+              <option value="nee">is Nee</option>
+            </>
+          ) : condOpties.length ? (
+            condOpties.flatMap((o) => [
+              <option key={`is:${o.waarde}`} value={`is:${o.waarde}`}>is {o.label}</option>,
+              <option key={`isniet:${o.waarde}`} value={`isniet:${o.waarde}`}>is niet {o.label}</option>,
+            ])
+          ) : (
+            <option value="">(opties onbekend)</option>
+          )}
+        </select>
+      )}
       <button onClick={onToggleAlleenLezen} title={isAlleenLezen ? "Weer bewerkbaar maken in medewerkersportaal" : "Alleen-lezen maken in medewerkersportaal"} style={{ background: "none", border: "none", color: isAlleenLezen ? KLEUR.goud : KLEUR.subtekst, cursor: "pointer", padding: 2, display: "flex" }}>
         {isAlleenLezen ? <Lock size={14} /> : <Unlock size={14} />}
       </button>
@@ -112,7 +165,8 @@ function SoortIndelingPaneel({ soort }) {
   const [dossierIndeling, setDossierIndeling] = useState(null); // volledig object uit instellingen (alle soorten)
   const [secties, setSecties] = useState(null); // werk-kopie van dossierIndeling.ib.secties (elk met optionele subsecties)
   const [verborgen, setVerborgen] = useState([]); // sleutels die in het medewerkersdossier nooit getoond worden
-  const [voorwaarden, setVoorwaarden] = useState({}); // { childKey: parentBooleanKey } — child alleen tonen als parent Ja is
+  const [voorwaarden, setVoorwaarden] = useState({}); // { childKey: voorwaarde } — ja/nee-veld óf keuzeveld-uitkomst (zie VeldRij)
+  const [picklistOpties, setPicklistOpties] = useState({}); // keuzelijst-opties per veld (key → [{waarde,label}]) voor de voorwaarde-waardekeuze
   const [alleenLezen, setAlleenLezen] = useState([]); // sleutels die wel getoond maar niet bewerkt mogen worden
   const [labels, setLabels] = useState({}); // { sleutel: eigen weergavenaam } — overschrijft het standaardlabel
   const [aangepasteVelden, setAangepasteVelden] = useState([]); // zelf aangemaakte extra catalogusvelden (incl. Dynamics-kolom)
@@ -200,6 +254,7 @@ function SoortIndelingPaneel({ soort }) {
     ])
       .then(([veldenData, instellingenData, onderwerpenData, taaksoortenData, taakrubriekenData]) => {
         setCatalogus(veldenData.catalogus || []);
+        setPicklistOpties(veldenData.picklistOpties || {});
         const huidigeIndeling = instellingenData.dossierIndeling || {};
         setDossierIndeling(huidigeIndeling);
         // Seed vanuit de opgeslagen indeling van DEZE soort; is die er (nog) niet, dan vanuit de
@@ -227,7 +282,8 @@ function SoortIndelingPaneel({ soort }) {
   const ingedeeldeKeys = new Set((secties || []).flatMap((s) => [...(s.velden || []), ...(s.subsecties || []).flatMap((sub) => sub.velden || [])]));
   const nietIngedeeld = (catalogus || []).filter((v) => !ingedeeldeKeys.has(v.key));
   // Alleen boolean-velden komen in aanmerking als "voorwaarde" (een ja/nee-poortje voor een ander veld).
-  const booleanVelden = (catalogus || []).filter((v) => v.type === "boolean");
+  // Velden die als voorwaarde-poort kunnen dienen: ja/nee-velden én keuzelijsten (op hun uitkomst).
+  const conditieVelden = (catalogus || []).filter((v) => v.type === "boolean" || v.type === "picklist");
   const aantalIngedeeld = (secties || []).reduce((n, s) => n + (s.velden || []).length + (s.subsecties || []).reduce((m, sub) => m + (sub.velden || []).length, 0), 0);
 
   const bewaar = async (overrides = {}) => {
@@ -471,11 +527,11 @@ function SoortIndelingPaneel({ soort }) {
     bewaar({ alleenLezen: volgende });
   };
 
-  // Voorwaarde: "key" alleen tonen in het medewerkersdossier als het boolean-veld "parentKey" op
-  // dat dossier "Ja" is. Kies "" om de voorwaarde weer weg te halen (altijd tonen).
-  const zetVoorwaarde = (key, parentKey) => {
+  // Voorwaarde: "key" alleen tonen in het medewerkersdossier afhankelijk van de uitkomst van een
+  // ander veld (ja/nee of keuzelijst — zie VeldRij). "cond" is null/leeg om de voorwaarde weg te halen.
+  const zetVoorwaarde = (key, cond) => {
     const volgende = { ...voorwaarden };
-    if (parentKey) volgende[key] = parentKey; else delete volgende[key];
+    if (cond) volgende[key] = cond; else delete volgende[key];
     bewaar({ voorwaarden: volgende });
   };
 
@@ -551,11 +607,12 @@ function SoortIndelingPaneel({ soort }) {
     laatsteIndex,
     isVerborgen: verborgen.includes(key),
     isAlleenLezen: alleenLezen.includes(key),
-    voorwaardeParent: voorwaarden[key],
-    booleanVelden,
+    voorwaarde: voorwaarden[key],
+    conditieVelden,
+    picklistOpties,
     onZetLabel: (waarde) => zetLabel(key, waarde),
     onLabelBlur: labelBlurOpslaan,
-    onZetVoorwaarde: (parentKey) => zetVoorwaarde(key, parentKey),
+    onZetVoorwaarde: (cond) => zetVoorwaarde(key, cond),
     onToggleVerborgen: () => toggleVerborgen(key),
     onToggleAlleenLezen: () => toggleAlleenLezen(key),
     onOmhoog: () => verplaatsBinnenGroep(pad, key, -1),

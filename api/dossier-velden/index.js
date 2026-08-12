@@ -15,8 +15,8 @@
  *
  * Route beveiligd via staticwebapp.config.json (rol 'medewerker'/'beheerder').
  */
-const { haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
-const { SOORTEN } = require("../_gedeeld/dossiers");
+const { haalRollenUitPrincipal, haalDynamicsToken } = require("../_gedeeld/identiteit");
+const { SOORTEN, haalDynamischePicklistOpties } = require("../_gedeeld/dossiers");
 const { vasteVeldenVoorSoort, metLabels, standaardIndelingIB, standaardIndelingVPB, standaardIndelingDividend, standaardIndelingNotulen, standaardIndelingOverig } = require("../_gedeeld/dossierVelden");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
 
@@ -58,5 +58,21 @@ module.exports = async function (context, req) {
 
   const catalogusRuw = [...vasteVeldenVoorSoort(soort), ...(soort.catalogus || []), ...aangepasteVelden];
   const catalogus = metLabels(catalogusRuw, labels);
-  context.res = { headers: { "Content-Type": "application/json" }, body: { soort: soort.key, catalogus, standaardIndeling: standaardIndelingVoor(soort) } };
+
+  // Keuzelijst-opties per veld (key → [{ waarde, label }]) — nodig zodat Beheer → Dossiers bij een
+  // voorwaarde op een keuzeveld ("alleen tonen als … = <optie>") de juiste optie kan laten kiezen.
+  // Best-effort: zonder (werkende) Dynamics-koppeling blijft dit leeg en werkt de rest van het scherm
+  // gewoon; alleen de waarde-keuze bij een keuzeveld-voorwaarde is dan nog niet in te vullen.
+  let picklistOpties = {};
+  try {
+    const resource = process.env.DYNAMICS_RESOURCE_URL;
+    if (resource) {
+      const token = await haalDynamicsToken();
+      picklistOpties = await haalDynamischePicklistOpties(resource, token, soort);
+    }
+  } catch {
+    picklistOpties = {};
+  }
+
+  context.res = { headers: { "Content-Type": "application/json" }, body: { soort: soort.key, catalogus, picklistOpties, standaardIndeling: standaardIndelingVoor(soort) } };
 };
