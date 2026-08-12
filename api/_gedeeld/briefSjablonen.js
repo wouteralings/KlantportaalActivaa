@@ -273,6 +273,9 @@ function normaliseerSjablonen(sjablonen) {
       id: uniek,
       naam,
       onderwerp: tekst(s && s.onderwerp, 300),
+      // Voor-in-te-vullen aanhef per standaardbrief (mag merge-velden bevatten, bijv.
+      // "Geachte {{voornaam}},"). Leeg = automatisch (Geachte heer/mevrouw <achternaam>,).
+      aanhef: tekst(s && s.aanhef, 300),
       tekst: langeTekst(s && s.tekst),
       actief: s && s.actief === false ? false : true,
       vertrouwelijk: s && s.vertrouwelijk === true,

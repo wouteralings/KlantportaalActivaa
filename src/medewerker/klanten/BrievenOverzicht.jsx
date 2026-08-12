@@ -39,6 +39,7 @@ function veldenVan(klant, afzender) {
   return {
     klantnaam: veiligeStr(k.klantnaam), klantnummer: veiligeStr(k.klantnummer), groepsnaam: veiligeStr(k.groepsnaam),
     kvk: veiligeStr(k.kvk), belastingkantoor: veiligeStr(k.belastingkantoor),
+    loonheffingsnummer: veiligeStr(k.loonheffingsnummer), btwnummer: veiligeStr(k.btwnummer),
     relatiebeheerder: veiligeStr(k.relatiebeheerder), accountant: veiligeStr(k.accountant),
     contactpersoon: veiligeStr(c.naam), voornaam: veiligeStr(c.voornaam), achternaam: beleefdeAchternaam(c),
     functietitel: veiligeStr(c.functietitel), email: veiligeStr(c.email) || veiligeStr(k.emailKlant),
@@ -218,7 +219,9 @@ export default function BrievenOverzicht({ onTerug }) {
     if (!config || !sjabloon) return;
     setOnderwerp(sjabloon.onderwerp || "");
     setTekst(sjabloon.tekst || "");
-    setAanhef(aanhefVan(klant));
+    // Voor-in-te-vullen aanhef uit de standaardbrief (Beheer → Brieven) — met merge-velden ingevuld;
+    // leeg gelaten in Beheer = automatisch "Geachte heer/mevrouw <achternaam>,".
+    setAanhef(veiligeStr(sjabloon.aanhef) ? vulIn(sjabloon.aanhef, veldenVan(klant, afzender)) : aanhefVan(klant));
     setAfsluiting(veiligeStr(afzender.afsluiting) || "Met vriendelijke groet,");
     setOndertekenaar(ondertekenaarDefault(klant, afzender));
     setVertrouwelijk(!!sjabloon.vertrouwelijk);

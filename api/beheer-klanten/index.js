@@ -29,6 +29,9 @@ const FISCAALMEDEWERKER_VELD = process.env.DYNAMICS_KLANT_FISCAALMEDEWERKER_VELD
 const LOONADMIN_VELD = process.env.DYNAMICS_KLANT_LOONADMIN_VELD || "cr283_verantwoordelijkeloonadministratie";
 const BACKUP_VELD = process.env.DYNAMICS_KLANT_BACKUP_VELD || "cr283_assistent2";
 const BELASTINGKANTOOR_VELD = process.env.DYNAMICS_KLANT_BELASTINGKANTOOR_VELD || "cr283_belastingkantoor";
+// Loonheffingsnummer + BTW-nummer op de account — o.a. voor de brief-merge-velden (Beheer → Brieven).
+const LOONHEFFINGSNUMMER_VELD = process.env.DYNAMICS_KLANT_LOONHEFFINGSNUMMER_VELD || "cr283_loonheffingsnummer";
+const BTWNUMMER_VELD = process.env.DYNAMICS_KLANT_BTWNUMMER_VELD || "sk_btwnummer";
 // Navigatie-eigenschap van de secundaire contactpersoon (lookup naar contact).
 const SECUNDAIR_NAV = process.env.DYNAMICS_KLANT_SECUNDAIRCONTACT_NAV || "cr283_Secundairecontactpersoon";
 
@@ -48,6 +51,7 @@ async function haalAlleKlanten(resource, token, extraKolommen, inclusiefZonderCo
     "address1_line1", "cr283_huisnummer", "cr283_huisnummertoevoeging",
     "address1_postalcode", "address1_city", "address1_country",
     "emailaddress1", "telephone1",
+    LOONHEFFINGSNUMMER_VELD, BTWNUMMER_VELD,
     ...keuzeVelden,
     ...lookupVelden.map((v) => `_${v}_value`),
     `_${RELATIEBEHEERDER_ATTR}_value`, `_${ACCOUNTANT_ATTR}_value`,
@@ -219,6 +223,8 @@ module.exports = async function (context, req) {
         kantoor: leesVeld(a, KANTOOR_VELD),
         belastingkantoor: leesLookup(a, BELASTINGKANTOOR_VELD),
         kvk: a[KVK_VELD] || "",
+        loonheffingsnummer: a[LOONHEFFINGSNUMMER_VELD] || "",
+        btwnummer: a[BTWNUMMER_VELD] || "",
         sharepointUrl: a[SHAREPOINT_VELD] || "",
         relatiebeheerder: rb ? rb.fullname || "" : "",
         accountant: acc ? acc.fullname || "" : "",

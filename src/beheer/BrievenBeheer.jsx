@@ -18,6 +18,7 @@ const PLACEHOLDERS = [
   ["{{contactpersoon}}", "Contactpersoon"], ["{{achternaam}}", "Achternaam"], ["{{email}}", "E-mail contactpersoon"],
   ["{{adresregel}}", "Straat + huisnummer"], ["{{postcodeplaats}}", "Postcode + plaats"], ["{{datum}}", "Datum van vandaag"],
   ["{{afzendernaam}}", "Naam van Activaa"],
+  ["{{voornaam}}", "Voornaam (van de klant/contactpersoon)"], ["{{loonheffingsnummer}}", "Loonheffingsnummer"], ["{{btwnummer}}", "BTW-nummer"],
 ];
 
 function slug(s) {
@@ -92,7 +93,7 @@ export default function BrievenBeheer() {
   const zetSjabloon = (i, key, val) => setConfig((c) => { const s = c.sjablonen.slice(); s[i] = { ...s[i], [key]: val }; return { ...c, sjablonen: s }; });
   const verplaatsSjabloon = (i, r) => { const j = i + r; if (!config || j < 0 || j >= config.sjablonen.length) return; setConfig((c) => { const s = c.sjablonen.slice(); [s[i], s[j]] = [s[j], s[i]]; return { ...c, sjablonen: s }; }); naVerplaats(setOpenBrieven, i, j); };
   const verwijderSjabloon = (i) => { setConfig((c) => ({ ...c, sjablonen: c.sjablonen.filter((_, idx) => idx !== i) })); naVerwijder(setOpenBrieven, i); };
-  const nieuwSjabloon = () => { const idx = config.sjablonen.length; setConfig((c) => ({ ...c, sjablonen: [...c.sjablonen, { id: "", naam: "Nieuwe brief", onderwerp: "", tekst: "", actief: true, velden: [] }] })); setOpenBrieven((s) => new Set([...s, idx])); };
+  const nieuwSjabloon = () => { const idx = config.sjablonen.length; setConfig((c) => ({ ...c, sjablonen: [...c.sjablonen, { id: "", naam: "Nieuwe brief", onderwerp: "", aanhef: "", tekst: "", actief: true, velden: [] }] })); setOpenBrieven((s) => new Set([...s, idx])); };
   const toggleSjabloonVeld = (i, sleutel) => setConfig((c) => {
     const s = c.sjablonen.slice(); const huidig = Array.isArray(s[i].velden) ? s[i].velden : [];
     s[i] = { ...s[i], velden: huidig.includes(sleutel) ? huidig.filter((x) => x !== sleutel) : [...huidig, sleutel] };
@@ -183,6 +184,7 @@ export default function BrievenBeheer() {
                   <div style={{ padding: "12px", borderTop: `1px solid ${KLEUR.rand}` }}>
                     <div style={{ marginBottom: 10 }}><span style={labelStijl}>Naam</span><input value={s.naam || ""} onChange={(e) => zetSjabloon(i, "naam", e.target.value)} placeholder="Naam van de brief" style={{ ...invoerStijl, fontWeight: 700 }} /></div>
                     <div style={{ marginBottom: 10 }}><span style={labelStijl}>Onderwerp</span><input value={s.onderwerp || ""} onChange={(e) => zetSjabloon(i, "onderwerp", e.target.value)} placeholder="Betreft…" style={invoerStijl} /></div>
+                    <div style={{ marginBottom: 10 }}><span style={labelStijl}>Aanhef</span><input value={s.aanhef || ""} onChange={(e) => zetSjabloon(i, "aanhef", e.target.value)} placeholder={"Leeg = automatisch (Geachte heer/mevrouw …). Merge-velden mogen, bijv. Geachte {{voornaam}},"} style={invoerStijl} /></div>
                     <div style={{ marginBottom: 10 }}><span style={labelStijl}>Tekst</span><textarea value={s.tekst || ""} onChange={(e) => zetSjabloon(i, "tekst", e.target.value)} rows={6} style={{ ...invoerStijl, resize: "vertical", minHeight: 120, lineHeight: 1.5, fontFamily: "inherit" }} placeholder="Inhoud… (lege regel = nieuwe alinea, gebruik {{merge-velden}} en {{invulvelden}})" /></div>
                     {config.briefvelden.length > 0 && (
                       <div>
