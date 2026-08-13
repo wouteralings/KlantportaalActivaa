@@ -2948,6 +2948,18 @@ function DossierBijlageKaart({ dossier, disabled, extraEmails, soortWaarde, toon
     if (b < 1024 * 1024) return `${(b / 1024).toFixed(0)} KB`;
     return `${(b / 1024 / 1024).toFixed(1)} MB`;
   };
+  // Upload-moment (ISO) → "dd-mm-jjjj hh:mm" (nl-NL) voor de "geüpload door … op …"-regel per bestand.
+  const formatteerMoment = (iso) => {
+    if (!iso) return "";
+    try { const d = new Date(iso); if (isNaN(d.getTime())) return ""; return d.toLocaleString("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }); } catch { return ""; }
+  };
+  const uploadRegel = (b) => {
+    const moment = formatteerMoment(b.geUploadOp);
+    if (b.door && moment) return `Geüpload door ${b.door} op ${moment}`;
+    if (b.door) return `Geüpload door ${b.door}`;
+    if (moment) return `Geüpload op ${moment}`;
+    return "";
+  };
 
   // Beschikbare ontvanger-adressen om snel te kiezen: contactpersoon + (uit het dossier) voorzitter/notulist.
   const ontvangerOpties = [
@@ -3024,7 +3036,10 @@ function DossierBijlageKaart({ dossier, disabled, extraEmails, soortWaarde, toon
                 {bestanden.map((b, i) => (
                   <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
                     <FileText size={15} color={KLEUR.blauw} style={{ flexShrink: 0 }} />
-                    <a href={b.webUrl || "#"} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: KLEUR.blauw, fontWeight: 600, textDecoration: "none", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.naam}</a>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <a href={b.webUrl || "#"} target="_blank" rel="noopener noreferrer" style={{ display: "block", fontSize: 13, color: KLEUR.blauw, fontWeight: 600, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.naam}</a>
+                      {uploadRegel(b) && <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 2 }}>{uploadRegel(b)}</div>}
+                    </div>
                     {b.grootte ? <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst, flexShrink: 0 }}>{formatteerGrootte(b.grootte)}</span> : null}
                   </div>
                 ))}

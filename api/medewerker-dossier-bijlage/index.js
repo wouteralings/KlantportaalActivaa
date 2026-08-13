@@ -30,7 +30,7 @@ const { SOORTEN, haalEenDossier, haalNavigatieNaam } = require("../_gedeeld/doss
 const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/sharepointUpload");
 const { haalAppGraphToken } = require("../_gedeeld/graphApp");
 const { haalInstellingen, resolveBijlageConfig } = require("../_gedeeld/instellingen");
-const { logGebeurtenis } = require("../_gedeeld/klantlog");
+const { logGebeurtenis, haalLog } = require("../_gedeeld/klantlog");
 const { verstuurMailMetBijlage } = require("../_gedeeld/mail");
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
@@ -242,15 +242,28 @@ module.exports = async function (context, req) {
 
       // Lijst-modus.
       const res = await fetch(
-        `${GRAPH}/drives/${map.driveId}/items/${doelId}/children?$select=name,webUrl,size,lastModifiedDateTime,file&$top=200`,
+        `${GRAPH}/drives/${map.driveId}/items/${doelId}/children?$select=name,webUrl,size,lastModifiedDateTime,createdDateTime,file&$top=200`,
         { headers: { Authorization: `Bearer ${appToken}`, Accept: "application/json" } }
       );
       if (!res.ok) throw new Error(`Bestanden ophalen mislukt (${res.status}): ${await res.text()}`);
       const items = (await res.json()).value || [];
       const bestanden = items
         .filter((i) => i.file)
-        .map((i) => ({ naam: i.name, webUrl: i.webUrl, grootte: i.size, gewijzigd: i.lastModifiedDateTime }))
+        .map((i) => ({ naam: i.name, webUrl: i.webUrl, grootte: i.size, gewijzigd: i.lastModifiedDateTime, geUploadOp: i.createdDateTime || i.lastModifiedDateTime || "", door: "" }))
         .sort((a, b) => String(b.gewijzigd || "").localeCompare(String(a.gewijzigd || "")));
+
+      // Wie heeft welk bestand via het portaal geüpload en wanneer? Door de app-only upload kent
+      // SharePoint alleen de app als 'gewijzigd door', dus de uploader komt uit ons eigen klantlog
+      // (gebeurtenisType "bijlageUpload", met bestand + submap). Best-effort: zonder logregel valt het
+      // terug op de SharePoint-aanmaakdatum (geUploadOp hierboven) en blijft 'door' leeg.
+      try {
+        const submapPad = segmenten.join("/");
+        const uploads = (await haalLog({ accountId })).filter((e) => e && e.gebeurtenisType === "bijlageUpload" && e.submap === submapPad);
+        for (const b of bestanden) {
+          const hit = uploads.find((e) => e.bestand === b.naam); // haalLog is nieuwste-eerst → meest recente upload
+          if (hit) { b.door = hit.door || ""; if (hit.tijd) b.geUploadOp = hit.tijd; }
+        }
+      } catch { /* best-effort: uploader-info is optioneel */ }
 
       // In dossier-modus ook de ontvanger (primaire contactpersoon) + de standaard mailgegevens
       // meesturen, zodat het "Versturen"-venster meteen voorgevuld is.
@@ -394,6 +407,9 @@ module.exports = async function (context, req) {
       await logGebeurtenis({
         door: email || "onbekend", actie: "dossier", accountId, accountIds: [accountId],
         klantnaam: klantnaam || basis.naam,
+        // Structurele velden zodat de bijlage-lijst per bestand kan tonen wie uploadde en wanneer
+        // (zie de GET-lijst hierboven). tijd (upload-moment) zet klantlog zelf op de gebeurtenis.
+        gebeurtenisType: "bijlageUpload", bestand: veiligeNaam, submap: segmenten.join("/"), dossierSoort: soortInst,
         tekst: `Bijlage "${veiligeNaam}" toegevoegd aan ${soortInst}dossier${dossier && dossier.jaar ? ` ${dossier.jaar}` : ""} (SharePoint: ${segmenten.join("/")}).`,
       }).catch(() => {});
       context.res = json(200, { ok: true, bestandsnaam: veiligeNaam, webUrl: (upload && upload.webUrl) || "" });
