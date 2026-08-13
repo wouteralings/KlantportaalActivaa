@@ -1261,11 +1261,13 @@ export default function DossierIndelingBeheer() {
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
       {SOORTEN_TABS.map((s) => (
         <div key={s.key} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {/* De bijlage-dropzone wordt nu per rubriek ingesteld (in het indeling-paneel zelf), niet meer
-              als apart blok — zo staat in het hoofdscherm alleen de dossierkaart. */}
-          <SoortIndelingPaneel soort={s.key} />
-          {/* Voorbeelddocumenten (blanco A4) — onder de indelingskaart van dezelfde soort. */}
-          {SOORTEN_MET_SJABLONEN.has(s.key) && <DossierSjablonenPerSoort soort={s.key} />}
+          {/* De bijlage-dropzone wordt per rubriek ingesteld en de "Voorbeelddocumenten" (notulen/dividend)
+              hangen genest ónder het indeling-paneel (via de onderaan-prop) — zo staat in het hoofdscherm
+              alleen de dossierkaart. */}
+          <SoortIndelingPaneel
+            soort={s.key}
+            onderaan={SOORTEN_MET_SJABLONEN.has(s.key) ? <DossierSjablonenPerSoort soort={s.key} /> : null}
+          />
         </div>
       ))}
     </div>
