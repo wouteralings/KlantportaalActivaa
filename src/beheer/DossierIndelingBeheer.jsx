@@ -223,7 +223,7 @@ const SOORTEN_TABS = [
 
 // Eén zelfstandig, inklapbaar indeling-paneel voor één dossiersoort (ib of vpb). De pagina rendert er
 // twee onder elkaar (zie de default export onderaan), elk met exact dezelfde functies.
-function SoortIndelingPaneel({ soort }) {
+function SoortIndelingPaneel({ soort, onderaan }) {
   const [open, setOpen] = useState(false); // hele paneel dichtgeklapt bij openen van de pagina
   const [catalogus, setCatalogus] = useState(null); // null = laden
   const [dossierIndeling, setDossierIndeling] = useState(null); // volledig object uit instellingen (alle soorten)
@@ -1185,6 +1185,9 @@ function SoortIndelingPaneel({ soort }) {
           </div>
         )}
       </div>
+      {/* Genest onderaan het indeling-paneel (bijv. de Bijlage-dropzone) — zo staat in het hoofdscherm
+          alleen de dossierkaart en verschijnt dit als sub-blok zodra je de kaart openklapt. */}
+      {onderaan && <div style={{ marginTop: 12 }}>{onderaan}</div>}
       </>)}
     </div>
   );
@@ -1197,9 +1200,9 @@ export default function DossierIndelingBeheer() {
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
       {SOORTEN_TABS.map((s) => (
         <div key={s.key} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <SoortIndelingPaneel soort={s.key} />
-          {/* Bijlage-dropzone (sleepvak + snellink in het dossier) — voor élke soort in te stellen. */}
-          <DossierBijlagePerSoort soort={s.key} />
+          {/* Bijlage-dropzone (sleepvak + snellink) hangt nu genest ÍN de indelingskaart (als sub-blok),
+              zodat in het hoofdscherm alleen de dossierkaarten staan. */}
+          <SoortIndelingPaneel soort={s.key} onderaan={<DossierBijlagePerSoort soort={s.key} />} />
           {/* Voorbeelddocumenten (blanco A4) — onder de indelingskaart van dezelfde soort. */}
           {SOORTEN_MET_SJABLONEN.has(s.key) && <DossierSjablonenPerSoort soort={s.key} />}
         </div>
