@@ -220,27 +220,31 @@ module.exports = async function (context, req) {
       // ── Versturen: bestand uit SharePoint als bijlage mailen naar de klant (+ optioneel cc) ──
       if (actie === "versturen") {
         if (!dossier) { context.res = json(400, { error: "Versturen kan alleen vanuit een dossier (soort + id)." }); return; }
-        const bestandNaam = String((req.body && req.body.bestandNaam) || "").trim();
+        const bestandNaam = String((req.body && req.body.bestandNaam) || "").trim(); // leeg = zonder bijlage
         const naar = String((req.body && req.body.ontvanger) || "").trim();
         const ccLijst = splitsAdressen(req.body && req.body.cc);
         const onderwerp = String((req.body && req.body.onderwerp) || "").trim();
         const tekst = String((req.body && req.body.tekst) || "").trim();
-        if (!bestandNaam) { context.res = json(400, { error: "Geef 'bestandNaam' mee." }); return; }
         if (!naar) { context.res = json(400, { error: "Geef een ontvanger (e-mailadres) mee." }); return; }
         if (!onderwerp || !tekst) { context.res = json(400, { error: "Mailonderwerp en -tekst zijn verplicht." }); return; }
 
-        const dl = await fetch(
-          `${GRAPH}/drives/${map.driveId}/items/${doelId}:/${encodeURIComponent(bestandNaam)}:/content`,
-          { headers: { Authorization: `Bearer ${appToken}` } }
-        );
-        if (dl.status === 404) { context.res = json(404, { error: "Bestand niet gevonden in de SharePoint-map." }); return; }
-        if (!dl.ok) throw new Error(`Bestand ophalen mislukt (${dl.status}): ${await dl.text()}`);
-        const buffer = Buffer.from(await dl.arrayBuffer());
-        const contentType = dl.headers.get("content-type") || "application/octet-stream";
+        // Bijlage is optioneel: alleen ophalen als er een bestandNaam is meegegeven.
+        const bijlagen = [];
+        if (bestandNaam) {
+          const dl = await fetch(
+            `${GRAPH}/drives/${map.driveId}/items/${doelId}:/${encodeURIComponent(bestandNaam)}:/content`,
+            { headers: { Authorization: `Bearer ${appToken}` } }
+          );
+          if (dl.status === 404) { context.res = json(404, { error: "Bestand niet gevonden in de SharePoint-map." }); return; }
+          if (!dl.ok) throw new Error(`Bestand ophalen mislukt (${dl.status}): ${await dl.text()}`);
+          const buffer = Buffer.from(await dl.arrayBuffer());
+          const contentType = dl.headers.get("content-type") || "application/octet-stream";
+          bijlagen.push({ naam: bestandNaam, contentType, inhoud: buffer });
+        }
         const afzender = typeof soortMail.afzender === "string" ? soortMail.afzender.trim() : "";
 
         try {
-          await verstuurMailMetBijlage({ naar, cc: ccLijst, onderwerp, html: tekstNaarHtml(tekst), bijlagen: [{ naam: bestandNaam, contentType, inhoud: buffer }], afzender });
+          await verstuurMailMetBijlage({ naar, cc: ccLijst, onderwerp, html: tekstNaarHtml(tekst), bijlagen, afzender });
         } catch (e) {
           if (e.message === "MISSING_MAIL_SENDER") { context.res = json(409, { error: "Er is nog geen afzender-mailadres ingesteld (Beheer → Dossiers), en er is geen standaard postvak geconfigureerd." }); return; }
           if (e.message === "GEEN_ONTVANGERS") { context.res = json(400, { error: "Geen geldig ontvanger-e-mailadres." }); return; }
@@ -249,9 +253,9 @@ module.exports = async function (context, req) {
         await logGebeurtenis({
           door: email || "onbekend", actie: "dossier", accountId, accountIds: [accountId],
           klantnaam: klantnaam || basis.naam,
-          tekst: `${soortInst === "notulen" ? "Notulen" : "Dividendbelasting"}-bijlage "${bestandNaam}" gemaild naar ${naar}${ccLijst.length ? ` (cc: ${ccLijst.join(", ")})` : ""}.`,
+          tekst: `${soortInst === "notulen" ? "Notulen" : "Dividendbelasting"}-mail gestuurd naar ${naar}${ccLijst.length ? ` (cc: ${ccLijst.join(", ")})` : ""}${bestandNaam ? ` met bijlage "${bestandNaam}"` : " (zonder bijlage)"}.`,
         }).catch(() => {});
-        context.res = json(200, { ok: true, verzonden: true, naar, cc: ccLijst });
+        context.res = json(200, { ok: true, verzonden: true, naar, cc: ccLijst, bijlage: bestandNaam || null });
         return;
       }
 
