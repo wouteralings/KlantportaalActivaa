@@ -3607,7 +3607,7 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
     const triggerAan = !b.trigger || !!veldenState[b.trigger];
     if (!soortHeeftMail && !triggerAan) return null; // IB/VPB: alleen als de trigger Ja is
     const soortWaarde = dossier.soort === "notulen" ? veldenState.soortnotulen
-      : dossier.soort === "dividend" ? veldenState.soortdividenduitkering : undefined;
+      : dossier.soort === "dividend" ? (veldenState.dividendbelasting ? "ja" : "nee") : undefined;
     return (
       <div style={{ marginTop: 16 }}>
         <DossierBijlageKaart
@@ -3878,7 +3878,7 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
         const triggerAan = !cfg.trigger || !!veldenState[cfg.trigger];
         if (!soortHeeftMail && !triggerAan) return null;
         const soortWaarde = dossier.soort === "notulen" ? veldenState.soortnotulen
-          : dossier.soort === "dividend" ? veldenState.soortdividenduitkering : undefined;
+          : dossier.soort === "dividend" ? (veldenState.dividendbelasting ? "ja" : "nee") : undefined;
         return (
           <DossierBijlageKaart
             dossier={dossier}

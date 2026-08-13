@@ -430,10 +430,17 @@ const opslaanKnop = (bezig) => ({ padding: "7px 14px", background: bezig ? "#9DB
  * {{klantnaam}} / {{jaar}} / {{datum}}. De "Mailtekst per <keuze>" laat per keuzelijst-optie een eigen
  * onderwerp/tekst instellen (perOptie); leeg = de standaardtekst hierboven.
  */
+// Dividend: de mailtekst wordt gekozen op wél/geen dividendbelasting (2 vaste opties), niet op de
+// "Soort dividenduitkering"-keuzelijst. Notulen blijft op de "Soort notulen"-keuzelijst.
+const DIVIDENDBELASTING_OPTIES = [
+  { waarde: "ja", label: "Met dividendbelasting" },
+  { waarde: "nee", label: "Zonder dividendbelasting" },
+];
+
 export function DossierMailTaakPerSoort({ soort }) {
-  const keuzeVeld = soort === "notulen" ? "soortnotulen" : "soortdividenduitkering";
-  const keuzeLabel = soort === "notulen" ? "Soort notulen" : "Soort dividenduitkering";
-  const woord = soort === "notulen" ? "notulen" : "dividendbelasting";
+  const isNotulen = soort === "notulen";
+  const keuzeLabel = isNotulen ? "Soort notulen" : "wel/geen dividendbelasting";
+  const woord = isNotulen ? "notulen" : "dividendbelasting";
   const [geladen, setGeladen] = useState(false);
   const [fout, setFout] = useState("");
   const [mailAfzender, setMailAfzender] = useState("");
@@ -467,7 +474,7 @@ export function DossierMailTaakPerSoort({ soort }) {
     ])
       .then(([velden, inst, taaksoortenData, taakrubriekenData]) => {
         if (!actief) return;
-        setKeuzeOpties((velden.picklistOpties && velden.picklistOpties[keuzeVeld]) || []);
+        setKeuzeOpties(isNotulen ? ((velden.picklistOpties && velden.picklistOpties.soortnotulen) || []) : DIVIDENDBELASTING_OPTIES);
         const dm = (inst && inst[`${soort}Mail`] && typeof inst[`${soort}Mail`] === "object") ? inst[`${soort}Mail`] : {};
         setMailAfzender(typeof dm.afzender === "string" ? dm.afzender : "");
         setMailOnderwerp(typeof dm.onderwerp === "string" ? dm.onderwerp : "");
@@ -552,9 +559,9 @@ export function DossierMailTaakPerSoort({ soort }) {
 
         {keuzeOpties.length > 0 && (
           <div style={{ marginTop: 6, marginBottom: 10 }}>
-            <span style={veldLabel}>Mailtekst per “{keuzeLabel}”</span>
+            <span style={veldLabel}>Mailtekst per {keuzeLabel}</span>
             <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginBottom: 8 }}>
-              Optioneel: per keuze een eigen onderwerp + tekst. In het dossier wordt automatisch de tekst gekozen die bij de gekozen “{keuzeLabel}” hoort; laat je een optie leeg, dan geldt de standaardtekst hierboven.
+              Optioneel: per {isNotulen ? "keuze" : "situatie"} een eigen onderwerp + tekst. In het dossier wordt automatisch de bijpassende tekst gekozen{isNotulen ? " op basis van de gekozen “Soort notulen”" : ", afhankelijk van of Dividendbelasting op Ja of Nee staat"}; laat je een optie leeg, dan geldt de standaardtekst hierboven.
             </div>
             {keuzeOpties.map((o) => {
               const w = String(o.waarde);
