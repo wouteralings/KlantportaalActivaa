@@ -126,6 +126,18 @@ function mapSegmentenVan(sjabloon, standaard) {
   return segmenten.length ? segmenten : [standaard];
 }
 
+// De bijlage-dropzone wordt per rubriek ingesteld (Beheer → Dossiers, in het indeling-paneel): elke
+// rubriek in dossierIndeling.<soort>.secties kan een eigen bijlage-config { aan, trigger, submap,
+// bestandsnaam } hebben. Zoekt die config op via de rubriek-sleutel; geeft null als de rubriek (of zijn
+// config) niet bestaat, zodat de aanroeper op de per-soort-instelling terugvalt.
+function resolveSectieBijlage(instellingen, soortKey, sectieSleutel) {
+  if (!sectieSleutel) return null;
+  const ind = instellingen && instellingen.dossierIndeling && instellingen.dossierIndeling[soortKey];
+  const secties = ind && Array.isArray(ind.secties) ? ind.secties : [];
+  const sectie = secties.find((s) => s && s.sleutel === sectieSleutel);
+  return (sectie && sectie.bijlage && typeof sectie.bijlage === "object") ? sectie.bijlage : null;
+}
+
 function decodeer(bestandBase64) {
   const kaal = String(bestandBase64 || "").replace(/^data:[^;]*;base64,/, "").trim();
   if (!kaal) return { fout: "Geen bestand meegestuurd." };
@@ -210,11 +222,16 @@ module.exports = async function (context, req) {
     const basis = await basisUrlVoorAccount(resource, token, accountId, klantnaam);
     if (basis.fout) { context.res = json(409, { error: basis.fout }); return; }
 
-    // Per-soort submap + mailinstellingen. accountId-modus (Brieven) gebruikt de dividend-submap.
+    // Submap + bestandsnaam: primair per rubriek (dossier-modus met een 'sectie'-sleutel), anders de
+    // per-soort-instelling (accountId/Brieven-modus én terugval voor de legacy bottom-dropzone).
     const soortInst = dossier ? dossier.soort : "dividend";
+    const sectieSleutel = String((req.query && req.query.sectie) || (req.body && req.body.sectie) || "");
     const instellingen = await haalInstellingen().catch(() => ({}));
     const bijlageCfg = resolveBijlageConfig(instellingen, soortInst);
-    const segmenten = mapSegmentenVan(bijlageCfg.map, standaardMapVoor(soortInst));
+    const sectieBijlage = (dossier && sectieSleutel) ? resolveSectieBijlage(instellingen, soortInst, sectieSleutel) : null;
+    const submapBron = (sectieBijlage && typeof sectieBijlage.submap === "string" && sectieBijlage.submap.trim()) ? sectieBijlage.submap : bijlageCfg.map;
+    const bestandsnaamBron = (sectieBijlage && typeof sectieBijlage.bestandsnaam === "string") ? sectieBijlage.bestandsnaam : bijlageCfg.bestandsnaam;
+    const segmenten = mapSegmentenVan(submapBron, standaardMapVoor(soortInst));
     const soortMail = (instellingen[`${soortInst}Mail`] && typeof instellingen[`${soortInst}Mail`] === "object") ? instellingen[`${soortInst}Mail`] : {};
 
     const appToken = await haalAppGraphToken();
@@ -402,7 +419,7 @@ module.exports = async function (context, req) {
         }
       } catch { /* best-effort: zonder lijst valt het terug op de kale naam (Graph overschrijft dan hooguit een gelijknamig bestand). */ }
       const mergeCtxBestand = { klantnaam: (dossier && dossier.klantnaam) || basis.naam, jaar: dossier && dossier.jaar, datum: new Date().toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" }) };
-      const veiligeNaam = bepaalDoelBestandsnaam(bijlageCfg.bestandsnaam, bestandsnaam, mergeCtxBestand, bestaandeNamenLower);
+      const veiligeNaam = bepaalDoelBestandsnaam(bestandsnaamBron, bestandsnaam, mergeCtxBestand, bestaandeNamenLower);
       const upload = await uploadBestand(appToken, map.driveId, doelId, veiligeNaam, buffer, contentType || "application/octet-stream");
       await logGebeurtenis({
         door: email || "onbekend", actie: "dossier", accountId, accountIds: [accountId],

@@ -2874,7 +2874,7 @@ function AangifteLog({ dossier, ververs }) {
  *  (submap instelbaar via Beheer → Dossiers, standaard "Dividendbelasting") en verschijnt in de lijst.
  *  Later kies je zo'n bestand in de Brieven-module als bijlage om mee te mailen. Zie
  *  api/medewerker-dossier-bijlage. */
-function DossierBijlageKaart({ dossier, disabled, extraEmails, soortWaarde, toonUpload = true, toonMail = true }) {
+function DossierBijlageKaart({ dossier, disabled, extraEmails, soortWaarde, toonUpload = true, toonMail = true, sectie = "" }) {
   const [bestanden, setBestanden] = useState(null); // null = laden
   const [fout, setFout] = useState("");
   const [bezig, setBezig] = useState(false);
@@ -2896,7 +2896,7 @@ function DossierBijlageKaart({ dossier, disabled, extraEmails, soortWaarde, toon
 
   const laad = () => {
     setFout("");
-    fetch(`/api/medewerker-dossier-bijlage?soort=${encodeURIComponent(dossier.soort)}&id=${encodeURIComponent(dossier.id)}`)
+    fetch(`/api/medewerker-dossier-bijlage?soort=${encodeURIComponent(dossier.soort)}&id=${encodeURIComponent(dossier.id)}${sectie ? `&sectie=${encodeURIComponent(sectie)}` : ""}`)
       .then((r) => (r.ok ? r.json() : r.json().then((d) => Promise.reject(new Error((d && d.error) || `HTTP ${r.status}`)))))
       .then((d) => {
         setBestanden(d.bestanden || []);
@@ -2932,7 +2932,7 @@ function DossierBijlageKaart({ dossier, disabled, extraEmails, soortWaarde, toon
       const bestandBase64 = await leesAlsBase64(file);
       const r = await fetch("/api/medewerker-dossier-bijlage", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ soort: dossier.soort, id: dossier.id, bestandsnaam: file.name, contentType: file.type || "application/octet-stream", bestandBase64 }),
+        body: JSON.stringify({ soort: dossier.soort, id: dossier.id, sectie, bestandsnaam: file.name, contentType: file.type || "application/octet-stream", bestandBase64 }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
@@ -2977,7 +2977,7 @@ function DossierBijlageKaart({ dossier, disabled, extraEmails, soortWaarde, toon
     try {
       const r = await fetch("/api/medewerker-dossier-bijlage", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ soort: dossier.soort, id: dossier.id, actie: "versturen", bestandNaam: mailBijlage, ontvanger: mailNaar, cc: mailCc, onderwerp: mailOnderwerp, tekst: mailTekst }),
+        body: JSON.stringify({ soort: dossier.soort, id: dossier.id, sectie, actie: "versturen", bestandNaam: mailBijlage, ontvanger: mailNaar, cc: mailCc, onderwerp: mailOnderwerp, tekst: mailTekst }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
@@ -3592,7 +3592,36 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
         .filter((sub) => sub.velden.length > 0);
       return { ...s, velden, subsecties };
     })
-    .filter((s) => s.velden.length > 0 || s.subsecties.length > 0);
+    // Een rubriek met een bijlage-dropzone tonen we ook als er (na filtering) geen velden meer in staan.
+    .filter((s) => s.velden.length > 0 || s.subsecties.length > 0 || (s.bijlage && s.bijlage.aan));
+
+  // Bijlage-dropzone: staat sinds kort per rubriek (sectie.bijlage). Alleen dividend/notulen hebben het
+  // mailgedeelte. Staat er nog nergens een rubriek-dropzone, dan valt het terug op de oude per-soort-
+  // dropzone onderaan het dossier (de 'bijlage'-prop) — zo blijft bestaand gedrag werken tot Wouter
+  // een rubriek-dropzone aanzet.
+  const soortHeeftMail = dossier.soort === "dividend" || dossier.soort === "notulen";
+  const enigeSectieDropzone = (secties || []).some((s) => s && s.bijlage && s.bijlage.aan);
+  const renderSectieDropzone = (sectie) => {
+    const b = sectie.bijlage;
+    if (!b || !b.aan) return null;
+    const triggerAan = !b.trigger || !!veldenState[b.trigger];
+    if (!soortHeeftMail && !triggerAan) return null; // IB/VPB: alleen als de trigger Ja is
+    const soortWaarde = dossier.soort === "notulen" ? veldenState.soortnotulen
+      : dossier.soort === "dividend" ? veldenState.soortdividenduitkering : undefined;
+    return (
+      <div style={{ marginTop: 16 }}>
+        <DossierBijlageKaart
+          dossier={dossier}
+          disabled={!bewerkbaar}
+          extraEmails={{ voorzitter: veldenState.emailvoorzitter, notulist: veldenState.emailnotulist }}
+          soortWaarde={soortWaarde}
+          toonUpload={triggerAan}
+          toonMail={soortHeeftMail}
+          sectie={sectie.sleutel}
+        />
+      </div>
+    );
+  };
 
   // De drie "vaste" velden (__status/__urlDossier/__documentUrl) lopen niet via veldenState/
   // zetVeld maar via hun eigen state hierboven (status/urlDossier/documentUrl) — zo blijft
@@ -3830,6 +3859,8 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
               </div>
             </div>
           ))}
+          {/* Bijlage-dropzone van déze rubriek (Beheer → Dossiers → rubriek). */}
+          {renderSectieDropzone(sectie)}
         </div>
       ))}
 
@@ -3840,9 +3871,10 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
           komt uit de <soort>Bijlage-config (Beheer → Dossiers): 'aan' + het gekozen ja/nee-veld 'trigger'.
           IB/VPB tonen alleen dropzone + snellink (toonMail=false); zonder actieve trigger geen kaart. */}
       {(() => {
+        // Terugval: alleen de oude per-soort-dropzone onderaan tonen zolang geen enkele rubriek er zelf één heeft.
+        if (enigeSectieDropzone) return null;
         const cfg = bijlage || {};
         if (!cfg.aan) return null;
-        const soortHeeftMail = dossier.soort === "dividend" || dossier.soort === "notulen";
         const triggerAan = !cfg.trigger || !!veldenState[cfg.trigger];
         if (!soortHeeftMail && !triggerAan) return null;
         const soortWaarde = dossier.soort === "notulen" ? veldenState.soortnotulen

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { FolderKanban, Plus, Trash2, ChevronUp, ChevronDown, ChevronRight, X, Eye, EyeOff, Lock, Unlock, Sparkles } from "lucide-react";
-import DossierSjablonenPerSoort, { DossierBijlagePerSoort } from "./DossierSjablonenBeheer";
+import DossierSjablonenPerSoort from "./DossierSjablonenBeheer";
 
 // Soorten met een voorbeeld-documentmodule (blanco A4 in het dossier) — het bijbehorende
 // "Voorbeelddocumenten"-blok komt onder de indelingskaart van die soort te hangen (zie de export
@@ -354,6 +354,8 @@ function SoortIndelingPaneel({ soort, onderaan }) {
   // Alleen boolean-velden komen in aanmerking als "voorwaarde" (een ja/nee-poortje voor een ander veld).
   // Velden die als voorwaarde-poort kunnen dienen: ja/nee-velden én keuzelijsten (op hun uitkomst).
   const conditieVelden = (catalogus || []).filter((v) => v.type === "boolean" || v.type === "picklist");
+  // Ja/nee-velden (boolean) die als trigger voor een rubriek-bijlage-dropzone kunnen dienen.
+  const jaNeeVelden = (catalogus || []).filter((v) => v && v.key && v.type === "boolean" && !String(v.key).startsWith("__")).map((v) => ({ key: v.key, label: weergaveLabel(v.key) }));
   const aantalIngedeeld = (secties || []).reduce((n, s) => n + (s.velden || []).length + (s.subsecties || []).reduce((m, sub) => m + (sub.velden || []).length, 0), 0);
 
   const bewaar = async (overrides = {}) => {
@@ -475,6 +477,28 @@ function SoortIndelingPaneel({ soort, onderaan }) {
     setSecties((h) => (h || []).map((s) => (s.sleutel === sleutel ? { ...s, titel } : s)));
   };
   const sectieHernoemOpslaan = () => bewaar({ secties: secties || [] });
+
+  // Bijlage-dropzone per rubriek: sectie.bijlage = { aan, trigger, submap, bestandsnaam }. De dropzone
+  // verschijnt in het dossier ín deze rubriek zodra het gekozen ja/nee-veld ('trigger') op Ja staat
+  // (leeg = altijd tonen). submap + bestandsnaam bepalen waar en onder welke naam een gedropt bestand in
+  // SharePoint belandt (zie api/medewerker-dossier-bijlage). Wordt als onderdeel van de indeling (secties)
+  // bewaard. Vinkje + keuzelijst slaan meteen op; de tekstvelden via onBlur (zoals de rubrieknaam).
+  const merkSectieBijlage = (s, patch) => {
+    const huidig = (s.bijlage && typeof s.bijlage === "object") ? s.bijlage : {};
+    const nieuw = { ...huidig, ...patch };
+    if (!nieuw.aan && !String(nieuw.trigger || "").trim() && !String(nieuw.submap || "").trim() && !String(nieuw.bestandsnaam || "").trim()) {
+      const { bijlage, ...rest } = s; // niets ingesteld → bijlage helemaal weglaten (schoon opslaan)
+      return rest;
+    }
+    return { ...s, bijlage: nieuw };
+  };
+  const wijzigSectieBijlage = (sleutel, patch) => setSecties((h) => (h || []).map((s) => (s.sleutel === sleutel ? merkSectieBijlage(s, patch) : s)));
+  const zetSectieBijlageEnBewaar = (sleutel, patch) => {
+    const volgende = (secties || []).map((s) => (s.sleutel === sleutel ? merkSectieBijlage(s, patch) : s));
+    setSecties(volgende);
+    bewaar({ secties: volgende });
+  };
+  const sectieBijlageOpslaan = () => bewaar({ secties: secties || [] });
 
   const verwijderSectie = (sleutel) => {
     const sectie = (secties || []).find((s) => s.sleutel === sleutel);
@@ -972,6 +996,39 @@ function SoortIndelingPaneel({ soort, onderaan }) {
                 </button>
               </div>
 
+              {/* Bijlage-dropzone voor deze rubriek — vinkje + ja/nee-kolom (+ submap/bestandsnaam). De
+                  dropzone verschijnt in het dossier ín deze rubriek zodra de gekozen ja/nee-kolom op Ja staat. */}
+              <div style={{ background: "#FAFBF9", border: `1px dashed ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", marginBottom: 10 }}>
+                <label style={{ display: "inline-flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: KLEUR.tekst }}>
+                  <input type="checkbox" checked={!!(sectie.bijlage && sectie.bijlage.aan)} onChange={(e) => zetSectieBijlageEnBewaar(sectie.sleutel, { aan: e.target.checked })} />
+                  Bijlage-dropzone in deze rubriek
+                </label>
+                {sectie.bijlage && sectie.bijlage.aan && (
+                  <>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 8, alignItems: "flex-end" }}>
+                      <div>
+                        <div style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3 }}>Toon zodra ja/nee-veld</div>
+                        <select value={(sectie.bijlage && sectie.bijlage.trigger) || ""} onChange={(e) => zetSectieBijlageEnBewaar(sectie.sleutel, { trigger: e.target.value })} style={{ ...invoerStijl, minWidth: 190, background: "#fff" }}>
+                          <option value="">Altijd tonen</option>
+                          {jaNeeVelden.map((v) => <option key={v.key} value={v.key}>{v.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3 }}>SharePoint-submap</div>
+                        <input value={(sectie.bijlage && sectie.bijlage.submap) || ""} onChange={(e) => wijzigSectieBijlage(sectie.sleutel, { submap: e.target.value })} onBlur={sectieBijlageOpslaan} placeholder="Bijlagen" style={{ ...invoerStijl, width: 180 }} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3 }}>Bestandsnaam</div>
+                        <input value={(sectie.bijlage && sectie.bijlage.bestandsnaam) || ""} onChange={(e) => wijzigSectieBijlage(sectie.sleutel, { bestandsnaam: e.target.value })} onBlur={sectieBijlageOpslaan} placeholder="bijv. {{jaar}} — leeg = originele naam" style={{ ...invoerStijl, width: 250 }} />
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 6 }}>
+                      De dropzone verschijnt in het dossier onder de rubriek “{sectie.titel}”. Bestandsnaam mag <code style={{ background: "#fff", padding: "0 3px", borderRadius: 3, border: `1px solid ${KLEUR.rand}` }}>{"{{klantnaam}}"}</code>/<code style={{ background: "#fff", padding: "0 3px", borderRadius: 3, border: `1px solid ${KLEUR.rand}` }}>{"{{jaar}}"}</code>/<code style={{ background: "#fff", padding: "0 3px", borderRadius: 3, border: `1px solid ${KLEUR.rand}` }}>{"{{datum}}"}</code> bevatten; bij meerdere bestanden komt er een volgnummer achter.
+                    </div>
+                  </>
+                )}
+              </div>
+
               {directeVelden.length === 0 ? (
                 <div style={{ fontSize: 12, color: KLEUR.mutedTekst, padding: "4px 2px" }}>Nog geen velden rechtstreeks in deze rubriek.</div>
               ) : (
@@ -1200,9 +1257,9 @@ export default function DossierIndelingBeheer() {
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
       {SOORTEN_TABS.map((s) => (
         <div key={s.key} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {/* Bijlage-dropzone (sleepvak + snellink) hangt nu genest ÍN de indelingskaart (als sub-blok),
-              zodat in het hoofdscherm alleen de dossierkaarten staan. */}
-          <SoortIndelingPaneel soort={s.key} onderaan={<DossierBijlagePerSoort soort={s.key} />} />
+          {/* De bijlage-dropzone wordt nu per rubriek ingesteld (in het indeling-paneel zelf), niet meer
+              als apart blok — zo staat in het hoofdscherm alleen de dossierkaart. */}
+          <SoortIndelingPaneel soort={s.key} />
           {/* Voorbeelddocumenten (blanco A4) — onder de indelingskaart van dezelfde soort. */}
           {SOORTEN_MET_SJABLONEN.has(s.key) && <DossierSjablonenPerSoort soort={s.key} />}
         </div>
