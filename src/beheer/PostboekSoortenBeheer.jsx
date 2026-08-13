@@ -119,7 +119,8 @@ export default function PostboekSoortenBeheer() {
           brief naar binnen en kiest de klant + soort; op basis van de soort bepaalt het portaal waar het bestand
           in SharePoint belandt, onder welke naam, en naar wie de brief gaat. Plaatshouders voor de bestandsnaam:
           <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>{"{{klantnaam}}"}</code>,
-          <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, marginRight: 3 }}>{"{{soort}}"}</code> en
+          <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, marginRight: 3 }}>{"{{soort}}"}</code>,
+          <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, marginRight: 3 }}>{"{{rubriek}}"}</code> en
           <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, marginLeft: 3 }}>{"{{datum}}"}</code>.
         </div>
       </div>

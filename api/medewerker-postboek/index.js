@@ -22,7 +22,7 @@ const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/
 const { haalAppGraphToken } = require("../_gedeeld/graphApp");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
-const { haalPostboek, voegToe, werkBij } = require("../_gedeeld/postboek");
+const { haalPostboek, voegToe, werkBij, verwijder } = require("../_gedeeld/postboek");
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 const SHAREPOINT_VELD = process.env.DYNAMICS_KLANT_SHAREPOINT_VELD || "cr283_sharepoint";
@@ -45,10 +45,11 @@ function splitsNaamExt(naam) {
   if (m && m[1]) return { basis: m[1], ext: m[2] };
   return { basis: n, ext: "" };
 }
-function vulBestandsnaamIn(sjabloon, { klantnaam, soort, datum }) {
+function vulBestandsnaamIn(sjabloon, { klantnaam, soort, rubriek, datum }) {
   return String(sjabloon || "")
     .replace(/\{\{\s*klantnaam\s*\}\}/gi, klantnaam || "")
     .replace(/\{\{\s*soort\s*\}\}/gi, soort || "")
+    .replace(/\{\{\s*rubriek\s*\}\}/gi, rubriek || "")
     .replace(/\{\{\s*datum\s*\}\}/gi, datum || "")
     .replace(/\s{2,}/g, " ")
     .trim();
@@ -161,6 +162,21 @@ module.exports = async function (context, req) {
         return;
       }
 
+      // ── Poststuk verwijderen (alléén beheerders) — verwijdert de registratie, niet het SharePoint-bestand ──
+      if (actie === "verwijder") {
+        if (!rollen.includes("beheerder")) { context.res = json(403, { error: "Alleen beheerders mogen poststukken verwijderen." }); return; }
+        const id = String((req.body && req.body.id) || "");
+        if (!id) { context.res = json(400, { error: "Geef 'id' mee." }); return; }
+        const weg = await verwijder(id);
+        if (!weg) { context.res = json(404, { error: "Postboek-regel niet gevonden." }); return; }
+        await logGebeurtenis({
+          door: email || "onbekend", actie: "postboek-verwijderd", accountId: weg.accountId || "", accountIds: weg.accountId ? [weg.accountId] : [], klantnaam: weg.klantnaam || "",
+          tekst: `Poststuk "${weg.bestand || "?"}" (${weg.soortLabel || "?"}) uit het postboek verwijderd. Het SharePoint-document blijft staan.`,
+        }).catch(() => {});
+        context.res = json(200, { ok: true, verwijderd: id });
+        return;
+      }
+
       // ── Nieuwe brief verwerken (upload + registratie) ──
       const accountId = String((req.body && req.body.accountId) || "");
       const soortId = String((req.body && req.body.soortId) || "");
@@ -195,7 +211,7 @@ module.exports = async function (context, req) {
       } catch { /* best-effort */ }
 
       const datum = new Date().toLocaleDateString("nl-NL", { day: "2-digit", month: "2-digit", year: "numeric" });
-      const veiligeNaam = bepaalDoelBestandsnaam(soort.bestandsnaam, (req.body && req.body.bestandsnaam) || "", { klantnaam, soort: soort.label, datum }, bestaandeNamenLower);
+      const veiligeNaam = bepaalDoelBestandsnaam(soort.bestandsnaam, (req.body && req.body.bestandsnaam) || "", { klantnaam, soort: soort.label, rubriek: String(soort.rubriek || "").trim(), datum }, bestaandeNamenLower);
       const upload = await uploadBestand(appToken, map.driveId, doelId, veiligeNaam, buffer, (req.body && req.body.contentType) || "application/octet-stream");
       const documentUrl = (upload && upload.webUrl) || "";
 

@@ -4720,19 +4720,25 @@ export default function MedewerkerPortaal() {
   // via Beheer → Medewerkers. Serverkant afgedwongen op de mw-planning-endpoints (planningRecht.js).
   const [magPlanning, setMagPlanning] = useState(false);
   const [tab, setTab] = useState("klantoverzicht"); // klantoverzicht | verzoeken | reacties | ondertekeningen | reviews | offertes | contracten | meekijken
-  const [tellingen, setTellingen] = useState({ openWijzigingen: 0, nieuweReviews: 0, vragenlijstenAandacht: 0, nieuweReacties: 0, nieuweTaken: 0 });
+  const [tellingen, setTellingen] = useState({ openWijzigingen: 0, nieuweReviews: 0, vragenlijstenAandacht: 0, nieuweReacties: 0, nieuweTaken: 0, postboekOpen: 0 });
   const [logoUrl, setLogoUrl] = useState("");
 
   const laadTellingen = useCallback(() => {
     fetch("/api/beheer-tellingen")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => setTellingen({
+      .then((d) => setTellingen((t) => ({
+        ...t,
         openWijzigingen: d.openWijzigingen || 0,
         nieuweReviews: d.nieuweReviews || 0,
         vragenlijstenAandacht: d.vragenlijstenAandacht || 0,
         nieuweReacties: d.nieuweReacties || 0,
         nieuweTaken: d.nieuweTaken || 0,
-      }))
+      })))
+      .catch(() => {});
+    // Eigen onbehandelde poststukken → rode badge op de Postboek-tab.
+    fetch("/api/medewerker-postboek?bereik=mijn")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => { const n = (Array.isArray(d.posten) ? d.posten : []).filter((p) => (p.status || "open") === "open").length; setTellingen((t) => ({ ...t, postboekOpen: n })); })
       .catch(() => {});
   }, []);
 
@@ -4824,7 +4830,7 @@ export default function MedewerkerPortaal() {
   const tabs = [
     ["klantoverzicht", "Klantoverzicht", 0],
     ["taken", "Taken", tellingen.nieuweTaken],
-    ["postboek", "Postboek", 0],
+    ["postboek", "Postboek", tellingen.postboekOpen],
     ["mijnwerk", "Mijn werk", 0],
     ...(magPlanning || isBeheerder ? [["planning", "Planning", 0]] : []),
     ["vragenlijsten", "Vragenlijsten", tellingen.vragenlijstenAandacht],
@@ -4919,7 +4925,7 @@ export default function MedewerkerPortaal() {
 
       {tab === "klantoverzicht" && <KlantenModule magContracten={magContracten} isBeheerder={isBeheerder} magPlanning={magPlanning} />}
       {tab === "taken" && <TakenOverzicht />}
-      {tab === "postboek" && <PostboekModule />}
+      {tab === "postboek" && <PostboekModule isBeheerder={isBeheerder} onWijziging={laadTellingen} />}
       {tab === "mijnwerk" && <MijnWerk />}
       {tab === "planning" && (magPlanning || isBeheerder) && <PlanningModule />}
       {tab === "vragenlijsten" && <Vragenlijsten />}

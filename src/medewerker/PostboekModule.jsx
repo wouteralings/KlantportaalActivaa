@@ -1,19 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import { Upload, FileText, Search, CheckCircle2, X, ExternalLink, Loader2, Link2, Pencil, RefreshCw } from "lucide-react";
+import { Upload, FileText, Search, CheckCircle2, X, ExternalLink, Loader2, Link2, Pencil, RefreshCw, User, Building2, Trash2 } from "lucide-react";
 
-/** Zelfde palet als de rest van het medewerkersportaal (bewust hier herhaald zodat dit bestand op
- *  zichzelf staat). */
+/** Zelfde palet + look-and-feel als het Taken-overzicht (TakenOverzicht.jsx), zodat het Postboek er
+ *  zo veel mogelijk hetzelfde uitziet: scope-schakelaar, status-pills, zoekveld, tabel en "Toon: N". */
 const KLEUR = {
   blauw: "#1C5D8C", tekst: "#1C2321", subtekst: "#5B6259", mutedTekst: "#8A9089",
   rand: "#E2E4DF", lichtblauw: "#EAF2F8", rood: "#B23B3B", groen: "#2E7D46", goud: "#B98237",
+  amber: "#A9660C", amberBg: "#FFF4E5", groenBg: "#E7F3EA",
 };
-const PER_PAGINA_OPTIES = [25, 50, 100, 250, 500, "alle"];
+const AANTAL_KEUZES = [[25, "25"], [50, "50"], [100, "100"], [250, "250"], [500, "500"], [Infinity, "Alle"]];
 // Postboek-rol → veld in het klant-object (uit /api/beheer-klanten) — spiegelt TEAM_BRON in MedewerkerPortaal.jsx.
 const ROL_BRON = { manager: "manager", accountant: "accountantPersoon", assistent: "assistent", fiscaal: "fiscaalMedewerker", loon: "loonadministratie", backup: "backup" };
 const ROL_LABEL = { manager: "Manager", accountant: "Accountant", assistent: "Assistent", fiscaal: "Fiscaal medewerker", loon: "Loonadministratie", backup: "Back-up" };
 
-const knop = (actief) => ({ padding: "6px 12px", borderRadius: 8, border: `1px solid ${actief ? KLEUR.blauw : KLEUR.rand}`, background: actief ? KLEUR.lichtblauw : "#fff", color: actief ? KLEUR.blauw : KLEUR.subtekst, fontSize: 12.5, fontWeight: 600, cursor: "pointer" });
 const veld = { boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 10px", fontSize: 13, outline: "none", background: "#fff" };
+const selectStijl = { border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 12.5, background: "#fff", color: KLEUR.tekst, cursor: "pointer" };
 
 function leesBase64(file) {
   return new Promise((resolve, reject) => {
@@ -36,13 +37,35 @@ function klantTeamVan(k) {
   return uit;
 }
 
-export default function PostboekModule() {
+// ── Scope-schakelaar (Mijn postboek / Kantoorbreed) — zelfde vorm als TakenScope ──
+function PostboekScope({ bereik, setBereik }) {
+  const knop = (waarde, Icon, label, eerste) => (
+    <button
+      onClick={() => setBereik(waarde)}
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", border: "none",
+        borderLeft: eerste ? "none" : `1px solid ${KLEUR.rand}`, cursor: "pointer", fontSize: 12.5, fontWeight: 600,
+        background: bereik === waarde ? KLEUR.blauw : "#fff", color: bereik === waarde ? "#fff" : KLEUR.subtekst,
+      }}
+    >
+      <Icon size={13} /> {label}
+    </button>
+  );
+  return (
+    <div style={{ display: "inline-flex", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, overflow: "hidden", flexShrink: 0 }}>
+      {knop("mijn", User, "Mijn postboek", true)}
+      {knop("kantoor", Building2, "Kantoorbreed", false)}
+    </div>
+  );
+}
+
+export default function PostboekModule({ isBeheerder = false, onWijziging }) {
   const [posten, setPosten] = useState(null); // null = laden
   const [bereik, setBereik] = useState("mijn"); // mijn | kantoor
   const [statusFilter, setStatusFilter] = useState("open"); // alle | open | afgehandeld
   const [rubriekFilter, setRubriekFilter] = useState("alle"); // alle | <rubriek>
-  const [perPagina, setPerPagina] = useState(50);
-  const [pagina, setPagina] = useState(1);
+  const [zoek, setZoek] = useState("");
+  const [toonAantal, setToonAantal] = useState(25);
   const [laadFout, setLaadFout] = useState("");
 
   const [soorten, setSoorten] = useState([]);
@@ -53,6 +76,7 @@ export default function PostboekModule() {
   const [drop, setDrop] = useState(null); // { naam, base64, contentType } — geopende pop-up
   const [klantZoek, setKlantZoek] = useState("");
   const [klantId, setKlantId] = useState("");
+  const [rubriekKeuze, setRubriekKeuze] = useState(""); // gekozen rubriek in de pop-up (bepaalt welke soorten je ziet)
   const [soortId, setSoortId] = useState("");
   const [verwerkBezig, setVerwerkBezig] = useState(false);
   const [modalFout, setModalFout] = useState("");
@@ -78,7 +102,7 @@ export default function PostboekModule() {
       .then((d) => setPosten(Array.isArray(d.posten) ? d.posten : []))
       .catch((e) => { setPosten([]); setLaadFout(e.message || "Kon het postboek niet laden."); });
   };
-  useEffect(() => { laadPosten(); setPagina(1); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [bereik]);
+  useEffect(() => { laadPosten(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [bereik]);
 
   const kies = async (file) => {
     if (!file) return;
@@ -86,11 +110,37 @@ export default function PostboekModule() {
     try {
       const base64 = await leesBase64(file);
       setDrop({ naam: file.name, base64, contentType: file.type || "application/octet-stream" });
-      setKlantId(""); setKlantZoek(""); setSoortId(soorten.length === 1 ? soorten[0].id : "");
+      setKlantId(""); setKlantZoek("");
+      // Rubriek + soort resetten; bij precies één rubriek (en één soort) meteen voorinvullen.
+      const rubs = rubriekenVanSoorten();
+      const startRub = rubs.lijst.length === 1 && !rubs.zonder ? rubs.lijst[0] : "";
+      setRubriekKeuze(startRub);
+      const kandidaten = startRub ? soorten.filter((s) => String(s.rubriek || "").trim() === startRub) : soorten;
+      setSoortId(kandidaten.length === 1 ? kandidaten[0].id : "");
     } catch { setModalFout("Bestand kon niet worden gelezen."); }
   };
 
   const gekozenKlant = klanten.find((k) => k.accountId === klantId) || null;
+
+  // Rubrieken zoals ingesteld op de soorten — sturen de cascade in de pop-up (eerst rubriek, dan soort).
+  function rubriekenVanSoorten() {
+    const set = new Set(); let zonder = false;
+    for (const s of soorten) { const r = String(s.rubriek || "").trim(); if (r) set.add(r); else zonder = true; }
+    return { lijst: [...set].sort((a, b) => a.localeCompare(b, "nl")), zonder };
+  }
+  const rubriekPopOpties = rubriekenVanSoorten();
+  const heeftRubrieken = rubriekPopOpties.lijst.length > 0;
+  const soortenVoorKeuze = (() => {
+    if (!heeftRubrieken) return soorten; // geen rubrieken ingesteld → gewoon alle soorten tonen
+    if (!rubriekKeuze) return [];
+    if (rubriekKeuze === "__zonder__") return soorten.filter((s) => !String(s.rubriek || "").trim());
+    return soorten.filter((s) => String(s.rubriek || "").trim() === rubriekKeuze);
+  })();
+  const kiesRubriek = (waarde) => {
+    setRubriekKeuze(waarde);
+    const kandidaten = waarde === "__zonder__" ? soorten.filter((s) => !String(s.rubriek || "").trim()) : soorten.filter((s) => String(s.rubriek || "").trim() === waarde);
+    setSoortId(kandidaten.length === 1 ? kandidaten[0].id : "");
+  };
 
   const verwerk = async () => {
     if (!drop) return;
@@ -113,6 +163,7 @@ export default function PostboekModule() {
       setDrop(null);
       setMelding(`Toegevoegd: “${(d.post && d.post.bestand) || drop.naam}” voor ${k.klantnaam || "de klant"}.`);
       laadPosten();
+      onWijziging && onWijziging();
     } catch (e) { setModalFout(e.message || "Verwerken is mislukt."); }
     finally { setVerwerkBezig(false); }
   };
@@ -122,7 +173,7 @@ export default function PostboekModule() {
     try {
       const r = await fetch("/api/medewerker-postboek", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "status", id: post.id, status }) });
       const d = await r.json().catch(() => ({}));
-      if (r.ok && d.post) setPosten((lijst) => (lijst || []).map((p) => (p.id === post.id ? d.post : p)));
+      if (r.ok && d.post) { setPosten((lijst) => (lijst || []).map((p) => (p.id === post.id ? d.post : p))); onWijziging && onWijziging(); }
     } finally { setRijBezig(""); }
   };
   const bewaarDoc = async (post) => {
@@ -132,6 +183,17 @@ export default function PostboekModule() {
       const d = await r.json().catch(() => ({}));
       if (r.ok && d.post) { setPosten((lijst) => (lijst || []).map((p) => (p.id === post.id ? d.post : p))); setEditId(""); }
     } finally { setRijBezig(""); }
+  };
+  // Alleen beheerders: een poststuk uit het postboek verwijderen. Het document in SharePoint blijft staan.
+  const verwijder = async (post) => {
+    if (!window.confirm(`Poststuk "${post.bestand || ""}" uit het postboek verwijderen?\n\nHet document zelf blijft in SharePoint staan.`)) return;
+    setRijBezig(post.id); setLaadFout("");
+    try {
+      const r = await fetch("/api/medewerker-postboek", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "verwijder", id: post.id }) });
+      if (r.ok) { setPosten((lijst) => (lijst || []).filter((p) => p.id !== post.id)); onWijziging && onWijziging(); }
+      else { const d = await r.json().catch(() => ({})); setLaadFout(d.error || "Verwijderen is mislukt."); }
+    } catch (e) { setLaadFout(e.message || "Verwijderen is mislukt."); }
+    finally { setRijBezig(""); }
   };
 
   const klantMatches = (() => {
@@ -150,24 +212,37 @@ export default function PostboekModule() {
     return [...set].sort((a, b) => a.localeCompare(b, "nl"));
   })();
 
-  const gefilterd = (posten || []).filter((p) =>
-    (statusFilter === "alle" || (p.status || "open") === statusFilter) &&
-    (rubriekFilter === "alle" || rubriekVanPost(p) === rubriekFilter)
-  );
+  const naarTekstVan = (p) => p.naarNaam || p.naarEmail || (p.naarType === "rol" && p.naarRol ? ROL_LABEL[p.naarRol] || p.naarRol : "");
+  const term = zoek.trim().toLowerCase();
+  const gefilterd = (posten || []).filter((p) => {
+    if (!(statusFilter === "alle" || (p.status || "open") === statusFilter)) return false;
+    if (!(rubriekFilter === "alle" || rubriekVanPost(p) === rubriekFilter)) return false;
+    if (term) {
+      const raak = [p.klantnaam, p.klantnummer, p.soortLabel, rubriekVanPost(p), p.bestand, naarTekstVan(p)]
+        .filter(Boolean).some((v) => String(v).toLowerCase().includes(term));
+      if (!raak) return false;
+    }
+    return true;
+  });
   const totaal = gefilterd.length;
-  const alle = perPagina === "alle";
-  const perN = alle ? totaal || 1 : Number(perPagina);
-  const maxPagina = Math.max(1, Math.ceil(totaal / perN));
-  const huidigePagina = Math.min(pagina, maxPagina);
-  const zichtbaar = alle ? gefilterd : gefilterd.slice((huidigePagina - 1) * perN, huidigePagina * perN);
+  const zichtbaar = gefilterd.slice(0, toonAantal);
+  const filterActief = statusFilter !== "open" || rubriekFilter !== "alle" || !!term;
 
-  const cel = { padding: "8px 10px", fontSize: 12.5, borderBottom: `1px solid ${KLEUR.rand}`, verticalAlign: "top" };
-  const kop = { padding: "8px 10px", fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", textAlign: "left", borderBottom: `1px solid ${KLEUR.rand}` };
+  const th = { textAlign: "left", fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", padding: "6px 10px", borderBottom: `1px solid ${KLEUR.rand}`, whiteSpace: "nowrap" };
+  const td = { fontSize: 12.5, padding: "8px 10px", borderBottom: `1px solid ${KLEUR.rand}`, verticalAlign: "top" };
+
+  // Status-pills (Open / Afgehandeld / Alle) — zelfde vorm als de Taken-subtabs.
+  const statusPill = (waarde, label) => (
+    <button onClick={() => setStatusFilter(waarde)} style={{
+      padding: "7px 16px", background: statusFilter === waarde ? KLEUR.blauw : "#fff", color: statusFilter === waarde ? "#fff" : KLEUR.subtekst,
+      border: `1px solid ${statusFilter === waarde ? KLEUR.blauw : KLEUR.rand}`, borderRadius: 999, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+    }}>{label}</button>
+  );
 
   return (
     <div>
-      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Postboek — inkomende post</div>
-      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 14, maxWidth: 720 }}>
+      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Postboek</div>
+      <div style={{ fontSize: 13, color: KLEUR.subtekst, marginBottom: 14, maxWidth: 760 }}>
         Sleep een binnengekomen brief hierheen (of klik om te kiezen); daarna koppel je 'm aan een klant en een soort.
         Op basis van de soort belandt het bestand in de juiste SharePoint-map en gaat de post naar de juiste persoon.
       </div>
@@ -188,129 +263,144 @@ export default function PostboekModule() {
 
       {melding && <div style={{ fontSize: 12.5, color: KLEUR.groen, marginBottom: 12 }}>{melding}</div>}
 
-      {/* Toolbar */}
-      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 12 }}>
-        <button onClick={() => setBereik("mijn")} style={knop(bereik === "mijn")}>Mijn postboek</button>
-        <button onClick={() => setBereik("kantoor")} style={knop(bereik === "kantoor")}>Kantoorbreed</button>
-        <span style={{ width: 1, height: 20, background: KLEUR.rand, margin: "0 4px" }} />
-        {[["open", "Open"], ["afgehandeld", "Afgehandeld"], ["alle", "Alle"]].map(([k, l]) => (
-          <button key={k} onClick={() => { setStatusFilter(k); setPagina(1); }} style={knop(statusFilter === k)}>{l}</button>
-        ))}
+      {/* Status-pills */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+        {statusPill("open", "Open")}
+        {statusPill("afgehandeld", "Afgehandeld")}
+        {statusPill("alle", "Alle")}
+      </div>
+
+      {/* Toolbar: scope + zoek + rubriek + vernieuwen */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+        <PostboekScope bereik={bereik} setBereik={setBereik} />
+        <div style={{ position: "relative", flex: "1 1 240px", maxWidth: 340 }}>
+          <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+          <input value={zoek} onChange={(e) => setZoek(e.target.value)} placeholder="Zoek op klant, soort, bestand of ontvanger…"
+            style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 32px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }} />
+        </div>
         {rubrieken.length > 0 && (
-          <>
-            <span style={{ width: 1, height: 20, background: KLEUR.rand, margin: "0 4px" }} />
-            <label style={{ fontSize: 12, color: KLEUR.subtekst, display: "inline-flex", alignItems: "center", gap: 6 }}>
-              Rubriek
-              <select value={rubriekFilter} onChange={(e) => { setRubriekFilter(e.target.value); setPagina(1); }} style={{ ...veld, padding: "6px 8px" }}>
-                <option value="alle">Alle</option>
-                {rubrieken.map((r) => <option key={r} value={r}>{r}</option>)}
-              </select>
-            </label>
-          </>
+          <label style={{ fontSize: 12, color: KLEUR.subtekst, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            Rubriek
+            <select value={rubriekFilter} onChange={(e) => setRubriekFilter(e.target.value)} style={selectStijl}>
+              <option value="alle">Alle</option>
+              {rubrieken.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </label>
         )}
-        <span style={{ flex: 1 }} />
-        <button onClick={laadPosten} title="Vernieuwen" style={{ ...knop(false), display: "inline-flex", alignItems: "center", gap: 6 }}><RefreshCw size={13} /> Vernieuwen</button>
-        <label style={{ fontSize: 12, color: KLEUR.subtekst, display: "inline-flex", alignItems: "center", gap: 6 }}>
-          Per pagina
-          <select value={String(perPagina)} onChange={(e) => { setPerPagina(e.target.value === "alle" ? "alle" : Number(e.target.value)); setPagina(1); }} style={{ ...veld, padding: "6px 8px" }}>
-            {PER_PAGINA_OPTIES.map((o) => <option key={String(o)} value={String(o)}>{o === "alle" ? "Alle" : o}</option>)}
-          </select>
-        </label>
+        {filterActief && <button onClick={() => { setStatusFilter("open"); setRubriekFilter("alle"); setZoek(""); }} style={{ padding: "8px 12px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Filters wissen</button>}
+        <button onClick={laadPosten} title="Vernieuwen" style={{ ...selectStijl, display: "inline-flex", alignItems: "center", gap: 6 }}><RefreshCw size={13} /> Vernieuwen</button>
       </div>
 
       {laadFout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 10 }}>{laadFout}</div>}
 
-      {/* Tabel */}
       {posten === null ? (
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst, padding: "10px 0" }}><Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Postboek laden…</div>
-      ) : totaal === 0 ? (
-        <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, padding: "10px 0" }}>Geen post gevonden voor deze weergave.</div>
       ) : (
-        <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead style={{ background: "#FbFcFa" }}>
-              <tr>
-                <th style={kop}>Datum</th>
-                <th style={kop}>Klant</th>
-                <th style={kop}>Soort</th>
-                <th style={kop}>Bestand</th>
-                <th style={kop}>Naar</th>
-                <th style={kop}>Status</th>
-                <th style={{ ...kop, textAlign: "right" }}>Actie</th>
-              </tr>
-            </thead>
-            <tbody>
-              {zichtbaar.map((p) => {
-                const afgehandeld = (p.status || "open") === "afgehandeld";
-                const bezig = rijBezig === p.id;
-                return (
-                  <tr key={p.id}>
-                    <td style={{ ...cel, whiteSpace: "nowrap", color: KLEUR.subtekst }}>{formatMoment(p.aangemaaktOp)}</td>
-                    <td style={cel}>
-                      <div style={{ fontWeight: 600, color: KLEUR.tekst }}>{p.klantnaam || "—"}</div>
-                      {p.klantnummer ? <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>{p.klantnummer}</div> : null}
-                    </td>
-                    <td style={cel}>
-                      <div>{p.soortLabel || "—"}</div>
-                      {rubriekVanPost(p) ? <div style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 999, padding: "1px 8px", display: "inline-block", marginTop: 3 }}>{rubriekVanPost(p)}</div> : null}
-                    </td>
-                    <td style={cel}>
-                      {editId === p.id ? (
-                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                          <input value={editUrl} onChange={(e) => setEditUrl(e.target.value)} placeholder="https://…" style={{ ...veld, width: 220, padding: "5px 8px" }} />
-                          <button onClick={() => bewaarDoc(p)} disabled={bezig} style={{ ...knop(true), padding: "5px 9px" }}>Opslaan</button>
-                          <button onClick={() => setEditId("")} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.mutedTekst, padding: 2 }}><X size={14} /></button>
-                        </div>
-                      ) : (
-                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                          <FileText size={14} color={KLEUR.blauw} style={{ flexShrink: 0 }} />
-                          {p.documentUrl
-                            ? <a href={p.documentUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12.5, color: KLEUR.blauw, fontWeight: 600, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>{p.bestand || "openen"} <ExternalLink size={12} /></a>
-                            : <span style={{ fontSize: 12.5, color: KLEUR.tekst }}>{p.bestand || "—"}</span>}
-                          <button onClick={() => { setEditId(p.id); setEditUrl(p.documentUrl || ""); }} title="Documentlink aanpassen" style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.mutedTekst, padding: 2 }}><Pencil size={12} /></button>
-                        </div>
-                      )}
-                    </td>
-                    <td style={cel}>
-                      <div style={{ color: KLEUR.tekst }}>{p.naarNaam || p.naarEmail || (p.naarType === "rol" && p.naarRol ? ROL_LABEL[p.naarRol] || p.naarRol : "—")}</div>
-                      {p.naarType === "rol" && p.naarRol ? <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>{ROL_LABEL[p.naarRol] || p.naarRol}</div> : null}
-                    </td>
-                    <td style={cel}>
-                      {afgehandeld ? (
-                        <span style={{ fontSize: 11, fontWeight: 700, color: KLEUR.groen, background: "#E9F4EE", borderRadius: 999, padding: "2px 9px", display: "inline-flex", alignItems: "center", gap: 4 }}><CheckCircle2 size={12} /> Afgehandeld</span>
-                      ) : (
-                        <span style={{ fontSize: 11, fontWeight: 700, color: KLEUR.goud, background: "#FaF3E6", borderRadius: 999, padding: "2px 9px" }}>Open</span>
-                      )}
-                      {afgehandeld && p.afgehandeldOp ? <div style={{ fontSize: 10.5, color: KLEUR.mutedTekst, marginTop: 3 }}>{p.afgehandeldDoor || ""}{p.afgehandeldOp ? ` · ${formatMoment(p.afgehandeldOp)}` : ""}</div> : null}
-                    </td>
-                    <td style={{ ...cel, textAlign: "right", whiteSpace: "nowrap" }}>
-                      {afgehandeld ? (
-                        <button onClick={() => zetStatus(p, "open")} disabled={bezig} style={{ ...knop(false), padding: "5px 10px" }}>Heropenen</button>
-                      ) : (
-                        <button onClick={() => zetStatus(p, "afgehandeld")} disabled={bezig} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", background: KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: bezig ? "default" : "pointer" }}><CheckCircle2 size={13} /> Afhandelen</button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div style={{ fontSize: 12, color: KLEUR.mutedTekst, marginBottom: 8 }}>{totaal} {totaal === 1 ? "poststuk" : "poststukken"}</div>
+
+          {totaal === 0 ? (
+            <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, padding: "16px 2px" }}>Geen post gevonden voor deze weergave.</div>
+          ) : (
+            <>
+              <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
+                  <thead>
+                    <tr>
+                      <th style={th}>Datum</th>
+                      <th style={th}>Klant</th>
+                      <th style={th}>Soort</th>
+                      <th style={th}>Bestand</th>
+                      <th style={th}>Naar</th>
+                      <th style={th}>Status</th>
+                      <th style={{ ...th, textAlign: "right" }}>Actie</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {zichtbaar.map((p) => {
+                      const afgehandeld = (p.status || "open") === "afgehandeld";
+                      const bezig = rijBezig === p.id;
+                      return (
+                        <tr key={p.id}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = "#FBFBF9")}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
+                          <td style={{ ...td, whiteSpace: "nowrap", color: KLEUR.subtekst }}>{formatMoment(p.aangemaaktOp)}</td>
+                          <td style={td}>
+                            <div style={{ fontWeight: 600, color: KLEUR.tekst }}>{p.klantnaam || "—"}</div>
+                            {p.klantnummer ? <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>{p.klantnummer}</div> : null}
+                          </td>
+                          <td style={td}>
+                            <div>{p.soortLabel || "—"}</div>
+                            {rubriekVanPost(p) ? <div style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 999, padding: "1px 8px", display: "inline-block", marginTop: 3 }}>{rubriekVanPost(p)}</div> : null}
+                          </td>
+                          <td style={td}>
+                            {editId === p.id ? (
+                              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                <input value={editUrl} onChange={(e) => setEditUrl(e.target.value)} placeholder="https://…" style={{ ...veld, width: 220, padding: "5px 8px" }} />
+                                <button onClick={() => bewaarDoc(p)} disabled={bezig} style={{ padding: "5px 9px", borderRadius: 8, border: `1px solid ${KLEUR.blauw}`, background: KLEUR.lichtblauw, color: KLEUR.blauw, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Opslaan</button>
+                                <button onClick={() => setEditId("")} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.mutedTekst, padding: 2 }}><X size={14} /></button>
+                              </div>
+                            ) : (
+                              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                <FileText size={14} color={KLEUR.blauw} style={{ flexShrink: 0 }} />
+                                {p.documentUrl
+                                  ? <a href={p.documentUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12.5, color: KLEUR.blauw, fontWeight: 600, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>{p.bestand || "openen"} <ExternalLink size={12} /></a>
+                                  : <span style={{ fontSize: 12.5, color: KLEUR.tekst }}>{p.bestand || "—"}</span>}
+                                <button onClick={() => { setEditId(p.id); setEditUrl(p.documentUrl || ""); }} title="Documentlink aanpassen" style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.mutedTekst, padding: 2 }}><Pencil size={12} /></button>
+                              </div>
+                            )}
+                          </td>
+                          <td style={td}>
+                            <div style={{ color: KLEUR.tekst }}>{p.naarNaam || p.naarEmail || (p.naarType === "rol" && p.naarRol ? ROL_LABEL[p.naarRol] || p.naarRol : "—")}</div>
+                            {p.naarType === "rol" && p.naarRol ? <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>{ROL_LABEL[p.naarRol] || p.naarRol}</div> : null}
+                          </td>
+                          <td style={td}>
+                            {afgehandeld ? (
+                              <span style={{ fontSize: 11, fontWeight: 700, color: KLEUR.groen, background: KLEUR.groenBg, borderRadius: 999, padding: "2px 9px", display: "inline-flex", alignItems: "center", gap: 4 }}><CheckCircle2 size={12} /> Afgehandeld</span>
+                            ) : (
+                              <span style={{ fontSize: 11, fontWeight: 700, color: KLEUR.amber, background: KLEUR.amberBg, borderRadius: 999, padding: "2px 9px" }}>Open</span>
+                            )}
+                            {afgehandeld && p.afgehandeldOp ? <div style={{ fontSize: 10.5, color: KLEUR.mutedTekst, marginTop: 3 }}>{p.afgehandeldDoor || ""}{p.afgehandeldOp ? ` · ${formatMoment(p.afgehandeldOp)}` : ""}</div> : null}
+                          </td>
+                          <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
+                            <div style={{ display: "inline-flex", gap: 6, alignItems: "center", justifyContent: "flex-end" }}>
+                              {afgehandeld ? (
+                                <button onClick={() => zetStatus(p, "open")} disabled={bezig} style={{ padding: "5px 10px", borderRadius: 8, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.subtekst, fontSize: 12.5, fontWeight: 600, cursor: bezig ? "default" : "pointer" }}>Heropenen</button>
+                              ) : (
+                                <button onClick={() => zetStatus(p, "afgehandeld")} disabled={bezig} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", background: KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: bezig ? "default" : "pointer" }}><CheckCircle2 size={13} /> Afhandelen</button>
+                              )}
+                              {isBeheerder && (
+                                <button onClick={() => verwijder(p)} disabled={bezig} title="Poststuk verwijderen (beheerder)" style={{ display: "inline-flex", alignItems: "center", padding: 6, background: "#fff", color: KLEUR.rood, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, cursor: bezig ? "default" : "pointer" }}><Trash2 size={14} /></button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Paginering — zelfde "Toon: N" als Taken */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+                <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{Math.min(toonAantal, totaal)} van {totaal} getoond</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, flexWrap: "wrap" }}>
+                  <span style={{ color: KLEUR.mutedTekst }}>Toon:</span>
+                  {AANTAL_KEUZES.map(([n, lbl]) => (
+                    <button key={lbl} onClick={() => setToonAantal(n)} style={{
+                      padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                      border: `1px solid ${toonAantal === n ? KLEUR.blauw : KLEUR.rand}`,
+                      background: toonAantal === n ? KLEUR.blauw : "#fff", color: toonAantal === n ? "#fff" : KLEUR.subtekst,
+                    }}>{lbl}</button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </>
       )}
 
-      {/* Paginering */}
-      {posten !== null && totaal > 0 && !alle && maxPagina > 1 && (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 12 }}>
-          <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>{(huidigePagina - 1) * perN + 1}–{Math.min(huidigePagina * perN, totaal)} van {totaal}</div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button onClick={() => setPagina((p) => Math.max(1, p - 1))} disabled={huidigePagina <= 1} style={{ ...knop(false), opacity: huidigePagina <= 1 ? 0.5 : 1 }}>Vorige</button>
-            <span style={{ fontSize: 12, color: KLEUR.subtekst }}>{huidigePagina} / {maxPagina}</span>
-            <button onClick={() => setPagina((p) => Math.min(maxPagina, p + 1))} disabled={huidigePagina >= maxPagina} style={{ ...knop(false), opacity: huidigePagina >= maxPagina ? 0.5 : 1 }}>Volgende</button>
-          </div>
-        </div>
-      )}
-
-      {/* Pop-up na droppen: klant + soort kiezen */}
+      {/* Pop-up na droppen: klant + rubriek + soort kiezen */}
       {drop && (
         <div onClick={() => !verwerkBezig && setDrop(null)} style={{ position: "fixed", inset: 0, background: "rgba(28,35,33,0.35)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 12, width: "min(560px, 96vw)", maxHeight: "90vh", overflow: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.18)" }}>
@@ -351,19 +441,31 @@ export default function PostboekModule() {
                 )}
               </div>
 
+              {heeftRubrieken && (
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 5 }}>Rubriek</div>
+                  <select value={rubriekKeuze} onChange={(e) => kiesRubriek(e.target.value)} style={{ ...veld, width: "100%" }}>
+                    <option value="">— kies een rubriek —</option>
+                    {rubriekPopOpties.lijst.map((r) => <option key={r} value={r}>{r}</option>)}
+                    {rubriekPopOpties.zonder && <option value="__zonder__">Zonder rubriek</option>}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 5 }}>Soort</div>
-                <select value={soortId} onChange={(e) => setSoortId(e.target.value)} style={{ ...veld, width: "100%" }}>
-                  <option value="">— kies een soort —</option>
-                  {soorten.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                <select value={soortId} onChange={(e) => setSoortId(e.target.value)} disabled={heeftRubrieken && !rubriekKeuze} style={{ ...veld, width: "100%", background: heeftRubrieken && !rubriekKeuze ? "#F4F5F2" : "#fff", cursor: heeftRubrieken && !rubriekKeuze ? "not-allowed" : "pointer" }}>
+                  <option value="">{heeftRubrieken && !rubriekKeuze ? "— kies eerst een rubriek —" : "— kies een soort —"}</option>
+                  {soortenVoorKeuze.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                 </select>
                 {soorten.length === 0 && <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 4 }}>Nog geen soorten ingesteld (Beheer → Postboek).</div>}
+                {soorten.length > 0 && heeftRubrieken && rubriekKeuze && soortenVoorKeuze.length === 0 && <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 4 }}>Geen soorten in deze rubriek.</div>}
               </div>
 
               {modalFout && <div style={{ fontSize: 12.5, color: KLEUR.rood }}>{modalFout}</div>}
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "12px 16px", borderTop: `1px solid ${KLEUR.rand}` }}>
-              <button onClick={() => !verwerkBezig && setDrop(null)} style={{ ...knop(false) }}>Annuleren</button>
+              <button onClick={() => !verwerkBezig && setDrop(null)} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.subtekst, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Annuleren</button>
               <button onClick={verwerk} disabled={verwerkBezig || !klantId || !soortId} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 16px", background: verwerkBezig || !klantId || !soortId ? "#9DB4A5" : KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: verwerkBezig || !klantId || !soortId ? "default" : "pointer" }}>
                 {verwerkBezig ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Link2 size={14} />} {verwerkBezig ? "Verwerken…" : "Verwerken"}
               </button>

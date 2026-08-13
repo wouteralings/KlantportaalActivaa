@@ -77,4 +77,15 @@ async function werkBij(id, patch) {
   return lijst[i];
 }
 
-module.exports = { haalPostboek, voegToe, werkBij };
+/** Verwijdert één regel (op id) uit het postboek; geeft de verwijderde regel terug of null als niet
+ *  gevonden. Het SharePoint-document zelf wordt niet aangeraakt — alleen de registratie verdwijnt. */
+async function verwijder(id) {
+  const lijst = await haalPostboek();
+  const i = lijst.findIndex((e) => e && e.id === id);
+  if (i === -1) return null;
+  const [weg] = lijst.splice(i, 1);
+  await schrijfPostboek(lijst);
+  return weg;
+}
+
+module.exports = { haalPostboek, voegToe, werkBij, verwijder };
