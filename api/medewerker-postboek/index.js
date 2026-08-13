@@ -215,7 +215,7 @@ module.exports = async function (context, req) {
       const post = await voegToe({
         door: email || "onbekend",
         accountId, klantnaam, klantnummer: acc.nummer,
-        soortId, soortLabel: soort.label || "",
+        soortId, soortLabel: soort.label || "", rubriek: String(soort.rubriek || "").trim(),
         bestand: veiligeNaam, documentUrl, submap: segmenten.join("/"),
         naarType: soort.naarType === "persoon" ? "persoon" : "rol",
         naarRol: soort.naarType === "persoon" ? "" : (soort.naarRol || ""),

@@ -32,6 +32,9 @@ function naarSoort(s) {
   return {
     id: o.id || nieuwId(),
     label: String(o.label || ""),
+    // Vrij in te vullen rubriek/categorie voor het postboek (los van de Dynamics-taakrubriek). Hierop
+    // kan in het medewerkers-postboek worden gefilterd.
+    rubriek: typeof o.rubriek === "string" ? o.rubriek : "",
     naarType,
     naarRol: typeof o.naarRol === "string" ? o.naarRol : "accountant",
     naarNaam: typeof o.naarNaam === "string" ? o.naarNaam : "",
@@ -91,6 +94,7 @@ export default function PostboekSoortenBeheer() {
       const schoon = soorten.map((s) => ({
         id: s.id,
         label: String(s.label || "").trim() || "Naamloze soort",
+        rubriek: String(s.rubriek || "").trim(),
         naarType: s.naarType === "persoon" ? "persoon" : "rol",
         naarRol: s.naarType === "persoon" ? "" : (s.naarRol || "accountant"),
         naarNaam: s.naarType === "persoon" ? String(s.naarNaam || "").trim() : "",
@@ -136,6 +140,7 @@ export default function PostboekSoortenBeheer() {
                   <button onClick={() => toggle(s.id)} style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", flex: 1, textAlign: "left", padding: 0 }}>
                     {isOpen ? <ChevronDown size={15} color={KLEUR.mutedTekst} /> : <ChevronRight size={15} color={KLEUR.mutedTekst} />}
                     <span style={{ fontSize: 13.5, fontWeight: 700, color: KLEUR.tekst }}>{s.label || "Naamloze soort"}</span>
+                    {s.rubriek ? <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 999, padding: "1px 8px" }}>{s.rubriek}</span> : null}
                     <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>→ {naarTekst}</span>
                     {s.directAfgehandeld && <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.groen, background: "#E9F4EE", borderRadius: 999, padding: "1px 8px" }}>direct afgehandeld</span>}
                   </button>
@@ -145,9 +150,16 @@ export default function PostboekSoortenBeheer() {
                 </div>
                 {isOpen && (
                   <div style={{ padding: 12, borderTop: `1px solid ${KLEUR.rand}`, display: "flex", flexDirection: "column", gap: 12 }}>
-                    <div>
-                      <span style={labelStijl}>Naam van de soort</span>
-                      <input value={s.label} onChange={(e) => zet(s.id, "label", e.target.value)} placeholder="Bijv. Belastingdienst, Bank, Notaris…" style={{ ...invoerStijl, maxWidth: 420 }} />
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                      <div style={{ flex: "1 1 260px" }}>
+                        <span style={labelStijl}>Naam van de soort</span>
+                        <input value={s.label} onChange={(e) => zet(s.id, "label", e.target.value)} placeholder="Bijv. Belastingdienst, Bank, Notaris…" style={invoerStijl} />
+                      </div>
+                      <div style={{ flex: "1 1 200px" }}>
+                        <span style={labelStijl}>Rubriek</span>
+                        <input value={s.rubriek} onChange={(e) => zet(s.id, "rubriek", e.target.value)} placeholder="Bijv. Fiscaal, Loon, Algemeen…" style={invoerStijl} />
+                        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4 }}>Categorie waarop in het postboek gefilterd kan worden. Optioneel.</div>
+                      </div>
                     </div>
 
                     <div>

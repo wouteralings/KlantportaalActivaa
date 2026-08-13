@@ -4,6 +4,7 @@ import { startMeekijken } from "../meekijken";
 import OffertesModule from "./OffertesModule";
 import ContractenOverzicht from "./ContractenOverzicht";
 import TakenOverzicht from "./TakenOverzicht";
+import PostboekModule from "./PostboekModule";
 import Vragenlijsten from "./Vragenlijsten";
 import VragenlijstDetail from "./VragenlijstDetail";
 import Urenregistratie from "./uren/Urenregistratie";
@@ -4823,6 +4824,7 @@ export default function MedewerkerPortaal() {
   const tabs = [
     ["klantoverzicht", "Klantoverzicht", 0],
     ["taken", "Taken", tellingen.nieuweTaken],
+    ["postboek", "Postboek", 0],
     ["mijnwerk", "Mijn werk", 0],
     ...(magPlanning || isBeheerder ? [["planning", "Planning", 0]] : []),
     ["vragenlijsten", "Vragenlijsten", tellingen.vragenlijstenAandacht],
@@ -4917,6 +4919,7 @@ export default function MedewerkerPortaal() {
 
       {tab === "klantoverzicht" && <KlantenModule magContracten={magContracten} isBeheerder={isBeheerder} magPlanning={magPlanning} />}
       {tab === "taken" && <TakenOverzicht />}
+      {tab === "postboek" && <PostboekModule />}
       {tab === "mijnwerk" && <MijnWerk />}
       {tab === "planning" && (magPlanning || isBeheerder) && <PlanningModule />}
       {tab === "vragenlijsten" && <Vragenlijsten />}
