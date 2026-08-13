@@ -1,24 +1,24 @@
 /**
- * /api/medewerker-dossier-bijlage — bijlagen bij een dividenddossier: uploaden naar, opsommen uit,
- * downloaden van én mailen vanuit de SharePoint-map van de cliënt.
+ * /api/medewerker-dossier-bijlage — bijlagen bij een dividend- of notulendossier: uploaden naar,
+ * opsommen uit, downloaden van én mailen vanuit de SharePoint-map van de cliënt.
  *
- * Zodra "Dividendbelasting" in het dividenddossier op Ja staat, verschijnt een sleepvak (zie
- * DividendBijlageKaart in MedewerkerPortaal.jsx) waarmee de medewerker een bestand (alle typen)
- * uploadt. Dat wordt via app-only Graph opgeslagen in de SharePoint-map van de klant
- * (cr283_sharepoint), in een submap die instelbaar is via Beheer → Dossiers (instelling
- * dividendBijlageMap, standaard "Dividendbelasting"). Per bestand kan de medewerker het vervolgens
- * "Versturen": het wordt als bijlage gemaild naar de contactpersoon van de klant, met een onderwerp/
- * tekst die vooraf te controleren/aanpassen is en vanaf een in Beheer → Dossiers ingesteld afzender-
- * adres (instelling dividendMail = { afzender, onderwerp, tekst }). Daarnaast kan een SharePoint-bestand
- * in de Brieven-module als bijlage worden gekozen (accountId-modus hieronder).
+ * In een dividenddossier verschijnt het sleepvak zodra "Dividendbelasting" op Ja staat; in een
+ * notulendossier staat het er altijd (zie DossierBijlageKaart in MedewerkerPortaal.jsx). Een geüpload
+ * bestand wordt via app-only Graph opgeslagen in de SharePoint-map van de klant (cr283_sharepoint), in
+ * een per-soort instelbare submap (Beheer → Dossiers: dividendBijlageMap / notulenBijlageMap; standaard
+ * "Dividendbelasting" resp. "Notulen"). Per bestand kan de medewerker het "Versturen": het wordt als
+ * bijlage gemaild naar één ontvanger (+ optioneel cc), met onderwerp/tekst die vooraf te controleren/
+ * aanpassen zijn en vanaf een per-soort ingesteld afzenderadres (dividendMail / notulenMail =
+ * { afzender, onderwerp, tekst }). Daarnaast kan een SharePoint-bestand in de Brieven-module als bijlage
+ * worden gekozen (accountId-modus — gebruikt de dividend-submap).
  *
- *   Dossier-modus (sleepvak + versturen in het dividenddossier):
- *     GET  ?soort=dividend&id=<dossier-guid>
+ *   Dossier-modus (sleepvak + versturen in het dossier):
+ *     GET  ?soort=dividend|notulen&id=<dossier-guid>
  *          → { map, bestanden:[...], ontvanger:{naam,email}, mailDefaults:{afzender,onderwerp,tekst} }
- *     POST { soort:"dividend", id, bestandsnaam, bestandBase64, contentType? }        → { ok, bestandsnaam, webUrl }
- *     POST { soort:"dividend", id, actie:"versturen", bestandNaam, ontvanger, onderwerp, tekst } → { ok, verzonden, naar }
+ *     POST { soort, id, bestandsnaam, bestandBase64, contentType? }                        → { ok, bestandsnaam, webUrl }
+ *     POST { soort, id, actie:"versturen", bestandNaam, ontvanger, cc?, onderwerp, tekst }  → { ok, verzonden, naar, cc }
  *
- *   Cliënt-modus (Brieven-module — bestanden van de klant zelf):
+ *   Cliënt-modus (Brieven-module — bestanden van de klant zelf, dividend-submap):
  *     GET  ?accountId=<account-guid>                               → { map, bestanden:[...] }
  *     GET  ?accountId=<account-guid>&bestandNaam=<naam>&download=1  → { naam, contentType, grootte, dataUrl }
  *
@@ -36,15 +36,22 @@ const { verstuurMailMetBijlage } = require("../_gedeeld/mail");
 const GRAPH = "https://graph.microsoft.com/v1.0";
 const SHAREPOINT_VELD = process.env.DYNAMICS_KLANT_SHAREPOINT_VELD || "cr283_sharepoint";
 const MAX_BYTES = 15 * 1024 * 1024; // 15 MB — kleine-bestand-upload/download via Graph (:/content)
-const STANDAARD_MAP = "Dividendbelasting";
-const TOEGESTANE_SOORTEN = new Set(["dividend"]); // alleen dividend heeft (voorlopig) dit sleepvak
+const TOEGESTANE_SOORTEN = new Set(["dividend", "notulen"]);
 const GUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
-// Terugval-mailteksten als er in Beheer → Dossiers nog niets is ingesteld (dividendMail).
-const STANDAARD_MAIL_ONDERWERP = "Aangifte dividendbelasting{{jaar}}";
-const STANDAARD_MAIL_TEKST =
-  "Beste {{klantnaam}},\n\nBijgaand ontvangt u de aangifte dividendbelasting{{jaar}}.\n\n" +
-  "Heeft u vragen? Neem gerust contact met ons op.\n\nMet vriendelijke groet,\nActivaa Accountants en Adviseurs";
+// Standaard SharePoint-submap + terugval-mailteksten per soort (als er in Beheer → Dossiers nog niets is ingesteld).
+const STANDAARD_MAP_PER_SOORT = { dividend: "Dividendbelasting", notulen: "Notulen" };
+const STANDAARD_MAIL_PER_SOORT = {
+  dividend: {
+    onderwerp: "Aangifte dividendbelasting{{jaar}}",
+    tekst: "Beste {{klantnaam}},\n\nBijgaand ontvangt u de aangifte dividendbelasting{{jaar}}.\n\nHeeft u vragen? Neem gerust contact met ons op.\n\nMet vriendelijke groet,\nActivaa Accountants en Adviseurs",
+  },
+  notulen: {
+    onderwerp: "Notulen algemene vergadering",
+    tekst: "Beste {{klantnaam}},\n\nBijgaand ontvangt u de notulen.\n\nHeeft u vragen? Neem gerust contact met ons op.\n\nMet vriendelijke groet,\nActivaa Accountants en Adviseurs",
+  },
+};
+function standaardMapVoor(soortKey) { return STANDAARD_MAP_PER_SOORT[soortKey] || "Dividendbelasting"; }
 
 const json = (status, body) => ({ status, headers: { "Content-Type": "application/json" }, body });
 
@@ -54,14 +61,14 @@ function veiligeBestandsnaam(naam) {
   return n || "bijlage";
 }
 
-// Submap-sjabloon (uit Beheer) → schone mapsegmenten voor ensureFolderPath. Valt terug op
-// ["Dividendbelasting"] zodat een bijlage nooit in de wortel van het klantdossier belandt.
-function mapSegmentenVan(sjabloon) {
-  const segmenten = String(sjabloon == null || sjabloon === "" ? STANDAARD_MAP : sjabloon)
+// Submap-sjabloon (uit Beheer) → schone mapsegmenten voor ensureFolderPath. Valt terug op de
+// soort-standaard zodat een bijlage nooit in de wortel van het klantdossier belandt.
+function mapSegmentenVan(sjabloon, standaard) {
+  const segmenten = String(sjabloon == null || sjabloon === "" ? standaard : sjabloon)
     .split(/[\\/]+/)
     .map((deel) => deel.replace(/[\\/:*?"<>|]/g, "-").trim())
     .filter(Boolean);
-  return segmenten.length ? segmenten : [STANDAARD_MAP];
+  return segmenten.length ? segmenten : [standaard];
 }
 
 function decodeer(bestandBase64) {
@@ -75,8 +82,7 @@ function decodeer(bestandBase64) {
 }
 
 // Plaatshouders in mailonderwerp/-tekst — bewust een kleine, vaste set (server-side gevuld). {{jaar}}
-// wordt als " <jaar>" ingevuld (of leeg), en dubbele spaties opgeschoond, zodat een leeg jaar niet
-// "dividendbelasting  ." oplevert.
+// wordt als " <jaar>" ingevuld (of leeg), en dubbele spaties opgeschoond.
 function vulMailIn(sjabloon, { klantnaam, jaar, datum }) {
   const jaarDeel = jaar != null && jaar !== "" ? ` ${jaar}` : "";
   return String(sjabloon || "")
@@ -91,6 +97,11 @@ function tekstNaarHtml(tekst) {
   return esc(tekst)
     .replace(/(https?:\/\/[^\s<]+)/g, (u) => `<a href="${u}" style="color:#1C5D8C;text-decoration:underline;">${u}</a>`)
     .replace(/\n/g, "<br/>");
+}
+
+// Comma-/puntkomma-/regelgescheiden adressenlijst → schone array (leeg eruit).
+function splitsAdressen(waarde) {
+  return String(waarde || "").split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean);
 }
 
 // SharePoint-basismap (cr283_sharepoint) + primaire contactpersoon van een cliënt (op accountId).
@@ -123,15 +134,15 @@ module.exports = async function (context, req) {
   try {
     const token = await haalDynamicsToken();
 
-    // Cliënt bepalen: rechtstreeks via accountId (Brieven-module) of via een dividenddossier (soort+id).
+    // Cliënt bepalen: rechtstreeks via accountId (Brieven-module) of via een dossier (soort+id).
     let accountId = "", klantnaam = "", dossier = null;
     if (accountIdQ) {
       if (!GUID.test(accountIdQ)) { context.res = json(400, { error: "Ongeldig accountId." }); return; }
       accountId = accountIdQ;
     } else {
-      if (!TOEGESTANE_SOORTEN.has(soortKey)) { context.res = json(400, { error: "Geef 'accountId', of 'soort=dividend' + 'id' mee." }); return; }
+      if (!TOEGESTANE_SOORTEN.has(soortKey)) { context.res = json(400, { error: "Geef 'accountId', of 'soort' (dividend/notulen) + 'id' mee." }); return; }
       const soort = SOORTEN.find((s) => s.key === soortKey);
-      if (!soort || !id) { context.res = json(400, { error: "Geef 'soort=dividend' en 'id' mee." }); return; }
+      if (!soort || !id) { context.res = json(400, { error: "Geef 'soort' (dividend/notulen) en 'id' mee." }); return; }
       dossier = await haalEenDossier(resource, token, soort, id);
       if (!dossier) { context.res = json(404, { error: "Dossier niet gevonden." }); return; }
       accountId = dossier.accountId;
@@ -142,9 +153,11 @@ module.exports = async function (context, req) {
     const basis = await basisUrlVoorAccount(resource, token, accountId, klantnaam);
     if (basis.fout) { context.res = json(409, { error: basis.fout }); return; }
 
+    // Per-soort submap + mailinstellingen. accountId-modus (Brieven) gebruikt de dividend-submap.
+    const soortInst = dossier ? dossier.soort : "dividend";
     const instellingen = await haalInstellingen().catch(() => ({}));
-    const segmenten = mapSegmentenVan(instellingen.dividendBijlageMap);
-    const dividendMail = (instellingen.dividendMail && typeof instellingen.dividendMail === "object") ? instellingen.dividendMail : {};
+    const segmenten = mapSegmentenVan(instellingen[`${soortInst}BijlageMap`], standaardMapVoor(soortInst));
+    const soortMail = (instellingen[`${soortInst}Mail`] && typeof instellingen[`${soortInst}Mail`] === "object") ? instellingen[`${soortInst}Mail`] : {};
 
     const appToken = await haalAppGraphToken();
     const map = await resolveFolder(appToken, basis.basisUrl);
@@ -184,14 +197,15 @@ module.exports = async function (context, req) {
       // In dossier-modus ook de ontvanger (primaire contactpersoon) + de standaard mailgegevens
       // meesturen, zodat het "Versturen"-venster meteen voorgevuld is.
       if (dossier) {
+        const std = STANDAARD_MAIL_PER_SOORT[soortInst] || STANDAARD_MAIL_PER_SOORT.dividend;
         const mergeCtx = { klantnaam: dossier.klantnaam || basis.naam, jaar: dossier.jaar, datum: new Date().toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" }) };
         context.res = json(200, {
           map: segmenten.join("/"), bestanden,
           ontvanger: { naam: basis.contact.naam, email: basis.contact.email },
           mailDefaults: {
-            afzender: typeof dividendMail.afzender === "string" ? dividendMail.afzender : "",
-            onderwerp: vulMailIn(typeof dividendMail.onderwerp === "string" && dividendMail.onderwerp.trim() ? dividendMail.onderwerp : STANDAARD_MAIL_ONDERWERP, mergeCtx),
-            tekst: vulMailIn(typeof dividendMail.tekst === "string" && dividendMail.tekst.trim() ? dividendMail.tekst : STANDAARD_MAIL_TEKST, mergeCtx),
+            afzender: typeof soortMail.afzender === "string" ? soortMail.afzender : "",
+            onderwerp: vulMailIn(typeof soortMail.onderwerp === "string" && soortMail.onderwerp.trim() ? soortMail.onderwerp : std.onderwerp, mergeCtx),
+            tekst: vulMailIn(typeof soortMail.tekst === "string" && soortMail.tekst.trim() ? soortMail.tekst : std.tekst, mergeCtx),
           },
         });
         return;
@@ -203,11 +217,12 @@ module.exports = async function (context, req) {
     if (methode === "POST") {
       const actie = String((req.body && req.body.actie) || "");
 
-      // ── Versturen: bestand uit SharePoint als bijlage mailen naar de klant ──
+      // ── Versturen: bestand uit SharePoint als bijlage mailen naar de klant (+ optioneel cc) ──
       if (actie === "versturen") {
-        if (!dossier) { context.res = json(400, { error: "Versturen kan alleen vanuit een dividenddossier (soort=dividend + id)." }); return; }
+        if (!dossier) { context.res = json(400, { error: "Versturen kan alleen vanuit een dossier (soort + id)." }); return; }
         const bestandNaam = String((req.body && req.body.bestandNaam) || "").trim();
         const naar = String((req.body && req.body.ontvanger) || "").trim();
+        const ccLijst = splitsAdressen(req.body && req.body.cc);
         const onderwerp = String((req.body && req.body.onderwerp) || "").trim();
         const tekst = String((req.body && req.body.tekst) || "").trim();
         if (!bestandNaam) { context.res = json(400, { error: "Geef 'bestandNaam' mee." }); return; }
@@ -222,10 +237,10 @@ module.exports = async function (context, req) {
         if (!dl.ok) throw new Error(`Bestand ophalen mislukt (${dl.status}): ${await dl.text()}`);
         const buffer = Buffer.from(await dl.arrayBuffer());
         const contentType = dl.headers.get("content-type") || "application/octet-stream";
-        const afzender = typeof dividendMail.afzender === "string" ? dividendMail.afzender.trim() : "";
+        const afzender = typeof soortMail.afzender === "string" ? soortMail.afzender.trim() : "";
 
         try {
-          await verstuurMailMetBijlage({ naar, onderwerp, html: tekstNaarHtml(tekst), bijlagen: [{ naam: bestandNaam, contentType, inhoud: buffer }], afzender });
+          await verstuurMailMetBijlage({ naar, cc: ccLijst, onderwerp, html: tekstNaarHtml(tekst), bijlagen: [{ naam: bestandNaam, contentType, inhoud: buffer }], afzender });
         } catch (e) {
           if (e.message === "MISSING_MAIL_SENDER") { context.res = json(409, { error: "Er is nog geen afzender-mailadres ingesteld (Beheer → Dossiers), en er is geen standaard postvak geconfigureerd." }); return; }
           if (e.message === "GEEN_ONTVANGERS") { context.res = json(400, { error: "Geen geldig ontvanger-e-mailadres." }); return; }
@@ -234,9 +249,9 @@ module.exports = async function (context, req) {
         await logGebeurtenis({
           door: email || "onbekend", actie: "dossier", accountId, accountIds: [accountId],
           klantnaam: klantnaam || basis.naam,
-          tekst: `Dividendbelasting-bijlage "${bestandNaam}" gemaild naar ${naar}${dossier.jaar ? ` (dossier ${dossier.jaar})` : ""}.`,
+          tekst: `${soortInst === "notulen" ? "Notulen" : "Dividendbelasting"}-bijlage "${bestandNaam}" gemaild naar ${naar}${ccLijst.length ? ` (cc: ${ccLijst.join(", ")})` : ""}.`,
         }).catch(() => {});
-        context.res = json(200, { ok: true, verzonden: true, naar });
+        context.res = json(200, { ok: true, verzonden: true, naar, cc: ccLijst });
         return;
       }
 
@@ -249,7 +264,7 @@ module.exports = async function (context, req) {
       await logGebeurtenis({
         door: email || "onbekend", actie: "dossier", accountId, accountIds: [accountId],
         klantnaam: klantnaam || basis.naam,
-        tekst: `Bijlage "${veiligeNaam}" toegevoegd aan dividenddossier${dossier && dossier.jaar ? ` ${dossier.jaar}` : ""} (SharePoint: ${segmenten.join("/")}).`,
+        tekst: `Bijlage "${veiligeNaam}" toegevoegd aan ${soortInst}dossier${dossier && dossier.jaar ? ` ${dossier.jaar}` : ""} (SharePoint: ${segmenten.join("/")}).`,
       }).catch(() => {});
       context.res = json(200, { ok: true, bestandsnaam: veiligeNaam, webUrl: (upload && upload.webUrl) || "" });
       return;

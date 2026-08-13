@@ -62,6 +62,11 @@ function naarLijst(eigen) {
 
 export default function DossierSjablonenPerSoort({ soort }) {
   const soortLabel = SOORT_LABEL[soort] || "Dossier";
+  // Bijlage-upload + verstuur-mail bestaan voor dividend én notulen (elk met een eigen SharePoint-submap
+  // en eigen mailinstellingen, per-soort-sleutels <soort>BijlageMap / <soort>Mail).
+  const heeftBijlageMail = soort === "dividend" || soort === "notulen";
+  const bijlageWoord = soort === "notulen" ? "notulen" : "dividendbelasting";
+  const standaardMap = soort === "notulen" ? "Notulen" : "Dividendbelasting";
   const [open, setOpen] = useState(false); // dichtgeklapt bij openen van de pagina
   const [geladen, setGeladen] = useState(false);
   const [catalogus, setCatalogus] = useState([]);
@@ -95,9 +100,10 @@ export default function DossierSjablonenPerSoort({ soort }) {
         setCatalogus(velden.catalogus || []);
         const eigen = inst && inst.dossierSjablonen && inst.dossierSjablonen[soort];
         setSjablonen(naarLijst(eigen));
-        if (soort === "dividend") {
-          setBijlageMap(inst && typeof inst.dividendBijlageMap === "string" && inst.dividendBijlageMap.trim() ? inst.dividendBijlageMap : "Dividendbelasting");
-          const dm = (inst && inst.dividendMail && typeof inst.dividendMail === "object") ? inst.dividendMail : {};
+        if (heeftBijlageMail) {
+          const mapKey = `${soort}BijlageMap`;
+          setBijlageMap(inst && typeof inst[mapKey] === "string" && inst[mapKey].trim() ? inst[mapKey] : standaardMap);
+          const dm = (inst && inst[`${soort}Mail`] && typeof inst[`${soort}Mail`] === "object") ? inst[`${soort}Mail`] : {};
           setMailAfzender(typeof dm.afzender === "string" ? dm.afzender : "");
           setMailOnderwerp(typeof dm.onderwerp === "string" ? dm.onderwerp : "");
           setMailTekst(typeof dm.tekst === "string" ? dm.tekst : "");
@@ -143,11 +149,11 @@ export default function DossierSjablonenPerSoort({ soort }) {
       const alle = (huidig && huidig.dossierSjablonen && typeof huidig.dossierSjablonen === "object") ? huidig.dossierSjablonen : {};
       const schoon = sjablonen.map((s) => ({ id: s.id, naam: String(s.naam || "").trim() || "Naamloos sjabloon", tekst: String(s.tekst || "") }));
       const nieuweAlle = { ...alle, [soort]: { sjablonen: schoon } };
-      const body = soort === "dividend"
+      const body = heeftBijlageMail
         ? {
             dossierSjablonen: nieuweAlle,
-            dividendBijlageMap: (bijlageMap.trim() || "Dividendbelasting"),
-            dividendMail: { afzender: mailAfzender.trim(), onderwerp: mailOnderwerp, tekst: mailTekst },
+            [`${soort}BijlageMap`]: (bijlageMap.trim() || standaardMap),
+            [`${soort}Mail`]: { afzender: mailAfzender.trim(), onderwerp: mailOnderwerp, tekst: mailTekst },
           }
         : { dossierSjablonen: nieuweAlle };
       const res = await fetch("/api/beheer-instellingen", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -189,26 +195,25 @@ export default function DossierSjablonenPerSoort({ soort }) {
             </div>
           </div>
 
-          {soort === "dividend" && (
+          {heeftBijlageMail && (
             <div style={{ marginBottom: 18, paddingBottom: 16, borderBottom: `1px solid ${KLEUR.rand}` }}>
-              <span style={labelStijl}>SharePoint-submap voor dividendbelasting-bijlagen</span>
-              <input value={bijlageMap} onChange={(e) => setBijlageMap(e.target.value)} placeholder="Dividendbelasting" style={{ ...invoerStijl, maxWidth: 360 }} />
+              <span style={labelStijl}>SharePoint-submap voor {bijlageWoord}-bijlagen</span>
+              <input value={bijlageMap} onChange={(e) => setBijlageMap(e.target.value)} placeholder={standaardMap} style={{ ...invoerStijl, maxWidth: 360 }} />
               <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4 }}>
-                Submap onder de SharePoint-map van de klant waarin een in het dividenddossier geüploade bijlage
-                (zodra “Dividendbelasting” op Ja staat) belandt. Leeg = “Dividendbelasting”.
+                Submap onder de SharePoint-map van de klant waarin een in het dossier geüploade bijlage belandt. Leeg = “{standaardMap}”.
               </div>
             </div>
           )}
 
-          {soort === "dividend" && (
+          {heeftBijlageMail && (
             <div style={{ marginBottom: 18, paddingBottom: 16, borderBottom: `1px solid ${KLEUR.rand}` }}>
               <div style={{ fontSize: 13.5, fontWeight: 700, color: KLEUR.tekst, marginBottom: 8 }}>Mail — bijlage versturen</div>
               <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 10 }}>
-                Afzenderadres en standaardtekst voor het “Versturen” van een bijlage vanuit het dividenddossier.
+                Afzenderadres en standaardtekst voor het “Versturen” van een bijlage vanuit het dossier.
                 Plaatshouders <code style={{ background: "#fff", padding: "1px 4px", borderRadius: 4, border: `1px solid ${KLEUR.rand}` }}>{"{{klantnaam}}"}</code>,
                 <code style={{ background: "#fff", padding: "1px 4px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>{"{{jaar}}"}</code> en
                 <code style={{ background: "#fff", padding: "1px 4px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, marginLeft: 3 }}>{"{{datum}}"}</code>
-                worden bij het versturen ingevuld. De medewerker kan onderwerp en tekst per verzending nog aanpassen.
+                worden bij het versturen ingevuld. De medewerker kan ontvanger, cc, onderwerp en tekst per verzending nog aanpassen.
               </div>
               <div style={{ marginBottom: 10 }}>
                 <span style={labelStijl}>Afzender-mailadres</span>
@@ -217,11 +222,11 @@ export default function DossierSjablonenPerSoort({ soort }) {
               </div>
               <div style={{ marginBottom: 10 }}>
                 <span style={labelStijl}>Standaard mailonderwerp</span>
-                <input value={mailOnderwerp} onChange={(e) => setMailOnderwerp(e.target.value)} placeholder="Aangifte dividendbelasting {{jaar}}" style={invoerStijl} />
+                <input value={mailOnderwerp} onChange={(e) => setMailOnderwerp(e.target.value)} placeholder={soort === "notulen" ? "Notulen algemene vergadering" : "Aangifte dividendbelasting {{jaar}}"} style={invoerStijl} />
               </div>
               <div>
                 <span style={labelStijl}>Standaard mailtekst</span>
-                <textarea value={mailTekst} onChange={(e) => setMailTekst(e.target.value)} rows={7} placeholder={"Beste {{klantnaam}},\n\nBijgaand ontvangt u de aangifte dividendbelasting {{jaar}}.\n\n…"} style={{ ...invoerStijl, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }} />
+                <textarea value={mailTekst} onChange={(e) => setMailTekst(e.target.value)} rows={7} placeholder={soort === "notulen" ? "Beste {{klantnaam}},\n\nBijgaand ontvangt u de notulen.\n\n…" : "Beste {{klantnaam}},\n\nBijgaand ontvangt u de aangifte dividendbelasting {{jaar}}.\n\n…"} style={{ ...invoerStijl, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }} />
               </div>
             </div>
           )}

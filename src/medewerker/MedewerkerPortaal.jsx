@@ -2873,7 +2873,7 @@ function AangifteLog({ dossier, ververs }) {
  *  (submap instelbaar via Beheer → Dossiers, standaard "Dividendbelasting") en verschijnt in de lijst.
  *  Later kies je zo'n bestand in de Brieven-module als bijlage om mee te mailen. Zie
  *  api/medewerker-dossier-bijlage. */
-function DividendBijlageKaart({ dossier, disabled }) {
+function DossierBijlageKaart({ dossier, disabled, extraEmails }) {
   const [bestanden, setBestanden] = useState(null); // null = laden
   const [fout, setFout] = useState("");
   const [bezig, setBezig] = useState(false);
@@ -2929,9 +2929,22 @@ function DividendBijlageKaart({ dossier, disabled }) {
     return `${(b / 1024 / 1024).toFixed(1)} MB`;
   };
 
+  // Beschikbare ontvanger-adressen om snel te kiezen: contactpersoon + (uit het dossier) voorzitter/notulist.
+  const ontvangerOpties = [
+    { label: "Contactpersoon", email: ontvanger.email },
+    { label: "Voorzitter", email: extraEmails && extraEmails.voorzitter },
+    { label: "Notulist", email: extraEmails && extraEmails.notulist },
+  ].filter((o) => String(o.email || "").trim());
+  const isNotulen = dossier.soort === "notulen";
+  const kaartTitel = isNotulen ? "Bijlage notulen" : "Bijlage dividendbelasting";
+
   const openVersturen = (bestandNaam) => {
     setVerstuurFout(""); setVerstuurMelding("");
-    setVerstuurModal({ bestandNaam, naar: ontvanger.email || "", onderwerp: mailDefaults.onderwerp || "", tekst: mailDefaults.tekst || "" });
+    const to = ontvanger.email || "";
+    // Voorzitter/notulist ontvangen 'm ook → standaard in cc (ontdubbeld, zonder het To-adres).
+    const extra = [extraEmails && extraEmails.voorzitter, extraEmails && extraEmails.notulist].map((e) => String(e || "").trim()).filter(Boolean);
+    const ccStart = [...new Set(extra.filter((e) => e.toLowerCase() !== to.toLowerCase()))].join(", ");
+    setVerstuurModal({ bestandNaam, naar: to, cc: ccStart, onderwerp: mailDefaults.onderwerp || "", tekst: mailDefaults.tekst || "" });
   };
   const verstuur = async () => {
     if (!verstuurModal) return;
@@ -2939,11 +2952,11 @@ function DividendBijlageKaart({ dossier, disabled }) {
     try {
       const r = await fetch("/api/medewerker-dossier-bijlage", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ soort: dossier.soort, id: dossier.id, actie: "versturen", bestandNaam: verstuurModal.bestandNaam, ontvanger: verstuurModal.naar, onderwerp: verstuurModal.onderwerp, tekst: verstuurModal.tekst }),
+        body: JSON.stringify({ soort: dossier.soort, id: dossier.id, actie: "versturen", bestandNaam: verstuurModal.bestandNaam, ontvanger: verstuurModal.naar, cc: verstuurModal.cc, onderwerp: verstuurModal.onderwerp, tekst: verstuurModal.tekst }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
-      setVerstuurMelding(`“${verstuurModal.bestandNaam}” gemaild naar ${verstuurModal.naar}.`);
+      setVerstuurMelding(`“${verstuurModal.bestandNaam}” gemaild naar ${verstuurModal.naar}${verstuurModal.cc && verstuurModal.cc.trim() ? ` (cc: ${verstuurModal.cc.trim()})` : ""}.`);
       setVerstuurModal(null);
     } catch (e) { setVerstuurFout(e.message || "Versturen is mislukt."); }
     finally { setVerstuurBezig(false); }
@@ -2952,11 +2965,10 @@ function DividendBijlageKaart({ dossier, disabled }) {
 
   return (
     <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
-      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Bijlage dividendbelasting</div>
+      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{kaartTitel}</div>
       <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 14, maxWidth: 640 }}>
-        Voeg hier het document toe (bijv. de aangifte dividendbelasting). Het wordt bewaard in de
-        SharePoint-map van de klant, is per stuk te <strong>versturen</strong> naar de klant, en in de
-        Brieven-module als bijlage te kiezen.
+        Voeg hier het document toe (bijv. {isNotulen ? "de notulen" : "de aangifte dividendbelasting"}). Het wordt bewaard in de
+        SharePoint-map van de klant en is per stuk te <strong>versturen</strong> naar de klant{isNotulen ? "" : ", en in de Brieven-module als bijlage te kiezen"}.
       </div>
 
       <div
@@ -3014,6 +3026,21 @@ function DividendBijlageKaart({ dossier, disabled }) {
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3 }}>Aan (e-mailadres)</div>
               <input value={verstuurModal.naar} onChange={(e) => setVerstuurModal((h) => ({ ...h, naar: e.target.value }))} placeholder="naam@voorbeeld.nl" style={mailVeld} />
+              {ontvangerOpties.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6, alignItems: "center" }}>
+                  <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>Kies:</span>
+                  {ontvangerOpties.map((o, i) => (
+                    <button key={i} type="button" onClick={() => setVerstuurModal((h) => ({ ...h, naar: o.email }))} title={o.email}
+                      style={{ border: `1px solid ${KLEUR.rand}`, background: verstuurModal.naar === o.email ? KLEUR.lichtblauw : "#F7F8F6", color: KLEUR.tekst, borderRadius: 999, padding: "3px 9px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3 }}>CC (optioneel, komma-gescheiden)</div>
+              <input value={verstuurModal.cc || ""} onChange={(e) => setVerstuurModal((h) => ({ ...h, cc: e.target.value }))} placeholder="cc@… (bijv. voorzitter en notulist)" style={mailVeld} />
             </div>
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3 }}>Onderwerp</div>
@@ -3697,8 +3724,10 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
 
       {(dossier.soort === "ib" || dossier.soort === "vpb") && <AangifteVersturenKaart dossier={dossier} disabled={!bewerkbaar} />}
 
-      {/* Dividendbelasting-bijlage: alleen bij een dividenddossier én zodra "Dividendbelasting" op Ja staat. */}
-      {dossier.soort === "dividend" && !!veldenState.dividendbelasting && <DividendBijlageKaart dossier={dossier} disabled={!bewerkbaar} />}
+      {/* Bijlage + versturen: bij dividend zodra "Dividendbelasting" op Ja staat; bij notulen altijd.
+          extraEmails levert de e-mail voorzitter/notulist uit het dossier voor het cc-veld. */}
+      {dossier.soort === "dividend" && !!veldenState.dividendbelasting && <DossierBijlageKaart dossier={dossier} disabled={!bewerkbaar} extraEmails={{ voorzitter: veldenState.emailvoorzitter, notulist: veldenState.emailnotulist }} />}
+      {dossier.soort === "notulen" && <DossierBijlageKaart dossier={dossier} disabled={!bewerkbaar} extraEmails={{ voorzitter: veldenState.emailvoorzitter, notulist: veldenState.emailnotulist }} />}
 
       {uitvragen.length > 0 && uitvragen.map((u) => {
         const opengeklapt = uitvraagOpen[u.id] ?? (u.status !== "afgerond");
