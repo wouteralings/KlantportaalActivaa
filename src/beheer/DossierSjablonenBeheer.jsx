@@ -449,6 +449,13 @@ export function DossierMailTaakPerSoort({ soort }) {
   const [taakSoortOpties, setTaakSoortOpties] = useState([]); // [{ waarde, label }]
   const [taakRubriekOpties, setTaakRubriekOpties] = useState([]); // [{ waarde, label }]
   const [taakStatus, setTaakStatus] = useState("rust");
+  // Standaard SharePoint-submap van deze soort (sleutel <soort>BijlageMap) — de terugval-submap voor de
+  // bijlage-dropzone als een rubriek zelf geen submap invult (rubriek gaat vóór). Samen met de taak bewaard.
+  const standaardMap = STANDAARD_BIJLAGE_MAP[soort] || "Bijlagen";
+  const [submap, setSubmap] = useState("");
+  // Welke per-optie mailteksten opengeklapt zijn (standaard alles ingeklapt).
+  const [openOpties, setOpenOpties] = useState(() => new Set());
+  const toggleOptie = (w) => setOpenOpties((s) => { const n = new Set(s); n.has(w) ? n.delete(w) : n.add(w); return n; });
 
   useEffect(() => {
     let actief = true;
@@ -473,6 +480,12 @@ export function DossierMailTaakPerSoort({ soort }) {
         setTaakOnderwerp(typeof dt.onderwerp === "string" ? dt.onderwerp : "");
         setTaakSoort(dt.soort != null ? String(dt.soort) : "");
         setTaakRubriek(dt.rubriek != null ? String(dt.rubriek) : "");
+        // Standaard-submap: eigen <soort>BijlageMap, anders de legacy <soort>Bijlage.map, anders de standaard.
+        const bijl = (inst && inst[`${soort}Bijlage`] && typeof inst[`${soort}Bijlage`] === "object") ? inst[`${soort}Bijlage`] : {};
+        const mapUitInst = (typeof inst[`${soort}BijlageMap`] === "string" && inst[`${soort}BijlageMap`].trim())
+          ? inst[`${soort}BijlageMap`].trim()
+          : ((typeof bijl.map === "string" && bijl.map.trim()) ? bijl.map.trim() : standaardMap);
+        setSubmap(mapUitInst);
         setGeladen(true);
       })
       .catch(() => { if (actief) { setFout("De instellingen konden niet worden geladen."); setGeladen(true); } });
@@ -495,10 +508,14 @@ export function DossierMailTaakPerSoort({ soort }) {
     } catch { setMailStatus("fout"); }
   }
 
-  async function bewaarTaak() {
+  async function bewaarOpslagTaak() {
     setTaakStatus("bezig");
     try {
-      const body = { [`${soort}Taak`]: { aan: taakAan, onderwerp: taakOnderwerp.trim(), soort: taakSoort, rubriek: taakRubriek } };
+      const body = {
+        // Standaard-submap van de soort (terugval als een rubriek zelf geen submap invult).
+        [`${soort}BijlageMap`]: (submap.trim() || standaardMap),
+        [`${soort}Taak`]: { aan: taakAan, onderwerp: taakOnderwerp.trim(), soort: taakSoort, rubriek: taakRubriek },
+      };
       const res = await fetch("/api/beheer-instellingen", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Opslaan mislukt.");
       setTaakStatus("opgeslagen"); setTimeout(() => setTaakStatus("rust"), 2500);
@@ -542,11 +559,21 @@ export function DossierMailTaakPerSoort({ soort }) {
             {keuzeOpties.map((o) => {
               const w = String(o.waarde);
               const v = mailPerOptie[w] || {};
+              const isOpen = openOpties.has(w);
+              const ingevuld = !!((v.onderwerp && v.onderwerp.trim()) || (v.tekst && v.tekst.trim()));
               return (
-                <div key={w} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, marginBottom: 8, background: "#fff" }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, color: KLEUR.blauw, marginBottom: 6 }}>{o.label}</div>
-                  <input value={v.onderwerp || ""} onChange={(e) => { setMailPerOptie((m) => ({ ...m, [w]: { ...m[w], onderwerp: e.target.value } })); setMailStatus("rust"); }} placeholder="Onderwerp (leeg = standaard)" style={{ ...witInvoer, marginBottom: 6 }} />
-                  <textarea value={v.tekst || ""} onChange={(e) => { setMailPerOptie((m) => ({ ...m, [w]: { ...m[w], tekst: e.target.value } })); setMailStatus("rust"); }} rows={4} placeholder="Tekst (leeg = standaard)" style={{ ...witInvoer, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }} />
+                <div key={w} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, marginBottom: 8, background: "#fff", overflow: "hidden" }}>
+                  <button type="button" onClick={() => toggleOptie(w)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
+                    {isOpen ? <ChevronDown size={14} color={KLEUR.mutedTekst} /> : <ChevronRight size={14} color={KLEUR.mutedTekst} />}
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: KLEUR.blauw, flex: 1 }}>{o.label}</span>
+                    {ingevuld && <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.groen, background: "#E9F4EE", borderRadius: 999, padding: "1px 8px" }}>ingevuld</span>}
+                  </button>
+                  {isOpen && (
+                    <div style={{ padding: "0 10px 10px" }}>
+                      <input value={v.onderwerp || ""} onChange={(e) => { setMailPerOptie((m) => ({ ...m, [w]: { ...m[w], onderwerp: e.target.value } })); setMailStatus("rust"); }} placeholder="Onderwerp (leeg = standaard)" style={{ ...witInvoer, marginBottom: 6 }} />
+                      <textarea value={v.tekst || ""} onChange={(e) => { setMailPerOptie((m) => ({ ...m, [w]: { ...m[w], tekst: e.target.value } })); setMailStatus("rust"); }} rows={4} placeholder="Tekst (leeg = standaard)" style={{ ...witInvoer, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }} />
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -560,12 +587,20 @@ export function DossierMailTaakPerSoort({ soort }) {
         </div>
       </div>
 
-      {/* Taak — voor akkoord */}
+      {/* Opslag & taak — versturen */}
       <div style={vakStijl}>
-        <div style={vakTitel}>Taak — voor akkoord</div>
+        <div style={vakTitel}>Opslag & taak — versturen</div>
         <div style={vakUitleg}>
-          Maak bij het versturen (optioneel) een taak voor de klant aan, zodat hij de {woord} in het portaal “voor akkoord” kan afhandelen.
-          Plaatshouders <code>{"{{klantnaam}}"}</code> en <code>{"{{jaar}}"}</code> mogen in het onderwerp.
+          Waar de gedropte bijlagen van deze soort in het SharePoint-dossier terechtkomen, en de (optionele)
+          taak “voor akkoord” voor de klant. Plaatshouders <code>{"{{klantnaam}}"}</code> en <code>{"{{jaar}}"}</code> mogen in het taak-onderwerp.
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <span style={veldLabel}>Submap in het SharePoint-dossier</span>
+          <input value={submap} onChange={(e) => { setSubmap(e.target.value); setTaakStatus("rust"); }} placeholder={standaardMap} style={{ ...witInvoer, width: "100%", maxWidth: 420 }} />
+          <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 4 }}>
+            Standaard-submap onder de dossiermap van de klant (<code>cr283_sharepoint</code>) — met een <code>/</code> maak je submappen.
+            Een rubriek met een eigen submap gaat hiervóór. Leeg = “{standaardMap}”.
+          </div>
         </div>
         <label style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: taakAan ? 12 : 0, fontSize: 12.5, fontWeight: 600, color: KLEUR.tekst }}>
           <input type="checkbox" checked={taakAan} onChange={(e) => { setTaakAan(e.target.checked); setTaakStatus("rust"); }} />
@@ -595,7 +630,7 @@ export function DossierMailTaakPerSoort({ soort }) {
           </>
         )}
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: taakAan ? 0 : 12 }}>
-          <button onClick={bewaarTaak} disabled={taakStatus === "bezig"} style={opslaanKnop(taakStatus === "bezig")}>{taakStatus === "bezig" ? "Opslaan…" : "Opslaan"}</button>
+          <button onClick={bewaarOpslagTaak} disabled={taakStatus === "bezig"} style={opslaanKnop(taakStatus === "bezig")}>{taakStatus === "bezig" ? "Opslaan…" : "Opslaan"}</button>
           {taakStatus === "opgeslagen" && <span style={{ fontSize: 11.5, color: KLEUR.groen }}>Opgeslagen</span>}
           {taakStatus === "fout" && <span style={{ fontSize: 11.5, color: KLEUR.rood }}>Opslaan mislukt</span>}
         </div>
