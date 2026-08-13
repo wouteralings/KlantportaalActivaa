@@ -356,7 +356,13 @@ module.exports = async function (context, req) {
         // gestuurd). Alleen als aangezet in Beheer → Dossiers (<soort>Taak.aan). ──
         let taakWaarschuwing = "";
         const soortWoordTaak = soortInst === "notulen" ? "Notulen" : "Aangifte dividendbelasting";
-        const taakCfg = (instellingen[`${soortInst}Taak`] && typeof instellingen[`${soortInst}Taak`] === "object") ? instellingen[`${soortInst}Taak`] : {};
+        const taakBasis = (instellingen[`${soortInst}Taak`] && typeof instellingen[`${soortInst}Taak`] === "object") ? instellingen[`${soortInst}Taak`] : {};
+        // De taak kan per situatie (wel/geen dividendbelasting voor dividend, of "Soort notulen") gesplitst
+        // zijn: is er voor de meegestuurde soortWaarde een eigen taak-instelling (<soort>Taak.perOptie),
+        // dan geldt die (incl. z'n eigen aan/uit); anders de standaardtaak hierboven.
+        const taakOptWaarde = String((req.body && req.body.soortWaarde) || "");
+        const taakPerOpt = (taakBasis.perOptie && typeof taakBasis.perOptie === "object" && taakOptWaarde && taakBasis.perOptie[taakOptWaarde] && typeof taakBasis.perOptie[taakOptWaarde] === "object") ? taakBasis.perOptie[taakOptWaarde] : null;
+        const taakCfg = taakPerOpt || taakBasis;
         if (taakCfg.aan) {
           try {
             const mergeCtxTaak = { klantnaam: dossier.klantnaam || basis.naam, jaar: dossier.jaar, datum: new Date().toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" }) };

@@ -2977,7 +2977,7 @@ function DossierBijlageKaart({ dossier, disabled, extraEmails, soortWaarde, toon
     try {
       const r = await fetch("/api/medewerker-dossier-bijlage", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ soort: dossier.soort, id: dossier.id, sectie, actie: "versturen", bestandNaam: mailBijlage, ontvanger: mailNaar, cc: mailCc, onderwerp: mailOnderwerp, tekst: mailTekst }),
+        body: JSON.stringify({ soort: dossier.soort, id: dossier.id, sectie, actie: "versturen", bestandNaam: mailBijlage, ontvanger: mailNaar, cc: mailCc, onderwerp: mailOnderwerp, tekst: mailTekst, soortWaarde: soortWaarde != null ? String(soortWaarde) : "" }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);

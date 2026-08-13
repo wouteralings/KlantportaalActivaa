@@ -456,6 +456,12 @@ export function DossierMailTaakPerSoort({ soort }) {
   const [taakSoortOpties, setTaakSoortOpties] = useState([]); // [{ waarde, label }]
   const [taakRubriekOpties, setTaakRubriekOpties] = useState([]); // [{ waarde, label }]
   const [taakStatus, setTaakStatus] = useState("rust");
+  // Taak per situatie (splitsen op wel/geen dividendbelasting of "Soort notulen"): per optiewaarde een
+  // eigen taak-instelling { aan, onderwerp, soort, rubriek } die de standaardtaak overschrijft. Geen
+  // entry = de standaardtaak geldt. Opgeslagen onder <soort>Taak.perOptie.
+  const [taakPerOptie, setTaakPerOptie] = useState({});
+  const [openTaakOpties, setOpenTaakOpties] = useState(() => new Set());
+  const toggleTaakOptie = (w) => setOpenTaakOpties((s) => { const n = new Set(s); n.has(w) ? n.delete(w) : n.add(w); return n; });
   // Standaard SharePoint-submap van deze soort (sleutel <soort>BijlageMap) — de terugval-submap voor de
   // bijlage-dropzone als een rubriek zelf geen submap invult (rubriek gaat vóór). Samen met de taak bewaard.
   const standaardMap = STANDAARD_BIJLAGE_MAP[soort] || "Bijlagen";
@@ -487,6 +493,7 @@ export function DossierMailTaakPerSoort({ soort }) {
         setTaakOnderwerp(typeof dt.onderwerp === "string" ? dt.onderwerp : "");
         setTaakSoort(dt.soort != null ? String(dt.soort) : "");
         setTaakRubriek(dt.rubriek != null ? String(dt.rubriek) : "");
+        setTaakPerOptie(dt.perOptie && typeof dt.perOptie === "object" ? dt.perOptie : {});
         // Standaard-submap: eigen <soort>BijlageMap, anders de legacy <soort>Bijlage.map, anders de standaard.
         const bijl = (inst && inst[`${soort}Bijlage`] && typeof inst[`${soort}Bijlage`] === "object") ? inst[`${soort}Bijlage`] : {};
         const mapUitInst = (typeof inst[`${soort}BijlageMap`] === "string" && inst[`${soort}BijlageMap`].trim())
@@ -518,10 +525,17 @@ export function DossierMailTaakPerSoort({ soort }) {
   async function bewaarOpslagTaak() {
     setTaakStatus("bezig");
     try {
+      // Per-optie taken opschonen: alleen situaties met een eigen instelling bewaren.
+      const taakPerOptieSchoon = {};
+      for (const [w, v] of Object.entries(taakPerOptie || {})) {
+        if (v && typeof v === "object") {
+          taakPerOptieSchoon[w] = { aan: !!v.aan, onderwerp: String(v.onderwerp || "").trim(), soort: v.soort != null ? String(v.soort) : "", rubriek: v.rubriek != null ? String(v.rubriek) : "" };
+        }
+      }
       const body = {
         // Standaard-submap van de soort (terugval als een rubriek zelf geen submap invult).
         [`${soort}BijlageMap`]: (submap.trim() || standaardMap),
-        [`${soort}Taak`]: { aan: taakAan, onderwerp: taakOnderwerp.trim(), soort: taakSoort, rubriek: taakRubriek },
+        [`${soort}Taak`]: { aan: taakAan, onderwerp: taakOnderwerp.trim(), soort: taakSoort, rubriek: taakRubriek, perOptie: taakPerOptieSchoon },
       };
       const res = await fetch("/api/beheer-instellingen", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Opslaan mislukt.");
@@ -636,6 +650,69 @@ export function DossierMailTaakPerSoort({ soort }) {
             </div>
           </>
         )}
+
+        {keuzeOpties.length > 0 && (
+          <div style={{ marginTop: 6, marginBottom: 12 }}>
+            <span style={veldLabel}>Taak per {keuzeLabel}</span>
+            <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginBottom: 8 }}>
+              Optioneel: splits de taak per situatie. Geef een situatie een eigen taak-instelling (die de standaardtaak hierboven overschrijft) — zo maak je bijvoorbeeld wél een taak in de ene situatie en géén in de andere. Zonder eigen instelling geldt de standaardtaak.
+            </div>
+            {keuzeOpties.map((o) => {
+              const w = String(o.waarde);
+              const heeft = !!(taakPerOptie[w] && typeof taakPerOptie[w] === "object");
+              const v = taakPerOptie[w] || {};
+              const isOpen = openTaakOpties.has(w);
+              return (
+                <div key={w} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, marginBottom: 8, background: "#fff", overflow: "hidden" }}>
+                  <button type="button" onClick={() => toggleTaakOptie(w)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>
+                    {isOpen ? <ChevronDown size={14} color={KLEUR.mutedTekst} /> : <ChevronRight size={14} color={KLEUR.mutedTekst} />}
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: KLEUR.blauw, flex: 1 }}>{o.label}</span>
+                    {heeft && <span style={{ fontSize: 10.5, fontWeight: 700, color: v.aan ? KLEUR.groen : KLEUR.mutedTekst, background: v.aan ? "#E9F4EE" : "#F1F1EE", borderRadius: 999, padding: "1px 8px" }}>{v.aan ? "eigen taak: aan" : "eigen taak: uit"}</span>}
+                  </button>
+                  {isOpen && (
+                    <div style={{ padding: "0 10px 10px" }}>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: 12, color: KLEUR.subtekst, marginBottom: heeft ? 10 : 0 }}>
+                        <input type="checkbox" checked={heeft} onChange={(e) => { setTaakStatus("rust"); setTaakPerOptie((m) => { const n = { ...m }; if (e.target.checked) n[w] = n[w] || { aan: true, onderwerp: "", soort: taakSoort, rubriek: taakRubriek }; else delete n[w]; return n; }); }} />
+                        Aparte taak-instelling voor deze situatie
+                      </label>
+                      {heeft && (
+                        <>
+                          <label style={{ display: "inline-flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: KLEUR.tekst, marginBottom: 10 }}>
+                            <input type="checkbox" checked={!!v.aan} onChange={(e) => { setTaakStatus("rust"); setTaakPerOptie((m) => ({ ...m, [w]: { ...m[w], aan: e.target.checked } })); }} />
+                            Taak aanmaken bij het versturen
+                          </label>
+                          {v.aan && (
+                            <>
+                              <div style={{ marginBottom: 8 }}>
+                                <span style={veldLabel}>Onderwerp van de taak</span>
+                                <input value={v.onderwerp || ""} onChange={(e) => { setTaakStatus("rust"); setTaakPerOptie((m) => ({ ...m, [w]: { ...m[w], onderwerp: e.target.value } })); }} placeholder="Leeg = een standaardonderwerp" style={{ ...witInvoer, width: "100%", maxWidth: 560 }} />
+                              </div>
+                              <div style={{ marginBottom: 8 }}>
+                                <span style={veldLabel}>Soort taak</span>
+                                <select value={v.soort || ""} onChange={(e) => { setTaakStatus("rust"); setTaakPerOptie((m) => ({ ...m, [w]: { ...m[w], soort: e.target.value } })); }} style={{ ...witInvoer, width: "100%", maxWidth: 420 }}>
+                                  <option value="">— geen —</option>
+                                  {taakSoortOpties.map((so) => <option key={String(so.waarde)} value={String(so.waarde)}>{so.label}</option>)}
+                                </select>
+                              </div>
+                              <div>
+                                <span style={veldLabel}>Rubriek</span>
+                                <select value={v.rubriek || ""} onChange={(e) => { setTaakStatus("rust"); setTaakPerOptie((m) => ({ ...m, [w]: { ...m[w], rubriek: e.target.value } })); }} style={{ ...witInvoer, width: "100%", maxWidth: 420 }}>
+                                  <option value="">— geen —</option>
+                                  {taakRubriekOpties.map((ro) => <option key={String(ro.waarde)} value={String(ro.waarde)}>{ro.label}</option>)}
+                                </select>
+                              </div>
+                            </>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: taakAan ? 0 : 12 }}>
           <button onClick={bewaarOpslagTaak} disabled={taakStatus === "bezig"} style={opslaanKnop(taakStatus === "bezig")}>{taakStatus === "bezig" ? "Opslaan…" : "Opslaan"}</button>
           {taakStatus === "opgeslagen" && <span style={{ fontSize: 11.5, color: KLEUR.groen }}>Opgeslagen</span>}
