@@ -91,6 +91,16 @@ export default function DossierSjablonenPerSoort({ soort }) {
   // notulenMail.perOptie). In het dossier wordt automatisch de bij de gekozen optie horende tekst gebruikt.
   const [keuzeOpties, setKeuzeOpties] = useState([]); // [{ waarde, label }]
   const [mailPerOptie, setMailPerOptie] = useState({}); // { <optiewaarde>: { onderwerp, tekst } }
+  // Klant-taak "voor akkoord": bij het versturen wordt (optioneel) een Dynamics-taak voor de klant
+  // aangemaakt, precies zoals het "Opslag & taak"-blok bij de aangifte. Instellingen-sleutel
+  // <soort>Taak = { aan, onderwerp, soort, rubriek }. De klant kan de taak in het portaal zelf
+  // "voor akkoord" afhandelen (dat staat al op de taak zelf ingesteld).
+  const [taakAan, setTaakAan] = useState(false);
+  const [taakOnderwerp, setTaakOnderwerp] = useState("");
+  const [taakSoort, setTaakSoort] = useState("");
+  const [taakRubriek, setTaakRubriek] = useState("");
+  const [taakSoortOpties, setTaakSoortOpties] = useState([]); // [{ waarde, label }]
+  const [taakRubriekOpties, setTaakRubriekOpties] = useState([]); // [{ waarde, label }]
 
   // De laatst gefocuste tekstarea + welk sjabloon dat is — zodat een klik op een merge-veld-chip de
   // plaatshouder op de cursorpositie in dát sjabloon invoegt.
@@ -101,8 +111,10 @@ export default function DossierSjablonenPerSoort({ soort }) {
     Promise.all([
       fetch(`/api/dossier-velden?soort=${encodeURIComponent(soort)}`).then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
       fetch("/api/beheer-instellingen").then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
+      heeftBijlageMail ? fetch("/api/beheer-taaksoorten").then((r) => (r.ok ? r.json() : {})).catch(() => ({})) : Promise.resolve({}),
+      heeftBijlageMail ? fetch("/api/beheer-taakrubrieken").then((r) => (r.ok ? r.json() : {})).catch(() => ({})) : Promise.resolve({}),
     ])
-      .then(([velden, inst]) => {
+      .then(([velden, inst, taaksoortenData, taakrubriekenData]) => {
         if (!actief) return;
         setCatalogus(velden.catalogus || []);
         const eigen = inst && inst.dossierSjablonen && inst.dossierSjablonen[soort];
@@ -116,6 +128,13 @@ export default function DossierSjablonenPerSoort({ soort }) {
           setMailTekst(typeof dm.tekst === "string" ? dm.tekst : "");
           setMailPerOptie(dm.perOptie && typeof dm.perOptie === "object" ? dm.perOptie : {});
           setKeuzeOpties((velden.picklistOpties && velden.picklistOpties[keuzeVeld]) || []);
+          setTaakSoortOpties((taaksoortenData && Array.isArray(taaksoortenData.opties)) ? taaksoortenData.opties : []);
+          setTaakRubriekOpties((taakrubriekenData && Array.isArray(taakrubriekenData.opties)) ? taakrubriekenData.opties : []);
+          const dt = (inst && inst[`${soort}Taak`] && typeof inst[`${soort}Taak`] === "object") ? inst[`${soort}Taak`] : {};
+          setTaakAan(!!dt.aan);
+          setTaakOnderwerp(typeof dt.onderwerp === "string" ? dt.onderwerp : "");
+          setTaakSoort(dt.soort != null ? String(dt.soort) : "");
+          setTaakRubriek(dt.rubriek != null ? String(dt.rubriek) : "");
         }
         setGeladen(true);
       })
@@ -170,6 +189,7 @@ export default function DossierSjablonenPerSoort({ soort }) {
             dossierSjablonen: nieuweAlle,
             [`${soort}BijlageMap`]: (bijlageMap.trim() || standaardMap),
             [`${soort}Mail`]: { afzender: mailAfzender.trim(), onderwerp: mailOnderwerp, tekst: mailTekst, perOptie: perOptieSchoon },
+            [`${soort}Taak`]: { aan: taakAan, onderwerp: taakOnderwerp.trim(), soort: taakSoort, rubriek: taakRubriek },
           }
         : { dossierSjablonen: nieuweAlle };
       const res = await fetch("/api/beheer-instellingen", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -262,6 +282,48 @@ export default function DossierSjablonenPerSoort({ soort }) {
                       </div>
                     );
                   })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {heeftBijlageMail && (
+            <div style={{ marginBottom: 18, paddingBottom: 16, borderBottom: `1px solid ${KLEUR.rand}` }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700, color: KLEUR.tekst, marginBottom: 8 }}>Taak — voor akkoord</div>
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer", marginBottom: 10 }}>
+                <input type="checkbox" checked={taakAan} onChange={(e) => setTaakAan(e.target.checked)} style={{ marginTop: 2 }} />
+                <span style={{ fontSize: 12.5, color: KLEUR.subtekst }}>
+                  Maak bij het versturen een taak voor de klant aan, zodat hij de {bijlageWoord} in het portaal “voor akkoord” kan afhandelen.
+                </span>
+              </label>
+              {taakAan && (
+                <div style={{ paddingLeft: 26 }}>
+                  <div style={{ marginBottom: 10 }}>
+                    <span style={labelStijl}>Onderwerp van de taak</span>
+                    <input value={taakOnderwerp} onChange={(e) => setTaakOnderwerp(e.target.value)} placeholder={soort === "notulen" ? "Notulen {{jaar}} ter akkoord" : "Aangifte dividendbelasting {{jaar}} ter akkoord"} style={invoerStijl} />
+                    <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4 }}>
+                      Plaatshouders <code style={{ background: "#fff", padding: "1px 4px", borderRadius: 4, border: `1px solid ${KLEUR.rand}` }}>{"{{klantnaam}}"}</code> en
+                      <code style={{ background: "#fff", padding: "1px 4px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, marginLeft: 3 }}>{"{{jaar}}"}</code> mogen. Leeg = een standaardonderwerp.
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: 10 }}>
+                    <span style={labelStijl}>Soort taak</span>
+                    <select value={taakSoort} onChange={(e) => setTaakSoort(e.target.value)} style={{ ...invoerStijl, maxWidth: 360 }}>
+                      <option value="">— geen —</option>
+                      {taakSoortOpties.map((o) => (
+                        <option key={String(o.waarde)} value={String(o.waarde)}>{o.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <span style={labelStijl}>Rubriek</span>
+                    <select value={taakRubriek} onChange={(e) => setTaakRubriek(e.target.value)} style={{ ...invoerStijl, maxWidth: 360 }}>
+                      <option value="">— geen —</option>
+                      {taakRubriekOpties.map((o) => (
+                        <option key={String(o.waarde)} value={String(o.waarde)}>{o.label}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               )}
             </div>

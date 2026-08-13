@@ -2873,7 +2873,7 @@ function AangifteLog({ dossier, ververs }) {
  *  (submap instelbaar via Beheer → Dossiers, standaard "Dividendbelasting") en verschijnt in de lijst.
  *  Later kies je zo'n bestand in de Brieven-module als bijlage om mee te mailen. Zie
  *  api/medewerker-dossier-bijlage. */
-function DossierBijlageKaart({ dossier, disabled, extraEmails, soortWaarde }) {
+function DossierBijlageKaart({ dossier, disabled, extraEmails, soortWaarde, toonUpload = true }) {
   const [bestanden, setBestanden] = useState(null); // null = laden
   const [fout, setFout] = useState("");
   const [bezig, setBezig] = useState(false);
@@ -2976,56 +2976,64 @@ function DossierBijlageKaart({ dossier, disabled, extraEmails, soortWaarde }) {
 
   return (
     <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
-      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{kaartTitel}</div>
+      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{toonUpload ? kaartTitel : "Mailen naar klant"}</div>
       <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 14, maxWidth: 640 }}>
-        Voeg hier eventueel {isNotulen ? "de notulen" : "de aangifte dividendbelasting"} toe — die worden bewaard in de
-        SharePoint-map van de klant{isNotulen ? "" : " en zijn in de Brieven-module als bijlage te kiezen"}. Hieronder mail je naar de klant, <strong>met of zonder bijlage</strong>.
-      </div>
-
-      <div
-        onDragOver={(e) => { if (disabled || bezig) return; e.preventDefault(); setSleep(true); }}
-        onDragLeave={() => setSleep(false)}
-        onDrop={(e) => { e.preventDefault(); setSleep(false); if (disabled || bezig) return; upload(e.dataTransfer.files && e.dataTransfer.files[0]); }}
-        onClick={() => !disabled && !bezig && inputRef.current && inputRef.current.click()}
-        style={{
-          border: `1.5px dashed ${sleep ? KLEUR.blauw : KLEUR.rand}`, borderRadius: 10, padding: "20px 14px",
-          textAlign: "center", cursor: disabled || bezig ? "default" : "pointer",
-          background: sleep ? KLEUR.lichtblauw : "#FAFBF9", opacity: disabled ? 0.55 : 1,
-          display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
-        }}
-      >
-        <Upload size={18} color={KLEUR.mutedTekst} />
-        <div style={{ fontSize: 12.5, fontWeight: 600, color: KLEUR.tekst }}>{bezig ? "Uploaden…" : "Sleep een bestand hierheen, of klik om te kiezen"}</div>
-        <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>Alle bestandstypen · max. 15 MB</div>
-        <input ref={inputRef} type="file" disabled={disabled || bezig} onChange={(e) => { upload(e.target.files && e.target.files[0]); e.target.value = ""; }} style={{ display: "none" }} />
-      </div>
-
-      {uploadFout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginTop: 10 }}>{uploadFout}</div>}
-
-      <div style={{ marginTop: 14 }}>
-        {bestanden === null ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst }}>
-            <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Bijlagen ophalen…
-          </div>
-        ) : fout ? (
-          <div style={{ fontSize: 12.5, color: KLEUR.rood }}>{fout}</div>
-        ) : bestanden.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Nog geen bijlagen in de SharePoint-map.</div>
+        {toonUpload ? (
+          <>Voeg hier eventueel {isNotulen ? "de notulen" : "de aangifte dividendbelasting"} toe — die worden bewaard in de
+          SharePoint-map van de klant{isNotulen ? "" : " en zijn in de Brieven-module als bijlage te kiezen"}. Hieronder mail je naar de klant, <strong>met of zonder bijlage</strong>.</>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {bestanden.map((b, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
-                <FileText size={15} color={KLEUR.blauw} style={{ flexShrink: 0 }} />
-                <a href={b.webUrl || "#"} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: KLEUR.blauw, fontWeight: 600, textDecoration: "none", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.naam}</a>
-                {b.grootte ? <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst, flexShrink: 0 }}>{formatteerGrootte(b.grootte)}</span> : null}
-              </div>
-            ))}
-          </div>
+          <>Mail de klant{isNotulen ? "" : " — eventueel met een bestaand bestand uit de SharePoint-map als bijlage"}.</>
         )}
       </div>
 
+      {toonUpload && (
+        <>
+          <div
+            onDragOver={(e) => { if (disabled || bezig) return; e.preventDefault(); setSleep(true); }}
+            onDragLeave={() => setSleep(false)}
+            onDrop={(e) => { e.preventDefault(); setSleep(false); if (disabled || bezig) return; upload(e.dataTransfer.files && e.dataTransfer.files[0]); }}
+            onClick={() => !disabled && !bezig && inputRef.current && inputRef.current.click()}
+            style={{
+              border: `1.5px dashed ${sleep ? KLEUR.blauw : KLEUR.rand}`, borderRadius: 10, padding: "20px 14px",
+              textAlign: "center", cursor: disabled || bezig ? "default" : "pointer",
+              background: sleep ? KLEUR.lichtblauw : "#FAFBF9", opacity: disabled ? 0.55 : 1,
+              display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+            }}
+          >
+            <Upload size={18} color={KLEUR.mutedTekst} />
+            <div style={{ fontSize: 12.5, fontWeight: 600, color: KLEUR.tekst }}>{bezig ? "Uploaden…" : "Sleep een bestand hierheen, of klik om te kiezen"}</div>
+            <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>Alle bestandstypen · max. 15 MB</div>
+            <input ref={inputRef} type="file" disabled={disabled || bezig} onChange={(e) => { upload(e.target.files && e.target.files[0]); e.target.value = ""; }} style={{ display: "none" }} />
+          </div>
+
+          {uploadFout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginTop: 10 }}>{uploadFout}</div>}
+
+          <div style={{ marginTop: 14 }}>
+            {bestanden === null ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst }}>
+                <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Bijlagen ophalen…
+              </div>
+            ) : fout ? (
+              <div style={{ fontSize: 12.5, color: KLEUR.rood }}>{fout}</div>
+            ) : bestanden.length === 0 ? (
+              <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Nog geen bijlagen in de SharePoint-map.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {bestanden.map((b, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
+                    <FileText size={15} color={KLEUR.blauw} style={{ flexShrink: 0 }} />
+                    <a href={b.webUrl || "#"} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: KLEUR.blauw, fontWeight: 600, textDecoration: "none", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.naam}</a>
+                    {b.grootte ? <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst, flexShrink: 0 }}>{formatteerGrootte(b.grootte)}</span> : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
       {/* Versturen naar klant — inline compose (zoals de Brieven-module); bijlage optioneel. */}
-      <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${KLEUR.rand}` }}>
+      <div style={{ marginTop: toonUpload ? 16 : 0, paddingTop: toonUpload ? 16 : 0, borderTop: toonUpload ? `1px solid ${KLEUR.rand}` : "none" }}>
         <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Versturen naar klant</div>
         <div style={{ marginBottom: 10 }}>
           <div style={mailLabel}>E-mail ontvanger</div>
@@ -3808,8 +3816,8 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
       {/* Bijlage + versturen — helemaal onderaan het dossier: bij dividend zodra "Dividendbelasting" op
           Ja staat, bij notulen altijd. extraEmails = e-mail voorzitter/notulist (cc); soortWaarde = de
           gekozen "Soort", waarop de standaard mailtekst wordt gekozen. */}
-      {dossier.soort === "dividend" && !!veldenState.dividendbelasting && <DossierBijlageKaart dossier={dossier} disabled={!bewerkbaar} extraEmails={{ voorzitter: veldenState.emailvoorzitter, notulist: veldenState.emailnotulist }} soortWaarde={veldenState.soortdividenduitkering} />}
-      {dossier.soort === "notulen" && <DossierBijlageKaart dossier={dossier} disabled={!bewerkbaar} extraEmails={{ voorzitter: veldenState.emailvoorzitter, notulist: veldenState.emailnotulist }} soortWaarde={veldenState.soortnotulen} />}
+      {dossier.soort === "dividend" && <DossierBijlageKaart dossier={dossier} disabled={!bewerkbaar} extraEmails={{ voorzitter: veldenState.emailvoorzitter, notulist: veldenState.emailnotulist }} soortWaarde={veldenState.soortdividenduitkering} toonUpload={!!veldenState.dividendbelasting} />}
+      {dossier.soort === "notulen" && <DossierBijlageKaart dossier={dossier} disabled={!bewerkbaar} extraEmails={{ voorzitter: veldenState.emailvoorzitter, notulist: veldenState.emailnotulist }} soortWaarde={veldenState.soortnotulen} toonUpload={true} />}
 
       {bewerkbaar && (
         <div style={{ position: "sticky", bottom: 0, background: "#fff", paddingTop: 8 }}>

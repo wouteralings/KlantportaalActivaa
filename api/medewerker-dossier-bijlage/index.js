@@ -26,7 +26,7 @@
  * Route beveiligd via staticwebapp.config.json (rol 'medewerker'/'beheerder'); extra rolcheck hier.
  */
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
-const { SOORTEN, haalEenDossier } = require("../_gedeeld/dossiers");
+const { SOORTEN, haalEenDossier, haalNavigatieNaam } = require("../_gedeeld/dossiers");
 const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/sharepointUpload");
 const { haalAppGraphToken } = require("../_gedeeld/graphApp");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
@@ -38,6 +38,15 @@ const SHAREPOINT_VELD = process.env.DYNAMICS_KLANT_SHAREPOINT_VELD || "cr283_sha
 const MAX_BYTES = 15 * 1024 * 1024; // 15 MB — kleine-bestand-upload/download via Graph (:/content)
 const TOEGESTANE_SOORTEN = new Set(["dividend", "notulen"]);
 const GUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+// Velden voor de klant-taak "voor akkoord" (zelfde als api/medewerker-aangifte-versturen). De taak wordt
+// bij het versturen aangemaakt als dat in Beheer → Dossiers is aangezet (<soort>Taak.aan), met het
+// (optioneel) meegemailde SharePoint-document als documentlink, zodat de klant het via het portaal kan
+// inzien en op de taak akkoord kan geven.
+const TAAK_KLANT_VELD = process.env.DYNAMICS_TAAK_KLANT_VELD || "sk_client";
+const TAAK_SOORT_VELD = process.env.DYNAMICS_TAAK_SOORT_VELD || "";
+const TAAK_RUBRIEK_VELD = process.env.DYNAMICS_TAAK_RUBRIEK_VELD || "cr283_rubriek";
+const TAAK_DOCUMENT_VELD = process.env.DYNAMICS_TAAK_DOCUMENT_VELD || "";
 
 // Standaard SharePoint-submap + terugval-mailteksten per soort (als er in Beheer → Dossiers nog niets is ingesteld).
 const STANDAARD_MAP_PER_SOORT = { dividend: "Dividendbelasting", notulen: "Notulen" };
@@ -263,12 +272,51 @@ module.exports = async function (context, req) {
           if (e.message === "GEEN_ONTVANGERS") { context.res = json(400, { error: "Geen geldig ontvanger-e-mailadres." }); return; }
           throw e;
         }
+        // ── Klant-taak "voor akkoord" — best-effort, ná de mail (die is al verstuurd; een taakfout mag
+        // niet als harde fout terugkomen, anders wordt bij een retry per ongeluk een tweede mail
+        // gestuurd). Alleen als aangezet in Beheer → Dossiers (<soort>Taak.aan). ──
+        let taakWaarschuwing = "";
+        const soortWoordTaak = soortInst === "notulen" ? "Notulen" : "Aangifte dividendbelasting";
+        const taakCfg = (instellingen[`${soortInst}Taak`] && typeof instellingen[`${soortInst}Taak`] === "object") ? instellingen[`${soortInst}Taak`] : {};
+        if (taakCfg.aan) {
+          try {
+            const mergeCtxTaak = { klantnaam: dossier.klantnaam || basis.naam, jaar: dossier.jaar, datum: new Date().toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" }) };
+            const taakOnderwerp = vulMailIn(typeof taakCfg.onderwerp === "string" && taakCfg.onderwerp.trim() ? taakCfg.onderwerp : `${soortWoordTaak}{{jaar}} ter akkoord`, mergeCtxTaak).trim() || `${soortWoordTaak} ter akkoord`;
+            // Document-webUrl van de (optionele) bijlage ophalen, voor de documentlink op de taak.
+            let documentUrl = "";
+            if (bestandNaam) {
+              const metaRes = await fetch(`${GRAPH}/drives/${map.driveId}/items/${doelId}:/${encodeURIComponent(bestandNaam)}?$select=webUrl`, { headers: { Authorization: `Bearer ${appToken}` } });
+              if (metaRes.ok) documentUrl = (await metaRes.json()).webUrl || "";
+            }
+            const klantNav = await haalNavigatieNaam(resource, "task", TAAK_KLANT_VELD, token);
+            const taakBody = {
+              subject: taakOnderwerp,
+              description: `${soortWoordTaak}${dossier.jaar ? ` ${dossier.jaar}` : ""} van ${dossier.klantnaam || basis.naam} is via het klantportaal gemaild naar ${naar}${bestandNaam ? ` (bijlage: ${bestandNaam})` : ""} door ${email || "onbekend"}.`,
+              [`${klantNav}@odata.bind`]: `/accounts(${accountId})`,
+            };
+            const soortRaw = taakCfg.soort;
+            if (TAAK_SOORT_VELD && soortRaw != null && soortRaw !== "" && Number.isFinite(Number(soortRaw))) taakBody[TAAK_SOORT_VELD] = Number(soortRaw);
+            const rubriekRaw = taakCfg.rubriek;
+            if (TAAK_RUBRIEK_VELD && rubriekRaw != null && rubriekRaw !== "" && Number.isFinite(Number(rubriekRaw))) taakBody[TAAK_RUBRIEK_VELD] = Number(rubriekRaw);
+            if (TAAK_DOCUMENT_VELD && documentUrl) taakBody[TAAK_DOCUMENT_VELD] = documentUrl;
+            const taakRes = await fetch(`${resource}/api/data/v9.2/tasks`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json", "OData-MaxVersion": "4.0", "OData-Version": "4.0", Prefer: "return=representation" },
+              body: JSON.stringify(taakBody),
+            });
+            if (!taakRes.ok) throw new Error(`Aanmaken taak mislukt (${taakRes.status}): ${await taakRes.text()}`);
+          } catch (e) {
+            context.log.error("medewerker-dossier-bijlage: klant-taak aanmaken mislukt (mail is al verstuurd):", e);
+            taakWaarschuwing = "De mail is verstuurd, maar het aanmaken van de klant-taak is mislukt: " + String(e.message || e);
+          }
+        }
+
         await logGebeurtenis({
           door: email || "onbekend", actie: "dossier", accountId, accountIds: [accountId],
           klantnaam: klantnaam || basis.naam,
-          tekst: `${soortInst === "notulen" ? "Notulen" : "Dividendbelasting"}-mail gestuurd naar ${naar}${ccLijst.length ? ` (cc: ${ccLijst.join(", ")})` : ""}${bestandNaam ? ` met bijlage "${bestandNaam}"` : " (zonder bijlage)"}.`,
+          tekst: `${soortInst === "notulen" ? "Notulen" : "Dividendbelasting"}-mail gestuurd naar ${naar}${ccLijst.length ? ` (cc: ${ccLijst.join(", ")})` : ""}${bestandNaam ? ` met bijlage "${bestandNaam}"` : " (zonder bijlage)"}${taakCfg.aan && !taakWaarschuwing ? " — klant-taak aangemaakt" : ""}.`,
         }).catch(() => {});
-        context.res = json(200, { ok: true, verzonden: true, naar, cc: ccLijst, bijlage: bestandNaam || null });
+        context.res = json(200, { ok: true, verzonden: true, naar, cc: ccLijst, bijlage: bestandNaam || null, taakWaarschuwing: taakWaarschuwing || undefined });
         return;
       }
 
