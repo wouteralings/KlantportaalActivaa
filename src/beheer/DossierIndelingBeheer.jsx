@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { FolderKanban, Plus, Trash2, ChevronUp, ChevronDown, ChevronRight, X, Eye, EyeOff, Lock, Unlock, Sparkles } from "lucide-react";
-import DossierSjablonenPerSoort from "./DossierSjablonenBeheer";
+import DossierSjablonenPerSoort, { DossierMailTaakPerSoort } from "./DossierSjablonenBeheer";
 
 // Soorten met een voorbeeld-documentmodule (blanco A4 in het dossier) — het bijbehorende
 // "Voorbeelddocumenten"-blok komt onder de indelingskaart van die soort te hangen (zie de export
@@ -968,6 +968,10 @@ function SoortIndelingPaneel({ soort, onderaan }) {
       </div>
       </>
       )}
+
+      {/* Notulen/dividend: dezelfde geblokte layout als de IB/VPB-"aangifte versturen"-blokken, maar dan
+          voor de bijlage-mail (<soort>Mail) en de klant-taak (<soort>Taak). Op dezelfde plek in het paneel. */}
+      {(soort === "notulen" || soort === "dividend") && <DossierMailTaakPerSoort soort={soort} />}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 18 }}>
         {(secties || []).map((sectie, sectieIndex) => {

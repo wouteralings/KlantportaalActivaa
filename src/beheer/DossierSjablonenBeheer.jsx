@@ -62,14 +62,6 @@ function naarLijst(eigen) {
 
 export default function DossierSjablonenPerSoort({ soort }) {
   const soortLabel = SOORT_LABEL[soort] || "Dossier";
-  // Verstuur-mail (afzender + standaardtekst/per-optie) + klant-taak bestaan alleen voor dividend én
-  // notulen (sleutel <soort>Mail / <soort>Taak). De SharePoint-submap + bestandsnaam van de bijlage-
-  // dropzone zijn verplaatst naar een eigen blok (DossierBijlagePerSoort), dat voor élke soort geldt.
-  const heeftBijlageMail = soort === "dividend" || soort === "notulen";
-  const bijlageWoord = soort === "notulen" ? "notulen" : "dividendbelasting";
-  // Keuzeveld waarop de mailtekst automatisch gekozen wordt (per optie een eigen tekst).
-  const keuzeVeld = soort === "notulen" ? "soortnotulen" : "soortdividenduitkering";
-  const keuzeLabel = soort === "notulen" ? "Soort notulen" : "Soort dividenduitkering";
   const [open, setOpen] = useState(false); // dichtgeklapt bij openen van de pagina
   const [geladen, setGeladen] = useState(false);
   const [catalogus, setCatalogus] = useState([]);
@@ -77,26 +69,6 @@ export default function DossierSjablonenPerSoort({ soort }) {
   const [openIds, setOpenIds] = useState(() => new Set()); // welke sjabloon-kaarten opengeklapt zijn
   const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
   const [fout, setFout] = useState("");
-  // Mailinstellingen voor het "Versturen" van een bijlage vanuit het dividend-/notulendossier
-  // (afzenderadres + standaard onderwerp/tekst). Instellingen-sleutel dividendMail = { afzender,
-  // onderwerp, tekst }. Plaatshouders {{klantnaam}} / {{jaar}} / {{datum}} in onderwerp/tekst.
-  const [mailAfzender, setMailAfzender] = useState("");
-  const [mailOnderwerp, setMailOnderwerp] = useState("");
-  const [mailTekst, setMailTekst] = useState("");
-  // Keuzelijst-opties van het keuzeveld + per optie een eigen mailonderwerp/-tekst (dividendMail/
-  // notulenMail.perOptie). In het dossier wordt automatisch de bij de gekozen optie horende tekst gebruikt.
-  const [keuzeOpties, setKeuzeOpties] = useState([]); // [{ waarde, label }]
-  const [mailPerOptie, setMailPerOptie] = useState({}); // { <optiewaarde>: { onderwerp, tekst } }
-  // Klant-taak "voor akkoord": bij het versturen wordt (optioneel) een Dynamics-taak voor de klant
-  // aangemaakt, precies zoals het "Opslag & taak"-blok bij de aangifte. Instellingen-sleutel
-  // <soort>Taak = { aan, onderwerp, soort, rubriek }. De klant kan de taak in het portaal zelf
-  // "voor akkoord" afhandelen (dat staat al op de taak zelf ingesteld).
-  const [taakAan, setTaakAan] = useState(false);
-  const [taakOnderwerp, setTaakOnderwerp] = useState("");
-  const [taakSoort, setTaakSoort] = useState("");
-  const [taakRubriek, setTaakRubriek] = useState("");
-  const [taakSoortOpties, setTaakSoortOpties] = useState([]); // [{ waarde, label }]
-  const [taakRubriekOpties, setTaakRubriekOpties] = useState([]); // [{ waarde, label }]
 
   // De laatst gefocuste tekstarea + welk sjabloon dat is — zodat een klik op een merge-veld-chip de
   // plaatshouder op de cursorpositie in dát sjabloon invoegt.
@@ -107,29 +79,12 @@ export default function DossierSjablonenPerSoort({ soort }) {
     Promise.all([
       fetch(`/api/dossier-velden?soort=${encodeURIComponent(soort)}`).then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
       fetch("/api/beheer-instellingen").then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
-      heeftBijlageMail ? fetch("/api/beheer-taaksoorten").then((r) => (r.ok ? r.json() : {})).catch(() => ({})) : Promise.resolve({}),
-      heeftBijlageMail ? fetch("/api/beheer-taakrubrieken").then((r) => (r.ok ? r.json() : {})).catch(() => ({})) : Promise.resolve({}),
     ])
-      .then(([velden, inst, taaksoortenData, taakrubriekenData]) => {
+      .then(([velden, inst]) => {
         if (!actief) return;
         setCatalogus(velden.catalogus || []);
         const eigen = inst && inst.dossierSjablonen && inst.dossierSjablonen[soort];
         setSjablonen(naarLijst(eigen));
-        if (heeftBijlageMail) {
-          const dm = (inst && inst[`${soort}Mail`] && typeof inst[`${soort}Mail`] === "object") ? inst[`${soort}Mail`] : {};
-          setMailAfzender(typeof dm.afzender === "string" ? dm.afzender : "");
-          setMailOnderwerp(typeof dm.onderwerp === "string" ? dm.onderwerp : "");
-          setMailTekst(typeof dm.tekst === "string" ? dm.tekst : "");
-          setMailPerOptie(dm.perOptie && typeof dm.perOptie === "object" ? dm.perOptie : {});
-          setKeuzeOpties((velden.picklistOpties && velden.picklistOpties[keuzeVeld]) || []);
-          setTaakSoortOpties((taaksoortenData && Array.isArray(taaksoortenData.opties)) ? taaksoortenData.opties : []);
-          setTaakRubriekOpties((taakrubriekenData && Array.isArray(taakrubriekenData.opties)) ? taakrubriekenData.opties : []);
-          const dt = (inst && inst[`${soort}Taak`] && typeof inst[`${soort}Taak`] === "object") ? inst[`${soort}Taak`] : {};
-          setTaakAan(!!dt.aan);
-          setTaakOnderwerp(typeof dt.onderwerp === "string" ? dt.onderwerp : "");
-          setTaakSoort(dt.soort != null ? String(dt.soort) : "");
-          setTaakRubriek(dt.rubriek != null ? String(dt.rubriek) : "");
-        }
         setGeladen(true);
       })
       .catch(() => { if (actief) { setFout("De voorbeeld-sjablonen konden niet worden geladen."); setGeladen(true); } });
@@ -171,21 +126,7 @@ export default function DossierSjablonenPerSoort({ soort }) {
       const alle = (huidig && huidig.dossierSjablonen && typeof huidig.dossierSjablonen === "object") ? huidig.dossierSjablonen : {};
       const schoon = sjablonen.map((s) => ({ id: s.id, naam: String(s.naam || "").trim() || "Naamloos sjabloon", tekst: String(s.tekst || "") }));
       const nieuweAlle = { ...alle, [soort]: { sjablonen: schoon } };
-      // Per-optie mailteksten opschonen: alleen opties met inhoud bewaren.
-      const perOptieSchoon = {};
-      for (const [w, v] of Object.entries(mailPerOptie || {})) {
-        const ond = (v && typeof v.onderwerp === "string") ? v.onderwerp : "";
-        const tks = (v && typeof v.tekst === "string") ? v.tekst : "";
-        if (ond.trim() || tks.trim()) perOptieSchoon[w] = { onderwerp: ond, tekst: tks };
-      }
-      const body = heeftBijlageMail
-        ? {
-            dossierSjablonen: nieuweAlle,
-            [`${soort}Mail`]: { afzender: mailAfzender.trim(), onderwerp: mailOnderwerp, tekst: mailTekst, perOptie: perOptieSchoon },
-            [`${soort}Taak`]: { aan: taakAan, onderwerp: taakOnderwerp.trim(), soort: taakSoort, rubriek: taakRubriek },
-          }
-        : { dossierSjablonen: nieuweAlle };
-      const res = await fetch("/api/beheer-instellingen", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const res = await fetch("/api/beheer-instellingen", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dossierSjablonen: nieuweAlle }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || "Opslaan mislukt.");
       setStatus("opgeslagen"); setTimeout(() => setStatus("rust"), 2500);
@@ -223,94 +164,6 @@ export default function DossierSjablonenPerSoort({ soort }) {
               worden dan met de dossiergegevens ingevuld. Klik een veld in een sjabloon aan om het op de cursor in te voegen.
             </div>
           </div>
-
-          {heeftBijlageMail && (
-            <div style={{ marginBottom: 18, paddingBottom: 16, borderBottom: `1px solid ${KLEUR.rand}` }}>
-              <div style={{ fontSize: 13.5, fontWeight: 700, color: KLEUR.tekst, marginBottom: 8 }}>Mail — bijlage versturen</div>
-              <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 10 }}>
-                Afzenderadres en standaardtekst voor het “Versturen” van een bijlage vanuit het dossier.
-                Plaatshouders <code style={{ background: "#fff", padding: "1px 4px", borderRadius: 4, border: `1px solid ${KLEUR.rand}` }}>{"{{klantnaam}}"}</code>,
-                <code style={{ background: "#fff", padding: "1px 4px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>{"{{jaar}}"}</code> en
-                <code style={{ background: "#fff", padding: "1px 4px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, marginLeft: 3 }}>{"{{datum}}"}</code>
-                worden bij het versturen ingevuld. De medewerker kan ontvanger, cc, onderwerp en tekst per verzending nog aanpassen.
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <span style={labelStijl}>Afzender-mailadres</span>
-                <input value={mailAfzender} onChange={(e) => setMailAfzender(e.target.value)} placeholder="bijv. correspondentie@activaa.nl" style={{ ...invoerStijl, maxWidth: 360 }} />
-                <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4 }}>Moet een bestaand postvak in de tenant zijn. Leeg = het standaard postvak (GRAPH_MAIL_SENDER).</div>
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <span style={labelStijl}>Standaard mailonderwerp</span>
-                <input value={mailOnderwerp} onChange={(e) => setMailOnderwerp(e.target.value)} placeholder={soort === "notulen" ? "Notulen algemene vergadering" : "Aangifte dividendbelasting {{jaar}}"} style={invoerStijl} />
-              </div>
-              <div>
-                <span style={labelStijl}>Standaard mailtekst</span>
-                <textarea value={mailTekst} onChange={(e) => setMailTekst(e.target.value)} rows={7} placeholder={soort === "notulen" ? "Beste {{klantnaam}},\n\nBijgaand ontvangt u de notulen.\n\n…" : "Beste {{klantnaam}},\n\nBijgaand ontvangt u de aangifte dividendbelasting {{jaar}}.\n\n…"} style={{ ...invoerStijl, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }} />
-              </div>
-
-              {keuzeOpties.length > 0 && (
-                <div style={{ marginTop: 14 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: KLEUR.tekst, marginBottom: 4 }}>Mailtekst per “{keuzeLabel}”</div>
-                  <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 10 }}>
-                    Optioneel: per keuze een eigen onderwerp + tekst. In het dossier wordt automatisch de tekst gekozen die bij de gekozen “{keuzeLabel}” hoort; laat je een optie leeg, dan geldt de standaardtekst hierboven.
-                  </div>
-                  {keuzeOpties.map((o) => {
-                    const w = String(o.waarde);
-                    const v = mailPerOptie[w] || {};
-                    return (
-                      <div key={w} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
-                        <div style={{ fontSize: 12.5, fontWeight: 600, color: KLEUR.blauw, marginBottom: 6 }}>{o.label}</div>
-                        <input value={v.onderwerp || ""} onChange={(e) => setMailPerOptie((m) => ({ ...m, [w]: { ...m[w], onderwerp: e.target.value } }))} placeholder="Onderwerp (leeg = standaard)" style={{ ...invoerStijl, marginBottom: 6 }} />
-                        <textarea value={v.tekst || ""} onChange={(e) => setMailPerOptie((m) => ({ ...m, [w]: { ...m[w], tekst: e.target.value } }))} rows={4} placeholder="Tekst (leeg = standaard)" style={{ ...invoerStijl, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }} />
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
-          {heeftBijlageMail && (
-            <div style={{ marginBottom: 18, paddingBottom: 16, borderBottom: `1px solid ${KLEUR.rand}` }}>
-              <div style={{ fontSize: 13.5, fontWeight: 700, color: KLEUR.tekst, marginBottom: 8 }}>Taak — voor akkoord</div>
-              <label style={{ display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer", marginBottom: 10 }}>
-                <input type="checkbox" checked={taakAan} onChange={(e) => setTaakAan(e.target.checked)} style={{ marginTop: 2 }} />
-                <span style={{ fontSize: 12.5, color: KLEUR.subtekst }}>
-                  Maak bij het versturen een taak voor de klant aan, zodat hij de {bijlageWoord} in het portaal “voor akkoord” kan afhandelen.
-                </span>
-              </label>
-              {taakAan && (
-                <div style={{ paddingLeft: 26 }}>
-                  <div style={{ marginBottom: 10 }}>
-                    <span style={labelStijl}>Onderwerp van de taak</span>
-                    <input value={taakOnderwerp} onChange={(e) => setTaakOnderwerp(e.target.value)} placeholder={soort === "notulen" ? "Notulen {{jaar}} ter akkoord" : "Aangifte dividendbelasting {{jaar}} ter akkoord"} style={invoerStijl} />
-                    <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4 }}>
-                      Plaatshouders <code style={{ background: "#fff", padding: "1px 4px", borderRadius: 4, border: `1px solid ${KLEUR.rand}` }}>{"{{klantnaam}}"}</code> en
-                      <code style={{ background: "#fff", padding: "1px 4px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, marginLeft: 3 }}>{"{{jaar}}"}</code> mogen. Leeg = een standaardonderwerp.
-                    </div>
-                  </div>
-                  <div style={{ marginBottom: 10 }}>
-                    <span style={labelStijl}>Soort taak</span>
-                    <select value={taakSoort} onChange={(e) => setTaakSoort(e.target.value)} style={{ ...invoerStijl, maxWidth: 360 }}>
-                      <option value="">— geen —</option>
-                      {taakSoortOpties.map((o) => (
-                        <option key={String(o.waarde)} value={String(o.waarde)}>{o.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <span style={labelStijl}>Rubriek</span>
-                    <select value={taakRubriek} onChange={(e) => setTaakRubriek(e.target.value)} style={{ ...invoerStijl, maxWidth: 360 }}>
-                      <option value="">— geen —</option>
-                      {taakRubriekOpties.map((o) => (
-                        <option key={String(o.waarde)} value={String(o.waarde)}>{o.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
 
           {!geladen ? (
             <div style={{ fontSize: 13, color: KLEUR.mutedTekst, padding: "8px 0" }}>Voorbeeld-sjablonen laden…</div>
@@ -556,5 +409,197 @@ export function DossierBijlagePerSoort({ soort }) {
         </div>
       )}
     </div>
+  );
+}
+
+// VPB-achtige geblokte layout (lichtblauwe kaders met eigen Opslaan) van de kleine palette/stijlen.
+const vakStijl = { border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14, marginBottom: 18, background: KLEUR.lichtblauw };
+const vakTitel = { fontSize: 13, fontWeight: 700, marginBottom: 4, color: KLEUR.tekst };
+const vakUitleg = { fontSize: 12, color: KLEUR.subtekst, marginBottom: 10, maxWidth: 640 };
+const veldLabel = { fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 3, display: "block" };
+const witInvoer = { ...invoerStijl, background: "#fff" };
+const opslaanKnop = (bezig) => ({ padding: "7px 14px", background: bezig ? "#9DB4A5" : KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: bezig ? "default" : "pointer" });
+
+/**
+ * Beheer → Dossiers → in het indeling-paneel van notulen/dividend: de blokken "Mail — versturen naar
+ * klant" en "Taak — voor akkoord", in dezelfde geblokte layout als de IB/VPB "Aangifte versturen"-blokken.
+ *
+ * Wired op de bestaande sleutels <soort>Mail = { afzender, onderwerp, tekst, perOptie } en <soort>Taak =
+ * { aan, onderwerp, soort, rubriek } — precies wat api/medewerker-dossier-bijlage leest bij het versturen
+ * vanuit de bijlage-dropzone. Elk blok heeft een eigen Opslaan-knop. Plaatshouders in de mailteksten:
+ * {{klantnaam}} / {{jaar}} / {{datum}}. De "Mailtekst per <keuze>" laat per keuzelijst-optie een eigen
+ * onderwerp/tekst instellen (perOptie); leeg = de standaardtekst hierboven.
+ */
+export function DossierMailTaakPerSoort({ soort }) {
+  const keuzeVeld = soort === "notulen" ? "soortnotulen" : "soortdividenduitkering";
+  const keuzeLabel = soort === "notulen" ? "Soort notulen" : "Soort dividenduitkering";
+  const woord = soort === "notulen" ? "notulen" : "dividendbelasting";
+  const [geladen, setGeladen] = useState(false);
+  const [fout, setFout] = useState("");
+  const [mailAfzender, setMailAfzender] = useState("");
+  const [mailOnderwerp, setMailOnderwerp] = useState("");
+  const [mailTekst, setMailTekst] = useState("");
+  const [keuzeOpties, setKeuzeOpties] = useState([]); // [{ waarde, label }]
+  const [mailPerOptie, setMailPerOptie] = useState({}); // { <optiewaarde>: { onderwerp, tekst } }
+  const [mailStatus, setMailStatus] = useState("rust");
+  const [taakAan, setTaakAan] = useState(false);
+  const [taakOnderwerp, setTaakOnderwerp] = useState("");
+  const [taakSoort, setTaakSoort] = useState("");
+  const [taakRubriek, setTaakRubriek] = useState("");
+  const [taakSoortOpties, setTaakSoortOpties] = useState([]); // [{ waarde, label }]
+  const [taakRubriekOpties, setTaakRubriekOpties] = useState([]); // [{ waarde, label }]
+  const [taakStatus, setTaakStatus] = useState("rust");
+
+  useEffect(() => {
+    let actief = true;
+    Promise.all([
+      fetch(`/api/dossier-velden?soort=${encodeURIComponent(soort)}`).then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
+      fetch("/api/beheer-instellingen").then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
+      fetch("/api/beheer-taaksoorten").then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
+      fetch("/api/beheer-taakrubrieken").then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
+    ])
+      .then(([velden, inst, taaksoortenData, taakrubriekenData]) => {
+        if (!actief) return;
+        setKeuzeOpties((velden.picklistOpties && velden.picklistOpties[keuzeVeld]) || []);
+        const dm = (inst && inst[`${soort}Mail`] && typeof inst[`${soort}Mail`] === "object") ? inst[`${soort}Mail`] : {};
+        setMailAfzender(typeof dm.afzender === "string" ? dm.afzender : "");
+        setMailOnderwerp(typeof dm.onderwerp === "string" ? dm.onderwerp : "");
+        setMailTekst(typeof dm.tekst === "string" ? dm.tekst : "");
+        setMailPerOptie(dm.perOptie && typeof dm.perOptie === "object" ? dm.perOptie : {});
+        setTaakSoortOpties((taaksoortenData && Array.isArray(taaksoortenData.opties)) ? taaksoortenData.opties : []);
+        setTaakRubriekOpties((taakrubriekenData && Array.isArray(taakrubriekenData.opties)) ? taakrubriekenData.opties : []);
+        const dt = (inst && inst[`${soort}Taak`] && typeof inst[`${soort}Taak`] === "object") ? inst[`${soort}Taak`] : {};
+        setTaakAan(!!dt.aan);
+        setTaakOnderwerp(typeof dt.onderwerp === "string" ? dt.onderwerp : "");
+        setTaakSoort(dt.soort != null ? String(dt.soort) : "");
+        setTaakRubriek(dt.rubriek != null ? String(dt.rubriek) : "");
+        setGeladen(true);
+      })
+      .catch(() => { if (actief) { setFout("De instellingen konden niet worden geladen."); setGeladen(true); } });
+    return () => { actief = false; };
+  }, [soort]);
+
+  async function bewaarMail() {
+    setMailStatus("bezig");
+    try {
+      const perOptieSchoon = {};
+      for (const [w, v] of Object.entries(mailPerOptie || {})) {
+        const ond = (v && typeof v.onderwerp === "string") ? v.onderwerp : "";
+        const tks = (v && typeof v.tekst === "string") ? v.tekst : "";
+        if (ond.trim() || tks.trim()) perOptieSchoon[w] = { onderwerp: ond, tekst: tks };
+      }
+      const body = { [`${soort}Mail`]: { afzender: mailAfzender.trim(), onderwerp: mailOnderwerp, tekst: mailTekst, perOptie: perOptieSchoon } };
+      const res = await fetch("/api/beheer-instellingen", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Opslaan mislukt.");
+      setMailStatus("opgeslagen"); setTimeout(() => setMailStatus("rust"), 2500);
+    } catch { setMailStatus("fout"); }
+  }
+
+  async function bewaarTaak() {
+    setTaakStatus("bezig");
+    try {
+      const body = { [`${soort}Taak`]: { aan: taakAan, onderwerp: taakOnderwerp.trim(), soort: taakSoort, rubriek: taakRubriek } };
+      const res = await fetch("/api/beheer-instellingen", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Opslaan mislukt.");
+      setTaakStatus("opgeslagen"); setTimeout(() => setTaakStatus("rust"), 2500);
+    } catch { setTaakStatus("fout"); }
+  }
+
+  if (!geladen) {
+    return <div style={{ ...vakStijl, color: KLEUR.mutedTekst, fontSize: 12.5 }}>{fout || "Instellingen laden…"}</div>;
+  }
+
+  return (
+    <>
+      {/* Mail — versturen naar klant */}
+      <div style={vakStijl}>
+        <div style={vakTitel}>Mail — versturen naar klant</div>
+        <div style={vakUitleg}>
+          Afzenderadres en standaardtekst voor het “Versturen” van een bijlage vanuit het {soort === "notulen" ? "notulen" : "dividend"}-dossier.
+          De medewerker ziet dit als voorstel vlak vóór het versturen en kan ontvanger, cc, onderwerp en tekst per keer nog aanpassen.
+          Plaatshouders <code>{"{{klantnaam}}"}</code>, <code>{"{{jaar}}"}</code> en <code>{"{{datum}}"}</code> worden bij het versturen ingevuld.
+        </div>
+        <div style={{ marginBottom: 10 }}>
+          <span style={veldLabel}>Afzender-mailadres</span>
+          <input value={mailAfzender} onChange={(e) => { setMailAfzender(e.target.value); setMailStatus("rust"); }} placeholder="bijv. correspondentie@activaa.nl" style={{ ...witInvoer, maxWidth: 420 }} />
+          <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 4 }}>Moet een bestaand postvak in de tenant zijn. Leeg = het standaard postvak (GRAPH_MAIL_SENDER).</div>
+        </div>
+        <div style={{ marginBottom: 10 }}>
+          <span style={veldLabel}>Onderwerp</span>
+          <input value={mailOnderwerp} onChange={(e) => { setMailOnderwerp(e.target.value); setMailStatus("rust"); }} placeholder={soort === "notulen" ? "Notulen algemene vergadering" : "Aangifte dividendbelasting {{jaar}}"} style={{ ...witInvoer, width: "100%", maxWidth: 560 }} />
+        </div>
+        <div style={{ marginBottom: 10 }}>
+          <span style={veldLabel}>Tekst</span>
+          <textarea value={mailTekst} onChange={(e) => { setMailTekst(e.target.value); setMailStatus("rust"); }} rows={8} placeholder={soort === "notulen" ? "Beste {{klantnaam}},\n\nBijgaand ontvangt u de notulen.\n\n…" : "Beste {{klantnaam}},\n\nBijgaand ontvangt u de aangifte dividendbelasting {{jaar}}.\n\n…"} style={{ ...witInvoer, width: "100%", maxWidth: 560, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }} />
+        </div>
+
+        {keuzeOpties.length > 0 && (
+          <div style={{ marginTop: 6, marginBottom: 10 }}>
+            <span style={veldLabel}>Mailtekst per “{keuzeLabel}”</span>
+            <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginBottom: 8 }}>
+              Optioneel: per keuze een eigen onderwerp + tekst. In het dossier wordt automatisch de tekst gekozen die bij de gekozen “{keuzeLabel}” hoort; laat je een optie leeg, dan geldt de standaardtekst hierboven.
+            </div>
+            {keuzeOpties.map((o) => {
+              const w = String(o.waarde);
+              const v = mailPerOptie[w] || {};
+              return (
+                <div key={w} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, marginBottom: 8, background: "#fff" }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: KLEUR.blauw, marginBottom: 6 }}>{o.label}</div>
+                  <input value={v.onderwerp || ""} onChange={(e) => { setMailPerOptie((m) => ({ ...m, [w]: { ...m[w], onderwerp: e.target.value } })); setMailStatus("rust"); }} placeholder="Onderwerp (leeg = standaard)" style={{ ...witInvoer, marginBottom: 6 }} />
+                  <textarea value={v.tekst || ""} onChange={(e) => { setMailPerOptie((m) => ({ ...m, [w]: { ...m[w], tekst: e.target.value } })); setMailStatus("rust"); }} rows={4} placeholder="Tekst (leeg = standaard)" style={{ ...witInvoer, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }} />
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button onClick={bewaarMail} disabled={mailStatus === "bezig"} style={opslaanKnop(mailStatus === "bezig")}>{mailStatus === "bezig" ? "Opslaan…" : "Opslaan"}</button>
+          {mailStatus === "opgeslagen" && <span style={{ fontSize: 11.5, color: KLEUR.groen }}>Opgeslagen</span>}
+          {mailStatus === "fout" && <span style={{ fontSize: 11.5, color: KLEUR.rood }}>Opslaan mislukt</span>}
+        </div>
+      </div>
+
+      {/* Taak — voor akkoord */}
+      <div style={vakStijl}>
+        <div style={vakTitel}>Taak — voor akkoord</div>
+        <div style={vakUitleg}>
+          Maak bij het versturen (optioneel) een taak voor de klant aan, zodat hij de {woord} in het portaal “voor akkoord” kan afhandelen.
+          Plaatshouders <code>{"{{klantnaam}}"}</code> en <code>{"{{jaar}}"}</code> mogen in het onderwerp.
+        </div>
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: taakAan ? 12 : 0, fontSize: 12.5, fontWeight: 600, color: KLEUR.tekst }}>
+          <input type="checkbox" checked={taakAan} onChange={(e) => { setTaakAan(e.target.checked); setTaakStatus("rust"); }} />
+          Taak voor de klant aanmaken bij het versturen
+        </label>
+        {taakAan && (
+          <>
+            <div style={{ marginBottom: 10 }}>
+              <span style={veldLabel}>Onderwerp van de taak</span>
+              <input value={taakOnderwerp} onChange={(e) => { setTaakOnderwerp(e.target.value); setTaakStatus("rust"); }} placeholder={soort === "notulen" ? "Notulen {{jaar}} ter akkoord" : "Aangifte dividendbelasting {{jaar}} ter akkoord"} style={{ ...witInvoer, width: "100%", maxWidth: 560 }} />
+              <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 4 }}>Leeg = een standaardonderwerp.</div>
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <span style={veldLabel}>Soort taak</span>
+              <select value={taakSoort} onChange={(e) => { setTaakSoort(e.target.value); setTaakStatus("rust"); }} style={{ ...witInvoer, width: "100%", maxWidth: 420 }}>
+                <option value="">— geen —</option>
+                {taakSoortOpties.map((o) => <option key={String(o.waarde)} value={String(o.waarde)}>{o.label}</option>)}
+              </select>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <span style={veldLabel}>Rubriek</span>
+              <select value={taakRubriek} onChange={(e) => { setTaakRubriek(e.target.value); setTaakStatus("rust"); }} style={{ ...witInvoer, width: "100%", maxWidth: 420 }}>
+                <option value="">— geen —</option>
+                {taakRubriekOpties.map((o) => <option key={String(o.waarde)} value={String(o.waarde)}>{o.label}</option>)}
+              </select>
+            </div>
+          </>
+        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: taakAan ? 0 : 12 }}>
+          <button onClick={bewaarTaak} disabled={taakStatus === "bezig"} style={opslaanKnop(taakStatus === "bezig")}>{taakStatus === "bezig" ? "Opslaan…" : "Opslaan"}</button>
+          {taakStatus === "opgeslagen" && <span style={{ fontSize: 11.5, color: KLEUR.groen }}>Opgeslagen</span>}
+          {taakStatus === "fout" && <span style={{ fontSize: 11.5, color: KLEUR.rood }}>Opslaan mislukt</span>}
+        </div>
+      </div>
+    </>
   );
 }
