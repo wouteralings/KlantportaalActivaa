@@ -178,4 +178,40 @@ async function werkInstellingenBij(velden) {
   return nieuw;
 }
 
-module.exports = { haalInstellingen, werkInstellingenBij };
+// Standaard SharePoint-submap per soort voor de (generieke) bijlage-dropzone — terugval als er in
+// Beheer → Dossiers nog geen eigen submap is ingesteld.
+const STANDAARD_BIJLAGE_MAP = { dividend: "Dividendbelasting", notulen: "Notulen", ib: "Bijlagen", vpb: "Bijlagen" };
+
+/**
+ * Resolvet de bijlage-dropzone-configuratie van één dossiersoort tot een vaste vorm
+ * { aan, trigger, map, bestandsnaam }. In Beheer → Dossiers stelt Wouter dit per soort in
+ * (instellingen-sleutel <soort>Bijlage): of de dropzone aan staat, welk ja/nee-veld (veld-key uit de
+ * catalogus) hem in het dossier activeert (leeg = altijd tonen), in welke SharePoint-submap de
+ * bestanden belanden, en onder welke bestandsnaam een gedropt bestand wordt opgeslagen (met
+ * plaatshouders {{klantnaam}}/{{jaar}}/{{datum}}; leeg = de originele bestandsnaam behouden).
+ *
+ * Terugwaartse compatibiliteit: als er nog géén <soort>Bijlage is opgeslagen behouden dividend en
+ * notulen hun bestaande gedrag zonder dat Wouter iets opnieuw hoeft in te stellen — dividend toont de
+ * dropzone zodra "Dividendbelasting" (veld-key dividendbelasting) op Ja staat, notulen toont hem altijd,
+ * en de submap komt uit de oude losse sleutel <soort>BijlageMap (of de standaard hierboven). Andere
+ * soorten (ib/vpb) staan standaard uit tot Wouter ze aanzet.
+ */
+function resolveBijlageConfig(instellingen, soortKey) {
+  const inst = instellingen || {};
+  const raw = inst[`${soortKey}Bijlage`];
+  const legacyMap = typeof inst[`${soortKey}BijlageMap`] === "string" ? inst[`${soortKey}BijlageMap`].trim() : "";
+  const standaardMap = STANDAARD_BIJLAGE_MAP[soortKey] || "Bijlagen";
+  if (raw && typeof raw === "object") {
+    return {
+      aan: !!raw.aan,
+      trigger: typeof raw.trigger === "string" ? raw.trigger : "",
+      map: (typeof raw.map === "string" && raw.map.trim()) ? raw.map.trim() : (legacyMap || standaardMap),
+      bestandsnaam: typeof raw.bestandsnaam === "string" ? raw.bestandsnaam : "",
+    };
+  }
+  if (soortKey === "dividend") return { aan: true, trigger: "dividendbelasting", map: legacyMap || standaardMap, bestandsnaam: "" };
+  if (soortKey === "notulen") return { aan: true, trigger: "", map: legacyMap || standaardMap, bestandsnaam: "" };
+  return { aan: false, trigger: "", map: standaardMap, bestandsnaam: "" };
+}
+
+module.exports = { haalInstellingen, werkInstellingenBij, resolveBijlageConfig };

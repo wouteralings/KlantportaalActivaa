@@ -62,11 +62,11 @@ function naarLijst(eigen) {
 
 export default function DossierSjablonenPerSoort({ soort }) {
   const soortLabel = SOORT_LABEL[soort] || "Dossier";
-  // Bijlage-upload + verstuur-mail bestaan voor dividend én notulen (elk met een eigen SharePoint-submap
-  // en eigen mailinstellingen, per-soort-sleutels <soort>BijlageMap / <soort>Mail).
+  // Verstuur-mail (afzender + standaardtekst/per-optie) + klant-taak bestaan alleen voor dividend én
+  // notulen (sleutel <soort>Mail / <soort>Taak). De SharePoint-submap + bestandsnaam van de bijlage-
+  // dropzone zijn verplaatst naar een eigen blok (DossierBijlagePerSoort), dat voor élke soort geldt.
   const heeftBijlageMail = soort === "dividend" || soort === "notulen";
   const bijlageWoord = soort === "notulen" ? "notulen" : "dividendbelasting";
-  const standaardMap = soort === "notulen" ? "Notulen" : "Dividendbelasting";
   // Keuzeveld waarop de mailtekst automatisch gekozen wordt (per optie een eigen tekst).
   const keuzeVeld = soort === "notulen" ? "soortnotulen" : "soortdividenduitkering";
   const keuzeLabel = soort === "notulen" ? "Soort notulen" : "Soort dividenduitkering";
@@ -77,11 +77,7 @@ export default function DossierSjablonenPerSoort({ soort }) {
   const [openIds, setOpenIds] = useState(() => new Set()); // welke sjabloon-kaarten opengeklapt zijn
   const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
   const [fout, setFout] = useState("");
-  // Alleen dividend: SharePoint-submap voor de bijlagen die bij "Dividendbelasting = Ja" worden
-  // geüpload (zie DividendBijlageKaart in MedewerkerPortaal.jsx + api/medewerker-dossier-bijlage).
-  // Wordt met dezelfde "Opslaan"-knop bewaard (instellingen-sleutel dividendBijlageMap).
-  const [bijlageMap, setBijlageMap] = useState("");
-  // Alleen dividend: mailinstellingen voor het "Versturen" van een bijlage vanuit het dividenddossier
+  // Mailinstellingen voor het "Versturen" van een bijlage vanuit het dividend-/notulendossier
   // (afzenderadres + standaard onderwerp/tekst). Instellingen-sleutel dividendMail = { afzender,
   // onderwerp, tekst }. Plaatshouders {{klantnaam}} / {{jaar}} / {{datum}} in onderwerp/tekst.
   const [mailAfzender, setMailAfzender] = useState("");
@@ -120,8 +116,6 @@ export default function DossierSjablonenPerSoort({ soort }) {
         const eigen = inst && inst.dossierSjablonen && inst.dossierSjablonen[soort];
         setSjablonen(naarLijst(eigen));
         if (heeftBijlageMail) {
-          const mapKey = `${soort}BijlageMap`;
-          setBijlageMap(inst && typeof inst[mapKey] === "string" && inst[mapKey].trim() ? inst[mapKey] : standaardMap);
           const dm = (inst && inst[`${soort}Mail`] && typeof inst[`${soort}Mail`] === "object") ? inst[`${soort}Mail`] : {};
           setMailAfzender(typeof dm.afzender === "string" ? dm.afzender : "");
           setMailOnderwerp(typeof dm.onderwerp === "string" ? dm.onderwerp : "");
@@ -187,7 +181,6 @@ export default function DossierSjablonenPerSoort({ soort }) {
       const body = heeftBijlageMail
         ? {
             dossierSjablonen: nieuweAlle,
-            [`${soort}BijlageMap`]: (bijlageMap.trim() || standaardMap),
             [`${soort}Mail`]: { afzender: mailAfzender.trim(), onderwerp: mailOnderwerp, tekst: mailTekst, perOptie: perOptieSchoon },
             [`${soort}Taak`]: { aan: taakAan, onderwerp: taakOnderwerp.trim(), soort: taakSoort, rubriek: taakRubriek },
           }
@@ -230,16 +223,6 @@ export default function DossierSjablonenPerSoort({ soort }) {
               worden dan met de dossiergegevens ingevuld. Klik een veld in een sjabloon aan om het op de cursor in te voegen.
             </div>
           </div>
-
-          {heeftBijlageMail && (
-            <div style={{ marginBottom: 18, paddingBottom: 16, borderBottom: `1px solid ${KLEUR.rand}` }}>
-              <span style={labelStijl}>SharePoint-submap voor {bijlageWoord}-bijlagen</span>
-              <input value={bijlageMap} onChange={(e) => setBijlageMap(e.target.value)} placeholder={standaardMap} style={{ ...invoerStijl, maxWidth: 360 }} />
-              <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4 }}>
-                Submap onder de SharePoint-map van de klant waarin een in het dossier geüploade bijlage belandt. Leeg = “{standaardMap}”.
-              </div>
-            </div>
-          )}
 
           {heeftBijlageMail && (
             <div style={{ marginBottom: 18, paddingBottom: 16, borderBottom: `1px solid ${KLEUR.rand}` }}>
@@ -408,6 +391,168 @@ export default function DossierSjablonenPerSoort({ soort }) {
             {status === "opgeslagen" && <span style={{ fontSize: 12.5, color: KLEUR.groen }}>Opgeslagen.</span>}
             {(status === "fout" || fout) && <span style={{ fontSize: 12.5, color: KLEUR.rood }}>{fout || "Opslaan mislukt."}</span>}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Standaard SharePoint-submap per soort (spiegelt STANDAARD_BIJLAGE_MAP in api/_gedeeld/instellingen.js).
+const STANDAARD_BIJLAGE_MAP = { dividend: "Dividendbelasting", notulen: "Notulen", ib: "Bijlagen", vpb: "Bijlagen" };
+const BIJLAGE_SOORT_LABEL = { ib: "Inkomstenbelasting", vpb: "Vennootschapsbelasting", dividend: "Dividenduitkeringen", notulen: "Notulen" };
+
+/**
+ * Beheer → Dossiers → per soort (onder de indelingskaart) het blok "Bijlage-dropzone".
+ *
+ * Hier zet Wouter per dossiersoort — IB, VPB, dividend én notulen — een bijlage-sleepvak aan en koppelt
+ * het aan één ja/nee-veld uit de catalogus van die soort (leeg = altijd tonen). Verder kiest hij de
+ * SharePoint-submap waarin de gedropte bestanden belanden en de bestandsnaam waaronder een gedropt
+ * bestand wordt opgeslagen (plaatshouders {{klantnaam}}/{{jaar}}/{{datum}}; leeg = de originele naam;
+ * bij meerdere bestanden komt er een volgnummer achter). In het dossier verschijnt de dropzone zodra het
+ * gekozen ja/nee-veld op Ja staat en zijn de gedropte bestanden er als snellink te openen (zie
+ * DossierBijlageKaart in MedewerkerPortaal.jsx + api/medewerker-dossier-bijlage / api/medewerker-dossier).
+ *
+ * Opslag: het generieke /api/beheer-instellingen onder de sleutel <soort>Bijlage =
+ * { aan, trigger, map, bestandsnaam }. De ja/nee-velden komen (als type "boolean") uit /api/dossier-velden.
+ */
+export function DossierBijlagePerSoort({ soort }) {
+  const soortLabel = BIJLAGE_SOORT_LABEL[soort] || "Dossier";
+  const standaardMap = STANDAARD_BIJLAGE_MAP[soort] || "Bijlagen";
+  const [open, setOpen] = useState(false); // dichtgeklapt bij openen van de pagina
+  const [geladen, setGeladen] = useState(false);
+  const [aan, setAan] = useState(false);
+  const [trigger, setTrigger] = useState(""); // veld-key van het ja/nee-veld; "" = altijd tonen
+  const [submap, setSubmap] = useState("");
+  const [bestandsnaam, setBestandsnaam] = useState("");
+  const [jaNeeVelden, setJaNeeVelden] = useState([]); // [{ key, label }]
+  const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
+  const [fout, setFout] = useState("");
+
+  useEffect(() => {
+    let actief = true;
+    Promise.all([
+      fetch(`/api/dossier-velden?soort=${encodeURIComponent(soort)}`).then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
+      fetch("/api/beheer-instellingen").then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
+    ])
+      .then(([velden, inst]) => {
+        if (!actief) return;
+        // Alleen de ja/nee-velden (type "boolean") uit de catalogus kunnen als trigger dienen.
+        const boolVelden = (velden.catalogus || [])
+          .filter((v) => v && v.key && v.type === "boolean" && !String(v.key).startsWith("__"))
+          .map((v) => ({ key: v.key, label: v.label || v.key }));
+        setJaNeeVelden(boolVelden);
+        const legacyMap = inst && typeof inst[`${soort}BijlageMap`] === "string" ? inst[`${soort}BijlageMap`].trim() : "";
+        const raw = inst && inst[`${soort}Bijlage`];
+        if (raw && typeof raw === "object") {
+          setAan(!!raw.aan);
+          setTrigger(typeof raw.trigger === "string" ? raw.trigger : "");
+          setSubmap((typeof raw.map === "string" && raw.map.trim()) ? raw.map.trim() : (legacyMap || standaardMap));
+          setBestandsnaam(typeof raw.bestandsnaam === "string" ? raw.bestandsnaam : "");
+        } else if (soort === "dividend") {
+          // Terugval op het huidige gedrag zolang er nog niets nieuws is opgeslagen.
+          setAan(true); setTrigger("dividendbelasting"); setSubmap(legacyMap || standaardMap); setBestandsnaam("");
+        } else if (soort === "notulen") {
+          setAan(true); setTrigger(""); setSubmap(legacyMap || standaardMap); setBestandsnaam("");
+        } else {
+          setAan(false); setTrigger(""); setSubmap(standaardMap); setBestandsnaam("");
+        }
+        setGeladen(true);
+      })
+      .catch(() => { if (actief) { setFout("De bijlage-instellingen konden niet worden geladen."); setGeladen(true); } });
+    return () => { actief = false; };
+  }, [soort]);
+
+  async function opslaan() {
+    setStatus("bezig"); setFout("");
+    try {
+      const body = { [`${soort}Bijlage`]: { aan, trigger, map: (submap.trim() || standaardMap), bestandsnaam: bestandsnaam.trim() } };
+      const res = await fetch("/api/beheer-instellingen", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || "Opslaan mislukt.");
+      setStatus("opgeslagen"); setTimeout(() => setStatus("rust"), 2500);
+    } catch (e) { setStatus("fout"); setFout(String(e.message || e)); }
+  }
+
+  return (
+    <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, overflow: "hidden", background: "#fff" }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+      >
+        {open ? <ChevronDown size={16} color={KLEUR.mutedTekst} /> : <ChevronRight size={16} color={KLEUR.mutedTekst} />}
+        <FileText size={16} color={KLEUR.blauw} />
+        <span style={{ fontSize: 14, fontWeight: 700, color: KLEUR.tekst }}>Bijlage-dropzone — {soortLabel}</span>
+        {geladen && aan && <span style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.groen, background: "#E9F4EE", borderRadius: 999, padding: "1px 9px" }}>aan</span>}
+      </button>
+
+      {open && (
+        <div style={{ padding: "4px 16px 18px", borderTop: `1px solid ${KLEUR.rand}` }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12.5, color: KLEUR.subtekst, background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "10px 12px", margin: "14px 0 16px" }}>
+            <Info size={15} color={KLEUR.blauw} style={{ flexShrink: 0, marginTop: 1 }} />
+            <div>
+              Zet een bijlage-sleepvak aan in het {soortLabel.toLowerCase()}-dossier. Kies het ja/nee-veld dat het sleepvak laat
+              verschijnen, de SharePoint-submap waarin de bestanden belanden en de naam waaronder een gedropt bestand wordt
+              opgeslagen. Gedropte bestanden zijn in het dossier als snellink te openen.
+            </div>
+          </div>
+
+          {!geladen ? (
+            <div style={{ fontSize: 13, color: KLEUR.mutedTekst, padding: "8px 0" }}>Instellingen laden…</div>
+          ) : (
+            <>
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer", marginBottom: 14 }}>
+                <input type="checkbox" checked={aan} onChange={(e) => setAan(e.target.checked)} style={{ marginTop: 2 }} />
+                <span style={{ fontSize: 12.5, color: KLEUR.subtekst }}>Bijlage-dropzone inschakelen voor {soortLabel.toLowerCase()}.</span>
+              </label>
+
+              {aan && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                  <div>
+                    <span style={labelStijl}>Tonen zodra dit ja/nee-veld op Ja staat</span>
+                    <select value={trigger} onChange={(e) => setTrigger(e.target.value)} style={{ ...invoerStijl, maxWidth: 360 }}>
+                      <option value="">Altijd tonen</option>
+                      {jaNeeVelden.map((v) => (
+                        <option key={v.key} value={v.key}>{v.label}</option>
+                      ))}
+                    </select>
+                    <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4 }}>
+                      Kies een ja/nee-veld uit de indeling van deze soort. “Altijd tonen” = het sleepvak staat er ongeacht een veld.
+                    </div>
+                  </div>
+                  <div>
+                    <span style={labelStijl}>SharePoint-submap</span>
+                    <input value={submap} onChange={(e) => setSubmap(e.target.value)} placeholder={standaardMap} style={{ ...invoerStijl, maxWidth: 360 }} />
+                    <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4 }}>
+                      Submap onder de SharePoint-map van de klant waarin een gedropt bestand belandt. Leeg = “{standaardMap}”.
+                    </div>
+                  </div>
+                  <div>
+                    <span style={labelStijl}>Bestandsnaam</span>
+                    <input value={bestandsnaam} onChange={(e) => setBestandsnaam(e.target.value)} placeholder={soort === "notulen" ? "Notulen {{jaar}}" : soort === "dividend" ? "Aangifte dividendbelasting {{jaar}}" : "{{klantnaam}} {{jaar}}"} style={invoerStijl} />
+                    <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4 }}>
+                      Naam waaronder een gedropt bestand wordt opgeslagen (de extensie van het bronbestand komt er automatisch achter).
+                      Plaatshouders <code style={{ background: "#fff", padding: "1px 4px", borderRadius: 4, border: `1px solid ${KLEUR.rand}` }}>{"{{klantnaam}}"}</code>,
+                      <code style={{ background: "#fff", padding: "1px 4px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>{"{{jaar}}"}</code> en
+                      <code style={{ background: "#fff", padding: "1px 4px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, marginLeft: 3 }}>{"{{datum}}"}</code> mogen.
+                      Leeg = de originele bestandsnaam. Bij meerdere bestanden komt er automatisch een volgnummer achter.
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 16 }}>
+                <button
+                  onClick={opslaan}
+                  disabled={status === "bezig"}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: status === "bezig" ? "#9DB4A5" : KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: status === "bezig" ? "default" : "pointer" }}
+                >
+                  <Save size={14} /> {status === "bezig" ? "Opslaan…" : "Opslaan"}
+                </button>
+                {status === "opgeslagen" && <span style={{ fontSize: 12.5, color: KLEUR.groen }}>Opgeslagen.</span>}
+                {(status === "fout" || fout) && <span style={{ fontSize: 12.5, color: KLEUR.rood }}>{fout || "Opslaan mislukt."}</span>}
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

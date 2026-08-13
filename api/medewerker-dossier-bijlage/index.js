@@ -29,14 +29,13 @@ const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = req
 const { SOORTEN, haalEenDossier, haalNavigatieNaam } = require("../_gedeeld/dossiers");
 const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/sharepointUpload");
 const { haalAppGraphToken } = require("../_gedeeld/graphApp");
-const { haalInstellingen } = require("../_gedeeld/instellingen");
+const { haalInstellingen, resolveBijlageConfig } = require("../_gedeeld/instellingen");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
 const { verstuurMailMetBijlage } = require("../_gedeeld/mail");
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 const SHAREPOINT_VELD = process.env.DYNAMICS_KLANT_SHAREPOINT_VELD || "cr283_sharepoint";
 const MAX_BYTES = 15 * 1024 * 1024; // 15 MB — kleine-bestand-upload/download via Graph (:/content)
-const TOEGESTANE_SOORTEN = new Set(["dividend", "notulen"]);
 const GUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 // Velden voor de klant-taak "voor akkoord" (zelfde als api/medewerker-aangifte-versturen). De taak wordt
@@ -68,6 +67,53 @@ function veiligeBestandsnaam(naam) {
   let n = String(naam || "").replace(/[\\/:*?"<>|]/g, "-").trim();
   n = n.replace(/^\.+/, "").slice(0, 180);
   return n || "bijlage";
+}
+
+// Splitst een bestandsnaam in { basis, ext } (ext incl. punt, of "" zonder extensie). Alleen een
+// "echte" extensie (1–8 letters/cijfers ná een punt, niet aan het begin) wordt afgesplitst.
+function splitsNaamExt(naam) {
+  const n = String(naam || "");
+  const m = n.match(/^(.*?)(\.[A-Za-z0-9]{1,8})$/);
+  if (m && m[1]) return { basis: m[1], ext: m[2] };
+  return { basis: n, ext: "" };
+}
+
+// Plaatshouders in de (in Beheer ingestelde) bestandsnaam invullen. Anders dan bij de mailteksten wordt
+// {{jaar}} hier als de kale jaartal-waarde ingevuld (geen voorloopspatie), zodat "Aangifte {{jaar}}" →
+// "Aangifte 2024" wordt. Daarna nog niet saneren — dat gebeurt met veiligeBestandsnaam().
+function vulBestandsnaamIn(sjabloon, { klantnaam, jaar, datum }) {
+  return String(sjabloon || "")
+    .replace(/\{\{\s*klantnaam\s*\}\}/gi, klantnaam || "")
+    .replace(/\{\{\s*jaar\s*\}\}/gi, jaar != null && jaar !== "" ? String(jaar) : "")
+    .replace(/\{\{\s*datum\s*\}\}/gi, datum || "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+// Bepaalt de definitieve bestandsnaam voor een geüpload bestand: de in Beheer ingestelde naam (met
+// plaatshouders) + de extensie van het originele bestand. Is er geen naam ingesteld, dan blijft de
+// originele naam behouden. Bestaat de naam al in de map, dan komt er " (2)", " (3)" … achter (het
+// oorspronkelijke bestand wordt zo nooit overschreven — de klant vraagt "bij meerdere een volgnummer").
+function bepaalDoelBestandsnaam(sjabloon, origineleNaam, mergeCtx, bestaandeNamenLower) {
+  const origineel = veiligeBestandsnaam(origineleNaam);
+  let basis, ext;
+  const ingesteld = vulBestandsnaamIn(sjabloon, mergeCtx);
+  if (ingesteld) {
+    const origSplit = splitsNaamExt(origineel);
+    const inSplit = splitsNaamExt(ingesteld);
+    // Als in de ingestelde naam al een extensie staat, die gebruiken; anders die van het bronbestand.
+    ext = inSplit.ext || origSplit.ext;
+    basis = veiligeBestandsnaam(inSplit.ext ? inSplit.basis : ingesteld).replace(/\.+$/, "").trim() || "bijlage";
+  } else {
+    const s = splitsNaamExt(origineel);
+    basis = s.basis || "bijlage";
+    ext = s.ext;
+  }
+  let kandidaat = `${basis}${ext}`;
+  if (!bestaandeNamenLower.has(kandidaat.toLowerCase())) return kandidaat;
+  let n = 2;
+  while (bestaandeNamenLower.has(`${basis} (${n})${ext}`.toLowerCase())) n += 1;
+  return `${basis} (${n})${ext}`;
 }
 
 // Submap-sjabloon (uit Beheer) → schone mapsegmenten voor ensureFolderPath. Valt terug op de
@@ -149,9 +195,11 @@ module.exports = async function (context, req) {
       if (!GUID.test(accountIdQ)) { context.res = json(400, { error: "Ongeldig accountId." }); return; }
       accountId = accountIdQ;
     } else {
-      if (!TOEGESTANE_SOORTEN.has(soortKey)) { context.res = json(400, { error: "Geef 'accountId', of 'soort' (dividend/notulen) + 'id' mee." }); return; }
+      // De bijlage-dropzone is nu voor elke dossiersoort in Beheer → Dossiers in te schakelen (niet meer
+      // alleen dividend/notulen); of hij daadwerkelijk verschijnt bepaalt de frontend op basis van de
+      // <soort>Bijlage-config (aan + het gekozen ja/nee-veld). Hier accepteren we daarom elke geldige soort.
       const soort = SOORTEN.find((s) => s.key === soortKey);
-      if (!soort || !id) { context.res = json(400, { error: "Geef 'soort' (dividend/notulen) en 'id' mee." }); return; }
+      if (!soort || !id) { context.res = json(400, { error: "Geef 'accountId', of 'soort' + 'id' mee." }); return; }
       dossier = await haalEenDossier(resource, token, soort, id);
       if (!dossier) { context.res = json(404, { error: "Dossier niet gevonden." }); return; }
       accountId = dossier.accountId;
@@ -165,7 +213,8 @@ module.exports = async function (context, req) {
     // Per-soort submap + mailinstellingen. accountId-modus (Brieven) gebruikt de dividend-submap.
     const soortInst = dossier ? dossier.soort : "dividend";
     const instellingen = await haalInstellingen().catch(() => ({}));
-    const segmenten = mapSegmentenVan(instellingen[`${soortInst}BijlageMap`], standaardMapVoor(soortInst));
+    const bijlageCfg = resolveBijlageConfig(instellingen, soortInst);
+    const segmenten = mapSegmentenVan(bijlageCfg.map, standaardMapVoor(soortInst));
     const soortMail = (instellingen[`${soortInst}Mail`] && typeof instellingen[`${soortInst}Mail`] === "object") ? instellingen[`${soortInst}Mail`] : {};
 
     const appToken = await haalAppGraphToken();
@@ -324,7 +373,23 @@ module.exports = async function (context, req) {
       const { bestandsnaam, bestandBase64, contentType } = req.body || {};
       const { buffer, fout } = decodeer(bestandBase64);
       if (fout) { context.res = json(400, { error: fout }); return; }
-      const veiligeNaam = veiligeBestandsnaam(bestandsnaam);
+      // Definitieve naam bepalen: de in Beheer ingestelde bestandsnaam (met plaatshouders) + extensie van
+      // het bronbestand, of de originele naam als er niets is ingesteld. Bestaande namen in de doelmap
+      // ophalen zodat een gelijknamig bestand een volgnummer krijgt i.p.v. het vorige te overschrijven.
+      let bestaandeNamenLower = new Set();
+      try {
+        const lijstRes = await fetch(
+          `${GRAPH}/drives/${map.driveId}/items/${doelId}/children?$select=name,file&$top=200`,
+          { headers: { Authorization: `Bearer ${appToken}`, Accept: "application/json" } }
+        );
+        if (lijstRes.ok) {
+          for (const i of ((await lijstRes.json()).value || [])) {
+            if (i && i.file && i.name) bestaandeNamenLower.add(String(i.name).toLowerCase());
+          }
+        }
+      } catch { /* best-effort: zonder lijst valt het terug op de kale naam (Graph overschrijft dan hooguit een gelijknamig bestand). */ }
+      const mergeCtxBestand = { klantnaam: (dossier && dossier.klantnaam) || basis.naam, jaar: dossier && dossier.jaar, datum: new Date().toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" }) };
+      const veiligeNaam = bepaalDoelBestandsnaam(bijlageCfg.bestandsnaam, bestandsnaam, mergeCtxBestand, bestaandeNamenLower);
       const upload = await uploadBestand(appToken, map.driveId, doelId, veiligeNaam, buffer, contentType || "application/octet-stream");
       await logGebeurtenis({
         door: email || "onbekend", actie: "dossier", accountId, accountIds: [accountId],

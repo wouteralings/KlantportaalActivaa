@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { FolderKanban, Plus, Trash2, ChevronUp, ChevronDown, ChevronRight, X, Eye, EyeOff, Lock, Unlock, Sparkles } from "lucide-react";
-import DossierSjablonenPerSoort from "./DossierSjablonenBeheer";
+import DossierSjablonenPerSoort, { DossierBijlagePerSoort } from "./DossierSjablonenBeheer";
 
 // Soorten met een voorbeeld-documentmodule (blanco A4 in het dossier) — het bijbehorende
 // "Voorbeelddocumenten"-blok komt onder de indelingskaart van die soort te hangen (zie de export
@@ -1198,6 +1198,8 @@ export default function DossierIndelingBeheer() {
       {SOORTEN_TABS.map((s) => (
         <div key={s.key} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <SoortIndelingPaneel soort={s.key} />
+          {/* Bijlage-dropzone (sleepvak + snellink in het dossier) — voor élke soort in te stellen. */}
+          <DossierBijlagePerSoort soort={s.key} />
           {/* Voorbeelddocumenten (blanco A4) — onder de indelingskaart van dezelfde soort. */}
           {SOORTEN_MET_SJABLONEN.has(s.key) && <DossierSjablonenPerSoort soort={s.key} />}
         </div>

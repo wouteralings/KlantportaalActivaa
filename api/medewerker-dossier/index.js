@@ -49,7 +49,7 @@
  */
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const { SOORTEN, haalEenDossier, werkDossierBij, verwijderDossier, haalDynamischePicklistOpties, metAangepasteVelden } = require("../_gedeeld/dossiers");
-const { haalInstellingen } = require("../_gedeeld/instellingen");
+const { haalInstellingen, resolveBijlageConfig } = require("../_gedeeld/instellingen");
 const { standaardIndelingIB, standaardIndelingVPB, standaardIndelingDividend, standaardIndelingNotulen, standaardIndelingOverig, vasteVeldenVoorSoort, metLabels } = require("../_gedeeld/dossierVelden");
 const { haalVoorAccounts, haalLaatstGezien, verrijkVerzoek } = require("../_gedeeld/aanleververzoeken");
 const { haalOnderwerpen } = require("../_gedeeld/aanleveronderwerpen");
@@ -177,6 +177,15 @@ async function haalPrimairContactVoorDossier(resource, token, accountId) {
   }
 }
 
+/** De bijlage-dropzone-config van deze dossiersoort (Beheer → Dossiers, sleutel <soort>Bijlage) —
+ *  { aan, trigger, map, bestandsnaam }. Het medewerkersportaal beslist hiermee of (en wanneer, op basis
+ *  van het gekozen ja/nee-veld 'trigger') de bijlage-kaart in het dossier verschijnt. Best-effort:
+ *  zonder (leesbare) instellingen valt het terug op de standaard van de soort. */
+async function haalBijlageVoor(soortKey) {
+  try { return resolveBijlageConfig(await haalInstellingen(), soortKey); }
+  catch { return resolveBijlageConfig({}, soortKey); }
+}
+
 module.exports = async function (context, req) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   if (!resource) { context.res = { status: 501, headers: { "Content-Type": "application/json" }, body: { error: "Dynamics-koppeling is nog niet geconfigureerd." } }; return; }
@@ -212,13 +221,14 @@ module.exports = async function (context, req) {
       // Gekoppelde uitvraaglijst(en) (aanleververzoeken) — alleen als Wouter in Beheer → Dossiers
       // een onderwerp aan deze dossiersoort heeft gekoppeld (indeling.onderwerpId). Primaire
       // contactpersoon van de cliënt — voor het voorinvullen van de ingebedde "Vaste uitvragen".
-      const [gekoppeldeUitvragen, gekoppeldeLijstId, defaultContact, sjabloon] = await Promise.all([
+      const [gekoppeldeUitvragen, gekoppeldeLijstId, defaultContact, sjabloon, bijlage] = await Promise.all([
         gekoppeldeUitvragenVoorDossier(dossier, indeling.onderwerpId),
         gekoppeldeLijstIdVoorDossier(indeling.onderwerpId),
         haalPrimairContactVoorDossier(resource, token, dossier.accountId),
         haalSjabloonVoor(soort.key),
+        haalBijlageVoor(soort.key),
       ]);
-      context.res = { headers: { "Content-Type": "application/json" }, body: { dossier, statusOpties: soort.statusOpties, catalogus, secties: indeling.secties, verborgen: indeling.verborgen, voorwaarden: indeling.voorwaarden, alleenLezen: indeling.alleenLezen, picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId, onderwerpId: indeling.onderwerpId || "", defaultContact, sjabloon } };
+      context.res = { headers: { "Content-Type": "application/json" }, body: { dossier, statusOpties: soort.statusOpties, catalogus, secties: indeling.secties, verborgen: indeling.verborgen, voorwaarden: indeling.voorwaarden, alleenLezen: indeling.alleenLezen, picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId, onderwerpId: indeling.onderwerpId || "", defaultContact, sjabloon, bijlage } };
       return;
     }
 

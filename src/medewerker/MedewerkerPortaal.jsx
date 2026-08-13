@@ -2209,6 +2209,7 @@ function MedewerkerDossiers({ soort }) {
         alleenLezen={detail.alleenLezen || []}
         picklistOpties={detail.picklistOpties || {}}
         sjabloon={detail.sjabloon || { sjablonen: [] }}
+        bijlage={detail.bijlage || { aan: false, trigger: "", map: "", bestandsnaam: "" }}
         gekoppeldeUitvragen={detail.gekoppeldeUitvragen || []}
         gekoppeldeLijstId={detail.gekoppeldeLijstId || ""}
         gekoppeldOnderwerpId={detail.onderwerpId || ""}
@@ -2873,7 +2874,7 @@ function AangifteLog({ dossier, ververs }) {
  *  (submap instelbaar via Beheer → Dossiers, standaard "Dividendbelasting") en verschijnt in de lijst.
  *  Later kies je zo'n bestand in de Brieven-module als bijlage om mee te mailen. Zie
  *  api/medewerker-dossier-bijlage. */
-function DossierBijlageKaart({ dossier, disabled, extraEmails, soortWaarde, toonUpload = true }) {
+function DossierBijlageKaart({ dossier, disabled, extraEmails, soortWaarde, toonUpload = true, toonMail = true }) {
   const [bestanden, setBestanden] = useState(null); // null = laden
   const [fout, setFout] = useState("");
   const [bezig, setBezig] = useState(false);
@@ -2955,7 +2956,9 @@ function DossierBijlageKaart({ dossier, disabled, extraEmails, soortWaarde, toon
     { label: "Notulist", email: extraEmails && extraEmails.notulist },
   ].filter((o) => String(o.email || "").trim());
   const isNotulen = dossier.soort === "notulen";
-  const kaartTitel = isNotulen ? "Bijlage notulen" : "Bijlage dividendbelasting";
+  // Woord voor de kaarttitel: notulen/dividend krijgen hun eigen term, andere soorten (ib/vpb) generiek.
+  const soortWoordBijlage = isNotulen ? "notulen" : dossier.soort === "dividend" ? "dividendbelasting" : "";
+  const kaartTitel = soortWoordBijlage ? `Bijlage ${soortWoordBijlage}` : "Bijlage";
 
   const verstuur = async () => {
     setVerstuurBezig(true); setVerstuurFout(""); setVerstuurMelding("");
@@ -2979,10 +2982,9 @@ function DossierBijlageKaart({ dossier, disabled, extraEmails, soortWaarde, toon
       <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{toonUpload ? kaartTitel : "Mailen naar klant"}</div>
       <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 14, maxWidth: 640 }}>
         {toonUpload ? (
-          <>Voeg hier eventueel {isNotulen ? "de notulen" : "de aangifte dividendbelasting"} toe — die worden bewaard in de
-          SharePoint-map van de klant{isNotulen ? "" : " en zijn in de Brieven-module als bijlage te kiezen"}. Hieronder mail je naar de klant, <strong>met of zonder bijlage</strong>.</>
+          <>Sleep hier een bestand (of meerdere) — ze worden bewaard in de SharePoint-map van de klant{dossier.soort === "dividend" ? " en zijn in de Brieven-module als bijlage te kiezen" : ""} en zijn hieronder als snellink te openen.{toonMail ? <> Daaronder mail je ze naar de klant, <strong>met of zonder bijlage</strong>.</> : ""}</>
         ) : (
-          <>Mail de klant{isNotulen ? "" : " — eventueel met een bestaand bestand uit de SharePoint-map als bijlage"}.</>
+          <>Mail de klant — eventueel met een bestaand bestand uit de SharePoint-map als bijlage.</>
         )}
       </div>
 
@@ -3032,7 +3034,9 @@ function DossierBijlageKaart({ dossier, disabled, extraEmails, soortWaarde, toon
         </>
       )}
 
-      {/* Versturen naar klant — inline compose (zoals de Brieven-module); bijlage optioneel. */}
+      {/* Versturen naar klant — inline compose (zoals de Brieven-module); bijlage optioneel. Alleen bij
+          soorten mét mailmodule (dividend/notulen); IB/VPB tonen enkel dropzone + snellink (toonMail=false). */}
+      {toonMail && (
       <div style={{ marginTop: toonUpload ? 16 : 0, paddingTop: toonUpload ? 16 : 0, borderTop: toonUpload ? `1px solid ${KLEUR.rand}` : "none" }}>
         <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Versturen naar klant</div>
         <div style={{ marginBottom: 10 }}>
@@ -3078,6 +3082,7 @@ function DossierBijlageKaart({ dossier, disabled, extraEmails, soortWaarde, toon
           {verstuurMelding && <span style={{ fontSize: 12.5, color: KLEUR.groen }}>{verstuurMelding}</span>}
         </div>
       </div>
+      )}
     </div>
   );
 }
@@ -3403,7 +3408,7 @@ function DossierVoorbeeldModal({ dossier, soortLabel, periodeTekst, catalogus, v
    kaart bovenaan (vóór de secties) de gekoppelde uitvraaglijst(en) — de volledige vragenlijst
    (documenten aftekenen/heropenen, vragen van de klant beantwoorden) rechtstreeks ingebouwd via
    VragenlijstDetail, dezelfde functionaliteit als het tabblad Vragenlijsten. */
-function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen, picklistOpties, sjabloon, gekoppeldeUitvragen, gekoppeldeLijstId, gekoppeldOnderwerpId, defaultContact, magVerwijderen, magWijzigen, onDossierVerwijderd, onTerug, onOpgeslagen, onDossierAangemaakt }) {
+function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen, picklistOpties, sjabloon, bijlage, gekoppeldeUitvragen, gekoppeldeLijstId, gekoppeldOnderwerpId, defaultContact, magVerwijderen, magWijzigen, onDossierVerwijderd, onTerug, onOpgeslagen, onDossierAangemaakt }) {
   const [status, setStatus] = useState(dossier.status != null ? String(dossier.status) : "");
   const [urlDossier, setUrlDossier] = useState(dossier.urlDossier || "");
   const [documentUrl, setDocumentUrl] = useState(dossier.documentUrl || "");
@@ -3816,8 +3821,28 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
       {/* Bijlage + versturen — helemaal onderaan het dossier: bij dividend zodra "Dividendbelasting" op
           Ja staat, bij notulen altijd. extraEmails = e-mail voorzitter/notulist (cc); soortWaarde = de
           gekozen "Soort", waarop de standaard mailtekst wordt gekozen. */}
-      {dossier.soort === "dividend" && <DossierBijlageKaart dossier={dossier} disabled={!bewerkbaar} extraEmails={{ voorzitter: veldenState.emailvoorzitter, notulist: veldenState.emailnotulist }} soortWaarde={veldenState.soortdividenduitkering} toonUpload={!!veldenState.dividendbelasting} />}
-      {dossier.soort === "notulen" && <DossierBijlageKaart dossier={dossier} disabled={!bewerkbaar} extraEmails={{ voorzitter: veldenState.emailvoorzitter, notulist: veldenState.emailnotulist }} soortWaarde={veldenState.soortnotulen} toonUpload={true} />}
+      {/* Bijlage-dropzone + snellink (en, bij dividend/notulen, mailen). Of en wanneer de kaart verschijnt
+          komt uit de <soort>Bijlage-config (Beheer → Dossiers): 'aan' + het gekozen ja/nee-veld 'trigger'.
+          IB/VPB tonen alleen dropzone + snellink (toonMail=false); zonder actieve trigger geen kaart. */}
+      {(() => {
+        const cfg = bijlage || {};
+        if (!cfg.aan) return null;
+        const soortHeeftMail = dossier.soort === "dividend" || dossier.soort === "notulen";
+        const triggerAan = !cfg.trigger || !!veldenState[cfg.trigger];
+        if (!soortHeeftMail && !triggerAan) return null;
+        const soortWaarde = dossier.soort === "notulen" ? veldenState.soortnotulen
+          : dossier.soort === "dividend" ? veldenState.soortdividenduitkering : undefined;
+        return (
+          <DossierBijlageKaart
+            dossier={dossier}
+            disabled={!bewerkbaar}
+            extraEmails={{ voorzitter: veldenState.emailvoorzitter, notulist: veldenState.emailnotulist }}
+            soortWaarde={soortWaarde}
+            toonUpload={triggerAan}
+            toonMail={soortHeeftMail}
+          />
+        );
+      })()}
 
       {bewerkbaar && (
         <div style={{ position: "sticky", bottom: 0, background: "#fff", paddingTop: 8 }}>
