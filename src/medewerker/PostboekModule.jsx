@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Upload, FileText, Search, CheckCircle2, X, ExternalLink, Loader2, Link2, Pencil, RefreshCw, User, Building2, Trash2 } from "lucide-react";
+import { Upload, FileText, Search, CheckCircle2, X, ExternalLink, Loader2, Link2, Pencil, RefreshCw, User, Building2, Trash2, Send, ArrowRightCircle } from "lucide-react";
 
 /** Zelfde palet + look-and-feel als het Taken-overzicht (TakenOverzicht.jsx), zodat het Postboek er
  *  zo veel mogelijk hetzelfde uitziet: scope-schakelaar, status-pills, zoekveld, tabel en "Toon: N". */
@@ -70,6 +70,21 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
 
   const [soorten, setSoorten] = useState([]);
   const [klanten, setKlanten] = useState([]);
+  const [medewerkers, setMedewerkers] = useState([]);
+  const [taakSoortOpties, setTaakSoortOpties] = useState([]);
+  const [taakRubriekOpties, setTaakRubriekOpties] = useState([]);
+
+  // Doorzetten naar een medewerker (maakt een Dynamics-taak in diens Taken).
+  const [doorzet, setDoorzet] = useState(null); // de post die je doorzet, of null
+  const [dzZoek, setDzZoek] = useState("");
+  const [dzEmail, setDzEmail] = useState("");
+  const [dzNaam, setDzNaam] = useState("");
+  const [dzOpmerking, setDzOpmerking] = useState("");
+  const [dzUren, setDzUren] = useState("");
+  const [dzSoort, setDzSoort] = useState("");
+  const [dzRubriek, setDzRubriek] = useState("");
+  const [dzBezig, setDzBezig] = useState(false);
+  const [dzFout, setDzFout] = useState("");
 
   const [sleep, setSleep] = useState(false);
   const inputRef = useRef(null);
@@ -86,11 +101,17 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
   const [editId, setEditId] = useState("");
   const [editUrl, setEditUrl] = useState("");
 
-  // Config (klanten + soorten) éénmalig.
+  // Config (klanten + soorten + medewerkers/taak-opties voor doorzetten) éénmalig.
   useEffect(() => {
     let actief = true;
     fetch("/api/beheer-klanten").then((r) => (r.ok ? r.json() : {})).then((d) => { if (actief) setKlanten(Array.isArray(d.klanten) ? d.klanten : []); }).catch(() => {});
     fetch("/api/beheer-instellingen").then((r) => (r.ok ? r.json() : {})).then((d) => { if (actief) setSoorten(Array.isArray(d.postboekSoorten) ? d.postboekSoorten : []); }).catch(() => {});
+    fetch("/api/medewerker-postboek?config=1").then((r) => (r.ok ? r.json() : {})).then((d) => {
+      if (!actief) return;
+      setMedewerkers(Array.isArray(d.medewerkers) ? d.medewerkers : []);
+      setTaakSoortOpties(Array.isArray(d.taakSoortOpties) ? d.taakSoortOpties : []);
+      setTaakRubriekOpties(Array.isArray(d.taakRubriekOpties) ? d.taakRubriekOpties : []);
+    }).catch(() => {});
     return () => { actief = false; };
   }, []);
 
@@ -196,10 +217,43 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
     finally { setRijBezig(""); }
   };
 
+  // Doorzet-venster openen — standaard taak-soort/rubriek uit de soort-config voorinvullen.
+  const openDoorzet = (post) => {
+    const cfg = soorten.find((s) => s.id === post.soortId) || {};
+    setDoorzet(post);
+    setDzZoek(""); setDzEmail(""); setDzNaam(""); setDzOpmerking(""); setDzUren("");
+    setDzSoort(cfg.taakSoort != null ? String(cfg.taakSoort) : "");
+    setDzRubriek(cfg.taakRubriek != null ? String(cfg.taakRubriek) : "");
+    setDzFout("");
+  };
+  const doorzetten = async () => {
+    if (!doorzet) return;
+    if (!dzEmail) { setDzFout("Kies een medewerker."); return; }
+    setDzBezig(true); setDzFout("");
+    try {
+      const r = await fetch("/api/medewerker-postboek", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "doorzetten", id: doorzet.id, naarEmail: dzEmail, opmerking: dzOpmerking.trim(), uren: dzUren, taakSoort: dzSoort, taakRubriek: dzRubriek }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      if (d.post) setPosten((lijst) => (lijst || []).map((p) => (p.id === doorzet.id ? d.post : p)));
+      setDoorzet(null);
+      setMelding(`Doorgezet naar ${dzNaam || dzEmail}${dzUren ? ` (${dzUren} u)` : ""} — de taak staat in zijn/haar Taken.`);
+      onWijziging && onWijziging();
+    } catch (e) { setDzFout(e.message || "Doorzetten is mislukt."); }
+    finally { setDzBezig(false); }
+  };
+
   const klantMatches = (() => {
     const q = klantZoek.trim().toLowerCase();
     if (!q) return [];
     return klanten.filter((k) => `${k.klantnaam || ""} ${k.klantnummer || ""}`.toLowerCase().includes(q)).slice(0, 40);
+  })();
+  const medewerkerMatches = (() => {
+    const q = dzZoek.trim().toLowerCase();
+    if (!q) return [];
+    return medewerkers.filter((m) => `${m.naam || ""} ${m.email || ""}`.toLowerCase().includes(q)).slice(0, 40);
   })();
 
   // Rubriek van een poststuk: op de regel opgeslagen (nieuwere post), anders uit de soort-config afgeleid.
@@ -266,6 +320,7 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
       {/* Status-pills */}
       <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
         {statusPill("open", "Open")}
+        {statusPill("doorgezet", "Doorgezet")}
         {statusPill("afgehandeld", "Afgehandeld")}
         {statusPill("alle", "Alle")}
       </div>
@@ -318,7 +373,9 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
                   </thead>
                   <tbody>
                     {zichtbaar.map((p) => {
-                      const afgehandeld = (p.status || "open") === "afgehandeld";
+                      const stat = p.status || "open";
+                      const afgehandeld = stat === "afgehandeld";
+                      const doorgezet = stat === "doorgezet";
                       const bezig = rijBezig === p.id;
                       return (
                         <tr key={p.id}
@@ -357,13 +414,19 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
                           <td style={td}>
                             {afgehandeld ? (
                               <span style={{ fontSize: 11, fontWeight: 700, color: KLEUR.groen, background: KLEUR.groenBg, borderRadius: 999, padding: "2px 9px", display: "inline-flex", alignItems: "center", gap: 4 }}><CheckCircle2 size={12} /> Afgehandeld</span>
+                            ) : doorgezet ? (
+                              <span style={{ fontSize: 11, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 999, padding: "2px 9px", display: "inline-flex", alignItems: "center", gap: 4 }}><ArrowRightCircle size={12} /> Doorgezet</span>
                             ) : (
                               <span style={{ fontSize: 11, fontWeight: 700, color: KLEUR.amber, background: KLEUR.amberBg, borderRadius: 999, padding: "2px 9px" }}>Open</span>
                             )}
                             {afgehandeld && p.afgehandeldOp ? <div style={{ fontSize: 10.5, color: KLEUR.mutedTekst, marginTop: 3 }}>{p.afgehandeldDoor || ""}{p.afgehandeldOp ? ` · ${formatMoment(p.afgehandeldOp)}` : ""}</div> : null}
+                            {doorgezet && (p.doorgezetNaarNaam || p.doorgezetNaarEmail) ? <div style={{ fontSize: 10.5, color: KLEUR.mutedTekst, marginTop: 3 }}>naar {p.doorgezetNaarNaam || p.doorgezetNaarEmail}{p.doorgezetUren != null ? ` · ${p.doorgezetUren} u` : ""}{p.doorgezetOp ? ` · ${formatMoment(p.doorgezetOp)}` : ""}</div> : null}
                           </td>
                           <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
                             <div style={{ display: "inline-flex", gap: 6, alignItems: "center", justifyContent: "flex-end" }}>
+                              {!afgehandeld && (
+                                <button onClick={() => openDoorzet(p)} disabled={bezig} title="Doorzetten naar een medewerker" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 10px", background: "#fff", color: KLEUR.blauw, border: `1px solid ${KLEUR.blauw}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: bezig ? "default" : "pointer" }}><Send size={13} /> Doorzetten</button>
+                              )}
                               {afgehandeld ? (
                                 <button onClick={() => zetStatus(p, "open")} disabled={bezig} style={{ padding: "5px 10px", borderRadius: 8, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.subtekst, fontSize: 12.5, fontWeight: 600, cursor: bezig ? "default" : "pointer" }}>Heropenen</button>
                               ) : (
@@ -468,6 +531,89 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
               <button onClick={() => !verwerkBezig && setDrop(null)} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.subtekst, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Annuleren</button>
               <button onClick={verwerk} disabled={verwerkBezig || !klantId || !soortId} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 16px", background: verwerkBezig || !klantId || !soortId ? "#9DB4A5" : KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: verwerkBezig || !klantId || !soortId ? "default" : "pointer" }}>
                 {verwerkBezig ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Link2 size={14} />} {verwerkBezig ? "Verwerken…" : "Verwerken"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Doorzet-venster: naar een medewerker (maakt een Dynamics-taak) */}
+      {doorzet && (
+        <div onClick={() => !dzBezig && setDoorzet(null)} style={{ position: "fixed", inset: 0, background: "rgba(28,35,33,0.35)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 12, width: "min(560px, 96vw)", maxHeight: "90vh", overflow: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.18)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderBottom: `1px solid ${KLEUR.rand}` }}>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>Doorzetten naar medewerker</div>
+              <button onClick={() => !dzBezig && setDoorzet(null)} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.mutedTekst, padding: 2 }}><X size={18} /></button>
+            </div>
+            <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.subtekst, background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px" }}>
+                <FileText size={15} color={KLEUR.blauw} /> <span style={{ fontWeight: 600, color: KLEUR.tekst }}>{doorzet.bestand || "poststuk"}</span>{doorzet.klantnaam ? <span> · {doorzet.klantnaam}</span> : null}
+              </div>
+
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 5 }}>Medewerker</div>
+                {dzEmail ? (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 10px" }}>
+                    <div><span style={{ fontWeight: 600 }}>{dzNaam || dzEmail}</span>{dzNaam && dzEmail ? <span style={{ color: KLEUR.mutedTekst }}> · {dzEmail}</span> : null}</div>
+                    <button onClick={() => { setDzEmail(""); setDzNaam(""); setDzZoek(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.blauw, fontSize: 12, fontWeight: 600 }}>Wijzig</button>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ position: "relative" }}>
+                      <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 9, top: 10 }} />
+                      <input value={dzZoek} onChange={(e) => setDzZoek(e.target.value)} placeholder="Zoek op naam of e-mailadres…" style={{ ...veld, width: "100%", paddingLeft: 28 }} autoFocus />
+                    </div>
+                    {dzZoek.trim() && (
+                      <div style={{ border: `1px solid ${KLEUR.rand}`, borderTop: "none", borderRadius: "0 0 7px 7px", maxHeight: 220, overflow: "auto" }}>
+                        {medewerkerMatches.length === 0 ? (
+                          <div style={{ fontSize: 12, color: KLEUR.mutedTekst, padding: "8px 10px" }}>{medewerkers.length === 0 ? "Medewerkers laden…" : "Geen medewerker gevonden."}</div>
+                        ) : medewerkerMatches.map((m) => (
+                          <button key={m.email || m.naam} onClick={() => { setDzEmail(m.email); setDzNaam(m.naam); setDzZoek(""); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 10px", background: "none", border: "none", borderTop: `1px solid ${KLEUR.rand}`, cursor: "pointer", fontSize: 12.5 }}>
+                            <span style={{ fontWeight: 600, color: KLEUR.tekst }}>{m.naam}</span>{m.email ? <span style={{ color: KLEUR.mutedTekst }}> · {m.email}</span> : null}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 5 }}>Opmerking (optioneel)</div>
+                <textarea value={dzOpmerking} onChange={(e) => setDzOpmerking(e.target.value)} rows={3} placeholder="Korte toelichting voor de medewerker…" style={{ ...veld, width: "100%", resize: "vertical" }} />
+              </div>
+
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                <div style={{ flex: "0 0 130px" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 5 }}>Uren-indicatie</div>
+                  <input type="number" min="0" step="0.25" value={dzUren} onChange={(e) => setDzUren(e.target.value)} placeholder="uren" style={{ ...veld, width: "100%" }} />
+                </div>
+                {taakSoortOpties.length > 0 && (
+                  <div style={{ flex: "1 1 160px" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 5 }}>Taak-soort</div>
+                    <select value={dzSoort} onChange={(e) => setDzSoort(e.target.value)} style={{ ...veld, width: "100%" }}>
+                      <option value="">— geen —</option>
+                      {taakSoortOpties.map((o) => <option key={String(o.waarde)} value={String(o.waarde)}>{o.label}</option>)}
+                    </select>
+                  </div>
+                )}
+                {taakRubriekOpties.length > 0 && (
+                  <div style={{ flex: "1 1 160px" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 5 }}>Taak-rubriek</div>
+                    <select value={dzRubriek} onChange={(e) => setDzRubriek(e.target.value)} style={{ ...veld, width: "100%" }}>
+                      <option value="">— geen —</option>
+                      {taakRubriekOpties.map((o) => <option key={String(o.waarde)} value={String(o.waarde)}>{o.label}</option>)}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              {dzFout && <div style={{ fontSize: 12.5, color: KLEUR.rood }}>{dzFout}</div>}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "12px 16px", borderTop: `1px solid ${KLEUR.rand}` }}>
+              <button onClick={() => !dzBezig && setDoorzet(null)} style={{ padding: "8px 14px", borderRadius: 8, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.subtekst, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Annuleren</button>
+              <button onClick={doorzetten} disabled={dzBezig || !dzEmail} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 16px", background: dzBezig || !dzEmail ? "#9DB4A5" : KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: dzBezig || !dzEmail ? "default" : "pointer" }}>
+                {dzBezig ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Send size={14} />} {dzBezig ? "Doorzetten…" : "Doorzetten"}
               </button>
             </div>
           </div>

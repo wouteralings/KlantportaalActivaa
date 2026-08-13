@@ -41,6 +41,11 @@ function naarSoort(s) {
     naarEmail: typeof o.naarEmail === "string" ? o.naarEmail : "",
     submap: typeof o.submap === "string" ? o.submap : "",
     bestandsnaam: typeof o.bestandsnaam === "string" ? o.bestandsnaam : "",
+    // Standaard taak-soort + rubriek (Dynamics-optieset) voor het "doorzetten" van een poststuk naar een
+    // medewerker: de aangemaakte taak krijgt deze soort/rubriek. De medewerker mag ze bij het doorzetten
+    // nog aanpassen. Leeg = geen standaard.
+    taakSoort: o.taakSoort != null ? String(o.taakSoort) : "",
+    taakRubriek: o.taakRubriek != null ? String(o.taakRubriek) : "",
     // Sommige soorten hoeven niet afgehandeld te worden: dan wordt de postboek-regel meteen als
     // "Afgehandeld" aangemaakt i.p.v. "Open" (fase 2 honoreert dit bij het verwerken).
     directAfgehandeld: !!o.directAfgehandeld,
@@ -63,15 +68,22 @@ export default function PostboekSoortenBeheer() {
   const [openIds, setOpenIds] = useState(() => new Set());
   const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
   const [fout, setFout] = useState("");
+  const [taakSoortOpties, setTaakSoortOpties] = useState([]); // [{ waarde, label }]
+  const [taakRubriekOpties, setTaakRubriekOpties] = useState([]);
 
   useEffect(() => {
     let actief = true;
-    fetch("/api/beheer-instellingen")
-      .then((r) => (r.ok ? r.json() : {}))
-      .then((inst) => {
+    Promise.all([
+      fetch("/api/beheer-instellingen").then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
+      fetch("/api/beheer-taaksoorten").then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
+      fetch("/api/beheer-taakrubrieken").then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
+    ])
+      .then(([inst, soortenData, rubriekenData]) => {
         if (!actief) return;
         const lijst = Array.isArray(inst.postboekSoorten) ? inst.postboekSoorten.map(naarSoort) : [];
         setSoorten(lijst);
+        setTaakSoortOpties((soortenData && Array.isArray(soortenData.opties)) ? soortenData.opties : []);
+        setTaakRubriekOpties((rubriekenData && Array.isArray(rubriekenData.opties)) ? rubriekenData.opties : []);
         setGeladen(true);
       })
       .catch(() => { if (actief) { setFout("De postboek-soorten konden niet worden geladen."); setGeladen(true); } });
@@ -101,6 +113,8 @@ export default function PostboekSoortenBeheer() {
         naarEmail: s.naarType === "persoon" ? String(s.naarEmail || "").trim() : "",
         submap: String(s.submap || "").trim(),
         bestandsnaam: String(s.bestandsnaam || "").trim(),
+        taakSoort: s.taakSoort != null ? String(s.taakSoort) : "",
+        taakRubriek: s.taakRubriek != null ? String(s.taakRubriek) : "",
         directAfgehandeld: !!s.directAfgehandeld,
       }));
       const res = await fetch("/api/beheer-instellingen", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ postboekSoorten: schoon }) });
@@ -205,6 +219,31 @@ export default function PostboekSoortenBeheer() {
                         <span style={labelStijl}>Standaard bestandsnaam</span>
                         <input value={s.bestandsnaam} onChange={(e) => zet(s.id, "bestandsnaam", e.target.value)} placeholder="{{datum}} {{soort}}" style={{ ...invoerStijl, width: 320 }} />
                         <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4 }}>Leeg = de originele bestandsnaam. Extensie komt er automatisch achter.</div>
+                      </div>
+                    </div>
+
+                    <div style={{ borderTop: `1px solid ${KLEUR.rand}`, paddingTop: 12 }}>
+                      <span style={{ ...labelStijl, marginBottom: 2 }}>Doorzetten naar medewerker — standaardtaak</span>
+                      <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 8 }}>
+                        Zet een medewerker het poststuk door naar een collega, dan krijgt de aangemaakte taak deze soort en rubriek.
+                        De medewerker mag ze bij het doorzetten nog aanpassen. Leeg = geen standaard.
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                        <div>
+                          <span style={labelStijl}>Taak-soort</span>
+                          <select value={s.taakSoort} onChange={(e) => zet(s.id, "taakSoort", e.target.value)} style={{ ...invoerStijl, width: 260 }}>
+                            <option value="">— geen —</option>
+                            {taakSoortOpties.map((o) => <option key={String(o.waarde)} value={String(o.waarde)}>{o.label}</option>)}
+                          </select>
+                          {taakSoortOpties.length === 0 && <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4 }}>Geen taak-soorten beschikbaar (controleer DYNAMICS_TAAK_SOORT_VELD).</div>}
+                        </div>
+                        <div>
+                          <span style={labelStijl}>Taak-rubriek</span>
+                          <select value={s.taakRubriek} onChange={(e) => zet(s.id, "taakRubriek", e.target.value)} style={{ ...invoerStijl, width: 260 }}>
+                            <option value="">— geen —</option>
+                            {taakRubriekOpties.map((o) => <option key={String(o.waarde)} value={String(o.waarde)}>{o.label}</option>)}
+                          </select>
+                        </div>
                       </div>
                     </div>
 

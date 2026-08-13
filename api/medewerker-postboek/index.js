@@ -3,10 +3,15 @@
  *
  *   GET  ?bereik=mijn|kantoor
  *        → { posten: [...] }  (nieuwste eerst; "mijn" = regels waar de ingelogde medewerker bij betrokken is)
+ *   GET  ?config=1
+ *        → { medewerkers:[{naam,email}], taakSoortOpties:[{waarde,label}], taakRubriekOpties:[...] } (voor doorzetten)
  *   POST { accountId, soortId, klantnaam?, klantnummer?, klantTeam?, bestandsnaam, bestandBase64, contentType? }
  *        → { ok, post }       (bestand naar de SharePoint-submap van de soort in de klantmap + registratie)
  *   POST { actie:"status", id, status:"open"|"afgehandeld" }   → { ok, post }
  *   POST { actie:"documentlink", id, documentUrl }             → { ok, post }
+ *   POST { actie:"doorzetten", id, naarEmail, opmerking?, uren?, taakSoort?, taakRubriek? }
+ *        → { ok, post, taakId }  (maakt een Dynamics-taak voor de medewerker; poststuk → status "doorgezet")
+ *   POST { actie:"verwijder", id }  (alléén beheerders)        → { ok, verwijderd }
  *
  * Verwerking van een gedropte brief: het bestand wordt via app-only Graph opgeslagen in de SharePoint-
  * map van de klant (cr283_sharepoint), in de per-soort ingestelde submap (Beheer → Postboek), onder de
@@ -23,6 +28,10 @@ const { haalAppGraphToken } = require("../_gedeeld/graphApp");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
 const { haalPostboek, voegToe, werkBij, verwijder } = require("../_gedeeld/postboek");
+const { haalNavigatieNaam } = require("../_gedeeld/dossiers");
+const { haalSystemuser } = require("../_gedeeld/takenGedeeld");
+const { zetTijd } = require("../_gedeeld/takenTijd");
+const { lijstTarieven } = require("../_gedeeld/urenDataverse");
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 const SHAREPOINT_VELD = process.env.DYNAMICS_KLANT_SHAREPOINT_VELD || "cr283_sharepoint";
@@ -31,6 +40,12 @@ const MAX_BYTES = 20 * 1024 * 1024; // 20 MB — inkomende post is soms een gesc
 const GUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 const ROLLEN = new Set(["manager", "accountant", "assistent", "fiscaal", "loon", "backup"]);
 const STANDAARD_SUBMAP = "Inkomende post";
+// Taak-velden (Dynamics) voor het doorzetten van een poststuk naar een medewerker — zelfde Application
+// Settings als de dossier-taken (api/medewerker-dossier-bijlage).
+const TAAK_KLANT_VELD = process.env.DYNAMICS_TAAK_KLANT_VELD || "sk_client";
+const TAAK_SOORT_VELD = process.env.DYNAMICS_TAAK_SOORT_VELD || "";
+const TAAK_RUBRIEK_VELD = process.env.DYNAMICS_TAAK_RUBRIEK_VELD || "cr283_rubriek";
+const TAAK_DOCUMENT_VELD = process.env.DYNAMICS_TAAK_DOCUMENT_VELD || "";
 
 const json = (status, body) => ({ status, headers: { "Content-Type": "application/json" }, body });
 
@@ -102,6 +117,26 @@ async function haalAccount(resource, token, accountId) {
   return { naam: acc.name || "", nummer: acc[CLIENTNUMMER_VELD] != null ? String(acc[CLIENTNUMMER_VELD]) : "", basisUrl: acc[SHAREPOINT_VELD] || "" };
 }
 
+// Optieset-opties (waarde + label) van een keuzelijst-veld op Task ophalen via Dataverse-metadata —
+// zelfde bron als /api/beheer-taaksoorten. Best-effort: [] bij een lege veldnaam of fout.
+async function haalPicklistOpties(resource, token, veld) {
+  if (!veld) return [];
+  const basis = `${resource}/api/data/v9.2/EntityDefinitions(LogicalName='task')/Attributes(LogicalName='${veld}')`;
+  const headers = { Authorization: `Bearer ${token}`, Accept: "application/json", "OData-MaxVersion": "4.0", "OData-Version": "4.0" };
+  try {
+    const typeRes = await fetch(`${basis}?$select=AttributeType`, { headers });
+    if (!typeRes.ok) return [];
+    const { AttributeType } = await typeRes.json();
+    const metadataType = AttributeType === "MultiSelectPicklist"
+      ? "Microsoft.Dynamics.CRM.MultiSelectPicklistAttributeMetadata"
+      : "Microsoft.Dynamics.CRM.PicklistAttributeMetadata";
+    const optiesRes = await fetch(`${basis}/${metadataType}?$select=LogicalName&$expand=OptionSet`, { headers });
+    if (!optiesRes.ok) return [];
+    const data = await optiesRes.json();
+    return ((data.OptionSet && data.OptionSet.Options) || []).map((o) => ({ waarde: o.Value, label: (o.Label && o.Label.UserLocalizedLabel && o.Label.UserLocalizedLabel.Label) || String(o.Value) }));
+  } catch { return []; }
+}
+
 // Uit de (door de frontend meegestuurde) klant-team-gegevens de e-mailadressen halen.
 function teamEmails(klantTeam) {
   const t = klantTeam && typeof klantTeam === "object" ? klantTeam : {};
@@ -119,6 +154,28 @@ module.exports = async function (context, req) {
 
   try {
     if (methode === "GET") {
+      // Config voor het doorzet-venster: medewerkerslijst + taak-soort/rubriek-opties.
+      if (req.query && (req.query.config === "1" || req.query.config === "true")) {
+        let medewerkers = [];
+        try {
+          const tarieven = await lijstTarieven();
+          medewerkers = (Array.isArray(tarieven) ? tarieven : [])
+            .filter((t) => t && t.actief !== false && (t.medewerker_naam || t.medewerker_email))
+            .map((t) => ({ naam: t.medewerker_naam || t.medewerker_email, email: t.medewerker_email || "" }))
+            .sort((a, b) => String(a.naam).localeCompare(String(b.naam), "nl"));
+        } catch { /* best-effort */ }
+        let taakSoortOpties = [], taakRubriekOpties = [];
+        try {
+          const token = await haalDynamicsToken();
+          [taakSoortOpties, taakRubriekOpties] = await Promise.all([
+            haalPicklistOpties(resource, token, TAAK_SOORT_VELD),
+            haalPicklistOpties(resource, token, TAAK_RUBRIEK_VELD),
+          ]);
+        } catch { /* best-effort */ }
+        context.res = json(200, { medewerkers, taakSoortOpties, taakRubriekOpties });
+        return;
+      }
+
       const bereik = String((req.query && req.query.bereik) || "kantoor");
       let posten = await haalPostboek();
       posten = posten.slice().sort((a, b) => String(b.aangemaaktOp || "").localeCompare(String(a.aangemaaktOp || "")));
@@ -174,6 +231,81 @@ module.exports = async function (context, req) {
           tekst: `Poststuk "${weg.bestand || "?"}" (${weg.soortLabel || "?"}) uit het postboek verwijderd. Het SharePoint-document blijft staan.`,
         }).catch(() => {});
         context.res = json(200, { ok: true, verwijderd: id });
+        return;
+      }
+
+      // ── Poststuk doorzetten naar een medewerker (maakt een Dynamics-taak in diens Taken) ──
+      if (actie === "doorzetten") {
+        const id = String((req.body && req.body.id) || "");
+        const naarEmail = String((req.body && req.body.naarEmail) || "").trim();
+        const opmerking = String((req.body && req.body.opmerking) || "").trim();
+        const urenRaw = (req.body && req.body.uren);
+        // Optionele overschrijving van de standaard taak-soort/rubriek (Beheer → Postboek per soort).
+        const soortOverride = (req.body && req.body.taakSoort);
+        const rubriekOverride = (req.body && req.body.taakRubriek);
+        if (!id) { context.res = json(400, { error: "Geef 'id' mee." }); return; }
+        if (!naarEmail) { context.res = json(400, { error: "Kies een medewerker om naar door te zetten." }); return; }
+
+        const lijst = await haalPostboek();
+        const regel = lijst.find((e) => e && e.id === id);
+        if (!regel) { context.res = json(404, { error: "Postboek-regel niet gevonden." }); return; }
+
+        const token = await haalDynamicsToken();
+        const doel = await haalSystemuser(resource, token, naarEmail);
+        if (!doel.id) { context.res = json(409, { error: `Geen actieve Dynamics-medewerker gevonden voor ${naarEmail}.` }); return; }
+
+        // Standaard taak-soort/rubriek uit de postboek-soort; de meegestuurde override wint.
+        const instellingen = await haalInstellingen().catch(() => ({}));
+        const soortCfg = (Array.isArray(instellingen.postboekSoorten) ? instellingen.postboekSoorten : []).find((s) => s && s.id === regel.soortId) || {};
+        const soortWaarde = (soortOverride != null && soortOverride !== "") ? soortOverride : soortCfg.taakSoort;
+        const rubriekWaarde = (rubriekOverride != null && rubriekOverride !== "") ? rubriekOverride : soortCfg.taakRubriek;
+
+        const taakBody = {
+          subject: `${regel.soortLabel || "Inkomende post"}${regel.klantnaam ? ` — ${regel.klantnaam}` : ""}`,
+          description: `${opmerking ? opmerking + "\n\n" : ""}Doorgezet vanuit het postboek door ${email || "onbekend"}.${regel.bestand ? ` Bestand: ${regel.bestand}.` : ""}${regel.documentUrl ? `\n${regel.documentUrl}` : ""}`,
+          "ownerid@odata.bind": `/systemusers(${doel.id})`,
+        };
+        if (GUID.test(String(regel.accountId || ""))) {
+          try { const klantNav = await haalNavigatieNaam(resource, "task", TAAK_KLANT_VELD, token); if (klantNav) taakBody[`${klantNav}@odata.bind`] = `/accounts(${regel.accountId})`; } catch { /* zonder klant-koppeling doorgaan */ }
+        }
+        if (TAAK_SOORT_VELD && soortWaarde != null && soortWaarde !== "" && Number.isFinite(Number(soortWaarde))) taakBody[TAAK_SOORT_VELD] = Number(soortWaarde);
+        if (TAAK_RUBRIEK_VELD && rubriekWaarde != null && rubriekWaarde !== "" && Number.isFinite(Number(rubriekWaarde))) taakBody[TAAK_RUBRIEK_VELD] = Number(rubriekWaarde);
+        if (TAAK_DOCUMENT_VELD && regel.documentUrl) taakBody[TAAK_DOCUMENT_VELD] = regel.documentUrl;
+
+        const taakRes = await fetch(`${resource}/api/data/v9.2/tasks`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json", "OData-MaxVersion": "4.0", "OData-Version": "4.0", Prefer: "return=representation" },
+          body: JSON.stringify(taakBody),
+        });
+        if (!taakRes.ok) { context.res = json(502, { error: `Aanmaken taak mislukt (${taakRes.status}): ${await taakRes.text()}` }); return; }
+        const taak = await taakRes.json().catch(() => ({}));
+        const taakId = taak.activityid || taak.taskid || "";
+
+        // Indicatie-uren (planning/bezetting) op de taak zetten.
+        let urenGezet = null;
+        if (taakId && urenRaw != null && String(urenRaw).trim() !== "") {
+          try { urenGezet = await zetTijd(taakId, urenRaw); } catch { /* uren niet blokkerend */ }
+        }
+
+        const betrokken = [...new Set([...(Array.isArray(regel.betrokkenEmails) ? regel.betrokkenEmails : []), naarEmail].map((e) => String(e || "").trim()).filter(Boolean))];
+        const bijgewerkt = await werkBij(id, {
+          status: "doorgezet",
+          doorgezetNaarNaam: doel.naam || naarEmail,
+          doorgezetNaarEmail: naarEmail,
+          doorgezetOpmerking: opmerking,
+          doorgezetUren: urenGezet,
+          doorgezetOp: new Date().toISOString(),
+          doorgezetDoor: email || "onbekend",
+          taakId,
+          betrokkenEmails: betrokken,
+        });
+
+        await logGebeurtenis({
+          door: email || "onbekend", actie: "postboek-doorgezet", accountId: regel.accountId || "", accountIds: regel.accountId ? [regel.accountId] : [], klantnaam: regel.klantnaam || "",
+          tekst: `Poststuk "${regel.bestand || "?"}" (${regel.soortLabel || "?"}) doorgezet naar ${doel.naam || naarEmail}${urenGezet != null ? ` (${urenGezet} u)` : ""}${opmerking ? ` — "${opmerking}"` : ""}.`,
+        }).catch(() => {});
+
+        context.res = json(200, { ok: true, post: bijgewerkt, taakId });
         return;
       }
 
