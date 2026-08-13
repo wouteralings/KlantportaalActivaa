@@ -199,6 +199,18 @@ module.exports = async function (context, req) {
       if (dossier) {
         const std = STANDAARD_MAIL_PER_SOORT[soortInst] || STANDAARD_MAIL_PER_SOORT.dividend;
         const mergeCtx = { klantnaam: dossier.klantnaam || basis.naam, jaar: dossier.jaar, datum: new Date().toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" }) };
+        // Per keuzelijst-optie een eigen mailtekst (Beheer → Dossiers, <soort>Mail.perOptie). De frontend
+        // kiest op basis van de gekozen "Soort" (soortdividenduitkering/soortnotulen) de bijbehorende
+        // tekst; ontbreekt die, dan valt hij terug op de algemene onderwerp/tekst hieronder.
+        const perOptieRuw = (soortMail.perOptie && typeof soortMail.perOptie === "object") ? soortMail.perOptie : {};
+        const perOptie = {};
+        for (const [waarde, v] of Object.entries(perOptieRuw)) {
+          if (!v || typeof v !== "object") continue;
+          const ond = typeof v.onderwerp === "string" ? v.onderwerp.trim() : "";
+          const tks = typeof v.tekst === "string" ? v.tekst.trim() : "";
+          if (!ond && !tks) continue;
+          perOptie[waarde] = { onderwerp: vulMailIn(ond, mergeCtx), tekst: vulMailIn(tks, mergeCtx) };
+        }
         context.res = json(200, {
           map: segmenten.join("/"), bestanden,
           ontvanger: { naam: basis.contact.naam, email: basis.contact.email },
@@ -206,6 +218,7 @@ module.exports = async function (context, req) {
             afzender: typeof soortMail.afzender === "string" ? soortMail.afzender : "",
             onderwerp: vulMailIn(typeof soortMail.onderwerp === "string" && soortMail.onderwerp.trim() ? soortMail.onderwerp : std.onderwerp, mergeCtx),
             tekst: vulMailIn(typeof soortMail.tekst === "string" && soortMail.tekst.trim() ? soortMail.tekst : std.tekst, mergeCtx),
+            perOptie,
           },
         });
         return;

@@ -67,6 +67,9 @@ export default function DossierSjablonenPerSoort({ soort }) {
   const heeftBijlageMail = soort === "dividend" || soort === "notulen";
   const bijlageWoord = soort === "notulen" ? "notulen" : "dividendbelasting";
   const standaardMap = soort === "notulen" ? "Notulen" : "Dividendbelasting";
+  // Keuzeveld waarop de mailtekst automatisch gekozen wordt (per optie een eigen tekst).
+  const keuzeVeld = soort === "notulen" ? "soortnotulen" : "soortdividenduitkering";
+  const keuzeLabel = soort === "notulen" ? "Soort notulen" : "Soort dividenduitkering";
   const [open, setOpen] = useState(false); // dichtgeklapt bij openen van de pagina
   const [geladen, setGeladen] = useState(false);
   const [catalogus, setCatalogus] = useState([]);
@@ -84,6 +87,10 @@ export default function DossierSjablonenPerSoort({ soort }) {
   const [mailAfzender, setMailAfzender] = useState("");
   const [mailOnderwerp, setMailOnderwerp] = useState("");
   const [mailTekst, setMailTekst] = useState("");
+  // Keuzelijst-opties van het keuzeveld + per optie een eigen mailonderwerp/-tekst (dividendMail/
+  // notulenMail.perOptie). In het dossier wordt automatisch de bij de gekozen optie horende tekst gebruikt.
+  const [keuzeOpties, setKeuzeOpties] = useState([]); // [{ waarde, label }]
+  const [mailPerOptie, setMailPerOptie] = useState({}); // { <optiewaarde>: { onderwerp, tekst } }
 
   // De laatst gefocuste tekstarea + welk sjabloon dat is — zodat een klik op een merge-veld-chip de
   // plaatshouder op de cursorpositie in dát sjabloon invoegt.
@@ -107,6 +114,8 @@ export default function DossierSjablonenPerSoort({ soort }) {
           setMailAfzender(typeof dm.afzender === "string" ? dm.afzender : "");
           setMailOnderwerp(typeof dm.onderwerp === "string" ? dm.onderwerp : "");
           setMailTekst(typeof dm.tekst === "string" ? dm.tekst : "");
+          setMailPerOptie(dm.perOptie && typeof dm.perOptie === "object" ? dm.perOptie : {});
+          setKeuzeOpties((velden.picklistOpties && velden.picklistOpties[keuzeVeld]) || []);
         }
         setGeladen(true);
       })
@@ -149,11 +158,18 @@ export default function DossierSjablonenPerSoort({ soort }) {
       const alle = (huidig && huidig.dossierSjablonen && typeof huidig.dossierSjablonen === "object") ? huidig.dossierSjablonen : {};
       const schoon = sjablonen.map((s) => ({ id: s.id, naam: String(s.naam || "").trim() || "Naamloos sjabloon", tekst: String(s.tekst || "") }));
       const nieuweAlle = { ...alle, [soort]: { sjablonen: schoon } };
+      // Per-optie mailteksten opschonen: alleen opties met inhoud bewaren.
+      const perOptieSchoon = {};
+      for (const [w, v] of Object.entries(mailPerOptie || {})) {
+        const ond = (v && typeof v.onderwerp === "string") ? v.onderwerp : "";
+        const tks = (v && typeof v.tekst === "string") ? v.tekst : "";
+        if (ond.trim() || tks.trim()) perOptieSchoon[w] = { onderwerp: ond, tekst: tks };
+      }
       const body = heeftBijlageMail
         ? {
             dossierSjablonen: nieuweAlle,
             [`${soort}BijlageMap`]: (bijlageMap.trim() || standaardMap),
-            [`${soort}Mail`]: { afzender: mailAfzender.trim(), onderwerp: mailOnderwerp, tekst: mailTekst },
+            [`${soort}Mail`]: { afzender: mailAfzender.trim(), onderwerp: mailOnderwerp, tekst: mailTekst, perOptie: perOptieSchoon },
           }
         : { dossierSjablonen: nieuweAlle };
       const res = await fetch("/api/beheer-instellingen", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -228,6 +244,26 @@ export default function DossierSjablonenPerSoort({ soort }) {
                 <span style={labelStijl}>Standaard mailtekst</span>
                 <textarea value={mailTekst} onChange={(e) => setMailTekst(e.target.value)} rows={7} placeholder={soort === "notulen" ? "Beste {{klantnaam}},\n\nBijgaand ontvangt u de notulen.\n\n…" : "Beste {{klantnaam}},\n\nBijgaand ontvangt u de aangifte dividendbelasting {{jaar}}.\n\n…"} style={{ ...invoerStijl, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }} />
               </div>
+
+              {keuzeOpties.length > 0 && (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: KLEUR.tekst, marginBottom: 4 }}>Mailtekst per “{keuzeLabel}”</div>
+                  <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 10 }}>
+                    Optioneel: per keuze een eigen onderwerp + tekst. In het dossier wordt automatisch de tekst gekozen die bij de gekozen “{keuzeLabel}” hoort; laat je een optie leeg, dan geldt de standaardtekst hierboven.
+                  </div>
+                  {keuzeOpties.map((o) => {
+                    const w = String(o.waarde);
+                    const v = mailPerOptie[w] || {};
+                    return (
+                      <div key={w} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 600, color: KLEUR.blauw, marginBottom: 6 }}>{o.label}</div>
+                        <input value={v.onderwerp || ""} onChange={(e) => setMailPerOptie((m) => ({ ...m, [w]: { ...m[w], onderwerp: e.target.value } }))} placeholder="Onderwerp (leeg = standaard)" style={{ ...invoerStijl, marginBottom: 6 }} />
+                        <textarea value={v.tekst || ""} onChange={(e) => setMailPerOptie((m) => ({ ...m, [w]: { ...m[w], tekst: e.target.value } }))} rows={4} placeholder="Tekst (leeg = standaard)" style={{ ...invoerStijl, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }} />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 

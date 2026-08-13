@@ -2873,7 +2873,7 @@ function AangifteLog({ dossier, ververs }) {
  *  (submap instelbaar via Beheer → Dossiers, standaard "Dividendbelasting") en verschijnt in de lijst.
  *  Later kies je zo'n bestand in de Brieven-module als bijlage om mee te mailen. Zie
  *  api/medewerker-dossier-bijlage. */
-function DossierBijlageKaart({ dossier, disabled, extraEmails }) {
+function DossierBijlageKaart({ dossier, disabled, extraEmails, soortWaarde }) {
   const [bestanden, setBestanden] = useState(null); // null = laden
   const [fout, setFout] = useState("");
   const [bezig, setBezig] = useState(false);
@@ -2906,8 +2906,11 @@ function DossierBijlageKaart({ dossier, disabled, extraEmails }) {
           const extra = [extraEmails && extraEmails.voorzitter, extraEmails && extraEmails.notulist].map((e) => String(e || "").trim()).filter(Boolean);
           setMailNaar(to);
           setMailCc([...new Set(extra.filter((e) => e.toLowerCase() !== to.toLowerCase()))].join(", "));
-          setMailOnderwerp((d.mailDefaults && d.mailDefaults.onderwerp) || "");
-          setMailTekst((d.mailDefaults && d.mailDefaults.tekst) || "");
+          // Standaard mailtekst kiezen op basis van de gekozen "Soort" (perOptie), anders de algemene tekst.
+          const md = d.mailDefaults || {};
+          const perOptie = (md.perOptie && soortWaarde != null && soortWaarde !== "" && md.perOptie[String(soortWaarde)]) || null;
+          setMailOnderwerp((perOptie && perOptie.onderwerp) || md.onderwerp || "");
+          setMailTekst((perOptie && perOptie.tekst) || md.tekst || "");
         }
       })
       .catch((e) => { setBestanden([]); setFout(e.message || "Kon de bijlagen niet ophalen."); });
@@ -3731,11 +3734,6 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
 
       {(dossier.soort === "ib" || dossier.soort === "vpb") && <AangifteVersturenKaart dossier={dossier} disabled={!bewerkbaar} />}
 
-      {/* Bijlage + versturen: bij dividend zodra "Dividendbelasting" op Ja staat; bij notulen altijd.
-          extraEmails levert de e-mail voorzitter/notulist uit het dossier voor het cc-veld. */}
-      {dossier.soort === "dividend" && !!veldenState.dividendbelasting && <DossierBijlageKaart dossier={dossier} disabled={!bewerkbaar} extraEmails={{ voorzitter: veldenState.emailvoorzitter, notulist: veldenState.emailnotulist }} />}
-      {dossier.soort === "notulen" && <DossierBijlageKaart dossier={dossier} disabled={!bewerkbaar} extraEmails={{ voorzitter: veldenState.emailvoorzitter, notulist: veldenState.emailnotulist }} />}
-
       {uitvragen.length > 0 && uitvragen.map((u) => {
         const opengeklapt = uitvraagOpen[u.id] ?? (u.status !== "afgerond");
         return (
@@ -3806,6 +3804,12 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
           ))}
         </div>
       ))}
+
+      {/* Bijlage + versturen — helemaal onderaan het dossier: bij dividend zodra "Dividendbelasting" op
+          Ja staat, bij notulen altijd. extraEmails = e-mail voorzitter/notulist (cc); soortWaarde = de
+          gekozen "Soort", waarop de standaard mailtekst wordt gekozen. */}
+      {dossier.soort === "dividend" && !!veldenState.dividendbelasting && <DossierBijlageKaart dossier={dossier} disabled={!bewerkbaar} extraEmails={{ voorzitter: veldenState.emailvoorzitter, notulist: veldenState.emailnotulist }} soortWaarde={veldenState.soortdividenduitkering} />}
+      {dossier.soort === "notulen" && <DossierBijlageKaart dossier={dossier} disabled={!bewerkbaar} extraEmails={{ voorzitter: veldenState.emailvoorzitter, notulist: veldenState.emailnotulist }} soortWaarde={veldenState.soortnotulen} />}
 
       {bewerkbaar && (
         <div style={{ position: "sticky", bottom: 0, background: "#fff", paddingTop: 8 }}>
