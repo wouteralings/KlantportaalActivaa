@@ -367,6 +367,13 @@
       ]
     },
     {
+      "route": "/api/medewerker-postboek",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
       "route": "/api/dossier-velden",
       "allowedRoles": [
         "beheerder",

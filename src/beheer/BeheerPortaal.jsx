@@ -4,6 +4,7 @@ import UitvraagBeheer from "./UitvraagBeheer";
 import UrenTarievenBeheer from "./UrenTarievenBeheer";
 import VerlofBeheer from "./VerlofBeheer";
 import DossierIndelingBeheer from "./DossierIndelingBeheer";
+import PostboekSoortenBeheer from "./PostboekSoortenBeheer";
 import RapportagesBeheer from "./RapportagesBeheer";
 import ContractenTypesBeheer from "./ContractenTypesBeheer";
 import PlanningInstellingenBeheer from "./PlanningInstellingenBeheer";
@@ -1432,6 +1433,7 @@ export default function BeheerPortaal() {
           ["aanleveren", "Uitvraag"],
           ["uren", "Uren"],
           ["dossiers", "Dossiers"],
+          ["postboek", "Postboek"],
           ["instellingen", "Instellingen"],
         ].map(([k, label]) => (
           <button
@@ -1474,6 +1476,17 @@ export default function BeheerPortaal() {
             alleen-lezen velden, labels en gekoppelde uitvraag in te stellen.
           </div>
           <DossierIndelingBeheer />
+        </div>
+      )}
+
+      {tab === "postboek" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ fontSize: 13, color: KLEUR.subtekst, maxWidth: 760 }}>
+            Beheer hier de soorten inkomende post voor het Postboek in het medewerkersportaal: per soort de
+            naam, naar wie de post gaat (een rol van de klant of een vast persoon/postvak), de SharePoint-submap
+            en de standaard bestandsnaam.
+          </div>
+          <PostboekSoortenBeheer />
         </div>
       )}
 
