@@ -11,19 +11,21 @@ const { haalInstellingen, zetInstellingen } = require("../_gedeeld/planningInste
 module.exports = async function (context, req) {
   try {
     if (req.method === "GET") {
-      const { activiteiten, statussen, uitgeslotenMedewerkers } = await haalInstellingen();
-      context.res = { headers: { "Content-Type": "application/json" }, body: { activiteiten, statussen, uitgeslotenMedewerkers } };
+      const { activiteiten, statussen, uitgeslotenMedewerkers, setjes } = await haalInstellingen();
+      context.res = { headers: { "Content-Type": "application/json" }, body: { activiteiten, statussen, uitgeslotenMedewerkers, setjes } };
       return;
     }
     if (req.method === "PUT") {
       const activiteiten = (req.body && req.body.activiteiten) || [];
       const statussen = (req.body && req.body.statussen) || [];
       const uitgeslotenMedewerkers = (req.body && req.body.uitgeslotenMedewerkers) || [];
+      // setjes optioneel: undefined laten als niet meegestuurd, zodat ze niet gewist worden.
+      const setjes = (req.body && req.body.setjes !== undefined) ? req.body.setjes : undefined;
       if (!Array.isArray(activiteiten) || !Array.isArray(statussen)) {
         context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'activiteiten' en 'statussen' als lijsten mee." } };
         return;
       }
-      const opgeslagen = await zetInstellingen({ activiteiten, statussen, uitgeslotenMedewerkers });
+      const opgeslagen = await zetInstellingen({ activiteiten, statussen, uitgeslotenMedewerkers, setjes });
       context.res = { headers: { "Content-Type": "application/json" }, body: opgeslagen };
       return;
     }

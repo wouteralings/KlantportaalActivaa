@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, CheckCircle2, XCircle, CalendarClock, Tag, ArrowUp, ArrowDown, UserX, Trash2 } from "lucide-react";
+import { Plus, CheckCircle2, XCircle, CalendarClock, Tag, ArrowUp, ArrowDown, UserX, Trash2, Layers } from "lucide-react";
 
 /** Zelfde palet als de rest van het beheerdersportaal (bewust hier herhaald zodat dit bestand op
  *  zichzelf staat, zie bijv. ContractenTypesBeheer.jsx). */
@@ -67,7 +67,7 @@ function AantalKiezer({ aantal, setAantal, totaal }) {
 }
 
 // Grid-kolommen zodat de koppen exact boven de invoervelden uitlijnen.
-const GRID_ACT = "52px minmax(140px, 1fr) 84px 150px 78px 92px"; // pijltjes | Activiteit | Periode | Functie | Std.uren | Status
+const GRID_ACT = "52px minmax(140px, 1fr) 76px 128px 66px 120px 88px"; // pijltjes | Activiteit | Periode | Functie | Std.uren | Vanaf | Status
 const GRID_STAT = "52px minmax(180px, 1fr) 52px 96px";       // pijltjes | Status | Kleur | (actief)
 const kopStijl = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" };
 
@@ -90,11 +90,14 @@ export default function PlanningInstellingenBeheer() {
   const [medewerkers, setMedewerkers] = useState([]); // [{ naam, email }]
   const [nwUitEmail, setNwUitEmail] = useState("");
   const [nwUitReden, setNwUitReden] = useState("");
+  const [setjes, setSetjes] = useState([]); // [{ sleutel, naam, items:[{activiteit,frequentie,uitvoerMaand,indicatieUren}] }]
+  const [nieuwSetNaam, setNieuwSetNaam] = useState("");
+  const [setActItem, setSetActItem] = useState({}); // { setjeIndex: gekozen-activiteit-om-toe-te-voegen }
 
   useEffect(() => {
     fetch("/api/beheer-planning-instellingen")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { setActiviteiten(d.activiteiten || []); setStatussen(d.statussen || []); setUitgesloten(d.uitgeslotenMedewerkers || []); })
+      .then((d) => { setActiviteiten(d.activiteiten || []); setStatussen(d.statussen || []); setUitgesloten(d.uitgeslotenMedewerkers || []); setSetjes(d.setjes || []); })
       .catch(() => { setActiviteiten([]); setStatussen([]); setFout("Kon de planning-instellingen niet laden."); });
     fetch("/api/mw-planning-medewerkers")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
@@ -102,18 +105,19 @@ export default function PlanningInstellingenBeheer() {
       .catch(() => setMedewerkers([]));
   }, []);
 
-  const opslaan = async (nieuweActiviteiten, nieuweStatussen, nieuweUitgesloten = uitgesloten) => {
+  const opslaan = async (nieuweActiviteiten, nieuweStatussen, nieuweUitgesloten = uitgesloten, nieuweSetjes = setjes) => {
     setStatus("bezig"); setFout("");
     try {
       const r = await fetch("/api/beheer-planning-instellingen", {
         method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ activiteiten: nieuweActiviteiten, statussen: nieuweStatussen, uitgeslotenMedewerkers: nieuweUitgesloten }),
+        body: JSON.stringify({ activiteiten: nieuweActiviteiten, statussen: nieuweStatussen, uitgeslotenMedewerkers: nieuweUitgesloten, setjes: nieuweSetjes }),
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       const d = await r.json();
       setActiviteiten(d.activiteiten || nieuweActiviteiten);
       setStatussen(d.statussen || nieuweStatussen);
       setUitgesloten(d.uitgeslotenMedewerkers || nieuweUitgesloten);
+      setSetjes(d.setjes || nieuweSetjes);
       setStatus("opgeslagen");
     } catch (e) {
       setFout(e.message || "Opslaan mislukt."); setStatus("fout");
@@ -136,6 +140,8 @@ export default function PlanningInstellingenBeheer() {
   const voegDeelToe = (actSleutel) => { const t = (nwDeelPer[actSleutel] || "").trim(); if (!t) return; setNwDeelPer((p) => ({ ...p, [actSleutel]: "" })); opslaan(metDeel(actSleutel, (ds) => [...ds, { label: t }]), statussen || []); };
   const verwijderDeel = (actSleutel, i) => opslaan(metDeel(actSleutel, (ds) => ds.filter((_, idx) => idx !== i)), statussen || []);
   const verplaatsDeel = (actSleutel, i, dir) => opslaan(metDeel(actSleutel, (ds) => { const n = [...ds]; const j = i + dir; if (j < 0 || j >= n.length) return n; [n[i], n[j]] = [n[j], n[i]]; return n; }), statussen || []);
+  const wijzigActiviteitVanaf = (sleutel, vanaf) => opslaan((activiteiten || []).map((a) => (a.sleutel === sleutel ? { ...a, vanaf } : a)), statussen || []);
+  const wijzigDeelKleur = (actSleutel, i, kleur) => opslaan(metDeel(actSleutel, (ds) => ds.map((d, idx) => (idx === i ? { ...d, kleur } : d))), statussen || []);
   const wijzigActiviteitType = (sleutel, type) => opslaan((activiteiten || []).map((a) => (a.sleutel === sleutel ? { ...a, type } : a)), statussen || []);
   const wijzigActiviteitRol = (sleutel, rol) => opslaan((activiteiten || []).map((a) => (a.sleutel === sleutel ? { ...a, rol } : a)), statussen || []);
   const zetActiviteitActief = (sleutel, actief) => opslaan((activiteiten || []).map((a) => (a.sleutel === sleutel ? { ...a, actief } : a)), statussen || []);
@@ -164,6 +170,32 @@ export default function PlanningInstellingenBeheer() {
     [nieuw[i], nieuw[doel]] = [nieuw[doel], nieuw[i]];
     opslaan(activiteiten || [], nieuw);
   };
+
+  // ---- Setjes van hoofdtaken (planning in één klik voor een klant) ----
+  const activiteitLabel = (sleutel) => { const a = (activiteiten || []).find((x) => x.sleutel === sleutel); return a ? a.label : sleutel; };
+  const freqVoorActiviteit = (sleutel) => { const a = (activiteiten || []).find((x) => x.sleutel === sleutel); return a && a.type === "jaar" ? "jaarlijks" : "maandelijks"; };
+  const voegSetjeToe = () => {
+    const naam = nieuwSetNaam.trim();
+    if (!naam) return;
+    opslaan(activiteiten || [], statussen || [], uitgesloten, [...setjes, { naam, items: [] }]);
+    setNieuwSetNaam("");
+  };
+  const verwijderSetje = (i) => opslaan(activiteiten || [], statussen || [], uitgesloten, setjes.filter((_, idx) => idx !== i));
+  const wijzigSetNaamLokaal = (i, naam) => setSetjes((h) => h.map((s, idx) => (idx === i ? { ...s, naam } : s)));
+  const voegSetjeItem = (i) => {
+    const act = setActItem[i];
+    if (!act) return;
+    const nieuw = setjes.map((s, idx) => {
+      if (idx !== i) return s;
+      if ((s.items || []).some((it) => it.activiteit === act)) return s;
+      return { ...s, items: [...(s.items || []), { activiteit: act, frequentie: freqVoorActiviteit(act), uitvoerMaand: null, indicatieUren: null }] };
+    });
+    setSetActItem((p) => ({ ...p, [i]: "" }));
+    opslaan(activiteiten || [], statussen || [], uitgesloten, nieuw);
+  };
+  const wijzigSetjeItemLokaal = (i, j, patch) => setSetjes((h) => h.map((s, idx) => (idx === i ? { ...s, items: s.items.map((it, jdx) => (jdx === j ? { ...it, ...patch } : it)) } : s)));
+  const verwijderSetjeItem = (i, j) => opslaan(activiteiten || [], statussen || [], uitgesloten, setjes.map((s, idx) => (idx === i ? { ...s, items: s.items.filter((_, jdx) => jdx !== j) } : s)));
+  const bewaarSetjes = () => opslaan(activiteiten || [], statussen || [], uitgesloten, setjes);
 
   // ---- Uitgesloten medewerkers (bijv. secretaresses, loonadministratie) ----
   const voegUitToe = () => {
@@ -210,7 +242,7 @@ export default function PlanningInstellingenBeheer() {
               <CalendarClock size={16} color={KLEUR.blauw} /> Activiteiten <span style={{ fontSize: 12, fontWeight: 600, color: KLEUR.mutedTekst }}>({activiteiten.length})</span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: GRID_ACT, gap: 8, alignItems: "center", padding: "0 10px 6px", ...kopStijl }}>
-              <span></span><span>Activiteit</span><span>Periode</span><span>Functie</span><span>Std. uren</span><span>Status</span>
+              <span></span><span>Activiteit</span><span>Periode</span><span>Functie</span><span>Std. uren</span><span title="Vanaf welke maand/jaar deze activiteit in de planning wordt opgenomen. Leeg = altijd.">Vanaf</span><span>Status</span>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 6 }}>
               {activiteiten.slice(0, activiteitAantal).map((a, i) => {
@@ -230,6 +262,7 @@ export default function PlanningInstellingenBeheer() {
                       {ROLLEN.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
                     </select>
                     <input type="number" min="0" step="0.25" value={a.standaardUren ?? ""} onChange={(e) => wijzigActiviteitStandaardUren(a.sleutel, e.target.value)} onBlur={() => opslaan(activiteiten, statussen)} title="Standaard indicatie-uren (per klant overschrijfbaar)" placeholder="—" style={{ ...invoerStijl, minWidth: 0 }} />
+                    <input type="month" value={a.vanaf || ""} onChange={(e) => wijzigActiviteitVanaf(a.sleutel, e.target.value)} title="Vanaf welke maand/jaar deze activiteit wordt opgenomen (leeg = altijd)" style={{ ...invoerStijl, minWidth: 0, padding: "6px 6px" }} />
                     {ACTIEF_KNOP(a.actief, () => zetActiviteitActief(a.sleutel, !a.actief))}
                   </div>
                   <div style={{ padding: "0 10px 8px 62px" }}>
@@ -242,7 +275,10 @@ export default function PlanningInstellingenBeheer() {
                         {deel.map((d, di) => (
                           <div key={d.sleutel || di} style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
                             <span style={{ color: KLEUR.mutedTekst, fontSize: 11, width: 20, textAlign: "right" }}>{di + 1}.</span>
-                            <input value={d.label} onChange={(e) => wijzigDeelLabelLokaal(a.sleutel, di, e.target.value)} onBlur={() => opslaan(activiteiten, statussen)} style={{ ...invoerStijl, flex: "0 1 320px", minWidth: 0 }} />
+                            {d.kleur ? <span style={{ width: 12, height: 12, borderRadius: 3, background: d.kleur, border: `1px solid ${KLEUR.rand}`, flexShrink: 0 }} /> : null}
+                            <input value={d.label} onChange={(e) => wijzigDeelLabelLokaal(a.sleutel, di, e.target.value)} onBlur={() => opslaan(activiteiten, statussen)} style={{ ...invoerStijl, flex: "0 1 300px", minWidth: 0 }} />
+                            <input type="color" value={d.kleur || "#c9ccc6"} onChange={(e) => wijzigDeelKleur(a.sleutel, di, e.target.value)} title="Kleurtje voor deze deelstap (voor het overzicht in Mijn werk)" style={{ width: 34, height: 28, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", cursor: "pointer", padding: 2, flexShrink: 0 }} />
+                            {d.kleur ? <button onClick={() => wijzigDeelKleur(a.sleutel, di, "")} title="Kleur verwijderen" style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.mutedTekst, fontSize: 11, padding: "2px 4px" }}>geen</button> : null}
                             <button onClick={() => verplaatsDeel(a.sleutel, di, -1)} disabled={di === 0} title="Omhoog" style={{ background: "none", border: "none", cursor: di === 0 ? "default" : "pointer", color: KLEUR.mutedTekst, opacity: di === 0 ? 0.4 : 1, padding: 2 }}><ArrowUp size={14} /></button>
                             <button onClick={() => verplaatsDeel(a.sleutel, di, 1)} disabled={di === deel.length - 1} title="Omlaag" style={{ background: "none", border: "none", cursor: di === deel.length - 1 ? "default" : "pointer", color: KLEUR.mutedTekst, opacity: di === deel.length - 1 ? 0.4 : 1, padding: 2 }}><ArrowDown size={14} /></button>
                             <button onClick={() => verwijderDeel(a.sleutel, di)} title="Verwijderen" style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.rood, padding: 2 }}><Trash2 size={14} /></button>
@@ -302,6 +338,62 @@ export default function PlanningInstellingenBeheer() {
             <div style={{ display: "flex", gap: 8 }}>
               <input value={nieuweStatus} onChange={(e) => setNieuweStatus(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); voegStatusToe(); } }} placeholder="Nieuwe status, bijv. Ter review" style={{ ...invoerStijl, flex: "0 1 300px" }} />
               <button onClick={voegStatusToe} disabled={!nieuweStatus.trim() || status === "bezig"} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: nieuweStatus.trim() ? "pointer" : "default", opacity: nieuweStatus.trim() ? 1 : 0.6 }}><Plus size={14} /> Toevoegen</button>
+            </div>
+          </div>
+
+          {/* Setjes van hoofdtaken */}
+          <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700, marginBottom: 6 }}>
+              <Layers size={16} color={KLEUR.blauw} /> Setjes van hoofdtaken <span style={{ fontSize: 12, fontWeight: 600, color: KLEUR.mutedTekst }}>({setjes.length})</span>
+            </div>
+            <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 12, maxWidth: 760 }}>
+              Bundel hoofdtaken tot een setje (bijv. "Standaard BV" of "IB-klant"). Bij een klant pas je een setje met één klik toe:
+              de hoofdtaken worden aan de planning van die klant <strong>toegevoegd</strong> (bestaande blijven staan, dubbele worden overgeslagen).
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 12 }}>
+              {setjes.map((s, i) => (
+                <div key={s.sleutel || i} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                    <input value={s.naam} onChange={(e) => wijzigSetNaamLokaal(i, e.target.value)} onBlur={bewaarSetjes} placeholder="Naam van het setje" style={{ ...invoerStijl, flex: "0 1 320px", fontWeight: 600 }} />
+                    <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{(s.items || []).length} {(s.items || []).length === 1 ? "hoofdtaak" : "hoofdtaken"}</span>
+                    <span style={{ flex: 1 }} />
+                    <button onClick={() => verwijderSetje(i)} title="Setje verwijderen" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: KLEUR.rood, cursor: "pointer" }}><Trash2 size={14} /></button>
+                  </div>
+                  {(s.items || []).length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+                      {s.items.map((it, j) => (
+                        <div key={it.activiteit} style={{ display: "grid", gridTemplateColumns: "minmax(140px,1fr) 120px 120px 80px 34px", gap: 8, alignItems: "center" }}>
+                          <span style={{ fontSize: 12.5, fontWeight: 600, color: KLEUR.tekst, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activiteitLabel(it.activiteit)}</span>
+                          <select value={it.frequentie || "maandelijks"} onChange={(e) => { wijzigSetjeItemLokaal(i, j, { frequentie: e.target.value }); }} onBlur={bewaarSetjes} style={invoerStijl}>
+                            <option value="maandelijks">Maandelijks</option>
+                            <option value="kwartaal">Per kwartaal</option>
+                            <option value="jaarlijks">Jaarlijks</option>
+                            <option value="eenmalig">Eenmalig</option>
+                          </select>
+                          <select value={it.uitvoerMaand ?? ""} onChange={(e) => wijzigSetjeItemLokaal(i, j, { uitvoerMaand: e.target.value === "" ? null : Number(e.target.value) })} onBlur={bewaarSetjes} title="Uitvoermaand (voor jaarlijks/eenmalig)" style={invoerStijl}>
+                            <option value="">— maand —</option>
+                            {["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"].map((m, mi) => <option key={mi} value={mi + 1}>{m}</option>)}
+                          </select>
+                          <input type="number" min="0" step="0.25" value={it.indicatieUren ?? ""} onChange={(e) => wijzigSetjeItemLokaal(i, j, { indicatieUren: e.target.value === "" ? null : e.target.value })} onBlur={bewaarSetjes} placeholder="uren" title="Indicatie-uren" style={{ ...invoerStijl, minWidth: 0 }} />
+                          <button onClick={() => verwijderSetjeItem(i, j)} title="Uit setje halen" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: KLEUR.rood, cursor: "pointer" }}><Trash2 size={13} /></button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <select value={setActItem[i] || ""} onChange={(e) => setSetActItem((p) => ({ ...p, [i]: e.target.value }))} style={{ ...invoerStijl, flex: "0 1 260px" }}>
+                      <option value="">— hoofdtaak toevoegen —</option>
+                      {activiteiten.filter((a) => a.actief && !(s.items || []).some((it) => it.activiteit === a.sleutel)).map((a) => <option key={a.sleutel} value={a.sleutel}>{a.label}</option>)}
+                    </select>
+                    <button onClick={() => voegSetjeItem(i)} disabled={!setActItem[i]} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: setActItem[i] ? "pointer" : "default", opacity: setActItem[i] ? 1 : 0.6 }}><Plus size={13} /> Toevoegen</button>
+                  </div>
+                </div>
+              ))}
+              {setjes.length === 0 && <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, padding: "2px 2px" }}>Nog geen setjes.</div>}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input value={nieuwSetNaam} onChange={(e) => setNieuwSetNaam(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); voegSetjeToe(); } }} placeholder="Nieuw setje, bijv. Standaard BV" style={{ ...invoerStijl, flex: "0 1 300px" }} />
+              <button onClick={voegSetjeToe} disabled={!nieuwSetNaam.trim() || status === "bezig"} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: nieuwSetNaam.trim() ? "pointer" : "default", opacity: nieuwSetNaam.trim() ? 1 : 0.6 }}><Plus size={14} /> Setje toevoegen</button>
             </div>
           </div>
 

@@ -61,13 +61,17 @@ export default function PlanningConfigPerKlant({ initieelAccountId, vasteKlant, 
   const [nwUren, setNwUren] = useState("");
   const [nwUitvoerMaand, setNwUitvoerMaand] = useState("");
   const [overrides, setOverrides] = useState({}); // id → tekst tijdens het bewerken van een afwijkende toewijzing
+  const [setjes, setSetjes] = useState([]); // beheer-setjes van hoofdtaken
+  const [setjeKeuze, setSetjeKeuze] = useState("");
+  const [setjeBezig, setSetjeBezig] = useState(false);
+  const [setjeMelding, setSetjeMelding] = useState("");
 
   const activiteitById = useMemo(() => Object.fromEntries(activiteiten.map((a) => [a.sleutel, a])), [activiteiten]);
 
   useEffect(() => {
     fetch("/api/mw-planning-overzicht")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => setActiviteiten(d.activiteiten || []))
+      .then((d) => { setActiviteiten(d.activiteiten || []); setSetjes(Array.isArray(d.setjes) ? d.setjes : []); })
       .catch(() => setActiviteiten([]));
     // Klantenlijst alleen nodig voor de picker; bij een vaste klant (ingebed in de klantkaart) overslaan.
     if (!vasteKlant) {
@@ -136,6 +140,32 @@ export default function PlanningConfigPerKlant({ initieelAccountId, vasteKlant, 
       const bij = await res.json();
       setConfig((h) => (h || []).map((r) => (r.id === id ? bij : r)));
     } catch (e) { setFout(e.message || "Opslaan mislukt."); }
+  };
+
+  // Een setje van hoofdtaken toepassen op de gekozen klant: elke activiteit die er nog niet is, wordt
+  // toegevoegd; bestaande worden overgeslagen.
+  const pasSetjeToe = async () => {
+    const setje = setjes.find((s) => s.sleutel === setjeKeuze);
+    if (!setje || !klant) return;
+    setSetjeBezig(true); setFout(""); setSetjeMelding("");
+    const acc = String(klant.accountId).toLowerCase();
+    const bestaand = new Set((config || []).map((r) => r.activiteit));
+    let toegevoegd = 0, overgeslagen = 0;
+    try {
+      for (const it of (setje.items || [])) {
+        if (bestaand.has(it.activiteit)) { overgeslagen++; continue; }
+        const res = await fetch("/api/mw-planning-config", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ klantAccountId: acc, activiteit: it.activiteit, frequentie: it.frequentie || "maandelijks", indicatieUren: it.indicatieUren ?? null, uitvoerMaand: it.uitvoerMaand ?? null }),
+        });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+        toegevoegd++; bestaand.add(it.activiteit);
+      }
+      setSetjeMelding(`Setje "${setje.naam}" toegepast: ${toegevoegd} toegevoegd${overgeslagen ? `, ${overgeslagen} al aanwezig (overgeslagen)` : ""}.`);
+      setSetjeKeuze("");
+      laadConfig(acc);
+    } catch (e) { setFout(e.message || "Setje toepassen mislukt."); if (toegevoegd) laadConfig(acc); }
+    finally { setSetjeBezig(false); }
   };
 
   const verwijder = async (id) => {
@@ -214,6 +244,22 @@ export default function PlanningConfigPerKlant({ initieelAccountId, vasteKlant, 
               return <span key={rol} style={{ fontSize: 11.5, color: KLEUR.subtekst, background: KLEUR.lichtblauw, padding: "4px 9px", borderRadius: 6 }}><strong style={{ color: KLEUR.blauw }}>{ROL_LABELS[rol]}:</strong> {naam}</span>;
             })}
           </div>
+
+          {/* Setje toepassen */}
+          {!readOnly && setjes.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "10px 12px", marginBottom: 14 }}>
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: KLEUR.blauw }}>Setje toepassen</span>
+              <select value={setjeKeuze} onChange={(e) => { setSetjeKeuze(e.target.value); setSetjeMelding(""); }} style={{ ...inputStijl, width: "auto", minWidth: 200 }}>
+                <option value="">— kies een setje —</option>
+                {setjes.map((s) => <option key={s.sleutel} value={s.sleutel}>{s.naam} ({(s.items || []).length})</option>)}
+              </select>
+              <button onClick={pasSetjeToe} disabled={!setjeKeuze || setjeBezig || config === null} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: setjeKeuze && !setjeBezig ? KLEUR.blauw : "#9DB4A5", color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: setjeKeuze && !setjeBezig ? "pointer" : "default" }}>
+                <Plus size={14} /> {setjeBezig ? "Toepassen…" : "Toepassen"}
+              </button>
+              <span style={{ fontSize: 11.5, color: KLEUR.subtekst }}>Voegt de hoofdtaken toe; wat er al staat blijft.</span>
+              {setjeMelding && <span style={{ fontSize: 12, color: KLEUR.groen, fontWeight: 600 }}>{setjeMelding}</span>}
+            </div>
+          )}
 
           {/* Configuratietabel */}
           {config === null ? (

@@ -11,7 +11,7 @@
  */
 const { magPlanningLezen } = require("../_gedeeld/planningRecht");
 const { haalAlleVoorOverzicht } = require("../_gedeeld/planningKlanten");
-const { haalActieveActiviteiten, haalActieveStatussen } = require("../_gedeeld/planningInstellingen");
+const { haalActieveActiviteiten, haalActieveStatussen, haalSetjes } = require("../_gedeeld/planningInstellingen");
 
 // Alleen-lezen overzicht: elke ingelogde medewerker (voor "Mijn werk"); klanten worden geweerd via de
 // rol-check hieronder en de SWA-route-regel.
@@ -21,12 +21,13 @@ const verwerk = async function (context, req) {
       context.res = { status: 405, headers: { "Content-Type": "application/json" }, body: { error: "Methode niet ondersteund." } };
       return;
     }
-    const [regels, activiteiten, statussen] = await Promise.all([
+    const [regels, activiteiten, statussen, setjes] = await Promise.all([
       haalAlleVoorOverzicht(),
       haalActieveActiviteiten(),
       haalActieveStatussen(),
+      haalSetjes(),
     ]);
-    context.res = { headers: { "Content-Type": "application/json" }, body: { regels, activiteiten, statussen } };
+    context.res = { headers: { "Content-Type": "application/json" }, body: { regels, activiteiten, statussen, setjes } };
   } catch (err) {
     if (err.message === "MISSING_CONFIG") {
       context.res = { status: 501, headers: { "Content-Type": "application/json" }, body: { error: "FACTURATIE_SQL_CONNECTIONSTRING of STORAGE_CONNECTION_STRING ontbreekt." } };

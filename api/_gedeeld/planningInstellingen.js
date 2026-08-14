@@ -101,6 +101,19 @@ function geldigeKleur(v) {
   return /^#[0-9a-fA-F]{6}$/.test(s) ? s : "#8A9089";
 }
 
+// Optionele hex-kleur: geldige #rrggbb of "" (geen kleur). Voor deelstappen — leeg = geen kleurtje.
+function optioneleKleur(v) {
+  const s = String(v || "").trim();
+  return /^#[0-9a-fA-F]{6}$/.test(s) ? s : "";
+}
+
+// "Vanaf"-moment van een activiteit: een maand/jaar "YYYY-MM" of "" (= altijd). Vóór dit moment wordt
+// de activiteit niet in de planning/Mijn werk opgenomen.
+function geldigeMaandJaar(v) {
+  const s = String(v || "").trim();
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(s) ? s : "";
+}
+
 /** Standaard-uren van een activiteit: een getal ≥ 0 of null (= geen standaard ingesteld). */
 function urenOfNull(v) {
   if (v === undefined || v === null || v === "") return null;
@@ -122,7 +135,37 @@ function normaliseerDeelstappen(lijst) {
     const sleutel = maakSleutel((t && t.sleutel) || label);
     if (!sleutel || gezien.has(sleutel)) continue;
     gezien.add(sleutel);
-    uit.push({ sleutel, label });
+    // kleur = optioneel kleurtje voor de deelstap (voor het snelle overzicht in "Mijn werk").
+    uit.push({ sleutel, label, kleur: optioneleKleur(t && t.kleur) });
+  }
+  return uit;
+}
+
+// Setjes van hoofdtaken (activiteiten) om in één klik de planning van een klant te vullen. Elk setje =
+// { sleutel, naam, items: [{ activiteit, frequentie, uitvoerMaand, indicatieUren }] }. Bij toepassen
+// maakt de UI per item een planning-config-regel (bestaande activiteiten van die klant overslaand).
+function normaliseerSetjes(lijst) {
+  if (!Array.isArray(lijst)) return [];
+  const FREQ = ["maandelijks", "kwartaal", "jaarlijks", "eenmalig"];
+  const gezien = new Set();
+  const uit = [];
+  for (const s of lijst.slice(0, 100)) {
+    const naam = tekst(s && s.naam, 80);
+    if (!naam) continue;
+    const sleutel = maakSleutel((s && s.sleutel) || naam);
+    if (!sleutel || gezien.has(sleutel)) continue;
+    gezien.add(sleutel);
+    const items = [];
+    const seenAct = new Set();
+    for (const it of (Array.isArray(s && s.items) ? s.items.slice(0, 100) : [])) {
+      const act = maakSleutel(it && it.activiteit);
+      if (!act || seenAct.has(act)) continue;
+      seenAct.add(act);
+      const freq = FREQ.includes(it && it.frequentie) ? it.frequentie : "";
+      const m = Number(it && it.uitvoerMaand);
+      items.push({ activiteit: act, frequentie: freq, uitvoerMaand: (Number.isInteger(m) && m >= 1 && m <= 12) ? m : null, indicatieUren: urenOfNull(it && it.indicatieUren) });
+    }
+    uit.push({ sleutel, naam, items });
   }
   return uit;
 }
@@ -140,7 +183,7 @@ function normaliseerActiviteiten(lijst) {
     const rol = GELDIGE_ROLLEN.includes(t && t.rol) ? t.rol : "";
     // standaardUren = de standaard indicatie-uren van deze activiteit. Per klant overschrijfbaar
     // (planning_config_klanten.indicatie_uren); leeg per klant = erf deze standaard.
-    uit.push({ sleutel, label, type: (t && t.type) === "jaar" ? "jaar" : "maand", rol, standaardUren: urenOfNull(t && t.standaardUren), deelstappen: normaliseerDeelstappen(t && t.deelstappen), actief: t && t.actief === false ? false : true });
+    uit.push({ sleutel, label, type: (t && t.type) === "jaar" ? "jaar" : "maand", rol, standaardUren: urenOfNull(t && t.standaardUren), vanaf: geldigeMaandJaar(t && t.vanaf), deelstappen: normaliseerDeelstappen(t && t.deelstappen), actief: t && t.actief === false ? false : true });
   }
   return uit;
 }
@@ -165,7 +208,7 @@ async function haalInstellingen() {
   const containerClient = await haalContainerClient();
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
   if (!(await blobClient.exists())) {
-    return { activiteiten: STANDAARD_ACTIVITEITEN, statussen: STANDAARD_STATUSSEN, uitgeslotenMedewerkers: [] };
+    return { activiteiten: STANDAARD_ACTIVITEITEN, statussen: STANDAARD_STATUSSEN, uitgeslotenMedewerkers: [], setjes: [] };
   }
   try {
     const data = JSON.parse(await streamNaarTekst((await blobClient.download()).readableStreamBody));
@@ -175,9 +218,10 @@ async function haalInstellingen() {
       activiteiten: activiteiten.length ? activiteiten : STANDAARD_ACTIVITEITEN,
       statussen: statussen.length ? statussen : STANDAARD_STATUSSEN,
       uitgeslotenMedewerkers: normaliseerUitgesloten(data && data.uitgeslotenMedewerkers),
+      setjes: normaliseerSetjes(data && data.setjes),
     };
   } catch {
-    return { activiteiten: STANDAARD_ACTIVITEITEN, statussen: STANDAARD_STATUSSEN, uitgeslotenMedewerkers: [] };
+    return { activiteiten: STANDAARD_ACTIVITEITEN, statussen: STANDAARD_STATUSSEN, uitgeslotenMedewerkers: [], setjes: [] };
   }
 }
 
@@ -204,17 +248,27 @@ async function haalActieveStatussen() {
   return (await haalInstellingen()).statussen.filter((s) => s.actief);
 }
 
+/** De setjes van hoofdtaken (voor het toepassen op een klant in de per-klant planning-config). */
+async function haalSetjes() {
+  return (await haalInstellingen()).setjes || [];
+}
+
 /** E-mailadressen van medewerkers die uit de planning-bezetting worden gelaten (bijv. secretaresses,
  *  loonadministratie) — beheerd in Beheer → Planning. */
 async function haalUitgeslotenMedewerkers() {
   return (await haalInstellingen()).uitgeslotenMedewerkers || [];
 }
 
-async function zetInstellingen({ activiteiten, statussen, uitgeslotenMedewerkers }) {
+async function zetInstellingen({ activiteiten, statussen, uitgeslotenMedewerkers, setjes }) {
+  // setjes zijn optioneel bij een PUT — is het niet meegestuurd, bewaar dan de bestaande (niet wissen).
+  let setjesSchoon;
+  if (setjes === undefined) { try { setjesSchoon = (await haalInstellingen()).setjes || []; } catch { setjesSchoon = []; } }
+  else setjesSchoon = normaliseerSetjes(setjes);
   const schoon = {
     activiteiten: normaliseerActiviteiten(activiteiten),
     statussen: normaliseerStatussen(statussen),
     uitgeslotenMedewerkers: normaliseerUitgesloten(uitgeslotenMedewerkers),
+    setjes: setjesSchoon,
   };
   const containerClient = await haalContainerClient();
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
@@ -247,6 +301,6 @@ async function haalDeelstappenSjabloon(activiteitSleutel) {
 }
 
 module.exports = {
-  haalInstellingen, haalActieveActiviteiten, haalActieveStatussen, haalUitgeslotenMedewerkers, zetInstellingen,
+  haalInstellingen, haalActieveActiviteiten, haalActieveStatussen, haalSetjes, haalUitgeslotenMedewerkers, zetInstellingen,
   magActiviteit, magStatus, maakSleutel, haalDeelstappenSjabloon, GELDIGE_ROLLEN, STANDAARD_ACTIVITEITEN, STANDAARD_STATUSSEN,
 };

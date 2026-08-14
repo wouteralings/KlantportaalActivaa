@@ -107,6 +107,11 @@ export default function MijnWerk() {
       if (r.actief === false) continue;
       const act = activiteitById[r.activiteit];
       if (!act || (act.type || "maand") !== type) continue;
+      // "Vanaf" (maand/jaar): de activiteit wordt pas vanaf dat moment in de planning opgenomen.
+      if (act.vanaf) {
+        if (type === "maand") { if (`${jaar}-${pad(maand)}` < act.vanaf) continue; }
+        else if (jaar < Number(String(act.vanaf).slice(0, 4))) continue;
+      }
       if (type === "maand" && !valtInMaand(r, maand)) continue;
       const acc = String(r.klantAccountId || "").toLowerCase();
       const klant = klantenMap[acc] || null;
@@ -338,10 +343,11 @@ export default function MijnWerk() {
                 const gereed = !!s?.gereed;
                 const key = `${actieveRij.acc}|${actiefItem.actSleutel}|${d.sleutel}`;
                 return (
-                  <div key={d.sleutel} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 2px", borderBottom: `1px solid ${KLEUR.rand}55` }}>
+                  <div key={d.sleutel} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 2px", borderBottom: `1px solid ${KLEUR.rand}55`, borderLeft: d.kleur ? `3px solid ${d.kleur}` : "3px solid transparent", paddingLeft: 8 }}>
                     <button disabled={bezig === key} onClick={() => afvink(actieveRij.acc, actiefItem.actSleutel, d.sleutel, !gereed)} style={{ background: "none", border: "none", cursor: bezig === key ? "default" : "pointer", color: gereed ? KLEUR.groen : KLEUR.mutedTekst, padding: 0, display: "inline-flex" }}>
                       {gereed ? <CheckSquare size={20} /> : <Square size={20} />}
                     </button>
+                    {d.kleur ? <span style={{ width: 10, height: 10, borderRadius: 3, background: d.kleur, flexShrink: 0 }} /> : null}
                     <span style={{ flex: 1, fontSize: 13.5, color: KLEUR.tekst, fontWeight: gereed ? 600 : 400 }}>{d.label}</span>
                     {gereed
                       ? <span style={{ fontSize: 11, color: KLEUR.mutedTekst, whiteSpace: "nowrap" }}>{s?.wie || ""}{s?.datum ? ` · ${datumKort(s.datum)}` : ""}</span>
