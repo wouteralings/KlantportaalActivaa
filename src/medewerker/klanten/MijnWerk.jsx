@@ -9,9 +9,10 @@
  *
  * Data + opslaan via /api/mw-planning-deelactiviteiten (zelfde als het Afwikkeling-scherm).
  */
-import { useState, useEffect, useMemo, Fragment } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { ClipboardCheck, ChevronLeft, ChevronRight, CheckSquare, Square, CheckCircle2, Loader2, Search, X } from "lucide-react";
 import { useMijnNaam } from "../MijnFilter";
+import UrenSchrijvenPanel from "../UrenSchrijvenPanel";
 
 const KLEUR = {
   blauw: "#1C5D8C", tekst: "#1C2321", subtekst: "#5B6259", mutedTekst: "#8A9089", rand: "#E2E4DF",
@@ -119,7 +120,7 @@ export default function MijnWerk() {
       const done = total ? eff.filter((d) => stFor(acc, act.sleutel, d.sleutel)?.gereed).length : 0;
       const gereed = total ? done === total : !!stFor(acc, act.sleutel, "__hoofd__")?.gereed;
       rijen.push({
-        key: dubbelKey, acc, actSleutel: act.sleutel, act, eff, done, total, gereed,
+        key: dubbelKey, acc, accountId: klant?.accountId || r.klantAccountId || "", actSleutel: act.sleutel, act, eff, done, total, gereed,
         klantnaam: klant?.klantnaam || "Onbekende klant", klantnummer: klant?.klantnummer || "", klantgroep: klant?.groepsnaam || "",
       });
     }
@@ -138,7 +139,7 @@ export default function MijnWerk() {
   const klantRijen = useMemo(() => {
     const perKlant = new Map();
     for (const it of items) {
-      if (!perKlant.has(it.acc)) perKlant.set(it.acc, { acc: it.acc, klantnaam: it.klantnaam, klantnummer: it.klantnummer, klantgroep: it.klantgroep, taken: {} });
+      if (!perKlant.has(it.acc)) perKlant.set(it.acc, { acc: it.acc, accountId: it.accountId, klantnaam: it.klantnaam, klantnummer: it.klantnummer, klantgroep: it.klantgroep, taken: {} });
       perKlant.get(it.acc).taken[it.actSleutel] = it;
     }
     return [...perKlant.values()].sort((a, b) => String(a.klantnaam).localeCompare(String(b.klantnaam), "nl"));
@@ -161,6 +162,12 @@ export default function MijnWerk() {
 
   const totaalCellen = items.length;
   const gereedCellen = items.filter((i) => i.gereed).length;
+
+  // De aangeklikte cel (voor de aftekenen-popup) — live afgeleid, zodat de status meebeweegt met afvinken.
+  const actieveRij = actieveCel ? klantRijen.find((r) => r.acc === actieveCel.acc) : null;
+  const actiefItem = actieveRij ? actieveRij.taken[actieveCel.actSleutel] : null;
+  const actieveStatus = actiefItem ? celStatus(actiefItem) : null;
+  const STATUS_LABEL = { open: "Open", bezig: "Bezig", gereed: "Gereed" };
 
   const afvink = async (acc, actSleutel, deelSleutel, gereed) => {
     setFout("");
@@ -274,57 +281,30 @@ export default function MijnWerk() {
             <tbody>
               {zichtbareRijen.map((rij) => {
                 const celOpen = actieveCel && actieveCel.acc === rij.acc;
-                const actiefItem = celOpen ? rij.taken[actieveCel.actSleutel] : null;
                 return (
-                  <Fragment key={rij.acc}>
-                    <tr>
-                      <td style={{ ...cel, position: "sticky", left: 0, background: "#fff", zIndex: 1 }}>
-                        <div style={{ fontSize: 12.5, fontWeight: 600, color: KLEUR.tekst }}>{rij.klantnaam}</div>
-                        <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>{rij.klantnummer ? `${rij.klantnummer}` : ""}{rij.klantnummer && rij.klantgroep ? " · " : ""}{rij.klantgroep || ""}</div>
-                      </td>
-                      {zichtbareTaken.map((t) => {
-                        const it = rij.taken[t.sleutel];
-                        const st = celStatus(it);
-                        if (!st) return <td key={t.sleutel} style={{ ...cel, textAlign: "center", color: KLEUR.rand }}>—</td>;
-                        const isActief = celOpen && actieveCel.actSleutel === t.sleutel;
-                        return (
-                          <td key={t.sleutel} style={{ ...cel, textAlign: "center" }}>
-                            <button
-                              onClick={() => setActieveCel(isActief ? null : { acc: rij.acc, actSleutel: t.sleutel })}
-                              title={`${t.label} — ${rij.klantnaam}`}
-                              style={{ display: "inline-flex", alignItems: "center", gap: 5, minWidth: 62, justifyContent: "center", padding: "4px 10px", borderRadius: 20, background: st.bg, color: st.kleur, border: `1px solid ${isActief ? st.kleur : st.rand}`, fontSize: 11.5, fontWeight: 700, cursor: "pointer", outline: isActief ? `1px solid ${st.kleur}` : "none" }}
-                            >
-                              {st.kind === "gereed" ? <CheckCircle2 size={12} /> : null}{st.label}
-                            </button>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                    {celOpen && actiefItem && (
-                      <tr>
-                        <td colSpan={1 + zichtbareTaken.length} style={{ background: "#FbFcFb", borderBottom: `1px solid ${KLEUR.rand}`, padding: "10px 14px" }}>
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
-                            <div style={{ fontSize: 12.5, fontWeight: 700, color: KLEUR.tekst }}>{actiefItem.act.label} · <span style={{ fontWeight: 500, color: KLEUR.subtekst }}>{rij.klantnaam}</span></div>
-                            <button onClick={() => setActieveCel(null)} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.mutedTekst, padding: 2, display: "inline-flex" }}><X size={15} /></button>
-                          </div>
-                          {(actiefItem.total === 0 ? [{ sleutel: "__hoofd__", label: `${actiefItem.act.label} afgewikkeld` }] : actiefItem.eff).map((d) => {
-                            const s = stFor(rij.acc, actiefItem.actSleutel, d.sleutel);
-                            const gereed = !!s?.gereed;
-                            const key = `${rij.acc}|${actiefItem.actSleutel}|${d.sleutel}`;
-                            return (
-                              <div key={d.sleutel} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 2px", borderBottom: `1px solid ${KLEUR.rand}55` }}>
-                                <button disabled={bezig === key} onClick={() => afvink(rij.acc, actiefItem.actSleutel, d.sleutel, !gereed)} style={{ background: "none", border: "none", cursor: bezig === key ? "default" : "pointer", color: gereed ? KLEUR.groen : KLEUR.mutedTekst, padding: 0, display: "inline-flex" }}>
-                                  {gereed ? <CheckSquare size={19} /> : <Square size={19} />}
-                                </button>
-                                <span style={{ flex: 1, fontSize: 13, color: KLEUR.tekst, fontWeight: gereed ? 600 : 400 }}>{d.label}</span>
-                                {gereed && <span style={{ fontSize: 11, color: KLEUR.mutedTekst, whiteSpace: "nowrap" }}>{s?.wie || ""}{s?.datum ? ` · ${datumKort(s.datum)}` : ""}</span>}
-                              </div>
-                            );
-                          })}
+                  <tr key={rij.acc}>
+                    <td style={{ ...cel, position: "sticky", left: 0, background: "#fff", zIndex: 1 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: KLEUR.tekst }}>{rij.klantnaam}</div>
+                      <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>{rij.klantnummer ? `${rij.klantnummer}` : ""}{rij.klantnummer && rij.klantgroep ? " · " : ""}{rij.klantgroep || ""}</div>
+                    </td>
+                    {zichtbareTaken.map((t) => {
+                      const it = rij.taken[t.sleutel];
+                      const st = celStatus(it);
+                      if (!st) return <td key={t.sleutel} style={{ ...cel, textAlign: "center", color: KLEUR.rand }}>—</td>;
+                      const isActief = celOpen && actieveCel.actSleutel === t.sleutel;
+                      return (
+                        <td key={t.sleutel} style={{ ...cel, textAlign: "center" }}>
+                          <button
+                            onClick={() => setActieveCel({ acc: rij.acc, actSleutel: t.sleutel })}
+                            title={`${t.label} — ${rij.klantnaam} · aftekenen`}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 5, minWidth: 62, justifyContent: "center", padding: "4px 10px", borderRadius: 20, background: st.bg, color: st.kleur, border: `1px solid ${isActief ? st.kleur : st.rand}`, fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
+                          >
+                            {st.kind === "gereed" ? <CheckCircle2 size={12} /> : null}{st.label}
+                          </button>
                         </td>
-                      </tr>
-                    )}
-                  </Fragment>
+                      );
+                    })}
+                  </tr>
                 );
               })}
             </tbody>
@@ -333,8 +313,64 @@ export default function MijnWerk() {
       )}
 
       <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 10, lineHeight: 1.5 }}>
-        Klanten in de rijen, jouw hoofdtaken in de kolommen. De kleur toont de status: <span style={{ color: KLEUR.rood, fontWeight: 700 }}>open</span>, <span style={{ color: KLEUR.amber, fontWeight: 700 }}>bezig</span> of <span style={{ color: KLEUR.groen, fontWeight: 700 }}>gereed</span>. Klik een cel om de deelstappen af te tekenen.
+        Klanten in de rijen, jouw hoofdtaken in de kolommen. De kleur toont de status: <span style={{ color: KLEUR.rood, fontWeight: 700 }}>open</span>, <span style={{ color: KLEUR.amber, fontWeight: 700 }}>bezig</span> of <span style={{ color: KLEUR.groen, fontWeight: 700 }}>gereed</span>. Klik een cel om af te tekenen; is alles gereed, dan schrijf je gelijk je uren op de klant.
       </div>
+
+      {/* Aftekenen-popup: deelstappen + status per taak; is de taak gereed, dan gelijk uren schrijven */}
+      {actieveCel && actieveRij && actiefItem && (
+        <div onClick={() => setActieveCel(null)} style={{ position: "fixed", inset: 0, background: "rgba(28,35,33,0.35)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 12, width: "min(560px, 96vw)", maxHeight: "90vh", overflow: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.18)" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, padding: "14px 16px", borderBottom: `1px solid ${KLEUR.rand}` }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: KLEUR.tekst }}>{actiefItem.act.label}</div>
+                <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>{actieveRij.klantnaam}{actieveRij.klantnummer ? ` · ${actieveRij.klantnummer}` : ""}</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {actieveStatus && <span style={{ fontSize: 11, fontWeight: 700, color: actieveStatus.kleur, background: actieveStatus.bg, border: `1px solid ${actieveStatus.rand}`, borderRadius: 999, padding: "2px 10px" }}>{STATUS_LABEL[actieveStatus.kind]}{actiefItem.total ? ` · ${actiefItem.done}/${actiefItem.total}` : ""}</span>}
+                <button onClick={() => setActieveCel(null)} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.mutedTekst, padding: 2, display: "inline-flex" }}><X size={18} /></button>
+              </div>
+            </div>
+
+            <div style={{ padding: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 6 }}>Deelstappen</div>
+              {(actiefItem.total === 0 ? [{ sleutel: "__hoofd__", label: `${actiefItem.act.label} afgewikkeld` }] : actiefItem.eff).map((d) => {
+                const s = stFor(actieveRij.acc, actiefItem.actSleutel, d.sleutel);
+                const gereed = !!s?.gereed;
+                const key = `${actieveRij.acc}|${actiefItem.actSleutel}|${d.sleutel}`;
+                return (
+                  <div key={d.sleutel} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 2px", borderBottom: `1px solid ${KLEUR.rand}55` }}>
+                    <button disabled={bezig === key} onClick={() => afvink(actieveRij.acc, actiefItem.actSleutel, d.sleutel, !gereed)} style={{ background: "none", border: "none", cursor: bezig === key ? "default" : "pointer", color: gereed ? KLEUR.groen : KLEUR.mutedTekst, padding: 0, display: "inline-flex" }}>
+                      {gereed ? <CheckSquare size={20} /> : <Square size={20} />}
+                    </button>
+                    <span style={{ flex: 1, fontSize: 13.5, color: KLEUR.tekst, fontWeight: gereed ? 600 : 400 }}>{d.label}</span>
+                    {gereed
+                      ? <span style={{ fontSize: 11, color: KLEUR.mutedTekst, whiteSpace: "nowrap" }}>{s?.wie || ""}{s?.datum ? ` · ${datumKort(s.datum)}` : ""}</span>
+                      : <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.amber, background: KLEUR.amberBg, border: `1px solid ${KLEUR.amberRand}`, borderRadius: 999, padding: "1px 8px" }}>open</span>}
+                  </div>
+                );
+              })}
+
+              {actiefItem.gereed && (
+                <div style={{ marginTop: 16 }}>
+                  {actieveRij.accountId ? (
+                    <UrenSchrijvenPanel
+                      key={`${actieveRij.acc}|${actiefItem.actSleutel}`}
+                      accountId={actieveRij.accountId}
+                      klantnaam={actieveRij.klantnaam}
+                      voorgesteldeUren=""
+                      omschrijving={actiefItem.act.label}
+                      onGeboekt={() => {}}
+                      onOverslaan={() => setActieveCel(null)}
+                    />
+                  ) : (
+                    <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Geen cliënt gekoppeld, dus er kunnen geen uren worden geschreven.</div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

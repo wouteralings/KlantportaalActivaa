@@ -29,6 +29,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Search, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Loader2, Star, User, Users, Building2, CheckCircle2, ExternalLink } from "lucide-react";
 import { useMijnNaam, isKlantVanMij } from "./MijnFilter";
+import UrenSchrijvenPanel from "./UrenSchrijvenPanel";
 
 const KLEUR = {
   blauw: "#1C5D8C", tekst: "#1C2321", subtekst: "#5B6259", mutedTekst: "#8A9089", rand: "#E2E4DF",
@@ -117,6 +118,8 @@ function AfwikkelingBadge({ waarde }) {
 function TaakDetail({ taak, modus, appUrl, onTerug, onAfgehandeld, onTijd }) {
   const [bezig, setBezig] = useState(false);
   const [fout, setFout] = useState("");
+  const [afgerond, setAfgerond] = useState(false); // net afgehandeld → uren schrijven tonen
+  const [geboekt, setGeboekt] = useState(false);
   const [urenInput, setUrenInput] = useState(taak.urenOverride == null ? "" : String(taak.urenOverride));
   const [urenBezig, setUrenBezig] = useState(false);
   const [urenStatus, setUrenStatus] = useState(""); // "" | "gelukt" | foutmelding
@@ -150,7 +153,9 @@ function TaakDetail({ taak, modus, appUrl, onTerug, onAfgehandeld, onTijd }) {
         body: JSON.stringify({ id: taak.id, actie: "afronden" }),
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
-      onAfgehandeld(taak.id);
+      // Taak is afgehandeld — laat de medewerker gelijk uren op de cliënt schrijven.
+      setBezig(false);
+      setAfgerond(true);
     } catch (e) {
       setFout(e.message || "Afronden mislukt.");
       setBezig(false);
@@ -160,6 +165,40 @@ function TaakDetail({ taak, modus, appUrl, onTerug, onAfgehandeld, onTijd }) {
   const label = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 2 };
   const waarde = { fontSize: 13.5, color: KLEUR.tekst, marginBottom: 12 };
   const Rij = ({ l, children }) => (<div><div style={label}>{l}</div><div style={waarde}>{children || "—"}</div></div>);
+
+  // Net afgehandeld → bevestiging + gelijk uren schrijven op de cliënt.
+  if (afgerond) {
+    const klantnaam = taak.klantnaam || (taak.klant && taak.klant.klantnaam) || "";
+    return (
+      <div style={{ maxWidth: 720 }}>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 7, background: KLEUR.groenBg, color: KLEUR.groen, borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 700, marginBottom: 14 }}>
+          <CheckCircle2 size={15} /> Taak afgehandeld
+        </div>
+        {taak.klantAccountId ? (
+          <>
+            <UrenSchrijvenPanel
+              accountId={taak.klantAccountId}
+              klantnaam={klantnaam}
+              voorgesteldeUren={taak.uren != null && taak.uren !== "" ? taak.uren : ""}
+              omschrijving={taak.onderwerp || ""}
+              onGeboekt={() => setGeboekt(true)}
+              onOverslaan={() => onAfgehandeld(taak.id)}
+            />
+            <div style={{ marginTop: 12 }}>
+              <button onClick={() => onAfgehandeld(taak.id)} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", color: KLEUR.blauw, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: 0 }}>
+                <ArrowLeft size={15} /> {geboekt ? "Terug naar taken" : "Klaar — terug naar taken"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <div>
+            <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, marginBottom: 12 }}>Geen cliënt aan deze taak gekoppeld, dus er kunnen geen uren op een klant worden geschreven.</div>
+            <button onClick={() => onAfgehandeld(taak.id)} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", color: KLEUR.blauw, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: 0 }}><ArrowLeft size={15} /> Terug naar taken</button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div>
