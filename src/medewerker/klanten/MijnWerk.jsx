@@ -1,22 +1,23 @@
 /**
- * "Mijn werk" — de ingelogde medewerker tekent zíjn eigen toegewezen werk af.
+ * "Mijn werk" — de ingelogde medewerker tekent zíjn eigen toegewezen werk af, nu als matrix:
+ * klanten in de rijen, hoofdtaken (hoofdactiviteiten) in de kolommen, met een statuskleur per cel
+ * (open / bezig / gereed). Filteren kan op klant, klantgroep en taak. Klik een cel om de deelstappen
+ * van die hoofdtaak voor die klant af te tekenen; alle deelstappen af → de cel is "Gereed".
  *
- * Toont alleen de hoofdactiviteiten (uit de per-klant planning-configuratie) die in de gekozen
- * periode aan JOU zijn toegewezen — als vaste toewijzing (toegewezenAan) of via je rol op de klant
- * (accountant/manager/assistent/…). Per hoofdactiviteit teken je de deelstappen af (met wie + datum);
- * alle deelstappen af → de activiteit is "Gereed". Zo hoeft een medewerker niet de hele
- * klant-matrix (Planning → Deelactiviteiten) door: dit is puur zijn eigen lijstje.
+ * Toont alleen de hoofdactiviteiten (uit de per-klant planning-configuratie) die in de gekozen periode
+ * aan JOU zijn toegewezen — als vaste toewijzing (toegewezenAan) of via je rol op de klant.
  *
  * Data + opslaan via /api/mw-planning-deelactiviteiten (zelfde als het Afwikkeling-scherm).
- * Bedoeld om buiten de Planning-tab te hangen, zichtbaar voor elke medewerker.
  */
-import { useState, useEffect, useMemo } from "react";
-import { ClipboardCheck, ChevronLeft, ChevronRight, CheckSquare, Square, CheckCircle2, Loader2 } from "lucide-react";
+import { useState, useEffect, useMemo, Fragment } from "react";
+import { ClipboardCheck, ChevronLeft, ChevronRight, CheckSquare, Square, CheckCircle2, Loader2, Search, X } from "lucide-react";
 import { useMijnNaam } from "../MijnFilter";
 
 const KLEUR = {
   blauw: "#1C5D8C", tekst: "#1C2321", subtekst: "#5B6259", mutedTekst: "#8A9089", rand: "#E2E4DF",
-  rood: "#B23B3B", groen: "#2E7D46", groenBg: "#E7F3EB", amber: "#A9660C", amberAchtergrond: "#FFF4E5", lichtblauw: "#EAF2F8",
+  rood: "#B23B3B", roodBg: "#FBEAEA", roodRand: "#EAC4C4",
+  groen: "#2E7D46", groenBg: "#E7F3EB", groenRand: "#BFE3C9",
+  amber: "#A9660C", amberBg: "#FFF4E5", amberRand: "#F2D9A8", lichtblauw: "#EAF2F8",
 };
 const MAANDEN = ["januari", "februari", "maart", "april", "mei", "juni", "juli", "augustus", "september", "oktober", "november", "december"];
 const pad = (n) => String(n).padStart(2, "0");
@@ -41,25 +42,39 @@ function valtInMaand(r, maand1) {
   return false;
 }
 
+// Statuskleur van één cel (hoofdtaak × klant).
+function celStatus(item) {
+  if (!item) return null;
+  if (item.gereed) return { kind: "gereed", label: item.total ? `${item.done}/${item.total}` : "Gereed", bg: KLEUR.groenBg, kleur: KLEUR.groen, rand: KLEUR.groenRand };
+  if (item.done > 0) return { kind: "bezig", label: `${item.done}/${item.total}`, bg: KLEUR.amberBg, kleur: KLEUR.amber, rand: KLEUR.amberRand };
+  return { kind: "open", label: item.total ? `0/${item.total}` : "Open", bg: KLEUR.roodBg, kleur: KLEUR.rood, rand: KLEUR.roodRand };
+}
+
 export default function MijnWerk() {
   const nu = new Date();
   const { mijnNaam, geladen: naamGeladen } = useMijnNaam();
   const [type, setType] = useState("maand"); // maand | jaar
   const [jaar, setJaar] = useState(nu.getFullYear());
   const [maand, setMaand] = useState(nu.getMonth() + 1);
-  const [verberg, setVerberg] = useState(true); // afgeronde activiteiten verbergen
 
   const [config, setConfig] = useState(null);
   const [activiteiten, setActiviteiten] = useState([]);
   const [klantenMap, setKlantenMap] = useState({});
   const [status, setStatus] = useState({});            // { "acc|act|deel": { gereed, wie, datum } }
   const [klantDeelstappen, setKlantDeelstappen] = useState({}); // { "acc|act": [ {sleutel,label} ] }
-  const [open, setOpen] = useState(() => new Set());   // welke (acc|act) uitgeklapt
   const [bezig, setBezig] = useState("");              // key die nu wordt opgeslagen
   const [fout, setFout] = useState("");
 
+  // Filters + actieve cel (uitgeklapte deelstappen).
+  const [klantZoek, setKlantZoek] = useState("");
+  const [groepFilter, setGroepFilter] = useState("");
+  const [verborgenTaken, setVerborgenTaken] = useState(() => new Set()); // hoofdtaken (kolommen) die verborgen zijn
+  const [alleenOpen, setAlleenOpen] = useState(false);
+  const [actieveCel, setActieveCel] = useState(null);  // { acc, actSleutel } of null
+
   const periode = type === "maand" ? `${jaar}-${pad(maand)}` : `${jaar}`;
   const activiteitById = useMemo(() => Object.fromEntries(activiteiten.map((a) => [a.sleutel, a])), [activiteiten]);
+  const activiteitOrder = useMemo(() => Object.fromEntries(activiteiten.map((a, i) => [a.sleutel, i])), [activiteiten]);
   const mijnLc = String(mijnNaam || "").trim().toLowerCase();
 
   useEffect(() => {
@@ -69,6 +84,7 @@ export default function MijnWerk() {
   }, []);
 
   useEffect(() => {
+    setActieveCel(null);
     fetch(`/api/mw-planning-deelactiviteiten?periode=${periode}`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => { setStatus(d.status || {}); setKlantDeelstappen(d.klantDeelstappen || {}); })
@@ -81,7 +97,7 @@ export default function MijnWerk() {
   };
   const stFor = (acc, actSleutel, deelSleutel) => status[`${acc}|${actSleutel}|${deelSleutel}`] || null;
 
-  // Alleen de aan mij toegewezen hoofdactiviteiten in deze periode.
+  // Alleen de aan mij toegewezen hoofdactiviteiten in deze periode → per (klant × hoofdtaak) één item.
   const items = useMemo(() => {
     if (!config || !mijnLc) return [];
     const seen = new Set();
@@ -107,20 +123,50 @@ export default function MijnWerk() {
         klantnaam: klant?.klantnaam || "Onbekende klant", klantnummer: klant?.klantnummer || "", klantgroep: klant?.groepsnaam || "",
       });
     }
-    return rijen.sort((a, b) => (a.gereed - b.gereed) || String(a.klantnaam).localeCompare(String(b.klantnaam), "nl"));
+    return rijen;
   }, [config, activiteitById, klantenMap, klantDeelstappen, status, type, maand, mijnLc]);
 
-  const zichtbaar = verberg ? items.filter((i) => !i.gereed) : items;
-  const openN = items.filter((i) => !i.gereed).length;
-  const klaarN = items.length - openN;
+  // Kolommen: de hoofdtaken die in mijn werk voorkomen (op definitie-volgorde).
+  const alleTaken = useMemo(() => {
+    const perSleutel = new Map();
+    for (const it of items) if (!perSleutel.has(it.actSleutel)) perSleutel.set(it.actSleutel, { sleutel: it.actSleutel, label: it.act.label });
+    return [...perSleutel.values()].sort((a, b) => (activiteitOrder[a.sleutel] ?? 999) - (activiteitOrder[b.sleutel] ?? 999) || String(a.label).localeCompare(String(b.label), "nl"));
+  }, [items, activiteitOrder]);
+  const zichtbareTaken = alleTaken.filter((t) => !verborgenTaken.has(t.sleutel));
 
-  const toggle = (key) => setOpen((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+  // Rijen: per klant, met een map hoofdtaak→item.
+  const klantRijen = useMemo(() => {
+    const perKlant = new Map();
+    for (const it of items) {
+      if (!perKlant.has(it.acc)) perKlant.set(it.acc, { acc: it.acc, klantnaam: it.klantnaam, klantnummer: it.klantnummer, klantgroep: it.klantgroep, taken: {} });
+      perKlant.get(it.acc).taken[it.actSleutel] = it;
+    }
+    return [...perKlant.values()].sort((a, b) => String(a.klantnaam).localeCompare(String(b.klantnaam), "nl"));
+  }, [items]);
+
+  const groepen = useMemo(() => [...new Set(klantRijen.map((k) => k.klantgroep).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), "nl")), [klantRijen]);
+
+  const zichtbareRijen = useMemo(() => {
+    const q = klantZoek.trim().toLowerCase();
+    return klantRijen.filter((k) => {
+      if (q && !`${k.klantnaam} ${k.klantnummer}`.toLowerCase().includes(q)) return false;
+      if (groepFilter && k.klantgroep !== groepFilter) return false;
+      if (alleenOpen) {
+        const relevante = zichtbareTaken.map((t) => k.taken[t.sleutel]).filter(Boolean);
+        if (relevante.length && relevante.every((it) => it.gereed)) return false;
+      }
+      return true;
+    });
+  }, [klantRijen, klantZoek, groepFilter, alleenOpen, zichtbareTaken]);
+
+  const totaalCellen = items.length;
+  const gereedCellen = items.filter((i) => i.gereed).length;
 
   const afvink = async (acc, actSleutel, deelSleutel, gereed) => {
     setFout("");
     const key = `${acc}|${actSleutel}|${deelSleutel}`;
     setBezig(key);
-    const vorige = status;
+    const vorigeStatus = status;
     setStatus((p) => { const n = { ...p }; if (gereed) n[key] = { gereed: true, wie: mijnNaam || "(jij)", datum: new Date().toISOString() }; else delete n[key]; return n; });
     try {
       const res = await fetch("/api/mw-planning-deelactiviteiten", {
@@ -133,13 +179,18 @@ export default function MijnWerk() {
       }
       const d = await res.json().catch(() => ({}));
       setStatus((p) => { const n = { ...p }; if (gereed && d.status) n[key] = d.status; else if (!gereed) delete n[key]; return n; });
-    } catch (e) { setStatus(vorige); setFout(e.message || "Aftekenen mislukt."); } finally { setBezig(""); }
+    } catch (e) { setStatus(vorigeStatus); setFout(e.message || "Aftekenen mislukt."); } finally { setBezig(""); }
   };
 
   const vorige = () => { if (type === "jaar") { setJaar((j) => j - 1); return; } if (maand === 1) { setMaand(12); setJaar((j) => j - 1); } else setMaand((m) => m - 1); };
   const volgende = () => { if (type === "jaar") { setJaar((j) => j + 1); return; } if (maand === 12) { setMaand(1); setJaar((j) => j + 1); } else setMaand((m) => m + 1); };
+  const toggleTaak = (sleutel) => setVerborgenTaken((s) => { const n = new Set(s); if (n.has(sleutel)) n.delete(sleutel); else n.add(sleutel); return n; });
+  const filterActief = !!klantZoek.trim() || !!groepFilter || verborgenTaken.size > 0 || alleenOpen;
 
   const laden = config === null || !naamGeladen;
+
+  const kop = { textAlign: "left", fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", padding: "8px 10px", borderBottom: `1px solid ${KLEUR.rand}`, whiteSpace: "nowrap" };
+  const cel = { padding: "6px 8px", borderBottom: `1px solid ${KLEUR.rand}`, verticalAlign: "middle" };
 
   return (
     <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
@@ -154,16 +205,51 @@ export default function MijnWerk() {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", margin: "6px 0 12px" }}>
+      {/* Bovenbalk: periode-type + filters */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", margin: "6px 0 10px" }}>
         <div style={{ display: "flex", gap: 4 }}>
           {[["maand", "Per maand"], ["jaar", "Per jaar"]].map(([k, label]) => (
             <button key={k} onClick={() => setType(k)} style={{ padding: "6px 12px", borderRadius: 20, border: `1px solid ${type === k ? KLEUR.blauw : KLEUR.rand}`, background: type === k ? KLEUR.blauw : "#fff", color: type === k ? "#fff" : KLEUR.subtekst, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{label}</button>
           ))}
         </div>
-        <span style={{ fontSize: 12.5, color: KLEUR.subtekst }}><strong style={{ color: KLEUR.tekst }}>{openN}</strong> openstaand · {klaarN} gereed</span>
-        <label style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: "pointer", fontSize: 12, color: KLEUR.subtekst, marginLeft: "auto" }}>
-          <input type="checkbox" checked={verberg} onChange={(e) => setVerberg(e.target.checked)} /> Afgeronde verbergen
+        <div style={{ position: "relative", flex: "1 1 220px", maxWidth: 300 }}>
+          <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+          <input value={klantZoek} onChange={(e) => setKlantZoek(e.target.value)} placeholder="Zoek op klant of klantnummer…" style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px 7px 32px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }} />
+        </div>
+        <label style={{ fontSize: 12, color: KLEUR.subtekst, display: "inline-flex", alignItems: "center", gap: 6 }}>
+          Klantgroep
+          <select value={groepFilter} onChange={(e) => setGroepFilter(e.target.value)} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "6px 8px", fontSize: 12.5, background: "#fff", cursor: "pointer" }}>
+            <option value="">Alle</option>
+            {groepen.map((g) => <option key={g} value={g}>{g}</option>)}
+          </select>
         </label>
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: "pointer", fontSize: 12, color: KLEUR.subtekst }}>
+          <input type="checkbox" checked={alleenOpen} onChange={(e) => setAlleenOpen(e.target.checked)} /> Alleen openstaand
+        </label>
+        {filterActief && <button onClick={() => { setKlantZoek(""); setGroepFilter(""); setVerborgenTaken(new Set()); setAlleenOpen(false); }} style={{ padding: "6px 10px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Filters wissen</button>}
+      </div>
+
+      {/* Taak-filter (kolommen aan/uit) + statuslegenda */}
+      {alleTaken.length > 0 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+          <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".03em", marginRight: 2 }}>Taken:</span>
+          {alleTaken.map((t) => {
+            const aan = !verborgenTaken.has(t.sleutel);
+            return (
+              <button key={t.sleutel} onClick={() => toggleTaak(t.sleutel)} style={{ padding: "4px 10px", borderRadius: 20, border: `1px solid ${aan ? KLEUR.blauw : KLEUR.rand}`, background: aan ? KLEUR.lichtblauw : "#fff", color: aan ? KLEUR.blauw : KLEUR.mutedTekst, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{t.label}</button>
+            );
+          })}
+          <span style={{ flex: 1 }} />
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 12, fontSize: 11.5, color: KLEUR.subtekst }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><span style={{ width: 11, height: 11, borderRadius: 3, background: KLEUR.roodBg, border: `1px solid ${KLEUR.roodRand}` }} /> Open</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><span style={{ width: 11, height: 11, borderRadius: 3, background: KLEUR.amberBg, border: `1px solid ${KLEUR.amberRand}` }} /> Bezig</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><span style={{ width: 11, height: 11, borderRadius: 3, background: KLEUR.groenBg, border: `1px solid ${KLEUR.groenRand}` }} /> Gereed</span>
+          </span>
+        </div>
+      )}
+
+      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 10 }}>
+        <strong style={{ color: KLEUR.tekst }}>{zichtbareRijen.length}</strong> {zichtbareRijen.length === 1 ? "klant" : "klanten"} · {gereedCellen}/{totaalCellen} taken gereed
       </div>
 
       {fout && <div style={{ background: `${KLEUR.rood}12`, border: `1px solid ${KLEUR.rood}33`, color: KLEUR.rood, borderRadius: 8, padding: "9px 12px", marginBottom: 12, fontSize: 12.5 }}>{fout}</div>}
@@ -172,52 +258,82 @@ export default function MijnWerk() {
         <div style={{ display: "flex", alignItems: "center", gap: 8, color: KLEUR.mutedTekst, fontSize: 13, padding: "16px 0" }}><Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} /> Laden…</div>
       ) : !mijnNaam ? (
         <div style={{ color: KLEUR.mutedTekst, fontSize: 13, padding: "16px 0" }}>Je naam kon niet worden bepaald, dus je toegewezen werk kan niet worden getoond. Log opnieuw in of neem contact op met beheer.</div>
-      ) : zichtbaar.length === 0 ? (
-        <div style={{ color: KLEUR.mutedTekst, fontSize: 13, padding: "16px 0" }}>{items.length === 0 ? "Er is voor deze periode niets aan jou toegewezen." : "Alles afgerond voor deze periode. 🎉"}</div>
+      ) : klantRijen.length === 0 ? (
+        <div style={{ color: KLEUR.mutedTekst, fontSize: 13, padding: "16px 0" }}>Er is voor deze periode niets aan jou toegewezen.</div>
+      ) : zichtbareRijen.length === 0 ? (
+        <div style={{ color: KLEUR.mutedTekst, fontSize: 13, padding: "16px 0" }}>Geen klanten voor deze filters.</div>
       ) : (
-        <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
-          {zichtbaar.map((it) => {
-            const uit = open.has(it.key);
-            return (
-              <div key={it.key} style={{ borderBottom: `1px solid ${KLEUR.rand}` }}>
-                <button onClick={() => toggle(it.key)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", background: "none", border: "none", padding: "10px 12px", cursor: "pointer" }}>
-                  <ChevronRight size={15} style={{ transform: uit ? "rotate(90deg)" : "none", transition: "transform .15s", flexShrink: 0 }} color={KLEUR.mutedTekst} />
-                  <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600 }}>{it.act.label}</span>
-                    <span style={{ fontSize: 12, color: KLEUR.mutedTekst }}> · {it.klantnaam}{it.klantnummer ? ` (${it.klantnummer})` : ""}</span>
-                  </span>
-                  {it.gereed ? (
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: KLEUR.groenBg, color: KLEUR.groen, borderRadius: 20, padding: "2px 9px", fontSize: 11.5, fontWeight: 700 }}><CheckCircle2 size={13} /> Gereed</span>
-                  ) : (
-                    <span style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.subtekst, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 20, padding: "2px 9px" }}>{it.total ? `${it.done}/${it.total}` : "aftekenen"}</span>
-                  )}
-                </button>
-                {uit && (
-                  <div style={{ background: "#FbFcFb", padding: "2px 12px 10px 34px", borderTop: `1px solid ${KLEUR.rand}55` }}>
-                    {(it.total === 0 ? [{ sleutel: "__hoofd__", label: `${it.act.label} afgewikkeld` }] : it.eff).map((d) => {
-                      const s = stFor(it.acc, it.actSleutel, d.sleutel);
-                      const gereed = !!s?.gereed;
-                      const key = `${it.acc}|${it.actSleutel}|${d.sleutel}`;
-                      return (
-                        <div key={d.sleutel} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 2px", borderBottom: `1px solid ${KLEUR.rand}55` }}>
-                          <button disabled={bezig === key} onClick={() => afvink(it.acc, it.actSleutel, d.sleutel, !gereed)} style={{ background: "none", border: "none", cursor: bezig === key ? "default" : "pointer", color: gereed ? KLEUR.groen : KLEUR.mutedTekst, padding: 0, display: "inline-flex" }}>
-                            {gereed ? <CheckSquare size={19} /> : <Square size={19} />}
-                          </button>
-                          <span style={{ flex: 1, fontSize: 13, color: KLEUR.tekst, fontWeight: gereed ? 600 : 400 }}>{d.label}</span>
-                          {gereed && <span style={{ fontSize: 11, color: KLEUR.mutedTekst, whiteSpace: "nowrap" }}>{s?.wie || ""}{s?.datum ? ` · ${datumKort(s.datum)}` : ""}</span>}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+        <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 480 }}>
+            <thead>
+              <tr>
+                <th style={{ ...kop, position: "sticky", left: 0, background: "#fff", zIndex: 2, minWidth: 200 }}>Klant</th>
+                {zichtbareTaken.map((t) => <th key={t.sleutel} style={{ ...kop, textAlign: "center" }}>{t.label}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {zichtbareRijen.map((rij) => {
+                const celOpen = actieveCel && actieveCel.acc === rij.acc;
+                const actiefItem = celOpen ? rij.taken[actieveCel.actSleutel] : null;
+                return (
+                  <Fragment key={rij.acc}>
+                    <tr>
+                      <td style={{ ...cel, position: "sticky", left: 0, background: "#fff", zIndex: 1 }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 600, color: KLEUR.tekst }}>{rij.klantnaam}</div>
+                        <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>{rij.klantnummer ? `${rij.klantnummer}` : ""}{rij.klantnummer && rij.klantgroep ? " · " : ""}{rij.klantgroep || ""}</div>
+                      </td>
+                      {zichtbareTaken.map((t) => {
+                        const it = rij.taken[t.sleutel];
+                        const st = celStatus(it);
+                        if (!st) return <td key={t.sleutel} style={{ ...cel, textAlign: "center", color: KLEUR.rand }}>—</td>;
+                        const isActief = celOpen && actieveCel.actSleutel === t.sleutel;
+                        return (
+                          <td key={t.sleutel} style={{ ...cel, textAlign: "center" }}>
+                            <button
+                              onClick={() => setActieveCel(isActief ? null : { acc: rij.acc, actSleutel: t.sleutel })}
+                              title={`${t.label} — ${rij.klantnaam}`}
+                              style={{ display: "inline-flex", alignItems: "center", gap: 5, minWidth: 62, justifyContent: "center", padding: "4px 10px", borderRadius: 20, background: st.bg, color: st.kleur, border: `1px solid ${isActief ? st.kleur : st.rand}`, fontSize: 11.5, fontWeight: 700, cursor: "pointer", outline: isActief ? `1px solid ${st.kleur}` : "none" }}
+                            >
+                              {st.kind === "gereed" ? <CheckCircle2 size={12} /> : null}{st.label}
+                            </button>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                    {celOpen && actiefItem && (
+                      <tr>
+                        <td colSpan={1 + zichtbareTaken.length} style={{ background: "#FbFcFb", borderBottom: `1px solid ${KLEUR.rand}`, padding: "10px 14px" }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+                            <div style={{ fontSize: 12.5, fontWeight: 700, color: KLEUR.tekst }}>{actiefItem.act.label} · <span style={{ fontWeight: 500, color: KLEUR.subtekst }}>{rij.klantnaam}</span></div>
+                            <button onClick={() => setActieveCel(null)} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.mutedTekst, padding: 2, display: "inline-flex" }}><X size={15} /></button>
+                          </div>
+                          {(actiefItem.total === 0 ? [{ sleutel: "__hoofd__", label: `${actiefItem.act.label} afgewikkeld` }] : actiefItem.eff).map((d) => {
+                            const s = stFor(rij.acc, actiefItem.actSleutel, d.sleutel);
+                            const gereed = !!s?.gereed;
+                            const key = `${rij.acc}|${actiefItem.actSleutel}|${d.sleutel}`;
+                            return (
+                              <div key={d.sleutel} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 2px", borderBottom: `1px solid ${KLEUR.rand}55` }}>
+                                <button disabled={bezig === key} onClick={() => afvink(rij.acc, actiefItem.actSleutel, d.sleutel, !gereed)} style={{ background: "none", border: "none", cursor: bezig === key ? "default" : "pointer", color: gereed ? KLEUR.groen : KLEUR.mutedTekst, padding: 0, display: "inline-flex" }}>
+                                  {gereed ? <CheckSquare size={19} /> : <Square size={19} />}
+                                </button>
+                                <span style={{ flex: 1, fontSize: 13, color: KLEUR.tekst, fontWeight: gereed ? 600 : 400 }}>{d.label}</span>
+                                {gereed && <span style={{ fontSize: 11, color: KLEUR.mutedTekst, whiteSpace: "nowrap" }}>{s?.wie || ""}{s?.datum ? ` · ${datumKort(s.datum)}` : ""}</span>}
+                              </div>
+                            );
+                          })}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 
-      <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8, lineHeight: 1.5 }}>
-        Dit zijn de hoofdactiviteiten die deze periode aan jou zijn toegewezen. Vink de deelstappen af; alle stappen af → de activiteit is <span style={{ color: KLEUR.groen, fontWeight: 700 }}>gereed</span>.
+      <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 10, lineHeight: 1.5 }}>
+        Klanten in de rijen, jouw hoofdtaken in de kolommen. De kleur toont de status: <span style={{ color: KLEUR.rood, fontWeight: 700 }}>open</span>, <span style={{ color: KLEUR.amber, fontWeight: 700 }}>bezig</span> of <span style={{ color: KLEUR.groen, fontWeight: 700 }}>gereed</span>. Klik een cel om de deelstappen af te tekenen.
       </div>
     </div>
   );

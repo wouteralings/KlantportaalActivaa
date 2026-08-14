@@ -73,6 +73,7 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
   const [medewerkers, setMedewerkers] = useState([]);
   const [taakSoortOpties, setTaakSoortOpties] = useState([]);
   const [taakRubriekOpties, setTaakRubriekOpties] = useState([]);
+  const [standaardUrenPerSoort, setStandaardUrenPerSoort] = useState({}); // { taaksoort-waarde: uren }
 
   // Doorzetten naar een medewerker (maakt een Dynamics-taak in diens Taken).
   const [doorzet, setDoorzet] = useState(null); // de post die je doorzet, of null
@@ -83,6 +84,8 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
   const [dzUren, setDzUren] = useState("");
   const [dzSoort, setDzSoort] = useState("");
   const [dzRubriek, setDzRubriek] = useState("");
+  const [dzMelding, setDzMelding] = useState(false); // melding krijgen als de taak is afgehandeld → zelf accepteren
+  const [dzUrenTouched, setDzUrenTouched] = useState(false); // heeft de medewerker de uren zelf aangepast?
   const [dzBezig, setDzBezig] = useState(false);
   const [dzFout, setDzFout] = useState("");
 
@@ -111,6 +114,7 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
       setMedewerkers(Array.isArray(d.medewerkers) ? d.medewerkers : []);
       setTaakSoortOpties(Array.isArray(d.taakSoortOpties) ? d.taakSoortOpties : []);
       setTaakRubriekOpties(Array.isArray(d.taakRubriekOpties) ? d.taakRubriekOpties : []);
+      setStandaardUrenPerSoort(d.standaardUrenPerSoort && typeof d.standaardUrenPerSoort === "object" ? d.standaardUrenPerSoort : {});
     }).catch(() => {});
     return () => { actief = false; };
   }, []);
@@ -217,14 +221,32 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
     finally { setRijBezig(""); }
   };
 
-  // Doorzet-venster openen — standaard taak-soort/rubriek uit de soort-config voorinvullen.
+  // Standaard uren voor de doorgezette taak: eerst de per-postboek-soort ingestelde uren (voor de eigen
+  // taak-soort), anders de standaardtijd van de taaksoort (Beheer → Taken). Voor het voorinvullen.
+  const autoUrenVoor = (cfg, soortWaarde) => {
+    if (cfg && String(cfg.taakSoort || "") !== "" && String(cfg.taakSoort || "") === String(soortWaarde || "") && cfg.taakUren != null && String(cfg.taakUren).trim() !== "") return String(cfg.taakUren);
+    const v = standaardUrenPerSoort[String(soortWaarde || "")];
+    return v == null || v === "" ? "" : String(v);
+  };
+  const doorzetCfg = () => (doorzet ? (soorten.find((s) => s.id === doorzet.soortId) || {}) : {});
+
+  // Doorzet-venster openen — standaard taak-soort/rubriek + uren uit de soort-config voorinvullen.
   const openDoorzet = (post) => {
     const cfg = soorten.find((s) => s.id === post.soortId) || {};
+    const startSoort = cfg.taakSoort != null ? String(cfg.taakSoort) : "";
     setDoorzet(post);
-    setDzZoek(""); setDzEmail(""); setDzNaam(""); setDzOpmerking(""); setDzUren("");
-    setDzSoort(cfg.taakSoort != null ? String(cfg.taakSoort) : "");
+    setDzZoek(""); setDzEmail(""); setDzNaam(""); setDzOpmerking("");
+    setDzSoort(startSoort);
     setDzRubriek(cfg.taakRubriek != null ? String(cfg.taakRubriek) : "");
+    setDzUren(autoUrenVoor(cfg, startSoort));
+    setDzUrenTouched(false);
+    setDzMelding(false);
     setDzFout("");
+  };
+  // Taak-soort wijzigen in het venster → uren mee-voorinvullen zolang de medewerker ze niet zelf zette.
+  const kiesDzSoort = (waarde) => {
+    setDzSoort(waarde);
+    if (!dzUrenTouched) setDzUren(autoUrenVoor(doorzetCfg(), waarde));
   };
   const doorzetten = async () => {
     if (!doorzet) return;
@@ -233,7 +255,7 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
     try {
       const r = await fetch("/api/medewerker-postboek", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ actie: "doorzetten", id: doorzet.id, naarEmail: dzEmail, opmerking: dzOpmerking.trim(), uren: dzUren, taakSoort: dzSoort, taakRubriek: dzRubriek }),
+        body: JSON.stringify({ actie: "doorzetten", id: doorzet.id, naarEmail: dzEmail, opmerking: dzOpmerking.trim(), uren: dzUren, taakSoort: dzSoort, taakRubriek: dzRubriek, meldingBijAfronden: dzMelding }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
@@ -243,6 +265,16 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
       onWijziging && onWijziging();
     } catch (e) { setDzFout(e.message || "Doorzetten is mislukt."); }
     finally { setDzBezig(false); }
+  };
+
+  // Een "te accepteren" poststuk (taak afgerond) accepteren → afgehandeld.
+  const accepteer = async (post) => {
+    setRijBezig(post.id);
+    try {
+      const r = await fetch("/api/medewerker-postboek", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "accepteren", id: post.id }) });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.post) { setPosten((lijst) => (lijst || []).map((p) => (p.id === post.id ? d.post : p))); onWijziging && onWijziging(); }
+    } finally { setRijBezig(""); }
   };
 
   const klantMatches = (() => {
@@ -321,6 +353,7 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
       <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
         {statusPill("open", "Open")}
         {statusPill("doorgezet", "Doorgezet")}
+        {statusPill("teaccepteren", "Te accepteren")}
         {statusPill("afgehandeld", "Afgehandeld")}
         {statusPill("alle", "Alle")}
       </div>
@@ -376,6 +409,7 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
                       const stat = p.status || "open";
                       const afgehandeld = stat === "afgehandeld";
                       const doorgezet = stat === "doorgezet";
+                      const teaccepteren = stat === "teaccepteren";
                       const bezig = rijBezig === p.id;
                       return (
                         <tr key={p.id}
@@ -414,23 +448,32 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
                           <td style={td}>
                             {afgehandeld ? (
                               <span style={{ fontSize: 11, fontWeight: 700, color: KLEUR.groen, background: KLEUR.groenBg, borderRadius: 999, padding: "2px 9px", display: "inline-flex", alignItems: "center", gap: 4 }}><CheckCircle2 size={12} /> Afgehandeld</span>
+                            ) : teaccepteren ? (
+                              <span style={{ fontSize: 11, fontWeight: 700, color: KLEUR.goud, background: "#FaF3E6", borderRadius: 999, padding: "2px 9px", display: "inline-flex", alignItems: "center", gap: 4 }}><CheckCircle2 size={12} /> Te accepteren</span>
                             ) : doorgezet ? (
                               <span style={{ fontSize: 11, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 999, padding: "2px 9px", display: "inline-flex", alignItems: "center", gap: 4 }}><ArrowRightCircle size={12} /> Doorgezet</span>
                             ) : (
                               <span style={{ fontSize: 11, fontWeight: 700, color: KLEUR.amber, background: KLEUR.amberBg, borderRadius: 999, padding: "2px 9px" }}>Open</span>
                             )}
                             {afgehandeld && p.afgehandeldOp ? <div style={{ fontSize: 10.5, color: KLEUR.mutedTekst, marginTop: 3 }}>{p.afgehandeldDoor || ""}{p.afgehandeldOp ? ` · ${formatMoment(p.afgehandeldOp)}` : ""}</div> : null}
-                            {doorgezet && (p.doorgezetNaarNaam || p.doorgezetNaarEmail) ? <div style={{ fontSize: 10.5, color: KLEUR.mutedTekst, marginTop: 3 }}>naar {p.doorgezetNaarNaam || p.doorgezetNaarEmail}{p.doorgezetUren != null ? ` · ${p.doorgezetUren} u` : ""}{p.doorgezetOp ? ` · ${formatMoment(p.doorgezetOp)}` : ""}</div> : null}
+                            {teaccepteren ? <div style={{ fontSize: 10.5, color: KLEUR.mutedTekst, marginTop: 3 }}>taak afgehandeld{p.doorgezetNaarNaam || p.doorgezetNaarEmail ? ` · door ${p.doorgezetNaarNaam || p.doorgezetNaarEmail}` : ""}</div> : null}
+                            {(doorgezet || teaccepteren) && (p.doorgezetNaarNaam || p.doorgezetNaarEmail) ? <div style={{ fontSize: 10.5, color: KLEUR.mutedTekst, marginTop: 3 }}>naar {p.doorgezetNaarNaam || p.doorgezetNaarEmail}{p.doorgezetUren != null ? ` · ${p.doorgezetUren} u` : ""}{p.doorgezetOp ? ` · ${formatMoment(p.doorgezetOp)}` : ""}</div> : null}
                           </td>
                           <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
                             <div style={{ display: "inline-flex", gap: 6, alignItems: "center", justifyContent: "flex-end" }}>
-                              {!afgehandeld && (
-                                <button onClick={() => openDoorzet(p)} disabled={bezig} title="Doorzetten naar een medewerker" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 10px", background: "#fff", color: KLEUR.blauw, border: `1px solid ${KLEUR.blauw}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: bezig ? "default" : "pointer" }}><Send size={13} /> Doorzetten</button>
-                              )}
-                              {afgehandeld ? (
-                                <button onClick={() => zetStatus(p, "open")} disabled={bezig} style={{ padding: "5px 10px", borderRadius: 8, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.subtekst, fontSize: 12.5, fontWeight: 600, cursor: bezig ? "default" : "pointer" }}>Heropenen</button>
+                              {teaccepteren ? (
+                                <button onClick={() => accepteer(p)} disabled={bezig} title="Taak is afgehandeld — accepteren en afwikkelen" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", background: KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: bezig ? "default" : "pointer" }}><CheckCircle2 size={13} /> Accepteren</button>
                               ) : (
-                                <button onClick={() => zetStatus(p, "afgehandeld")} disabled={bezig} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", background: KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: bezig ? "default" : "pointer" }}><CheckCircle2 size={13} /> Afhandelen</button>
+                                <>
+                                  {!afgehandeld && (
+                                    <button onClick={() => openDoorzet(p)} disabled={bezig} title="Doorzetten naar een medewerker" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 10px", background: "#fff", color: KLEUR.blauw, border: `1px solid ${KLEUR.blauw}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: bezig ? "default" : "pointer" }}><Send size={13} /> Doorzetten</button>
+                                  )}
+                                  {afgehandeld ? (
+                                    <button onClick={() => zetStatus(p, "open")} disabled={bezig} style={{ padding: "5px 10px", borderRadius: 8, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.subtekst, fontSize: 12.5, fontWeight: 600, cursor: bezig ? "default" : "pointer" }}>Heropenen</button>
+                                  ) : (
+                                    <button onClick={() => zetStatus(p, "afgehandeld")} disabled={bezig} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", background: KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: bezig ? "default" : "pointer" }}><CheckCircle2 size={13} /> Afhandelen</button>
+                                  )}
+                                </>
                               )}
                               {isBeheerder && (
                                 <button onClick={() => verwijder(p)} disabled={bezig} title="Poststuk verwijderen (beheerder)" style={{ display: "inline-flex", alignItems: "center", padding: 6, background: "#fff", color: KLEUR.rood, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, cursor: bezig ? "default" : "pointer" }}><Trash2 size={14} /></button>
@@ -586,12 +629,12 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
               <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
                 <div style={{ flex: "0 0 130px" }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 5 }}>Uren-indicatie</div>
-                  <input type="number" min="0" step="0.25" value={dzUren} onChange={(e) => setDzUren(e.target.value)} placeholder="uren" style={{ ...veld, width: "100%" }} />
+                  <input type="number" min="0" step="0.25" value={dzUren} onChange={(e) => { setDzUren(e.target.value); setDzUrenTouched(true); }} placeholder="uren" style={{ ...veld, width: "100%" }} />
                 </div>
                 {taakSoortOpties.length > 0 && (
                   <div style={{ flex: "1 1 160px" }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 5 }}>Taak-soort</div>
-                    <select value={dzSoort} onChange={(e) => setDzSoort(e.target.value)} style={{ ...veld, width: "100%" }}>
+                    <select value={dzSoort} onChange={(e) => kiesDzSoort(e.target.value)} style={{ ...veld, width: "100%" }}>
                       <option value="">— geen —</option>
                       {taakSoortOpties.map((o) => <option key={String(o.waarde)} value={String(o.waarde)}>{o.label}</option>)}
                     </select>
@@ -607,6 +650,14 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
                   </div>
                 )}
               </div>
+
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer" }}>
+                <input type="checkbox" checked={dzMelding} onChange={(e) => setDzMelding(e.target.checked)} style={{ marginTop: 2 }} />
+                <span style={{ fontSize: 12.5, color: KLEUR.subtekst }}>
+                  Melding als de taak is afgehandeld — dan blijft het poststuk op “Te accepteren” staan zodat je het zelf accepteert.
+                  Laat je dit uit, dan wordt het poststuk automatisch afgewikkeld zodra de taak is afgetekend.
+                </span>
+              </label>
 
               {dzFout && <div style={{ fontSize: 12.5, color: KLEUR.rood }}>{dzFout}</div>}
             </div>

@@ -4,14 +4,20 @@
  *   GET  ?bereik=mijn|kantoor
  *        → { posten: [...] }  (nieuwste eerst; "mijn" = regels waar de ingelogde medewerker bij betrokken is)
  *   GET  ?config=1
- *        → { medewerkers:[{naam,email}], taakSoortOpties:[{waarde,label}], taakRubriekOpties:[...] } (voor doorzetten)
+ *        → { medewerkers:[{naam,email}], taakSoortOpties:[{waarde,label}], taakRubriekOpties:[...],
+ *            standaardUrenPerSoort:{<taaksoort-waarde>:uren} } (voor het doorzet-venster + uren voorinvullen)
  *   POST { accountId, soortId, klantnaam?, klantnummer?, klantTeam?, bestandsnaam, bestandBase64, contentType? }
  *        → { ok, post }       (bestand naar de SharePoint-submap van de soort in de klantmap + registratie)
  *   POST { actie:"status", id, status:"open"|"afgehandeld" }   → { ok, post }
  *   POST { actie:"documentlink", id, documentUrl }             → { ok, post }
- *   POST { actie:"doorzetten", id, naarEmail, opmerking?, uren?, taakSoort?, taakRubriek? }
+ *   POST { actie:"doorzetten", id, naarEmail, opmerking?, uren?, taakSoort?, taakRubriek?, meldingBijAfronden? }
  *        → { ok, post, taakId }  (maakt een Dynamics-taak voor de medewerker; poststuk → status "doorgezet")
+ *   POST { actie:"accepteren", id }  → { ok, post }  (een "teaccepteren"-poststuk definitief afhandelen)
  *   POST { actie:"verwijder", id }  (alléén beheerders)        → { ok, verwijderd }
+ *
+ * Sync: bij het ophalen (GET) worden doorgezette poststukken waarvan de Dynamics-taak is afgetekend
+ * (statecode 1) automatisch bijgewerkt: zonder gevraagde melding → "afgehandeld"; mét melding →
+ * "teaccepteren" (de doorzetter krijgt het te zien en accepteert het via actie "accepteren").
  *
  * Verwerking van een gedropte brief: het bestand wordt via app-only Graph opgeslagen in de SharePoint-
  * map van de klant (cr283_sharepoint), in de per-soort ingestelde submap (Beheer → Postboek), onder de
@@ -29,7 +35,7 @@ const { haalInstellingen } = require("../_gedeeld/instellingen");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
 const { haalPostboek, voegToe, werkBij, verwijder } = require("../_gedeeld/postboek");
 const { haalNavigatieNaam } = require("../_gedeeld/dossiers");
-const { haalSystemuser } = require("../_gedeeld/takenGedeeld");
+const { haalSystemuser, haalStandaardUrenPerSoort } = require("../_gedeeld/takenGedeeld");
 const { zetTijd } = require("../_gedeeld/takenTijd");
 const { lijstTarieven } = require("../_gedeeld/urenDataverse");
 
@@ -137,6 +143,17 @@ async function haalPicklistOpties(resource, token, veld) {
   } catch { return []; }
 }
 
+// Is de (doorgezette) Dynamics-taak afgetekend? statecode 1 = Voltooid. Best-effort: false bij fout.
+async function taakIsAfgerond(resource, token, taakId) {
+  if (!taakId) return false;
+  try {
+    const res = await fetch(`${resource}/api/data/v9.2/tasks(${taakId})?$select=statecode`, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "OData-MaxVersion": "4.0", "OData-Version": "4.0" } });
+    if (!res.ok) return false;
+    const d = await res.json();
+    return Number(d.statecode) === 1;
+  } catch { return false; }
+}
+
 // Uit de (door de frontend meegestuurde) klant-team-gegevens de e-mailadressen halen.
 function teamEmails(klantTeam) {
   const t = klantTeam && typeof klantTeam === "object" ? klantTeam : {};
@@ -172,12 +189,40 @@ module.exports = async function (context, req) {
             haalPicklistOpties(resource, token, TAAK_RUBRIEK_VELD),
           ]);
         } catch { /* best-effort */ }
-        context.res = json(200, { medewerkers, taakSoortOpties, taakRubriekOpties });
+        // Standaardtijd per taaksoort (Beheer → Taken → "Std. uren") — voor het voorinvullen van de uren.
+        let standaardUrenPerSoort = {};
+        try { standaardUrenPerSoort = await haalStandaardUrenPerSoort(); } catch { standaardUrenPerSoort = {}; }
+        // Bevroren taaksoorten (Beheer → Taken) uit de keuzelijst filteren.
+        try {
+          const inst = await haalInstellingen().catch(() => ({}));
+          const bevroren = new Set(Object.entries(inst.taaksoorten || {}).filter(([, v]) => v && v.bevroren).map(([k]) => String(k)));
+          if (bevroren.size) taakSoortOpties = taakSoortOpties.filter((o) => !bevroren.has(String(o.waarde)));
+        } catch { /* best-effort */ }
+        context.res = json(200, { medewerkers, taakSoortOpties, taakRubriekOpties, standaardUrenPerSoort });
         return;
       }
 
       const bereik = String((req.query && req.query.bereik) || "kantoor");
       let posten = await haalPostboek();
+      // Reconcile: is de Dynamics-taak van een doorgezet poststuk afgetekend, dan gaat het poststuk mee.
+      // Zonder gevraagde melding → meteen "afgehandeld"; mét melding → "teaccepteren" (de doorzetter accepteert).
+      const doorgezetMetTaak = posten.filter((p) => p && p.status === "doorgezet" && p.taakId);
+      if (doorgezetMetTaak.length) {
+        let token = null;
+        try { token = await haalDynamicsToken(); } catch { token = null; }
+        if (token) {
+          let veranderd = false;
+          for (const p of doorgezetMetTaak) {
+            if (await taakIsAfgerond(resource, token, p.taakId)) {
+              const nu = new Date().toISOString();
+              if (p.meldingBijAfronden) await werkBij(p.id, { status: "teaccepteren", taakAfgerondOp: nu });
+              else await werkBij(p.id, { status: "afgehandeld", afgehandeldDoor: "taak afgerond", afgehandeldOp: nu, taakAfgerondOp: nu });
+              veranderd = true;
+            }
+          }
+          if (veranderd) posten = await haalPostboek();
+        }
+      }
       posten = posten.slice().sort((a, b) => String(b.aangemaaktOp || "").localeCompare(String(a.aangemaaktOp || "")));
       if (bereik === "mijn" && email) {
         const mij = email.toLowerCase();
@@ -219,6 +264,16 @@ module.exports = async function (context, req) {
         return;
       }
 
+      // ── Accepteren: een "te accepteren" poststuk (taak afgerond) definitief op afgehandeld zetten ──
+      if (actie === "accepteren") {
+        const id = String((req.body && req.body.id) || "");
+        if (!id) { context.res = json(400, { error: "Geef 'id' mee." }); return; }
+        const bijgewerkt = await werkBij(id, { status: "afgehandeld", afgehandeldDoor: email || "onbekend", afgehandeldOp: new Date().toISOString(), geaccepteerd: true });
+        if (!bijgewerkt) { context.res = json(404, { error: "Postboek-regel niet gevonden." }); return; }
+        context.res = json(200, { ok: true, post: bijgewerkt });
+        return;
+      }
+
       // ── Poststuk verwijderen (alléén beheerders) — verwijdert de registratie, niet het SharePoint-bestand ──
       if (actie === "verwijder") {
         if (!rollen.includes("beheerder")) { context.res = json(403, { error: "Alleen beheerders mogen poststukken verwijderen." }); return; }
@@ -240,6 +295,8 @@ module.exports = async function (context, req) {
         const naarEmail = String((req.body && req.body.naarEmail) || "").trim();
         const opmerking = String((req.body && req.body.opmerking) || "").trim();
         const urenRaw = (req.body && req.body.uren);
+        // Wil de doorzetter een melding als de taak is afgehandeld, zodat hij het poststuk zelf accepteert?
+        const meldingBijAfronden = !!(req.body && req.body.meldingBijAfronden);
         // Optionele overschrijving van de standaard taak-soort/rubriek (Beheer → Postboek per soort).
         const soortOverride = (req.body && req.body.taakSoort);
         const rubriekOverride = (req.body && req.body.taakRubriek);
@@ -296,6 +353,7 @@ module.exports = async function (context, req) {
           doorgezetUren: urenGezet,
           doorgezetOp: new Date().toISOString(),
           doorgezetDoor: email || "onbekend",
+          meldingBijAfronden,
           taakId,
           betrokkenEmails: betrokken,
         });

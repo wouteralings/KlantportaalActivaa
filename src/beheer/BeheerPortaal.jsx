@@ -333,6 +333,9 @@ export default function BeheerPortaal() {
   const [taaksoortenOpslaanStatus, setTaaksoortenOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [taaksoortenSectieOpen, setTaaksoortenSectieOpen] = useState(true);
   const [taaksoortenZoek, setTaaksoortenZoek] = useState("");
+  const [nieuweSoortLabel, setNieuweSoortLabel] = useState("");
+  const [soortToevoegenStatus, setSoortToevoegenStatus] = useState("idle"); // idle | bezig | gelukt | fout
+  const [soortToevoegenFout, setSoortToevoegenFout] = useState("");
   // Opties van het "Rubriek"-veld (cr283_rubriek) op Task — voor de rubriek-keuze bij de
   // vervolgtaak backoffice (zelfde bron als de rubriek bij Beheer → Brieven).
   const [taakRubriekOpties, setTaakRubriekOpties] = useState([]); // [{ waarde, label }]
@@ -1272,6 +1275,21 @@ export default function BeheerPortaal() {
       setTaaksoortenOpslaanStatus("fout");
     }
   }, [taaksoortenConfig]);
+
+  // Nieuwe taaksoort toevoegen aan de Dynamics-optieset (task-soort). Voegt de nieuwe optie meteen
+  // lokaal toe zodat ze direct in de lijst staat.
+  const voegTaaksoortToe = useCallback(async () => {
+    const label = nieuweSoortLabel.trim();
+    if (!label) return;
+    setSoortToevoegenStatus("bezig"); setSoortToevoegenFout("");
+    try {
+      const res = await fetch("/api/beheer-taaksoort-toevoegen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ label }) });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+      if (d.waarde != null) setTaaksoortenOpties((h) => ([...(h || []), { waarde: d.waarde, label }]));
+      setNieuweSoortLabel(""); setSoortToevoegenStatus("gelukt"); setTimeout(() => setSoortToevoegenStatus("idle"), 2500);
+    } catch (e) { setSoortToevoegenStatus("fout"); setSoortToevoegenFout(String(e.message || e)); }
+  }, [nieuweSoortLabel]);
 
   /** Los van slaTaaksoortenOp hierboven — de submap voor het ondertekeningsbewijs is een simpele
    *  top-level instelling (geldt voor élke taaksoort met "Vereist handtekening", niet per soort). */
@@ -3095,7 +3113,10 @@ export default function BeheerPortaal() {
             ondertekenen bij "Vereist handtekening") automatisch een interne taak voor backoffice
             klaar te zetten — bijv. "versturen aangifte" na een geaccordeerde aangifte. Met
             "Std. uren" geef je per soort een standaard-tijd mee die in de planning en bezetting
-            meetelt; die is per losse taak te overschrijven in het Taken-overzicht.
+            meetelt; die is per losse taak te overschrijven in het Taken-overzicht. Met "Toevoegen aan
+            Dynamics" breid je de keuzelijst uit met een nieuwe soort. Zet "Bevroren" aan om een soort uit
+            álle keuzelijsten te halen (klantportaal, doorzetten, dossier-taken) — bestaande taken houden
+            hun soort en er wordt niets in Dynamics verwijderd.
           </div>
 
           {taaksoortenOpties === null ? (
@@ -3122,13 +3143,35 @@ export default function BeheerPortaal() {
                   style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px 8px 32px", fontSize: 13 }}
                 />
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto auto", gap: "0 18px", alignItems: "center" }}>
+
+              {/* Nieuwe taaksoort toevoegen aan de Dynamics-optieset */}
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 14 }}>
+                <input
+                  type="text"
+                  value={nieuweSoortLabel}
+                  onChange={(e) => { setNieuweSoortLabel(e.target.value); setSoortToevoegenStatus("idle"); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") voegTaaksoortToe(); }}
+                  placeholder="Nieuwe taaksoort…"
+                  style={{ flex: "1 1 220px", maxWidth: 320, boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 13 }}
+                />
+                <button
+                  onClick={voegTaaksoortToe}
+                  disabled={soortToevoegenStatus === "bezig" || !nieuweSoortLabel.trim()}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: soortToevoegenStatus === "bezig" || !nieuweSoortLabel.trim() ? "#9DB4A5" : KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: soortToevoegenStatus === "bezig" || !nieuweSoortLabel.trim() ? "default" : "pointer" }}
+                >
+                  <Plus size={14} /> {soortToevoegenStatus === "bezig" ? "Toevoegen…" : "Toevoegen aan Dynamics"}
+                </button>
+                {soortToevoegenStatus === "gelukt" && <span style={{ fontSize: 12, color: KLEUR.groen }}>Toegevoegd.</span>}
+                {soortToevoegenStatus === "fout" && <span style={{ fontSize: 12, color: KLEUR.rood }}>{soortToevoegenFout || "Toevoegen mislukt."}</span>}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto auto auto", gap: "0 18px", alignItems: "center" }}>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}` }}>Soort</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }} title="Standaard-tijd per taak van deze soort, voor de planning/bezetting. Per losse taak overschrijfbaar in het Taken-overzicht.">Std. uren</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Zichtbaar</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Mag goedkeuren</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Vereist handtekening</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Vervolgtaak backoffice</div>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }} title="Bevroren soorten verdwijnen uit alle keuzelijsten (klantportaal, doorzetten, dossier-taken). Bestaande taken houden hun soort; er wordt niets in Dynamics verwijderd.">Bevroren</div>
                 {filterTaaksoorten(taaksoortenOpties, taaksoortenZoek)
                   .slice(0, taaksoortToonAantal)
                   .map((optie) => {
@@ -3136,7 +3179,10 @@ export default function BeheerPortaal() {
                   const rijRand = cfg.vervolgtaakBackoffice ? "none" : `1px solid ${KLEUR.rand}`;
                   return (
                     <React.Fragment key={optie.waarde}>
-                      <div style={{ fontSize: 13, padding: "10px 0", borderBottom: rijRand }}>{optie.label}</div>
+                      <div style={{ fontSize: 13, padding: "10px 0", borderBottom: rijRand, display: "flex", alignItems: "center", gap: 8, color: cfg.bevroren ? KLEUR.mutedTekst : KLEUR.tekst }}>
+                        <span>{optie.label}</span>
+                        {cfg.bevroren && <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.rood, background: `${KLEUR.rood}14`, borderRadius: 999, padding: "1px 8px" }}>bevroren</span>}
+                      </div>
                       <div style={{ textAlign: "center", padding: "10px 0", borderBottom: rijRand }}>
                         <input
                           type="number"
@@ -3181,6 +3227,14 @@ export default function BeheerPortaal() {
                           style={{ width: 16, height: 16, cursor: "pointer" }}
                         />
                       </div>
+                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: rijRand }} title="Verberg deze soort uit alle keuzelijsten (bevriezen).">
+                        <input
+                          type="checkbox"
+                          checked={!!cfg.bevroren}
+                          onChange={(e) => wijzigTaaksoort(optie.waarde, "bevroren", e.target.checked, optie.label)}
+                          style={{ width: 16, height: 16, cursor: "pointer", accentColor: KLEUR.rood }}
+                        />
+                      </div>
                       {cfg.vervolgtaakBackoffice && (
                         <div style={{ gridColumn: "1 / -1", display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-start", padding: "0 0 14px", borderBottom: `1px solid ${KLEUR.rand}` }}>
                           <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: "1 1 300px" }}>
@@ -3201,7 +3255,7 @@ export default function BeheerPortaal() {
                               style={{ boxSizing: "border-box", width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 12.5, background: "#fff" }}
                             >
                               <option value="">— geen wijziging (Dynamics-standaard) —</option>
-                              {taaksoortenOpties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
+                              {taaksoortenOpties.filter((o) => !taaksoortenConfig[String(o.waarde)]?.bevroren || String(o.waarde) === String(cfg.vervolgtaakSoort ?? "")).map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
                             </select>
                             <span style={{ fontSize: 10.5, color: KLEUR.mutedTekst }}>
                               Zet dit ook zelf op "niet zichtbaar" hierboven als de vervolgtaak niet voor de klant is bedoeld.

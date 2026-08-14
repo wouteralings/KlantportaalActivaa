@@ -4735,10 +4735,11 @@ export default function MedewerkerPortaal() {
         nieuweTaken: d.nieuweTaken || 0,
       })))
       .catch(() => {});
-    // Eigen onbehandelde poststukken → rode badge op de Postboek-tab.
+    // Eigen post die aandacht vraagt → rode badge op de Postboek-tab: nog open, of doorgezette taak
+    // die is afgehandeld en op "te accepteren" staat.
     fetch("/api/medewerker-postboek?bereik=mijn")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { const n = (Array.isArray(d.posten) ? d.posten : []).filter((p) => (p.status || "open") === "open").length; setTellingen((t) => ({ ...t, postboekOpen: n })); })
+      .then((d) => { const n = (Array.isArray(d.posten) ? d.posten : []).filter((p) => { const s = p.status || "open"; return s === "open" || s === "teaccepteren"; }).length; setTellingen((t) => ({ ...t, postboekOpen: n })); })
       .catch(() => {});
   }, []);
 

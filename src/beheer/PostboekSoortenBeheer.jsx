@@ -46,6 +46,9 @@ function naarSoort(s) {
     // nog aanpassen. Leeg = geen standaard.
     taakSoort: o.taakSoort != null ? String(o.taakSoort) : "",
     taakRubriek: o.taakRubriek != null ? String(o.taakRubriek) : "",
+    // Standaard uren-indicatie voor de doorgezette taak — wordt in het doorzet-venster voorgevuld. Leeg =
+    // de standaardtijd van de taaksoort (Beheer → Taken).
+    taakUren: o.taakUren != null ? String(o.taakUren) : "",
     // Sommige soorten hoeven niet afgehandeld te worden: dan wordt de postboek-regel meteen als
     // "Afgehandeld" aangemaakt i.p.v. "Open" (fase 2 honoreert dit bij het verwerken).
     directAfgehandeld: !!o.directAfgehandeld,
@@ -82,7 +85,10 @@ export default function PostboekSoortenBeheer() {
         if (!actief) return;
         const lijst = Array.isArray(inst.postboekSoorten) ? inst.postboekSoorten.map(naarSoort) : [];
         setSoorten(lijst);
-        setTaakSoortOpties((soortenData && Array.isArray(soortenData.opties)) ? soortenData.opties : []);
+        // Bevroren taaksoorten (Beheer → Taken) niet aanbieden als keuze.
+        const soortCfg = (soortenData && soortenData.config) || {};
+        const opties = (soortenData && Array.isArray(soortenData.opties)) ? soortenData.opties : [];
+        setTaakSoortOpties(opties.filter((o) => !(soortCfg[String(o.waarde)] && soortCfg[String(o.waarde)].bevroren)));
         setTaakRubriekOpties((rubriekenData && Array.isArray(rubriekenData.opties)) ? rubriekenData.opties : []);
         setGeladen(true);
       })
@@ -115,6 +121,7 @@ export default function PostboekSoortenBeheer() {
         bestandsnaam: String(s.bestandsnaam || "").trim(),
         taakSoort: s.taakSoort != null ? String(s.taakSoort) : "",
         taakRubriek: s.taakRubriek != null ? String(s.taakRubriek) : "",
+        taakUren: String(s.taakUren || "").trim(),
         directAfgehandeld: !!s.directAfgehandeld,
       }));
       const res = await fetch("/api/beheer-instellingen", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ postboekSoorten: schoon }) });
@@ -243,6 +250,11 @@ export default function PostboekSoortenBeheer() {
                             <option value="">— geen —</option>
                             {taakRubriekOpties.map((o) => <option key={String(o.waarde)} value={String(o.waarde)}>{o.label}</option>)}
                           </select>
+                        </div>
+                        <div>
+                          <span style={labelStijl}>Standaard uren</span>
+                          <input type="number" min="0" step="0.25" value={s.taakUren} onChange={(e) => zet(s.id, "taakUren", e.target.value)} placeholder="bijv. 0,5" style={{ ...invoerStijl, width: 130 }} />
+                          <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4 }}>Leeg = de standaardtijd van de taaksoort (Beheer → Taken).</div>
                         </div>
                       </div>
                     </div>

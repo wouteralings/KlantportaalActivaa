@@ -486,7 +486,9 @@ export function DossierMailTaakPerSoort({ soort }) {
         setMailOnderwerp(typeof dm.onderwerp === "string" ? dm.onderwerp : "");
         setMailTekst(typeof dm.tekst === "string" ? dm.tekst : "");
         setMailPerOptie(dm.perOptie && typeof dm.perOptie === "object" ? dm.perOptie : {});
-        setTaakSoortOpties((taaksoortenData && Array.isArray(taaksoortenData.opties)) ? taaksoortenData.opties : []);
+        const soortCfg = (taaksoortenData && taaksoortenData.config) || {};
+        const soortOpties = (taaksoortenData && Array.isArray(taaksoortenData.opties)) ? taaksoortenData.opties : [];
+        setTaakSoortOpties(soortOpties.filter((o) => !(soortCfg[String(o.waarde)] && soortCfg[String(o.waarde)].bevroren)));
         setTaakRubriekOpties((taakrubriekenData && Array.isArray(taakrubriekenData.opties)) ? taakrubriekenData.opties : []);
         const dt = (inst && inst[`${soort}Taak`] && typeof inst[`${soort}Taak`] === "object") ? inst[`${soort}Taak`] : {};
         setTaakAan(!!dt.aan);

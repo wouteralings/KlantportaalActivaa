@@ -96,6 +96,12 @@
       ]
     },
     {
+      "route": "/api/beheer-taaksoort-toevoegen",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
       "route": "/api/beheer-dynamics-metadata",
       "allowedRoles": [
         "beheerder"
