@@ -102,6 +102,12 @@
       ]
     },
     {
+      "route": "/api/beheer-rollen",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
       "route": "/api/beheer-dynamics-metadata",
       "allowedRoles": [
         "beheerder"

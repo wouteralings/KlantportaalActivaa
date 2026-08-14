@@ -13,6 +13,7 @@ import ContractenMailInstellingen from "./ContractenMailInstellingen";
 import BrievenBeheer from "./BrievenBeheer";
 import BrievenAfzenderInstellingen from "./BrievenAfzenderInstellingen";
 import GastaccountsOverzicht from "./GastaccountsOverzicht";
+import RollenBeheer from "./RollenBeheer";
 import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Search, ArrowUp, ArrowDown, HelpCircle, ChevronDown, Plus, Pencil, Check, X, Clock } from "lucide-react";
 
 const KLEUR = {
@@ -2488,6 +2489,20 @@ export default function BeheerPortaal() {
       </div>
 
       </>)}
+
+      {tab === "medewerkers" && (
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginBottom: 20 }}>
+        <button
+          onClick={() => toggleRubriek("rollenToegang")}
+          aria-expanded={rubriekIsOpen("rollenToegang")}
+          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("rollenToegang") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Rollen &amp; toegang</span>
+        </button>
+        {rubriekIsOpen("rollenToegang") && (<div style={{ marginTop: 14 }}><RollenBeheer /></div>)}
+      </div>
+      )}
 
       {tab === "medewerkers" && (
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginBottom: 20 }}>
