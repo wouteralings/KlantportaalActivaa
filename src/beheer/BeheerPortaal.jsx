@@ -14,6 +14,7 @@ import BrievenBeheer from "./BrievenBeheer";
 import BrievenAfzenderInstellingen from "./BrievenAfzenderInstellingen";
 import GastaccountsOverzicht from "./GastaccountsOverzicht";
 import RollenBeheer from "./RollenBeheer";
+import ImpersonatieBanner from "../ImpersonatieBanner";
 import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Search, ArrowUp, ArrowDown, HelpCircle, ChevronDown, Plus, Pencil, Check, X, Clock } from "lucide-react";
 
 const KLEUR = {
@@ -221,6 +222,8 @@ export default function BeheerPortaal() {
   // Rol-toegang (Beheer → Rollen & toegang): alleen deze beheer-tabs tonen. null of leeg = geen beperking
   // (zodat een beheerder zonder rol, of een rol zonder beheer-tabs, gewoon alles ziet).
   const [zichtbareBeheerTabs, setZichtbareBeheerTabs] = useState(null);
+  // "Kijken als rol" (fase 4): niet-null = deze beheerder bekijkt het beheerdersportaal als die rol.
+  const [impersonatie, setImpersonatie] = useState(null);
   // Open/dicht per rubriek-kaart (zelfde patroon als de taaksoorten-sectie onder "Taken");
   // undefined/true = open (standaard), false = ingeklapt. Eén gedeelde state i.p.v. een
   // aparte useState per rubriek.
@@ -415,18 +418,26 @@ export default function BeheerPortaal() {
       .catch(() => { setStandaardartikelen([]); setStandaardartikelenFout("Kon de standaardartikelen niet ophalen."); });
   }, []);
 
-  // Rol-toegang: welke beheer-tabs mag deze beheerder zien? Geen rol / geen beheer-tabs = alles.
+  // Rol-toegang + evt. "kijken als rol": welke beheer-tabs mag deze beheerder zien? Geen rol /
+  // geen beheer-tabs = alles. Bij impersonatie geldt de beperking altijd (ook een lege lijst), zodat de
+  // beheerder precies ziet welke beheer-tabs de rol mag openen.
   useEffect(() => {
     fetch("/api/mijn-toegang")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { const t = Array.isArray(d.beheerTabs) ? d.beheerTabs : []; setZichtbareBeheerTabs(d.heeftRol && t.length ? t : null); })
-      .catch(() => setZichtbareBeheerTabs(null));
+      .then((d) => {
+        const imp = d.impersonatie && d.impersonatie.actief ? d.impersonatie : null;
+        setImpersonatie(imp);
+        const t = Array.isArray(d.beheerTabs) ? d.beheerTabs : [];
+        setZichtbareBeheerTabs(imp ? t : (d.heeftRol && t.length ? t : null));
+      })
+      .catch(() => { setZichtbareBeheerTabs(null); setImpersonatie(null); });
   }, []);
 
   // Staat de actieve tab niet (meer) in de toegestane beheer-tabs, spring dan naar de eerste toegestane.
+  // Toont de nagebootste rol geen enkel beheer-tabblad, dan een sentinel (blanco inhoud + nette melding).
   useEffect(() => {
     if (!zichtbareBeheerTabs) return;
-    if (!zichtbareBeheerTabs.includes(tab)) setTab(zichtbareBeheerTabs[0] || "content");
+    if (!zichtbareBeheerTabs.includes(tab)) setTab(zichtbareBeheerTabs[0] || (impersonatie ? "__geen__" : "content"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zichtbareBeheerTabs]);
 
@@ -1436,6 +1447,7 @@ export default function BeheerPortaal() {
 
   return (
     <div style={{ maxWidth: "none", width: "100%", margin: "0 auto", padding: "24px 32px", boxSizing: "border-box", fontFamily: "system-ui, -apple-system, sans-serif", color: KLEUR.tekst }}>
+      <ImpersonatieBanner impersonatie={impersonatie} huidigPortaal="beheer" />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28, paddingBottom: 16, borderBottom: `1px solid ${KLEUR.rand}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Building2 size={20} color={KLEUR.blauw} />
@@ -1497,6 +1509,12 @@ export default function BeheerPortaal() {
           </button>
         ))}
       </div>
+
+      {impersonatie && zichtbareBeheerTabs && zichtbareBeheerTabs.length === 0 && (
+        <div style={{ fontSize: 13, color: KLEUR.subtekst, background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "14px 16px" }}>
+          Deze rol heeft geen toegang tot het beheerdersportaal. Gebruik de balk bovenaan om als deze rol naar het medewerkersportaal te gaan, of om te stoppen met kijken.
+        </div>
+      )}
 
       {tab === "aanleveren" && <UitvraagBeheer />}
       {tab === "gastaccounts" && <GastaccountsOverzicht />}

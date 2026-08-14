@@ -2,11 +2,12 @@
  * Beheer → Rollen & toegang. Maak rollen aan en bepaal per rol welke tabs (rubrieken) zichtbaar zijn in
  * het medewerkers- én beheerdersportaal en welke functies de rol mag. Wijs elke medewerker één rol toe.
  *
- * Fase 1: aanmaken + toewijzen (opslag via /api/beheer-rollen). De afdwinging (tabs verbergen in de
- * portalen, functies voeden, impersonatie) volgt in latere fases.
+ * Fase 1: aanmaken + toewijzen (opslag via /api/beheer-rollen). Fase 2/3: tabs verbergen in beide
+ * portalen + functies voeden. Fase 4: "kijken als rol" — met de knop per rol bekijkt de beheerder het
+ * portaal precies zoals die rol het ziet en kan (server-ondersteund via /api/impersonatie).
  */
 import { useEffect, useState } from "react";
-import { Plus, Trash2, Save, CheckCircle2, ShieldCheck, Users, LayoutGrid } from "lucide-react";
+import { Plus, Trash2, Save, CheckCircle2, ShieldCheck, Users, LayoutGrid, Eye } from "lucide-react";
 
 const KLEUR = {
   blauw: "#1C5D8C", tekst: "#1C2321", subtekst: "#5B6259", mutedTekst: "#8A9089",
@@ -63,6 +64,19 @@ export default function RollenBeheer() {
     } catch (e) { setFout(e.message || "Opslaan mislukt."); setStatus("fout"); }
   };
 
+  // "Kijken als rol" (fase 4): start server-side de impersonatie en ga naar het medewerkersportaal,
+  // waar de banner bovenaan verschijnt. Alleen voor opgeslagen rollen en zonder open wijzigingen, zodat
+  // de nagebootste rol overeenkomt met wat er is opgeslagen (en er geen werk verloren gaat bij navigeren).
+  const bekijkAlsRol = async (sleutel) => {
+    if (!sleutel || vuil) return;
+    setFout("");
+    try {
+      const r = await fetch("/api/impersonatie", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "start", rolSleutel: sleutel }) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      window.location.assign("/medewerker");
+    } catch (e) { setFout(e.message || "Kon 'kijken als rol' niet starten."); setStatus("fout"); }
+  };
+
   const voegRolToe = () => { const naam = nieuweRol.trim(); if (!naam) return; setRollen((h) => [...(h || []), { naam, medewerkerTabs: [], beheerTabs: [], functies: {} }]); setNieuweRol(""); merk(); };
   const verwijderRol = (i) => { setRollen((h) => h.filter((_, idx) => idx !== i)); merk(); };
   const wijzigRolNaam = (i, naam) => { setRollen((h) => h.map((r, idx) => (idx === i ? { ...r, naam } : r))); merk(); };
@@ -92,6 +106,12 @@ export default function RollenBeheer() {
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
               <input value={rol.naam} onChange={(e) => wijzigRolNaam(i, e.target.value)} placeholder="Naam van de rol" style={{ ...invoerStijl, flex: "0 1 320px", fontWeight: 700 }} />
               <span style={{ flex: 1 }} />
+              <button
+                onClick={() => bekijkAlsRol(rol.sleutel)}
+                disabled={!rol.sleutel || vuil}
+                title={!rol.sleutel ? "Sla eerst op om deze rol te kunnen bekijken" : vuil ? "Sla eerst je wijzigingen op" : "Bekijk het portaal als deze rol"}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 30, padding: "0 10px", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: (!rol.sleutel || vuil) ? "#F3F4F2" : "#fff", color: (!rol.sleutel || vuil) ? KLEUR.mutedTekst : KLEUR.blauw, fontSize: 12, fontWeight: 600, cursor: (!rol.sleutel || vuil) ? "default" : "pointer" }}
+              ><Eye size={14} /> Bekijk als rol</button>
               <button onClick={() => verwijderRol(i)} title="Rol verwijderen" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: KLEUR.rood, cursor: "pointer" }}><Trash2 size={14} /></button>
             </div>
             {sectiekop(Users, "Medewerkersportaal — zichtbare tabs")}

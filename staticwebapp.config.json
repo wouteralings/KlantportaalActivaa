@@ -108,6 +108,12 @@
       ]
     },
     {
+      "route": "/api/impersonatie",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
       "route": "/api/beheer-dynamics-metadata",
       "allowedRoles": [
         "beheerder"

@@ -16,6 +16,7 @@ import MijnWerk from "./klanten/MijnWerk";
 import PlanningConfigPerKlant from "./klanten/PlanningConfigPerKlant";
 import BrievenOverzicht from "./klanten/BrievenOverzicht";
 import BrievenLogboek from "./klanten/BrievenLogboek";
+import ImpersonatieBanner from "../ImpersonatieBanner";
 
 /**
  * Brieven-tab: start op het brievenlogboek (alle verstuurde brieven, filterbaar). Via "Nieuwe brief"
@@ -4723,6 +4724,8 @@ export default function MedewerkerPortaal() {
   // Rol-toegang (Beheer → Rollen & toegang): null = nog laden/geen beperking. zichtbareTabs = alleen deze
   // medewerker-tabs tonen (leeg of null = geen beperking, zodat niemand per ongeluk wordt buitengesloten).
   const [zichtbareTabs, setZichtbareTabs] = useState(null);
+  // "Kijken als rol" (fase 4): niet-null = een beheerder bekijkt het portaal als deze rol (voorbeeld).
+  const [impersonatie, setImpersonatie] = useState(null);
   const [tellingen, setTellingen] = useState({ openWijzigingen: 0, nieuweReviews: 0, vragenlijstenAandacht: 0, nieuweReacties: 0, nieuweTaken: 0, postboekOpen: 0 });
   const [logoUrl, setLogoUrl] = useState("");
 
@@ -4770,22 +4773,40 @@ export default function MedewerkerPortaal() {
       .then((r) => r.json())
       .then((d) => { zetBrowserFavicon(d.faviconUrl); setLogoUrl(d.logoUrl || ""); })
       .catch(() => {});
-    fetch("/api/medewerker-rechten")
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { setMagAlsKlant(!!d.magAlsKlant); setMagOffertes(!!d.magOffertes); setMagContracten(!!d.magContracten); setMagPlanning(!!d.magPlanning); })
-      .catch(() => setMagAlsKlant(false));
-    // Rol-toegang: welke medewerker-tabs mag deze medewerker zien? Leeg/geen rol = geen beperking.
+    // Eigen functie-rechten ophalen (voor de normale weergave). Bij "kijken als rol" (impersonatie)
+    // worden deze hieronder overschreven met wat de nagebootste rol mag.
+    const laadEigenRechten = () =>
+      fetch("/api/medewerker-rechten")
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then((d) => { setMagAlsKlant(!!d.magAlsKlant); setMagOffertes(!!d.magOffertes); setMagContracten(!!d.magContracten); setMagPlanning(!!d.magPlanning); })
+        .catch(() => setMagAlsKlant(false));
+    // Rol-toegang + evt. impersonatie. Bepaalt de zichtbare tabs én — bij "kijken als rol" — precies
+    // welke functies/knoppen zichtbaar zijn, zodat de beheerder ziet wat de rol ziet en kan.
     fetch("/api/mijn-toegang")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { const t = Array.isArray(d.medewerkerTabs) ? d.medewerkerTabs : []; setZichtbareTabs(d.heeftRol && t.length ? t : null); })
-      .catch(() => setZichtbareTabs(null));
+      .then((d) => {
+        const imp = d.impersonatie && d.impersonatie.actief ? d.impersonatie : null;
+        setImpersonatie(imp);
+        const t = Array.isArray(d.medewerkerTabs) ? d.medewerkerTabs : [];
+        // Bij impersonatie geldt de beperking altijd (ook een lege lijst); anders alleen bij een echte rol met tabs.
+        setZichtbareTabs(imp ? t : (d.heeftRol && t.length ? t : null));
+        if (imp) {
+          // Voorbeeldweergave: toon exact wat de rol mag, niet de eigen beheerder-rechten.
+          setIsBeheerder(false);
+          const f = d.functies || {};
+          setMagAlsKlant(!!f.alsKlant); setMagOffertes(!!f.offertes); setMagContracten(!!f.contracten); setMagPlanning(!!f.planning);
+        } else {
+          laadEigenRechten();
+        }
+      })
+      .catch(() => { setZichtbareTabs(null); setImpersonatie(null); laadEigenRechten(); });
   }, [status]);
 
   // Staat de actieve hoofdtab niet (meer) in de toegestane tabs, spring dan naar de eerste toegestane.
   useEffect(() => {
     if (!zichtbareTabs) return;
     const rolTabs = ["klantoverzicht", "taken", "postboek", "mijnwerk", "planning", "vragenlijsten", "uren", "verzoeken", "reviews", "offertes"];
-    if (rolTabs.includes(tab) && !zichtbareTabs.includes(tab)) setTab(zichtbareTabs[0] || "klantoverzicht");
+    if (rolTabs.includes(tab) && !zichtbareTabs.includes(tab)) setTab(zichtbareTabs[0] || (impersonatie ? "__geen__" : "klantoverzicht"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zichtbareTabs]);
 
@@ -4862,6 +4883,7 @@ export default function MedewerkerPortaal() {
 
   return (
     <div style={{ maxWidth: "none", width: "100%", margin: "0 auto", padding: "24px 32px", boxSizing: "border-box", fontFamily: "system-ui, -apple-system, sans-serif", color: KLEUR.tekst }}>
+      <ImpersonatieBanner impersonatie={impersonatie} huidigPortaal="medewerker" />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28, paddingBottom: 16, borderBottom: `1px solid ${KLEUR.rand}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Users size={20} color={KLEUR.blauw} />
