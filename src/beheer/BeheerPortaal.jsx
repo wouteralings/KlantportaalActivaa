@@ -2529,20 +2529,6 @@ export default function BeheerPortaal() {
       {tab === "medewerkers" && (
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginBottom: 20 }}>
         <button
-          onClick={() => toggleRubriek("rollenToegang")}
-          aria-expanded={rubriekIsOpen("rollenToegang")}
-          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
-        >
-          <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("rollenToegang") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
-          <span style={{ fontSize: 15, fontWeight: 700 }}>Rollen &amp; toegang</span>
-        </button>
-        {rubriekIsOpen("rollenToegang") && (<div style={{ marginTop: 14 }}><RollenBeheer /></div>)}
-      </div>
-      )}
-
-      {tab === "medewerkers" && (
-      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20, marginBottom: 20 }}>
-        <button
           onClick={() => toggleRubriek("entraGroep")}
           aria-expanded={rubriekIsOpen("entraGroep")}
           style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
@@ -2595,9 +2581,17 @@ export default function BeheerPortaal() {
           style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
         >
           <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: rubriekIsOpen("medewerkers") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }} />
-          <span style={{ fontSize: 15, fontWeight: 700 }}>Medewerkers — wijzig-rechten</span>
+          <span style={{ fontSize: 15, fontWeight: 700 }}>Rollen &amp; rechten</span>
         </button>
         {rubriekIsOpen("medewerkers") && (<>
+        {/* Deel 1 — Rollen: bepaal per rol welke tabs en functies zichtbaar zijn en wijs elke medewerker een rol toe. */}
+        <div style={{ marginTop: 14 }}><RollenBeheer /></div>
+        <div style={{ borderTop: `1px solid ${KLEUR.rand}`, margin: "24px 0 0" }} />
+        {/* Deel 2 — Wijzig-rechten per persoon: gelden náást de functies uit de rol (tellen additief op). */}
+        <div style={{ fontSize: 15, fontWeight: 700, margin: "20px 0 4px" }}>Wijzig-rechten per medewerker</div>
+        <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, marginBottom: 6 }}>
+          Deze losse rechten gelden náást de functies uit de rol hierboven — ze tellen bij elkaar op. Handig als één persoon een uitzondering nodig heeft zonder een aparte rol.
+        </div>
         <div style={{ fontSize: 13, color: KLEUR.subtekst, margin: "10px 0 14px" }}>
           Standaard mag een medewerker in het medewerkersportaal alleen lezen. Kies per medewerker het
           <strong> niveau</strong> (wijzigen van klantgegevens), vink aan wie <strong>bulk-aanpassingen</strong>
