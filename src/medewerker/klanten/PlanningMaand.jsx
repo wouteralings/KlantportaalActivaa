@@ -161,7 +161,7 @@ export default function PlanningMaand() {
       const vastWie = koppelAanRooster(vastNaamRauw, vastEmail, vastId);
       const uren = Number(r.indicatieUren) || 0;
       const item = { id: r.id, klantnaam: klant?.klantnaam || "Onbekende klant", klantnummer: klant?.klantnummer || "",
-        activiteit: act.label, frequentie: r.frequentie, uitvoerMaand: r.uitvoerMaand, uren, wie, vastWie, eenmalig,
+        activiteit: act.label, frequentie: r.frequentie, uitvoerMaand: r.uitvoerMaand, indicatieUren: r.indicatieUren, uren, wie, vastWie, eenmalig,
         afwijkend: !!override && override.toLowerCase() !== (team.naam || "").toLowerCase() };
       if (valtInMaand(r, maand)) {
         maanditems.push(item);
@@ -209,6 +209,7 @@ export default function PlanningMaand() {
   const toggleMw = (naam) => setOpenMw((s) => { const n = new Set(s); if (n.has(naam)) n.delete(naam); else n.add(naam); return n; });
   const [verplaatsBezig, setVerplaatsBezig] = useState(null); // id van de regel die verplaatst wordt
   const [verplaatsFout, setVerplaatsFout] = useState("");
+  const [regelBezig, setRegelBezig] = useState(null); // id van de regel die inline bewerkt wordt
 
   const medewerkerNamen = useMemo(() => {
     // Keuzelijst voor verplaatsen = ALLE actieve medewerkers (los van de team-scope), aangevuld met wie
@@ -245,6 +246,29 @@ export default function PlanningMaand() {
     }
   };
 
+  // Een config-regel inline aanpassen (frequentie, uitvoermaand, indicatie-uren). Optimistisch, met
+  // terugval. De maandplanning wordt hierna automatisch opnieuw afgeleid (een regel kan bv. door een
+  // andere frequentie in/uit deze maand vallen).
+  const wijzigConfigRegel = async (id, patch) => {
+    if (regelBezig) return;
+    setRegelBezig(id); setVerplaatsFout("");
+    const vorigeConfig = config;
+    setConfig((prev) => (prev || []).map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    try {
+      const res = await fetch("/api/mw-planning-config", {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...patch }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+      const bij = await res.json();
+      setConfig((prev) => (prev || []).map((r) => (r.id === id ? bij : r)));
+    } catch (e) {
+      setConfig(vorigeConfig); // terugdraaien
+      setVerplaatsFout(e.message || "Aanpassen mislukt.");
+    } finally {
+      setRegelBezig(null);
+    }
+  };
+
   // Eenmalig verschuiven: alleen voor DEZE maand, laat de vaste toewijzing ongemoeid. ""= herstel.
   const verplaatsEenmalig = async (item, doelNaam) => {
     if (verplaatsBezig) return;
@@ -269,6 +293,68 @@ export default function PlanningMaand() {
   const vorige = () => { if (maand === 1) { setMaand(12); setJaar((j) => j - 1); } else setMaand((m) => m - 1); };
   const volgende = () => { if (maand === 12) { setMaand(1); setJaar((j) => j + 1); } else setMaand((m) => m + 1); };
   const totaalMaand = maanditems.reduce((s, i) => s + i.uren, 0);
+
+  // Eén bewerkbare rij van de "Ingeplande activiteiten"-tabellen: frequentie, uitvoermaand (jaar/eenmalig),
+  // uitvoerder (vast + eenmalig deze maand) en indicatie-uren allemaal inline aan te passen.
+  const FREQ_OPTS = [["maandelijks", "Maandelijks"], ["kwartaal", "Per kwartaal"], ["jaarlijks", "Jaarlijks"], ["eenmalig", "Eenmalig"]];
+  const kiesStijl = { border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "4px 6px", fontSize: 12, background: "#fff", cursor: "pointer" };
+  const rijBewerkbaar = (i) => {
+    const jaarTaak = i.frequentie === "jaarlijks" || i.frequentie === "eenmalig";
+    const bezigRij = regelBezig === i.id || verplaatsBezig === i.id;
+    const anderen = medewerkerNamen.filter((n) => n.toLowerCase() !== String(i.wie || "").toLowerCase());
+    return (
+      <tr key={i.id} style={{ opacity: bezigRij ? 0.55 : 1 }}>
+        <td style={td}><div style={{ fontWeight: 600 }}>{i.klantnummer}</div><div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{i.klantnaam}</div></td>
+        <td style={td}>{i.activiteit}</td>
+        <td style={td}>
+          <select value={i.frequentie} disabled={bezigRij} onChange={(e) => wijzigConfigRegel(i.id, { frequentie: e.target.value })} style={kiesStijl}>
+            {FREQ_OPTS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+        </td>
+        <td style={td}>
+          {jaarTaak ? (
+            <select value={i.uitvoerMaand || ""} disabled={bezigRij} onChange={(e) => wijzigConfigRegel(i.id, { uitvoerMaand: e.target.value ? Number(e.target.value) : null })} style={kiesStijl}>
+              <option value="">— kies —</option>
+              {MAANDEN.map((m, idx) => <option key={idx} value={idx + 1}>{m}</option>)}
+            </select>
+          ) : <span style={{ color: KLEUR.mutedTekst }}>n.v.t.</span>}
+        </td>
+        <td style={td}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <div>
+              <span style={{ color: i.afwijkend ? KLEUR.amber : KLEUR.tekst, fontWeight: i.afwijkend ? 700 : 400 }}>{i.wie}</span>
+              {i.afwijkend && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: KLEUR.amber }}>afwijkend</span>}
+              {i.eenmalig && <span title={`Vast toegewezen aan ${i.vastWie}`} style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, padding: "1px 6px", borderRadius: 20 }}>eenmalig (vast: {i.vastWie})</span>}
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              <label style={{ color: KLEUR.mutedTekst, display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5 }} title="Verplaatst de vaste toewijzing — geldt elke maand.">
+                vast →
+                <select value="" disabled={bezigRij} onChange={(e) => { const v = e.target.value; if (v !== "") verplaats(i, v === "__team__" ? "" : v); }} style={kiesStijl}>
+                  <option value="">verplaats…</option>
+                  <option value="__team__">Team (standaard)</option>
+                  {anderen.map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </label>
+              <label style={{ color: KLEUR.blauw, display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5 }} title="Alleen voor de getoonde maand; de vaste toewijzing blijft ongewijzigd.">
+                eenmalig →
+                <select value="" disabled={bezigRij} onChange={(e) => { const v = e.target.value; if (v !== "") verplaatsEenmalig(i, v); }} style={kiesStijl}>
+                  <option value="">deze maand…</option>
+                  {anderen.map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </label>
+              {i.eenmalig && <button onClick={() => verplaatsEenmalig(i, "")} disabled={bezigRij} title="Eenmalige verschuiving ongedaan maken (terug naar de vaste toewijzing)" style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 11.5, cursor: "pointer" }}>↺ herstel</button>}
+            </div>
+          </div>
+        </td>
+        <td style={td}>
+          <input type="number" min="0" step="0.25" defaultValue={i.indicatieUren == null ? "" : i.indicatieUren} disabled={bezigRij}
+            key={`uren-${i.id}-${i.indicatieUren == null ? "" : i.indicatieUren}`}
+            onBlur={(e) => { const v = e.target.value; if (String(v) !== String(i.indicatieUren ?? "")) wijzigConfigRegel(i.id, { indicatieUren: v === "" ? null : v }); }}
+            title="Indicatie-uren voor deze regel" style={{ ...kiesStijl, width: 80, cursor: "text" }} />
+        </td>
+      </tr>
+    );
+  };
 
   return (
     <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
@@ -411,21 +497,13 @@ export default function PlanningMaand() {
 
       <div style={{ fontSize: 13, fontWeight: 700, margin: "6px 0 8px" }}>Ingeplande activiteiten ({maanditems.length})</div>
       <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, marginBottom: zonderMaand.length ? 20 : 0 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1040 }}>
           <thead><tr>
-            <th style={th}>Klant</th><th style={th}>Activiteit</th><th style={th}>Frequentie</th><th style={th}>Uitvoerder</th><th style={th}>Indicatie-uren</th>
+            <th style={th}>Klant</th><th style={th}>Activiteit</th><th style={th}>Frequentie</th><th style={th}>Uitvoermaand</th><th style={th}>Uitvoerder</th><th style={th}>Indicatie-uren</th>
           </tr></thead>
           <tbody>
-            {pagineer(maanditems, toonAct).map((i) => (
-              <tr key={i.id}>
-                <td style={td}><div style={{ fontWeight: 600 }}>{i.klantnummer}</div><div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{i.klantnaam}</div></td>
-                <td style={td}>{i.activiteit}</td>
-                <td style={td}>{i.frequentie}</td>
-                <td style={{ ...td, color: i.afwijkend ? KLEUR.amber : KLEUR.tekst, fontWeight: i.afwijkend ? 700 : 400 }}>{i.wie}{i.afwijkend ? " (afwijkend)" : ""}</td>
-                <td style={td}>{urenTekst(i.uren)}</td>
-              </tr>
-            ))}
-            {maanditems.length === 0 && <tr><td colSpan={5} style={{ ...td, color: KLEUR.mutedTekst, textAlign: "center", padding: 20 }}>Niets ingepland deze maand (op basis van de configuratie).</td></tr>}
+            {pagineer(maanditems, toonAct).map((i) => rijBewerkbaar(i))}
+            {maanditems.length === 0 && <tr><td colSpan={6} style={{ ...td, color: KLEUR.mutedTekst, textAlign: "center", padding: 20 }}>Niets ingepland deze maand (op basis van de configuratie).</td></tr>}
           </tbody>
         </table>
       </div>
@@ -436,20 +514,12 @@ export default function PlanningMaand() {
           <div style={{ fontSize: 13, fontWeight: 700, margin: "6px 0 8px", color: KLEUR.amber }}>Jaar-/eenmalige taken zonder uitvoermaand ({zonderMaand.length})</div>
           <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 8 }}>Stel bij deze taken een uitvoermaand in op de klantkaart (Per klant), dan vallen ze automatisch in de juiste maand.</div>
           <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.amber}55`, borderRadius: 10 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1040 }}>
               <thead><tr>
-                <th style={th}>Klant</th><th style={th}>Activiteit</th><th style={th}>Frequentie</th><th style={th}>Uitvoerder</th><th style={th}>Indicatie-uren</th>
+                <th style={th}>Klant</th><th style={th}>Activiteit</th><th style={th}>Frequentie</th><th style={th}>Uitvoermaand</th><th style={th}>Uitvoerder</th><th style={th}>Indicatie-uren</th>
               </tr></thead>
               <tbody>
-                {zonderMaand.map((i) => (
-                  <tr key={i.id}>
-                    <td style={td}><div style={{ fontWeight: 600 }}>{i.klantnummer}</div><div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>{i.klantnaam}</div></td>
-                    <td style={td}>{i.activiteit}</td>
-                    <td style={td}>{i.frequentie}</td>
-                    <td style={{ ...td, color: i.afwijkend ? KLEUR.amber : KLEUR.tekst, fontWeight: i.afwijkend ? 700 : 400 }}>{i.wie}{i.afwijkend ? " (afwijkend)" : ""}</td>
-                    <td style={td}>{urenTekst(i.uren)}</td>
-                  </tr>
-                ))}
+                {zonderMaand.map((i) => rijBewerkbaar(i))}
               </tbody>
             </table>
           </div>

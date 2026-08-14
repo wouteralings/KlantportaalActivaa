@@ -63,20 +63,26 @@ function valideerMaandJaar(waarde) {
   return s;
 }
 
-// De 'vanaf'-kolom is later toegevoegd; zorg dat hij bestaat vóór een INSERT/UPDATE die hem gebruikt
-// (zelf-migrerend, idempotent). Lezen werkt sowieso: ontbreekt de kolom, dan is row.vanaf undefined → "".
-let vanafKolomGereed = false;
-async function zorgVanafKolom(pool) {
-  if (vanafKolomGereed) return;
+// De 'vanaf'-kolom is later toegevoegd. We schrijven hem ALLEEN weg als hij bestaat, en proberen hem
+// eenmalig aan te maken. Zo blijft opslaan (uren, uitvoerder, frequentie, …) altijd werken — ook als de
+// kolom nog niet bestaat of niet aangemaakt kan worden; 'vanaf' wordt dan simpelweg (nog) niet bewaard.
+// Lezen werkt sowieso: ontbreekt de kolom, dan is row.vanaf undefined → "".
+let vanafKolomStatus = null; // null = onbekend, true = aanwezig, false = afwezig/niet aan te maken
+async function vanafKolomAanwezig(pool) {
+  if (vanafKolomStatus !== null) return vanafKolomStatus;
   try {
-    await pool.request().query(
-      "IF COL_LENGTH('dbo.planning_config_klanten','vanaf') IS NULL ALTER TABLE dbo.planning_config_klanten ADD vanaf CHAR(7) NULL;"
-    );
-    vanafKolomGereed = true;
+    const check = await pool.request().query("SELECT COL_LENGTH('dbo.planning_config_klanten','vanaf') AS len");
+    if (check.recordset && check.recordset[0] && check.recordset[0].len != null) { vanafKolomStatus = true; return true; }
   } catch {
-    // Mogelijk een race met een gelijktijdige eerste write; de COL_LENGTH-guard voorkomt een dubbele
-    // kolom en een echte fout komt bij de INSERT/UPDATE hieronder alsnog naar boven.
+    // Kon niet controleren; probeer de kolom hieronder toe te voegen, val anders terug op 'afwezig'.
   }
+  try {
+    await pool.request().query("ALTER TABLE dbo.planning_config_klanten ADD vanaf CHAR(7) NULL;");
+    vanafKolomStatus = true;
+  } catch {
+    vanafKolomStatus = false; // geen rechten of andere reden — sla 'vanaf' voorlopig niet op
+  }
+  return vanafKolomStatus;
 }
 
 async function valideerActiviteit(waarde) {
@@ -128,25 +134,24 @@ async function maakRegel(data, email) {
   const vanaf = valideerMaandJaar(data.vanaf);
 
   const pool = await haalPool();
-  await zorgVanafKolom(pool);
+  const heeftVanaf = await vanafKolomAanwezig(pool);
   const request = pool.request();
   request.input("klantAccountId", sql.UniqueIdentifier, klantAccountId);
   request.input("activiteit", sql.NVarChar(100), activiteit);
   request.input("frequentie", sql.VarChar(12), frequentie);
   request.input("indicatieUren", sql.Decimal(6, 2), indicatieUren);
   request.input("uitvoerMaand", sql.TinyInt, uitvoerMaand);
-  request.input("vanaf", sql.Char(7), vanaf);
   request.input("toegewezenAan", sql.NVarChar(320), data.toegewezenAan ? String(data.toegewezenAan).trim().slice(0, 320) : null);
   request.input("actief", sql.Bit, data.actief === false ? 0 : 1);
   request.input("opmerkingen", sql.NVarChar(sql.MAX), data.opmerkingen ? String(data.opmerkingen) : null);
   request.input("email", sql.NVarChar(320), email || null);
-  const result = await request.query(`
-    INSERT INTO dbo.planning_config_klanten
-      (klant_account_id, activiteit, frequentie, indicatie_uren, uitvoer_maand, vanaf, toegewezen_aan, actief, opmerkingen, aangemaakt_door)
-    OUTPUT INSERTED.*
-    VALUES
-      (@klantAccountId, @activiteit, @frequentie, @indicatieUren, @uitvoerMaand, @vanaf, @toegewezenAan, @actief, @opmerkingen, @email)
-  `);
+  if (heeftVanaf) request.input("vanaf", sql.Char(7), vanaf);
+  const kolommen = ["klant_account_id", "activiteit", "frequentie", "indicatie_uren", "uitvoer_maand", "toegewezen_aan", "actief", "opmerkingen", "aangemaakt_door"];
+  const waarden = ["@klantAccountId", "@activiteit", "@frequentie", "@indicatieUren", "@uitvoerMaand", "@toegewezenAan", "@actief", "@opmerkingen", "@email"];
+  if (heeftVanaf) { kolommen.splice(5, 0, "vanaf"); waarden.splice(5, 0, "@vanaf"); }
+  const result = await request.query(
+    `INSERT INTO dbo.planning_config_klanten (${kolommen.join(", ")}) OUTPUT INSERTED.* VALUES (${waarden.join(", ")})`
+  );
   return naarBuiten(result.recordset[0]);
 }
 
@@ -164,26 +169,27 @@ async function wijzigRegel(id, data, email) {
   const opmerkingen = data.opmerkingen !== undefined ? (data.opmerkingen ? String(data.opmerkingen) : null) : (bestaand.opmerkingen || null);
 
   const pool = await haalPool();
-  await zorgVanafKolom(pool);
+  const heeftVanaf = await vanafKolomAanwezig(pool);
   const request = pool.request();
   request.input("id", sql.UniqueIdentifier, id);
   request.input("activiteit", sql.NVarChar(100), activiteit);
   request.input("frequentie", sql.VarChar(12), frequentie);
   request.input("indicatieUren", sql.Decimal(6, 2), indicatieUren);
   request.input("uitvoerMaand", sql.TinyInt, uitvoerMaand);
-  request.input("vanaf", sql.Char(7), vanaf);
   request.input("toegewezenAan", sql.NVarChar(320), toegewezenAan);
   request.input("actief", sql.Bit, actief);
   request.input("opmerkingen", sql.NVarChar(sql.MAX), opmerkingen);
   request.input("email", sql.NVarChar(320), email || null);
-  const result = await request.query(`
-    UPDATE dbo.planning_config_klanten
-       SET activiteit = @activiteit, frequentie = @frequentie, indicatie_uren = @indicatieUren,
-           uitvoer_maand = @uitvoerMaand, vanaf = @vanaf, toegewezen_aan = @toegewezenAan, actief = @actief, opmerkingen = @opmerkingen,
-           gewijzigd_op = SYSUTCDATETIME(), gewijzigd_door = @email
-     OUTPUT INSERTED.*
-     WHERE id = @id
-  `);
+  if (heeftVanaf) request.input("vanaf", sql.Char(7), vanaf);
+  const setDelen = [
+    "activiteit = @activiteit", "frequentie = @frequentie", "indicatie_uren = @indicatieUren",
+    "uitvoer_maand = @uitvoerMaand", "toegewezen_aan = @toegewezenAan", "actief = @actief",
+    "opmerkingen = @opmerkingen", "gewijzigd_op = SYSUTCDATETIME()", "gewijzigd_door = @email",
+  ];
+  if (heeftVanaf) setDelen.splice(4, 0, "vanaf = @vanaf");
+  const result = await request.query(
+    `UPDATE dbo.planning_config_klanten SET ${setDelen.join(", ")} OUTPUT INSERTED.* WHERE id = @id`
+  );
   return result.recordset[0] ? naarBuiten(result.recordset[0]) : null;
 }
 
