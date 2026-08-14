@@ -316,6 +316,13 @@
       ]
     },
     {
+      "route": "/api/mijn-toegang",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
       "route": "/api/medewerker-rechten",
       "allowedRoles": [
         "beheerder",

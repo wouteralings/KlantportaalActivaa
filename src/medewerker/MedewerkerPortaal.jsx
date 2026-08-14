@@ -4720,6 +4720,9 @@ export default function MedewerkerPortaal() {
   // via Beheer → Medewerkers. Serverkant afgedwongen op de mw-planning-endpoints (planningRecht.js).
   const [magPlanning, setMagPlanning] = useState(false);
   const [tab, setTab] = useState("klantoverzicht"); // klantoverzicht | verzoeken | reacties | ondertekeningen | reviews | offertes | contracten | meekijken
+  // Rol-toegang (Beheer → Rollen & toegang): null = nog laden/geen beperking. zichtbareTabs = alleen deze
+  // medewerker-tabs tonen (leeg of null = geen beperking, zodat niemand per ongeluk wordt buitengesloten).
+  const [zichtbareTabs, setZichtbareTabs] = useState(null);
   const [tellingen, setTellingen] = useState({ openWijzigingen: 0, nieuweReviews: 0, vragenlijstenAandacht: 0, nieuweReacties: 0, nieuweTaken: 0, postboekOpen: 0 });
   const [logoUrl, setLogoUrl] = useState("");
 
@@ -4771,7 +4774,20 @@ export default function MedewerkerPortaal() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => { setMagAlsKlant(!!d.magAlsKlant); setMagOffertes(!!d.magOffertes); setMagContracten(!!d.magContracten); setMagPlanning(!!d.magPlanning); })
       .catch(() => setMagAlsKlant(false));
+    // Rol-toegang: welke medewerker-tabs mag deze medewerker zien? Leeg/geen rol = geen beperking.
+    fetch("/api/mijn-toegang")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => { const t = Array.isArray(d.medewerkerTabs) ? d.medewerkerTabs : []; setZichtbareTabs(d.heeftRol && t.length ? t : null); })
+      .catch(() => setZichtbareTabs(null));
   }, [status]);
+
+  // Staat de actieve hoofdtab niet (meer) in de toegestane tabs, spring dan naar de eerste toegestane.
+  useEffect(() => {
+    if (!zichtbareTabs) return;
+    const rolTabs = ["klantoverzicht", "taken", "postboek", "mijnwerk", "planning", "vragenlijsten", "uren", "verzoeken", "reviews", "offertes"];
+    if (rolTabs.includes(tab) && !zichtbareTabs.includes(tab)) setTab(zichtbareTabs[0] || "klantoverzicht");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zichtbareTabs]);
 
   // Tellingen bijwerken bij elke tabwissel. Op het reviews- en vragenlijsten-tabblad wordt eerst
   // "gezien" gemarkeerd (badge naar 0) en daarna worden de tellingen ververst.
@@ -4828,7 +4844,7 @@ export default function MedewerkerPortaal() {
     );
   }
 
-  const tabs = [
+  const alleTabs = [
     ["klantoverzicht", "Klantoverzicht", 0],
     ["taken", "Taken", tellingen.nieuweTaken],
     ["postboek", "Postboek", tellingen.postboekOpen],
@@ -4841,6 +4857,8 @@ export default function MedewerkerPortaal() {
     ...(magOffertes || isBeheerder ? [["offertes", "Offertes", 0]] : []),
     // "Contracten" is nu een sub-tab onder Klantoverzicht (zie KlantenModule), geen losse hoofd-tab meer.
   ];
+  // Rol-toegang verbergt tabs (kan alleen beperken, nooit rechten toevoegen die je niet hebt).
+  const tabs = zichtbareTabs ? alleTabs.filter(([k]) => zichtbareTabs.includes(k)) : alleTabs;
 
   return (
     <div style={{ maxWidth: "none", width: "100%", margin: "0 auto", padding: "24px 32px", boxSizing: "border-box", fontFamily: "system-ui, -apple-system, sans-serif", color: KLEUR.tekst }}>
