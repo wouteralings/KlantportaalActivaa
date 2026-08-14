@@ -21,6 +21,7 @@ function naarBuiten(row) {
     indicatieUren: row.indicatie_uren != null ? Number(row.indicatie_uren) : null,
     toegewezenAan: row.toegewezen_aan || "",
     uitvoerMaand: row.uitvoer_maand != null ? Number(row.uitvoer_maand) : null,
+    vanaf: row.vanaf ? String(row.vanaf).trim() : "",
     actief: !!row.actief,
     opmerkingen: row.opmerkingen || "",
     aangemaaktOp: row.aangemaakt_op,
@@ -50,6 +51,32 @@ function valideerMaand(waarde) {
   const n = Number(waarde);
   if (!Number.isInteger(n) || n < 1 || n > 12) throw new Error("VALIDATIE: uitvoermaand moet 1 t/m 12 zijn (of leeg).");
   return n;
+}
+
+// "Vanaf"-moment per klant: een maand/jaar "YYYY-MM" of null (= altijd). Vóór dit moment wordt de
+// activiteit voor deze klant niet in de planning/Mijn werk opgenomen. Per klant ingesteld (Planning →
+// configuratie per klant), i.p.v. globaal op de activiteit.
+function valideerMaandJaar(waarde) {
+  if (waarde === undefined || waarde === null || waarde === "") return null;
+  const s = String(waarde).trim();
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(s)) throw new Error("VALIDATIE: 'vanaf' moet formaat JJJJ-MM hebben (of leeg).");
+  return s;
+}
+
+// De 'vanaf'-kolom is later toegevoegd; zorg dat hij bestaat vóór een INSERT/UPDATE die hem gebruikt
+// (zelf-migrerend, idempotent). Lezen werkt sowieso: ontbreekt de kolom, dan is row.vanaf undefined → "".
+let vanafKolomGereed = false;
+async function zorgVanafKolom(pool) {
+  if (vanafKolomGereed) return;
+  try {
+    await pool.request().query(
+      "IF COL_LENGTH('dbo.planning_config_klanten','vanaf') IS NULL ALTER TABLE dbo.planning_config_klanten ADD vanaf CHAR(7) NULL;"
+    );
+    vanafKolomGereed = true;
+  } catch {
+    // Mogelijk een race met een gelijktijdige eerste write; de COL_LENGTH-guard voorkomt een dubbele
+    // kolom en een echte fout komt bij de INSERT/UPDATE hieronder alsnog naar boven.
+  }
 }
 
 async function valideerActiviteit(waarde) {
@@ -98,24 +125,27 @@ async function maakRegel(data, email) {
   const frequentie = valideerFrequentie(data.frequentie);
   const indicatieUren = valideerUren(data.indicatieUren);
   const uitvoerMaand = valideerMaand(data.uitvoerMaand);
+  const vanaf = valideerMaandJaar(data.vanaf);
 
   const pool = await haalPool();
+  await zorgVanafKolom(pool);
   const request = pool.request();
   request.input("klantAccountId", sql.UniqueIdentifier, klantAccountId);
   request.input("activiteit", sql.NVarChar(100), activiteit);
   request.input("frequentie", sql.VarChar(12), frequentie);
   request.input("indicatieUren", sql.Decimal(6, 2), indicatieUren);
   request.input("uitvoerMaand", sql.TinyInt, uitvoerMaand);
+  request.input("vanaf", sql.Char(7), vanaf);
   request.input("toegewezenAan", sql.NVarChar(320), data.toegewezenAan ? String(data.toegewezenAan).trim().slice(0, 320) : null);
   request.input("actief", sql.Bit, data.actief === false ? 0 : 1);
   request.input("opmerkingen", sql.NVarChar(sql.MAX), data.opmerkingen ? String(data.opmerkingen) : null);
   request.input("email", sql.NVarChar(320), email || null);
   const result = await request.query(`
     INSERT INTO dbo.planning_config_klanten
-      (klant_account_id, activiteit, frequentie, indicatie_uren, uitvoer_maand, toegewezen_aan, actief, opmerkingen, aangemaakt_door)
+      (klant_account_id, activiteit, frequentie, indicatie_uren, uitvoer_maand, vanaf, toegewezen_aan, actief, opmerkingen, aangemaakt_door)
     OUTPUT INSERTED.*
     VALUES
-      (@klantAccountId, @activiteit, @frequentie, @indicatieUren, @uitvoerMaand, @toegewezenAan, @actief, @opmerkingen, @email)
+      (@klantAccountId, @activiteit, @frequentie, @indicatieUren, @uitvoerMaand, @vanaf, @toegewezenAan, @actief, @opmerkingen, @email)
   `);
   return naarBuiten(result.recordset[0]);
 }
@@ -128,17 +158,20 @@ async function wijzigRegel(id, data, email) {
   const frequentie = data.frequentie !== undefined ? valideerFrequentie(data.frequentie) : bestaand.frequentie;
   const indicatieUren = data.indicatieUren !== undefined ? valideerUren(data.indicatieUren) : bestaand.indicatieUren;
   const uitvoerMaand = data.uitvoerMaand !== undefined ? valideerMaand(data.uitvoerMaand) : (bestaand.uitvoerMaand ?? null);
+  const vanaf = data.vanaf !== undefined ? valideerMaandJaar(data.vanaf) : (bestaand.vanaf || null);
   const toegewezenAan = data.toegewezenAan !== undefined ? (data.toegewezenAan ? String(data.toegewezenAan).trim().slice(0, 320) : null) : (bestaand.toegewezenAan || null);
   const actief = data.actief !== undefined ? (data.actief === false ? 0 : 1) : (bestaand.actief ? 1 : 0);
   const opmerkingen = data.opmerkingen !== undefined ? (data.opmerkingen ? String(data.opmerkingen) : null) : (bestaand.opmerkingen || null);
 
   const pool = await haalPool();
+  await zorgVanafKolom(pool);
   const request = pool.request();
   request.input("id", sql.UniqueIdentifier, id);
   request.input("activiteit", sql.NVarChar(100), activiteit);
   request.input("frequentie", sql.VarChar(12), frequentie);
   request.input("indicatieUren", sql.Decimal(6, 2), indicatieUren);
   request.input("uitvoerMaand", sql.TinyInt, uitvoerMaand);
+  request.input("vanaf", sql.Char(7), vanaf);
   request.input("toegewezenAan", sql.NVarChar(320), toegewezenAan);
   request.input("actief", sql.Bit, actief);
   request.input("opmerkingen", sql.NVarChar(sql.MAX), opmerkingen);
@@ -146,7 +179,7 @@ async function wijzigRegel(id, data, email) {
   const result = await request.query(`
     UPDATE dbo.planning_config_klanten
        SET activiteit = @activiteit, frequentie = @frequentie, indicatie_uren = @indicatieUren,
-           uitvoer_maand = @uitvoerMaand, toegewezen_aan = @toegewezenAan, actief = @actief, opmerkingen = @opmerkingen,
+           uitvoer_maand = @uitvoerMaand, vanaf = @vanaf, toegewezen_aan = @toegewezenAan, actief = @actief, opmerkingen = @opmerkingen,
            gewijzigd_op = SYSUTCDATETIME(), gewijzigd_door = @email
      OUTPUT INSERTED.*
      WHERE id = @id

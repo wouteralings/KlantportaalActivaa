@@ -67,7 +67,7 @@ function AantalKiezer({ aantal, setAantal, totaal }) {
 }
 
 // Grid-kolommen zodat de koppen exact boven de invoervelden uitlijnen.
-const GRID_ACT = "52px minmax(140px, 1fr) 76px 128px 66px 120px 88px"; // pijltjes | Activiteit | Periode | Functie | Std.uren | Vanaf | Status
+const GRID_ACT = "52px minmax(140px, 1fr) 76px 128px 66px 88px"; // pijltjes | Activiteit | Periode | Functie | Std.uren | Status
 const GRID_STAT = "52px minmax(180px, 1fr) 52px 96px";       // pijltjes | Status | Kleur | (actief)
 const kopStijl = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" };
 
@@ -140,7 +140,6 @@ export default function PlanningInstellingenBeheer() {
   const voegDeelToe = (actSleutel) => { const t = (nwDeelPer[actSleutel] || "").trim(); if (!t) return; setNwDeelPer((p) => ({ ...p, [actSleutel]: "" })); opslaan(metDeel(actSleutel, (ds) => [...ds, { label: t }]), statussen || []); };
   const verwijderDeel = (actSleutel, i) => opslaan(metDeel(actSleutel, (ds) => ds.filter((_, idx) => idx !== i)), statussen || []);
   const verplaatsDeel = (actSleutel, i, dir) => opslaan(metDeel(actSleutel, (ds) => { const n = [...ds]; const j = i + dir; if (j < 0 || j >= n.length) return n; [n[i], n[j]] = [n[j], n[i]]; return n; }), statussen || []);
-  const wijzigActiviteitVanaf = (sleutel, vanaf) => opslaan((activiteiten || []).map((a) => (a.sleutel === sleutel ? { ...a, vanaf } : a)), statussen || []);
   const wijzigDeelKleur = (actSleutel, i, kleur) => opslaan(metDeel(actSleutel, (ds) => ds.map((d, idx) => (idx === i ? { ...d, kleur } : d))), statussen || []);
   const wijzigActiviteitType = (sleutel, type) => opslaan((activiteiten || []).map((a) => (a.sleutel === sleutel ? { ...a, type } : a)), statussen || []);
   const wijzigActiviteitRol = (sleutel, rol) => opslaan((activiteiten || []).map((a) => (a.sleutel === sleutel ? { ...a, rol } : a)), statussen || []);
@@ -242,7 +241,7 @@ export default function PlanningInstellingenBeheer() {
               <CalendarClock size={16} color={KLEUR.blauw} /> Activiteiten <span style={{ fontSize: 12, fontWeight: 600, color: KLEUR.mutedTekst }}>({activiteiten.length})</span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: GRID_ACT, gap: 8, alignItems: "center", padding: "0 10px 6px", ...kopStijl }}>
-              <span></span><span>Activiteit</span><span>Periode</span><span>Functie</span><span>Std. uren</span><span title="Vanaf welke maand/jaar deze activiteit in de planning wordt opgenomen. Leeg = altijd.">Vanaf</span><span>Status</span>
+              <span></span><span>Activiteit</span><span>Periode</span><span>Functie</span><span>Std. uren</span><span>Status</span>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 6 }}>
               {activiteiten.slice(0, activiteitAantal).map((a, i) => {
@@ -262,7 +261,6 @@ export default function PlanningInstellingenBeheer() {
                       {ROLLEN.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
                     </select>
                     <input type="number" min="0" step="0.25" value={a.standaardUren ?? ""} onChange={(e) => wijzigActiviteitStandaardUren(a.sleutel, e.target.value)} onBlur={() => opslaan(activiteiten, statussen)} title="Standaard indicatie-uren (per klant overschrijfbaar)" placeholder="—" style={{ ...invoerStijl, minWidth: 0 }} />
-                    <input type="month" value={a.vanaf || ""} onChange={(e) => wijzigActiviteitVanaf(a.sleutel, e.target.value)} title="Vanaf welke maand/jaar deze activiteit wordt opgenomen (leeg = altijd)" style={{ ...invoerStijl, minWidth: 0, padding: "6px 6px" }} />
                     {ACTIEF_KNOP(a.actief, () => zetActiviteitActief(a.sleutel, !a.actief))}
                   </div>
                   <div style={{ padding: "0 10px 8px 62px" }}>

@@ -60,6 +60,7 @@ export default function PlanningConfigPerKlant({ initieelAccountId, vasteKlant, 
   const [nwFrequentie, setNwFrequentie] = useState("maandelijks");
   const [nwUren, setNwUren] = useState("");
   const [nwUitvoerMaand, setNwUitvoerMaand] = useState("");
+  const [nwVanaf, setNwVanaf] = useState("");
   const [overrides, setOverrides] = useState({}); // id → tekst tijdens het bewerken van een afwijkende toewijzing
   const [setjes, setSetjes] = useState([]); // beheer-setjes van hoofdtaken
   const [setjeKeuze, setSetjeKeuze] = useState("");
@@ -122,10 +123,10 @@ export default function PlanningConfigPerKlant({ initieelAccountId, vasteKlant, 
     try {
       const res = await fetch("/api/mw-planning-config", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ klantAccountId: String(klant.accountId).toLowerCase(), activiteit: nwActiviteit, frequentie: nwFrequentie, indicatieUren: nwUren === "" ? null : nwUren, uitvoerMaand: heeftUitvoerMaand(nwFrequentie) && nwUitvoerMaand ? Number(nwUitvoerMaand) : null }),
+        body: JSON.stringify({ klantAccountId: String(klant.accountId).toLowerCase(), activiteit: nwActiviteit, frequentie: nwFrequentie, indicatieUren: nwUren === "" ? null : nwUren, uitvoerMaand: heeftUitvoerMaand(nwFrequentie) && nwUitvoerMaand ? Number(nwUitvoerMaand) : null, vanaf: nwVanaf || null }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
-      setNwActiviteit(""); setNwUren(""); setNwFrequentie("maandelijks"); setNwUitvoerMaand("");
+      setNwActiviteit(""); setNwUren(""); setNwFrequentie("maandelijks"); setNwUitvoerMaand(""); setNwVanaf("");
       laadConfig(String(klant.accountId).toLowerCase());
     } catch (e) { setFout(e.message || "Toevoegen mislukt."); } finally { setBezig(false); }
   };
@@ -198,7 +199,8 @@ export default function PlanningConfigPerKlant({ initieelAccountId, vasteKlant, 
         de uren leeg, dan geldt de <strong>standaard-uren</strong> van de activiteit (Beheer → Planning). De
         uitvoerder volgt standaard het <strong>team</strong> van de klant (de rol per activiteit, uit
         Beheer → Planning). Wijs je iemand anders toe, dan zie je dat gemarkeerd als
-        <span style={{ color: KLEUR.amber, fontWeight: 600 }}> afwijkend van team</span>.
+        <span style={{ color: KLEUR.amber, fontWeight: 600 }}> afwijkend van team</span>. Met
+        <strong> Vanaf</strong> bepaal je per klant vanaf welke maand/jaar een activiteit meetelt (leeg = altijd).
       </div>
 
       {fout && <div style={{ background: `${KLEUR.rood}12`, border: `1px solid ${KLEUR.rood}33`, color: KLEUR.rood, borderRadius: 8, padding: "9px 12px", marginBottom: 14, fontSize: 12.5 }}>{fout}</div>}
@@ -266,9 +268,10 @@ export default function PlanningConfigPerKlant({ initieelAccountId, vasteKlant, 
             <div style={{ color: KLEUR.mutedTekst, fontSize: 13, padding: "20px 0" }}>Configuratie laden…</div>
           ) : (
             <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, marginBottom: 14 }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
                 <thead><tr>
                   <th style={th}>Activiteit</th><th style={th}>Type</th><th style={th}>Frequentie</th><th style={th}>Uitvoermaand</th>
+                  <th style={th} title="Vanaf welke maand/jaar deze activiteit voor deze klant in de planning wordt opgenomen (leeg = altijd)">Vanaf</th>
                   <th style={th}>Indicatie-uren</th><th style={th}>Uitvoerder (team)</th><th style={th}></th>
                 </tr></thead>
                 <tbody>
@@ -292,6 +295,13 @@ export default function PlanningConfigPerKlant({ initieelAccountId, vasteKlant, 
                               <option value="">— kies —</option>
                               {MAANDEN.map((m, idx) => <option key={idx} value={idx + 1}>{m}</option>)}
                             </select>
+                          )}
+                        </td>
+                        <td style={td}>
+                          {readOnly ? <span>{r.vanaf ? r.vanaf.split("-").reverse().join("-") : "—"}</span> : (
+                            <input type="month" value={r.vanaf || ""} onChange={(e) => wijzig(r.id, { vanaf: e.target.value || null })}
+                              title="Vanaf welke maand/jaar deze activiteit voor deze klant meetelt (leeg = altijd)"
+                              style={{ ...inputStijl, width: "auto", padding: "5px 8px" }} />
                           )}
                         </td>
                         <td style={td}>
@@ -333,7 +343,7 @@ export default function PlanningConfigPerKlant({ initieelAccountId, vasteKlant, 
                       </tr>
                     );
                   })}
-                  {config.length === 0 && <tr><td colSpan={7} style={{ ...td, color: KLEUR.mutedTekst, textAlign: "center", padding: "20px" }}>Nog niets ingesteld voor deze klant.{readOnly ? "" : " Voeg hieronder een activiteit toe."}</td></tr>}
+                  {config.length === 0 && <tr><td colSpan={8} style={{ ...td, color: KLEUR.mutedTekst, textAlign: "center", padding: "20px" }}>Nog niets ingesteld voor deze klant.{readOnly ? "" : " Voeg hieronder een activiteit toe."}</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -357,6 +367,7 @@ export default function PlanningConfigPerKlant({ initieelAccountId, vasteKlant, 
               </select>
             )}
             <input type="number" min="0" step="0.25" value={nwUren} onChange={(e) => setNwUren(e.target.value)} placeholder={activiteitById[nwActiviteit]?.standaardUren != null ? `${activiteitById[nwActiviteit].standaardUren} (standaard)` : "uren (bv. 2)"} title="Leeg = de standaard-uren van de activiteit" style={{ ...inputStijl, width: 150 }} />
+            <input type="month" value={nwVanaf} onChange={(e) => setNwVanaf(e.target.value)} title="Vanaf welke maand/jaar deze activiteit voor deze klant meetelt (leeg = altijd)" style={{ ...inputStijl, width: "auto" }} />
             <button onClick={voegToe} disabled={!nwActiviteit || bezig} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: nwActiviteit ? "pointer" : "default", opacity: nwActiviteit ? 1 : 0.6 }}>
               <Plus size={14} /> Toevoegen
             </button>

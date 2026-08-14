@@ -107,10 +107,11 @@ export default function MijnWerk() {
       if (r.actief === false) continue;
       const act = activiteitById[r.activiteit];
       if (!act || (act.type || "maand") !== type) continue;
-      // "Vanaf" (maand/jaar): de activiteit wordt pas vanaf dat moment in de planning opgenomen.
-      if (act.vanaf) {
-        if (type === "maand") { if (`${jaar}-${pad(maand)}` < act.vanaf) continue; }
-        else if (jaar < Number(String(act.vanaf).slice(0, 4))) continue;
+      // "Vanaf" (maand/jaar) — per klant ingesteld (Planning → configuratie per klant): de activiteit
+      // wordt voor deze klant pas vanaf dat moment in de planning/Mijn werk opgenomen.
+      if (r.vanaf) {
+        if (type === "maand") { if (`${jaar}-${pad(maand)}` < r.vanaf) continue; }
+        else if (jaar < Number(String(r.vanaf).slice(0, 4))) continue;
       }
       if (type === "maand" && !valtInMaand(r, maand)) continue;
       const acc = String(r.klantAccountId || "").toLowerCase();
