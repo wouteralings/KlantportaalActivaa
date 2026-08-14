@@ -51,6 +51,7 @@
  *              "verwijderDividendbelasting": ["naam@activaa.nl"] }
  */
 const { BlobServiceClient } = require("@azure/storage-blob");
+const { haalRolVoorEmail } = require("./rollenConfig");
 
 const CONTAINER_NAAM = "portaalcontent";
 const BLOB_NAAM = "wijzigrechten.json";
@@ -212,13 +213,23 @@ async function zetNiveaus(niveaus) {
   return (await zetRechten({ niveaus, bulk, alsKlant, offertes, contracten, planning, verwijderIb, verwijderVpb, verwijderContactpersonen, verwijderDividendbelasting })).niveaus;
 }
 
-/** Bepaalt of deze gebruiker mag wijzigen: beheerder (Azure) mag altijd; anders niveau manager/beheerder. */
+/**
+ * Verleent de rol van een e-mailadres deze functie? Rollen (Beheer → Rollen & toegang) kunnen functies
+ * TOEKENNEN bovenop de bestaande per-medewerker-lijsten (additief — een rol ontneemt nooit stilletjes
+ * een bestaand recht). Best-effort: false bij een storing.
+ */
+async function rolFunctie(laag, sleutel) {
+  try { const rol = await haalRolVoorEmail(laag); return !!(rol && rol.functies && rol.functies[sleutel]); } catch { return false; }
+}
+
+/** Bepaalt of deze gebruiker mag wijzigen: beheerder (Azure) mag altijd; anders niveau manager/beheerder of via rol. */
 async function magWijzigen(email, isBeheerder) {
   if (isBeheerder) return true;
   const laag = String(email || "").trim().toLowerCase();
   if (!laag) return false;
   const niveaus = await haalNiveaus();
-  return niveaus[laag] === "manager" || niveaus[laag] === "beheerder";
+  if (niveaus[laag] === "manager" || niveaus[laag] === "beheerder") return true;
+  return await rolFunctie(laag, "wijzigen");
 }
 
 /** Bepaalt of deze gebruiker bulk-aanpassingen mag doen: beheerder (Azure) mag altijd; anders in de bulk-lijst. */
@@ -226,7 +237,7 @@ async function magBulk(email, isBeheerder) {
   if (isBeheerder) return true;
   const laag = String(email || "").trim().toLowerCase();
   if (!laag) return false;
-  return (await haalBulk()).includes(laag);
+  return (await haalBulk()).includes(laag) || (await rolFunctie(laag, "bulk"));
 }
 
 /** Bepaalt of deze gebruiker alleen-lezen mag "meekijken als klant": beheerder (Azure) mag altijd; anders in de alsKlant-lijst. */
@@ -234,7 +245,7 @@ async function magAlsKlant(email, isBeheerder) {
   if (isBeheerder) return true;
   const laag = String(email || "").trim().toLowerCase();
   if (!laag) return false;
-  return (await haalAlsKlant()).includes(laag);
+  return (await haalAlsKlant()).includes(laag) || (await rolFunctie(laag, "alsKlant"));
 }
 
 /** Bepaalt of deze gebruiker offertes/opdrachtbevestigingen mag maken: beheerder (Azure) mag altijd; anders in de offertes-lijst. */
@@ -242,7 +253,7 @@ async function magOffertes(email, isBeheerder) {
   if (isBeheerder) return true;
   const laag = String(email || "").trim().toLowerCase();
   if (!laag) return false;
-  return (await haalOffertes()).includes(laag);
+  return (await haalOffertes()).includes(laag) || (await rolFunctie(laag, "offertes"));
 }
 
 /** Bepaalt of deze gebruiker de tab "Contracten" mag zien: beheerder (Azure) mag altijd; anders in de contracten-lijst. */
@@ -250,7 +261,7 @@ async function magContracten(email, isBeheerder) {
   if (isBeheerder) return true;
   const laag = String(email || "").trim().toLowerCase();
   if (!laag) return false;
-  return (await haalContracten()).includes(laag);
+  return (await haalContracten()).includes(laag) || (await rolFunctie(laag, "contracten"));
 }
 
 /** Bepaalt of deze gebruiker de Planning mag zien/gebruiken: beheerder (Azure) mag altijd; anders in de planning-lijst. */
@@ -258,7 +269,7 @@ async function magPlanning(email, isBeheerder) {
   if (isBeheerder) return true;
   const laag = String(email || "").trim().toLowerCase();
   if (!laag) return false;
-  return (await haalPlanning()).includes(laag);
+  return (await haalPlanning()).includes(laag) || (await rolFunctie(laag, "planning"));
 }
 
 /** Bepaalt of deze gebruiker IB-dossiers mag verwijderen: beheerder (Azure) mag altijd; anders in de verwijderIb-lijst. */
@@ -266,7 +277,7 @@ async function magVerwijderIb(email, isBeheerder) {
   if (isBeheerder) return true;
   const laag = String(email || "").trim().toLowerCase();
   if (!laag) return false;
-  return (await haalVerwijderIb()).includes(laag);
+  return (await haalVerwijderIb()).includes(laag) || (await rolFunctie(laag, "verwijderIb"));
 }
 
 /** Bepaalt of deze gebruiker VPB-dossiers mag verwijderen: beheerder (Azure) mag altijd; anders in de verwijderVpb-lijst. */
@@ -274,7 +285,7 @@ async function magVerwijderVpb(email, isBeheerder) {
   if (isBeheerder) return true;
   const laag = String(email || "").trim().toLowerCase();
   if (!laag) return false;
-  return (await haalVerwijderVpb()).includes(laag);
+  return (await haalVerwijderVpb()).includes(laag) || (await rolFunctie(laag, "verwijderVpb"));
 }
 
 /** Bepaalt of deze gebruiker contactpersonen mag verwijderen: beheerder (Azure) mag altijd; anders in de verwijderContactpersonen-lijst. */
@@ -282,7 +293,7 @@ async function magVerwijderContactpersonen(email, isBeheerder) {
   if (isBeheerder) return true;
   const laag = String(email || "").trim().toLowerCase();
   if (!laag) return false;
-  return (await haalVerwijderContactpersonen()).includes(laag);
+  return (await haalVerwijderContactpersonen()).includes(laag) || (await rolFunctie(laag, "verwijderContactpersonen"));
 }
 
 /** Bepaalt of deze gebruiker dividendbelasting-aangiftes mag verwijderen: beheerder (Azure) mag altijd; anders in de verwijderDividendbelasting-lijst. Nog nergens serverkant afgedwongen (tab bestaat nog niet). */

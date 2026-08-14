@@ -218,6 +218,9 @@ export default function BeheerPortaal() {
   const [status, setStatus] = useState("laden"); // laden | nietIngelogd | geenRol | klaar
   const [gebruiker, setGebruiker] = useState(null);
   const [tab, setTab] = useState("content"); // content(Berichten) | faq | taken | instellingen | …
+  // Rol-toegang (Beheer → Rollen & toegang): alleen deze beheer-tabs tonen. null of leeg = geen beperking
+  // (zodat een beheerder zonder rol, of een rol zonder beheer-tabs, gewoon alles ziet).
+  const [zichtbareBeheerTabs, setZichtbareBeheerTabs] = useState(null);
   // Open/dicht per rubriek-kaart (zelfde patroon als de taaksoorten-sectie onder "Taken");
   // undefined/true = open (standaard), false = ingeklapt. Eén gedeelde state i.p.v. een
   // aparte useState per rubriek.
@@ -411,6 +414,21 @@ export default function BeheerPortaal() {
       .then((d) => setStandaardartikelen(d.artikelen || []))
       .catch(() => { setStandaardartikelen([]); setStandaardartikelenFout("Kon de standaardartikelen niet ophalen."); });
   }, []);
+
+  // Rol-toegang: welke beheer-tabs mag deze beheerder zien? Geen rol / geen beheer-tabs = alles.
+  useEffect(() => {
+    fetch("/api/mijn-toegang")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => { const t = Array.isArray(d.beheerTabs) ? d.beheerTabs : []; setZichtbareBeheerTabs(d.heeftRol && t.length ? t : null); })
+      .catch(() => setZichtbareBeheerTabs(null));
+  }, []);
+
+  // Staat de actieve tab niet (meer) in de toegestane beheer-tabs, spring dan naar de eerste toegestane.
+  useEffect(() => {
+    if (!zichtbareBeheerTabs) return;
+    if (!zichtbareBeheerTabs.includes(tab)) setTab(zichtbareBeheerTabs[0] || "content");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zichtbareBeheerTabs]);
 
   useEffect(() => {
     fetch("/.auth/me")
@@ -1454,7 +1472,7 @@ export default function BeheerPortaal() {
           ["dossiers", "Dossiers"],
           ["postboek", "Postboek"],
           ["instellingen", "Instellingen"],
-        ].map(([k, label]) => (
+        ].filter(([k]) => !zichtbareBeheerTabs || zichtbareBeheerTabs.includes(k)).map(([k, label]) => (
           <button
             key={k}
             onClick={() => setTab(k)}
