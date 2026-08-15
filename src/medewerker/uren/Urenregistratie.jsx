@@ -26,8 +26,13 @@ import VerlofOverzicht from "./VerlofOverzicht";
  *   - Rapportage          : declarabel-% en indirecte uren per medewerker
  *   - Bezetting           : ingeplande uren per medewerker per maand t.o.v. beschikbare capaciteit
  */
-export default function Urenregistratie({ isBeheerder, magBewerken = true, magVerwijderen = true }) {
+export default function Urenregistratie({ isBeheerder, magBewerken = true, magVerwijderen = true, subRechten = null }) {
   const [sub, setSub] = useState("schrijven");
+  const zicht = subRechten ? subRechten.zien : () => true;
+  // Subpagina-rechten: bewerken/verwijderen van de eigen uren (tab Schrijven) volgt de subpagina-instelling
+  // als die er is, anders de rubriek-instelling.
+  const magSchrijvenBewerken = subRechten ? subRechten.bewerken("schrijven") : magBewerken;
+  const magSchrijvenVerwijderen = subRechten ? subRechten.verwijderen("schrijven") : magVerwijderen;
   const [teGoedkeuren, setTeGoedkeuren] = useState(0);
   const [verlofTeGoedkeuren, setVerlofTeGoedkeuren] = useState(0);
 
@@ -70,7 +75,7 @@ export default function Urenregistratie({ isBeheerder, magBewerken = true, magVe
         daarna doet de manager de facturatiecontrole per cliënt (afboeken / UXT→Exact).
       </div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
-        {subs.map(([k, label, Icon, badge]) => (
+        {subs.filter(([k]) => zicht(k)).map(([k, label, Icon, badge]) => (
           <button key={k} onClick={() => setSub(k)} style={{ ...knopStijl(sub === k), position: "relative" }}>
             <Icon size={14} /> {label}
             {badge > 0 && <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 17, height: 17, padding: "0 5px", borderRadius: 999, background: sub === k ? "#fff" : KLEUR.rood, color: sub === k ? KLEUR.blauw : "#fff", fontSize: 10.5, fontWeight: 700 }}>{badge}</span>}
@@ -78,7 +83,8 @@ export default function Urenregistratie({ isBeheerder, magBewerken = true, magVe
         ))}
       </div>
 
-      {sub === "schrijven" && <Schrijven magBewerken={magBewerken} magVerwijderen={magVerwijderen} />}
+      {!zicht(sub) ? <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Deze subpagina is voor jouw rol niet zichtbaar.</div> : (<>
+      {sub === "schrijven" && <Schrijven magBewerken={magSchrijvenBewerken} magVerwijderen={magSchrijvenVerwijderen} />}
       {sub === "verlof" && <VerlofAanvragen />}
       {sub === "verlofgoedkeuren" && <VerlofGoedkeuren isBeheerder={isBeheerder} onGewijzigd={laadVerlofTelling} />}
       {sub === "vakantieoverzicht" && <VerlofOverzicht />}
@@ -87,6 +93,7 @@ export default function Urenregistratie({ isBeheerder, magBewerken = true, magVe
       {sub === "facturatie" && <UrenFacturatie isBeheerder={isBeheerder} />}
       {sub === "rapportage" && <UrenRapportage />}
       {sub === "bezetting" && <UrenBezetting isBeheerder={isBeheerder} />}
+      </>)}
     </div>
   );
 }

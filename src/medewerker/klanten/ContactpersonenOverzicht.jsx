@@ -74,7 +74,7 @@ function herbereken(contact, klanten) {
  * de contactpersoon (met wijzig-recht) bewerkt kan worden en (als beheerder) aan cliënten gekoppeld.
  * Zie api/beheer-contactpersonen (lijst) en api/medewerker-contactpersoon (bewerken/koppelen).
  */
-export default function ContactpersonenOverzicht() {
+export default function ContactpersonenOverzicht({ magBulkVerwijderen = false, magSubVerwijderen = true } = {}) {
   const [contactpersonen, setContactpersonen] = useState(null); // null = laden
   const [afgekapt, setAfgekapt] = useState(false);
   const [fout, setFout] = useState("");
@@ -381,10 +381,36 @@ export default function ContactpersonenOverzicht() {
   const actieveFilters = Object.entries(kolomFilters).filter(([, v]) => v);
 
   // ── Bulk-selectie (op contactId). "Alles" werkt op de gefilterde lijst. ──
+  // Selectie tonen zodra bulk-bewerken (magBulk) óf bulk-verwijderen (rol-recht) mag.
+  const toonSelectie = magBulk || magBulkVerwijderen;
   const gefilterdeIds = gefilterd.map((c) => c.contactId);
   const allesGeselecteerd = gefilterdeIds.length > 0 && gefilterdeIds.every((id) => selectie.has(id));
   const toggleSelectie = (id) => setSelectie((h) => { const n = new Set(h); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const toggleAlles = () => setSelectie(() => (allesGeselecteerd ? new Set() : new Set(gefilterdeIds)));
+
+  // Bulk verwijderen (meerdere contactpersonen deactiveren) — alleen met het bulk-verwijderrecht.
+  const [bulkVerwijderBezig, setBulkVerwijderBezig] = useState(false);
+  const bulkVerwijder = async () => {
+    if (!magBulkVerwijderen) return;
+    const ids = [...selectie];
+    if (!ids.length) return;
+    if (!window.confirm(`${ids.length} geselecteerde contactperso${ids.length === 1 ? "on" : "nen"} verwijderen uit het portaal?\n\nZe worden op inactief gezet en losgekoppeld van hun cliënt(en); de portaaltoegang vervalt. Terug te draaien in Dynamics.`)) return;
+    setBulkVerwijderBezig(true); setFout("");
+    try {
+      const res = await fetch("/api/medewerker-contactpersoon", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "bulk-verwijderen", contactIds: ids }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+      const d = await res.json().catch(() => ({}));
+      const mislukt = new Set((d.mislukt || []).map((x) => String(x)));
+      const wegIds = new Set(ids.filter((id) => !mislukt.has(id)));
+      setContactpersonen((huidig) => (huidig || []).filter((c) => !wegIds.has(c.contactId)));
+      setSelectie(new Set());
+      if (mislukt.size) setFout(`${mislukt.size} contactperso${mislukt.size === 1 ? "on" : "nen"} kon(den) niet worden verwijderd.`);
+    } catch (e) { setFout(e.message || "Bulk verwijderen mislukt."); }
+    finally { setBulkVerwijderBezig(false); }
+  };
 
   const bulkToepassen = async (veld, waarde) => {
     const ids = [...selectie];
@@ -444,7 +470,7 @@ export default function ContactpersonenOverzicht() {
       <ContactpersoonDetail
         contact={detail}
         magWijzigen={magWijzigen}
-        magVerwijderen={magVerwijderen}
+        magVerwijderen={magVerwijderen && magSubVerwijderen}
         isBeheerder={isBeheerder}
         onTerug={() => setDetail(null)}
         onBewerkt={naBewerken}
@@ -571,15 +597,22 @@ export default function ContactpersonenOverzicht() {
         {afgekapt ? " · lijst afgekapt, verfijn je zoekopdracht" : ""}
       </div>
 
-      {magBulk && selectie.size > 0 && (
+      {toonSelectie && selectie.size > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10, padding: "8px 12px", background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: KLEUR.blauw }}>{selectie.size} geselecteerd</span>
-          <button onClick={() => setBulkOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
-            <Pencil size={13} /> Bulk wijzigen
-          </button>
+          {magBulk && (
+            <button onClick={() => setBulkOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+              <Pencil size={13} /> Bulk wijzigen
+            </button>
+          )}
           {isBeheerder && (
             <button onClick={() => setDocrechtBulkOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", background: "#fff", color: KLEUR.blauw, border: `1px solid ${KLEUR.blauw}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
               <ShieldCheck size={13} /> Documentrechten
+            </button>
+          )}
+          {magBulkVerwijderen && (
+            <button onClick={bulkVerwijder} disabled={bulkVerwijderBezig} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", background: "#fff", color: KLEUR.rood, border: `1px solid ${KLEUR.rood}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: bulkVerwijderBezig ? "default" : "pointer", opacity: bulkVerwijderBezig ? 0.6 : 1 }}>
+              <Trash2 size={13} /> {bulkVerwijderBezig ? "Verwijderen…" : "Verwijder geselecteerde"}
             </button>
           )}
           <button onClick={() => setSelectie(new Set())} style={{ padding: "7px 12px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Selectie wissen</button>
@@ -590,7 +623,7 @@ export default function ContactpersonenOverzicht() {
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: Math.max(600, zichtKols.length * 110) }}>
           <thead>
             <tr>
-              {magBulk && (
+              {toonSelectie && (
                 <th style={{ ...th, width: 34, cursor: "default" }}>
                   <input type="checkbox" checked={allesGeselecteerd} onChange={toggleAlles} title="Alles op deze lijst selecteren" />
                 </th>
@@ -611,7 +644,7 @@ export default function ContactpersonenOverzicht() {
             </tr>
             {filterRegel && (
               <tr>
-                {magBulk && <th style={{ ...th, padding: "4px 6px", width: 34 }} />}
+                {toonSelectie && <th style={{ ...th, padding: "4px 6px", width: 34 }} />}
                 {zichtKols.map((kol) => (
                   <th key={kol.key} style={{ ...th, padding: "4px 6px", textTransform: "none" }}>
                     <input
@@ -637,7 +670,7 @@ export default function ContactpersonenOverzicht() {
                   onMouseEnter={(e) => (e.currentTarget.style.background = KLEUR.lichtblauw)}
                   onMouseLeave={(e) => (e.currentTarget.style.background = gekozen ? KLEUR.lichtblauw : "transparent")}
                 >
-                  {magBulk && (
+                  {toonSelectie && (
                     <td style={{ ...td, width: 34 }} onClick={(e) => e.stopPropagation()}>
                       <input type="checkbox" checked={gekozen} onChange={() => toggleSelectie(c.contactId)} />
                     </td>
@@ -650,7 +683,7 @@ export default function ContactpersonenOverzicht() {
             })}
             {zichtbareRijen.length === 0 && (
               <tr>
-                <td colSpan={Math.max(1, zichtKols.length + (magBulk ? 1 : 0))} style={{ ...td, color: KLEUR.mutedTekst, whiteSpace: "normal" }}>
+                <td colSpan={Math.max(1, zichtKols.length + (toonSelectie ? 1 : 0))} style={{ ...td, color: KLEUR.mutedTekst, whiteSpace: "normal" }}>
                   Geen contactpersonen gevonden met deze zoekopdracht of filters.
                 </td>
               </tr>

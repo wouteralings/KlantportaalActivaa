@@ -55,6 +55,7 @@ const { haalVoorAccounts, haalLaatstGezien, verrijkVerzoek } = require("../_gede
 const { haalOnderwerpen } = require("../_gedeeld/aanleveronderwerpen");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
 const { magVerwijderIb, magVerwijderVpb } = require("../_gedeeld/wijzigrechten");
+const { magSubBulkVerwijderen } = require("../_gedeeld/rollenConfig");
 
 /** Haalt de (door Beheer → Dossiers ingestelde) indeling van een soort op — secties (met
  * eventuele subrubrieken), verborgen velden, tonen-alleen-als-voorwaarden, alleen-lezen velden,
@@ -235,7 +236,42 @@ module.exports = async function (context, req) {
     if (methode === "POST" || methode === "PATCH") {
       const { soort: soortKey, id, actie, status, urlDossier, documentUrl, velden: veldenBag, fiscaalPartnerAccountId } = req.body || {};
       const soort = soortVan(soortKey);
-      if (!soort || !id) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'soort' (ib/vpb) en 'id' mee." } }; return; }
+      if (!soort) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'soort' (ib/vpb) mee." } }; return; }
+
+      // ── Meerdere dossiers van deze soort in één keer definitief verwijderen ──
+      //    Gate: BEHEERDER, of een rol met bulk-verwijderrecht op de bijbehorende subpagina
+      //    (Beheer → Rollen & rechten → subpagina's → Bulk). Zelfde definitieve verwijdering per dossier.
+      if (actie === "bulk-verwijderen") {
+        const magBulkWeg = rollen.includes("beheerder") || (await magSubBulkVerwijderen(email, `klantoverzicht.${soort.key}`));
+        if (!magBulkWeg) {
+          context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: `Je rol mag ${soort.label.toLowerCase()}-dossiers niet in bulk verwijderen.` } };
+          return;
+        }
+        const ids = Array.isArray(req.body && req.body.ids)
+          ? [...new Set(req.body.ids.map((x) => String(x || "").trim()).filter(Boolean))]
+          : [];
+        if (!ids.length) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'ids' mee." } }; return; }
+        if (ids.length > 100) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Maximaal 100 dossiers per keer." } }; return; }
+        let gelukt = 0;
+        const mislukt = [];
+        for (const did of ids) {
+          try {
+            const huidig = await haalEenDossier(resource, token, soort, did);
+            if (!huidig) { mislukt.push(did); continue; }
+            await verwijderDossier(resource, token, soort, did);
+            await logGebeurtenis({
+              door: email || "onbekend", actie: "dossier", accountId: huidig.accountId, accountIds: [huidig.accountId],
+              klantnaam: huidig.klantnaam,
+              tekst: `Dossier ${soort.label}${huidig.jaar ? ` ${huidig.jaar}` : ""} van ${huidig.klantnaam || "de cliënt"} definitief verwijderd (bulk).`,
+            }).catch(() => {});
+            gelukt += 1;
+          } catch (e) { mislukt.push(did); }
+        }
+        context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verwijderd: gelukt, mislukt } };
+        return;
+      }
+
+      if (!id) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'id' mee." } }; return; }
 
       // ── Dossier definitief verwijderen (gate: beheerder, of het verwijder-recht voor deze soort) ──
       if (actie === "verwijderen") {

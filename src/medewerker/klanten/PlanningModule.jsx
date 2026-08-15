@@ -5,7 +5,7 @@
  *   • Per klant        — de configuratie "wat doen we voor deze klant" (Stap 3a, PlanningConfigPerKlant).
  *   • Losse regels     — alle losse planningsregels (Stap 2, PlanningOverzicht).
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { List, Users, CalendarRange, CalendarDays, ListChecks } from "lucide-react";
 import PlanningOverzicht from "./PlanningOverzicht";
 import PlanningConfigPerKlant from "./PlanningConfigPerKlant";
@@ -23,16 +23,20 @@ const SUBTABS = [
   { key: "overzicht", label: "Losse regels", icon: List },
 ];
 
-export default function PlanningModule() {
+export default function PlanningModule({ subRechten = null }) {
   const [sub, setSub] = useState("maand");
+  const zicht = subRechten ? subRechten.zien : () => true;
+  const zichtbareSubs = SUBTABS.filter((s) => zicht(s.key));
   // Vanuit de Jaarplanning kan een klant worden aangeklikt om 'm meteen in te stellen: schakel naar
   // "Per klant" en geef de gekozen klant-account-id door (PlanningConfigPerKlant selecteert 'm dan).
   const [instelKlant, setInstelKlant] = useState("");
   const gaInstellen = (accountId) => { setInstelKlant(accountId || ""); setSub("config"); };
+  // Actieve sub niet zichtbaar (rol verbergt 'm)? Spring naar de eerste zichtbare.
+  useEffect(() => { if (zichtbareSubs.length && !zichtbareSubs.find((s) => s.key === sub)) setSub(zichtbareSubs[0].key); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [subRechten]);
   return (
     <div>
       <div style={{ display: "flex", gap: 4, marginBottom: 16, flexWrap: "wrap" }}>
-        {SUBTABS.map((s) => {
+        {zichtbareSubs.map((s) => {
           const aan = s.key === sub;
           const Icon = s.icon;
           return (
@@ -46,11 +50,11 @@ export default function PlanningModule() {
           );
         })}
       </div>
-      {sub === "maand" && <PlanningMaand />}
-      {sub === "jaar" && <PlanningJaar onInstellen={gaInstellen} />}
-      {sub === "deel" && <Deelactiviteiten />}
-      {sub === "config" && <PlanningConfigPerKlant initieelAccountId={instelKlant} />}
-      {sub === "overzicht" && <PlanningOverzicht />}
+      {zicht(sub) && sub === "maand" && <PlanningMaand />}
+      {zicht(sub) && sub === "jaar" && <PlanningJaar onInstellen={gaInstellen} />}
+      {zicht(sub) && sub === "deel" && <Deelactiviteiten />}
+      {zicht(sub) && sub === "config" && <PlanningConfigPerKlant initieelAccountId={instelKlant} />}
+      {zicht(sub) && sub === "overzicht" && <PlanningOverzicht />}
     </div>
   );
 }

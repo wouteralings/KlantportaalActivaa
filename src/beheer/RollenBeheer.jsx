@@ -7,7 +7,7 @@
  * portaal precies zoals die rol het ziet en kan (server-ondersteund via /api/impersonatie).
  */
 import { useEffect, useState } from "react";
-import { Plus, Trash2, Save, CheckCircle2, ShieldCheck, Users, LayoutGrid, Eye } from "lucide-react";
+import { Plus, Trash2, Save, CheckCircle2, ShieldCheck, Users, LayoutGrid, Eye, Layers } from "lucide-react";
 
 const KLEUR = {
   blauw: "#1C5D8C", tekst: "#1C2321", subtekst: "#5B6259", mutedTekst: "#8A9089",
@@ -71,10 +71,69 @@ function TabRechten({ opties, zichtbaar, bewerkbaar, verwijderbaar, onZet, onZet
   );
 }
 
+// Subpagina-rechten: per subpagina (gegroepeerd onder de hoofd-rubriek) een tri-state (uit/lezen/bewerken)
+// plus losse schakelaars "verwijderen" en "bulk verwijderen". Verwijderen kan alleen op een zichtbare
+// subpagina; bulk kan alleen als verwijderen aan staat. Zonder enige subpagina-config erft een rubriek
+// gewoon de rechten van de hoofd-rubriek (dus dit is puur een verfijning).
+function SubPaginaRechten({ opties, parents, zichtbaar, bewerkbaar, verwijderbaar, bulk, onZet, onZetVerwijder, onZetBulk }) {
+  const zicht = new Set(zichtbaar || []);
+  const bew = new Set(bewerkbaar || []);
+  const verw = new Set(verwijderbaar || []);
+  const bulkSet = new Set(bulk || []);
+  const staatVan = (k) => (!zicht.has(k) ? "uit" : (bew.has(k) ? "bewerken" : "lezen"));
+  const parentLabel = (pk) => (parents.find((p) => p.key === pk)?.label || pk);
+  // Groepeer de subpagina's op hun hoofd-rubriek (parent), in de volgorde waarin ze binnenkomen.
+  const groepen = [];
+  for (const o of opties) {
+    let g = groepen.find((x) => x.parent === o.parent);
+    if (!g) { g = { parent: o.parent, items: [] }; groepen.push(g); }
+    g.items.push(o);
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 720 }}>
+      {groepen.map((g) => (
+        <div key={g.parent}>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.blauw, marginBottom: 4 }}>{parentLabel(g.parent)}</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {g.items.map((o) => {
+              const st = staatVan(o.key);
+              const uit = st === "uit";
+              const magVerw = verw.has(o.key);
+              return (
+                <div key={o.key} style={{ display: "grid", gridTemplateColumns: "minmax(120px,1fr) auto auto auto", gap: 10, alignItems: "center" }}>
+                  <span style={{ fontSize: 12.5, color: uit ? KLEUR.mutedTekst : KLEUR.tekst, fontWeight: uit ? 400 : 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label}</span>
+                  <div style={{ display: "inline-flex", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, overflow: "hidden" }}>
+                    {TAB_STATEN.map(([val, lab], idx) => {
+                      const aan = st === val;
+                      const kleur = val === "bewerken" ? KLEUR.blauw : val === "lezen" ? KLEUR.groen : KLEUR.mutedTekst;
+                      return (
+                        <button key={val} onClick={() => onZet(o.key, val)} style={{ padding: "4px 11px", border: "none", borderLeft: idx ? `1px solid ${KLEUR.rand}` : "none", background: aan ? kleur : "#fff", color: aan ? "#fff" : KLEUR.subtekst, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>{lab}</button>
+                      );
+                    })}
+                  </div>
+                  <label title={uit ? "Eerst zichtbaar maken (Lezen of Bewerken)" : "Mag op deze subpagina verwijderen"} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontWeight: 600, color: uit ? KLEUR.mutedTekst : (magVerw ? KLEUR.rood : KLEUR.subtekst), cursor: uit ? "default" : "pointer", whiteSpace: "nowrap", opacity: uit ? 0.5 : 1 }}>
+                    <input type="checkbox" checked={magVerw} disabled={uit} onChange={() => onZetVerwijder(o.key, !magVerw)} />
+                    <Trash2 size={12} /> Verwijderen
+                  </label>
+                  <label title={!magVerw ? "Eerst 'Verwijderen' aanzetten" : "Mag in bulk verwijderen (meerdere tegelijk)"} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontWeight: 600, color: !magVerw ? KLEUR.mutedTekst : (bulkSet.has(o.key) ? KLEUR.rood : KLEUR.subtekst), cursor: !magVerw ? "default" : "pointer", whiteSpace: "nowrap", opacity: !magVerw ? 0.5 : 1 }}>
+                    <input type="checkbox" checked={bulkSet.has(o.key)} disabled={!magVerw} onChange={() => onZetBulk(o.key, !bulkSet.has(o.key))} />
+                    <Layers size={12} /> Bulk
+                  </label>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function RollenBeheer() {
   const [rollen, setRollen] = useState(null);
   const [toewijzingen, setToewijzingen] = useState({});
   const [medewerkerTabs, setMedewerkerTabs] = useState([]);
+  const [medewerkerSubTabs, setMedewerkerSubTabs] = useState([]);
   const [beheerTabs, setBeheerTabs] = useState([]);
   const [functies, setFuncties] = useState([]);
   const [medewerkers, setMedewerkers] = useState([]);
@@ -88,7 +147,7 @@ export default function RollenBeheer() {
   useEffect(() => {
     fetch("/api/beheer-rollen")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { setRollen(d.rollen || []); setToewijzingen(d.toewijzingen || {}); setMedewerkerTabs(d.medewerkerTabs || []); setBeheerTabs(d.beheerTabs || []); setFuncties(d.functies || []); })
+      .then((d) => { setRollen(d.rollen || []); setToewijzingen(d.toewijzingen || {}); setMedewerkerTabs(d.medewerkerTabs || []); setMedewerkerSubTabs(d.medewerkerSubTabs || []); setBeheerTabs(d.beheerTabs || []); setFuncties(d.functies || []); })
       .catch(() => { setRollen([]); setFout("Kon de rollen niet laden."); });
     fetch("/api/beheer-medewerkers").then((r) => (r.ok ? r.json() : {})).then((d) => setMedewerkers(d.medewerkers || [])).catch(() => {});
     // Niveau (medewerker/manager/beheerder) + de bestaande losse rechten. We bewaren ze volledig en
@@ -137,7 +196,43 @@ export default function RollenBeheer() {
     } catch (e) { setFout(e.message || "Kon 'kijken als rol' niet starten."); setStatus("fout"); }
   };
 
-  const voegRolToe = () => { const naam = nieuweRol.trim(); if (!naam) return; setRollen((h) => [...(h || []), { naam, medewerkerTabs: [], bewerkTabs: [], verwijderTabs: [], beheerTabs: [], bewerkBeheerTabs: [], functies: {} }]); setNieuweRol(""); merk(); };
+  const voegRolToe = () => { const naam = nieuweRol.trim(); if (!naam) return; setRollen((h) => [...(h || []), { naam, medewerkerTabs: [], bewerkTabs: [], verwijderTabs: [], subTabs: [], bewerkSubTabs: [], verwijderSubTabs: [], bulkVerwijderSubTabs: [], beheerTabs: [], bewerkBeheerTabs: [], functies: {} }]); setNieuweRol(""); merk(); };
+  // Subpagina-tri-state: uit (verborgen) → ook geen verwijder/bulk; lezen; bewerken. Zet subTabs/bewerkSubTabs.
+  const zetSubTabRecht = (i, key, staat) => {
+    setRollen((h) => h.map((r, idx) => {
+      if (idx !== i) return r;
+      const zicht = new Set(r.subTabs || []);
+      const bew = new Set(r.bewerkSubTabs || []);
+      const verw = new Set(r.verwijderSubTabs || []);
+      const bulk = new Set(r.bulkVerwijderSubTabs || []);
+      if (staat === "uit") { zicht.delete(key); bew.delete(key); verw.delete(key); bulk.delete(key); }
+      else if (staat === "lezen") { zicht.add(key); bew.delete(key); }
+      else { zicht.add(key); bew.add(key); }
+      return { ...r, subTabs: [...zicht], bewerkSubTabs: [...bew], verwijderSubTabs: [...verw], bulkVerwijderSubTabs: [...bulk] };
+    }));
+    merk();
+  };
+  // Losse "verwijderen"-schakelaar per subpagina; uitzetten haalt ook bulk weg.
+  const zetSubVerwijderRecht = (i, key, aan) => {
+    setRollen((h) => h.map((r, idx) => {
+      if (idx !== i) return r;
+      const verw = new Set(r.verwijderSubTabs || []);
+      const bulk = new Set(r.bulkVerwijderSubTabs || []);
+      if (aan) verw.add(key); else { verw.delete(key); bulk.delete(key); }
+      return { ...r, verwijderSubTabs: [...verw], bulkVerwijderSubTabs: [...bulk] };
+    }));
+    merk();
+  };
+  // Losse "bulk verwijderen"-schakelaar per subpagina (vereist verwijderen).
+  const zetSubBulkRecht = (i, key, aan) => {
+    setRollen((h) => h.map((r, idx) => {
+      if (idx !== i) return r;
+      const bulk = new Set(r.bulkVerwijderSubTabs || []);
+      aan ? bulk.add(key) : bulk.delete(key);
+      return { ...r, bulkVerwijderSubTabs: [...bulk] };
+    }));
+    merk();
+  };
   // Per rubriek (medewerker- of beheer-tab) de staat zetten: uit (verborgen) / lezen (alleen-lezen) / bewerken.
   const zetTabRecht = (i, portaal, key, staat) => {
     const zichtVeld = portaal === "beheer" ? "beheerTabs" : "medewerkerTabs";
@@ -211,6 +306,13 @@ export default function RollenBeheer() {
             </div>
             {sectiekop(Users, "Medewerkersportaal — rubrieken (uit / lezen / bewerken · verwijderen)")}
             <TabRechten opties={medewerkerTabs} zichtbaar={rol.medewerkerTabs} bewerkbaar={rol.bewerkTabs} verwijderbaar={rol.verwijderTabs} onZet={(k, st) => zetTabRecht(i, "medewerker", k, st)} onZetVerwijder={(k, aan) => zetVerwijderRecht(i, k, aan)} />
+            {medewerkerSubTabs.length > 0 && (
+              <>
+                {sectiekop(Layers, "Medewerkersportaal — subpagina's (uit / lezen / bewerken · verwijderen · bulk)")}
+                <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 6 }}>Laat een rubriek leeg om de subpagina's de rechten van de hoofd-rubriek te laten volgen. Zet je hier iets, dan geldt dat voor die subpagina's.</div>
+                <SubPaginaRechten opties={medewerkerSubTabs} parents={medewerkerTabs} zichtbaar={rol.subTabs} bewerkbaar={rol.bewerkSubTabs} verwijderbaar={rol.verwijderSubTabs} bulk={rol.bulkVerwijderSubTabs} onZet={(k, st) => zetSubTabRecht(i, k, st)} onZetVerwijder={(k, aan) => zetSubVerwijderRecht(i, k, aan)} onZetBulk={(k, aan) => zetSubBulkRecht(i, k, aan)} />
+              </>
+            )}
             {sectiekop(LayoutGrid, "Beheerdersportaal — rubrieken (uit / lezen / bewerken)")}
             <TabRechten opties={beheerTabs} zichtbaar={rol.beheerTabs} bewerkbaar={rol.bewerkBeheerTabs} onZet={(k, st) => zetTabRecht(i, "beheer", k, st)} />
             {sectiekop(ShieldCheck, "Functies")}

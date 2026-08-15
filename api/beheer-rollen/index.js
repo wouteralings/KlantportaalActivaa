@@ -10,7 +10,7 @@
  * Route beveiligd via staticwebapp.config.json (alleen rol 'beheerder'); extra rolcheck hier.
  */
 const { haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
-const { haalRollenConfig, zetRollenConfig, MEDEWERKER_TABS, BEHEER_TABS, FUNCTIES } = require("../_gedeeld/rollenConfig");
+const { haalRollenConfig, zetRollenConfig, MEDEWERKER_TABS, BEHEER_TABS, FUNCTIES, MEDEWERKER_SUBTABS } = require("../_gedeeld/rollenConfig");
 
 const json = (status, body) => ({ status, headers: { "Content-Type": "application/json" }, body });
 
@@ -19,7 +19,7 @@ module.exports = async function (context, req) {
   try {
     if (req.method === "GET") {
       const cfg = await haalRollenConfig();
-      context.res = json(200, { ...cfg, medewerkerTabs: MEDEWERKER_TABS, beheerTabs: BEHEER_TABS, functies: FUNCTIES });
+      context.res = json(200, { ...cfg, medewerkerTabs: MEDEWERKER_TABS, beheerTabs: BEHEER_TABS, functies: FUNCTIES, medewerkerSubTabs: MEDEWERKER_SUBTABS });
       return;
     }
     if (req.method === "PUT") {
@@ -27,7 +27,7 @@ module.exports = async function (context, req) {
       const toewijzingen = (req.body && req.body.toewijzingen) || {};
       if (!Array.isArray(rollen)) { context.res = json(400, { error: "Geef 'rollen' als lijst mee." }); return; }
       const opgeslagen = await zetRollenConfig({ rollen, toewijzingen });
-      context.res = json(200, { ...opgeslagen, medewerkerTabs: MEDEWERKER_TABS, beheerTabs: BEHEER_TABS, functies: FUNCTIES });
+      context.res = json(200, { ...opgeslagen, medewerkerTabs: MEDEWERKER_TABS, beheerTabs: BEHEER_TABS, functies: FUNCTIES, medewerkerSubTabs: MEDEWERKER_SUBTABS });
       return;
     }
     context.res = json(405, { error: "Methode niet toegestaan." });

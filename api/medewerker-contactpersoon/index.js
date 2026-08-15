@@ -26,6 +26,7 @@
  */
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const { magWijzigen, magBulk, magVerwijderContactpersonen } = require("../_gedeeld/wijzigrechten");
+const { magSubBulkVerwijderen } = require("../_gedeeld/rollenConfig");
 const { logGebeurtenis, haalLog } = require("../_gedeeld/klantlog");
 const documentrechten = require("../_gedeeld/documentrechten");
 
@@ -498,6 +499,55 @@ module.exports = async function (context, req) {
       });
 
       context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true } };
+      return;
+    }
+
+    // ── Meerdere contactpersonen in één keer verwijderen (deactiveren) ──
+    //    Gate: BEHEERDER, of een rol met bulk-verwijderrecht op de subpagina Contactpersonen
+    //    (Beheer → Rollen & rechten → subpagina's → Bulk). Zelfde stappen als het losse "verwijderen".
+    if (actie === "bulk-verwijderen") {
+      const magBulkWeg = beheerder || (await magSubBulkVerwijderen(email, "klantoverzicht.contactpersonen"));
+      if (!magBulkWeg) {
+        context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Je rol mag contactpersonen niet in bulk verwijderen." } };
+        return;
+      }
+      const ids = Array.isArray(req.body && req.body.contactIds)
+        ? [...new Set(req.body.contactIds.map((x) => String(x || "").trim()).filter(Boolean))]
+        : [];
+      if (!ids.length) {
+        context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'contactIds' mee." } };
+        return;
+      }
+      if (ids.length > 200) {
+        context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Maximaal 200 contactpersonen per keer." } };
+        return;
+      }
+      let gelukt = 0;
+      const mislukt = [];
+      for (const cid of ids) {
+        try {
+          const info = await haalContactVolledig(resource, token, cid);
+          const naam = info ? info.fullname || "" : "";
+          const primair = await accountsMetLookup(resource, token, "_primarycontactid_value", cid);
+          for (const a of primair) { try { await verwijderRef(resource, token, a.accountId, "primarycontactid"); } catch { /* best-effort */ } }
+          let secundair = [];
+          try { secundair = await accountsMetLookup(resource, token, `_${SECUNDAIR_ATTR}_value`, cid); } catch { secundair = []; }
+          for (const a of secundair) { try { await verwijderRef(resource, token, a.accountId, "cr283_Secundairecontactpersoon"); } catch { /* best-effort */ } }
+          await patch(resource, token, "contacts", cid, { statecode: 1, statuscode: 2 });
+          const betrokken = [...primair, ...secundair];
+          const accountIds = [...new Set(betrokken.map((a) => a.accountId))];
+          await logGebeurtenis({
+            door: email || "onbekend", actie: "verwijderen",
+            contactId: cid, contactNaam: naam, accountIds,
+            klantnaam: [...new Set(betrokken.map((a) => a.klantnaam).filter(Boolean))].join(", "),
+            tekst: `Contactpersoon ${naam || "(onbekend)"} gedeactiveerd (bulk) — verwijderd uit het portaal${betrokken.length ? ` en losgekoppeld van ${accountIds.length} cliënt(en)` : ""}.`,
+          }).catch(() => {});
+          gelukt += 1;
+        } catch (e) {
+          mislukt.push(cid);
+        }
+      }
+      context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verwijderd: gelukt, mislukt } };
       return;
     }
 
