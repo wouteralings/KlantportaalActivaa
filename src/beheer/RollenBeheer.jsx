@@ -31,6 +31,35 @@ function Vinkjes({ opties, geselecteerd, onToggle }) {
   );
 }
 
+// Per rubriek (medewerker-tab) een keuze: Uit (verborgen) · Lezen (zichtbaar, alleen-lezen) · Bewerken.
+const TAB_STATEN = [["uit", "Uit"], ["lezen", "Lezen"], ["bewerken", "Bewerken"]];
+function TabRechten({ opties, zichtbaar, bewerkbaar, onZet }) {
+  const zicht = new Set(zichtbaar || []);
+  const bew = new Set(bewerkbaar || []);
+  const staatVan = (k) => (!zicht.has(k) ? "uit" : (bew.has(k) ? "bewerken" : "lezen"));
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, maxWidth: 460 }}>
+      {opties.map((o) => {
+        const st = staatVan(o.key);
+        return (
+          <div key={o.key} style={{ display: "grid", gridTemplateColumns: "minmax(110px,1fr) auto", gap: 8, alignItems: "center" }}>
+            <span style={{ fontSize: 12.5, color: st === "uit" ? KLEUR.mutedTekst : KLEUR.tekst, fontWeight: st === "uit" ? 400 : 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label}</span>
+            <div style={{ display: "inline-flex", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, overflow: "hidden" }}>
+              {TAB_STATEN.map(([val, lab], idx) => {
+                const aan = st === val;
+                const kleur = val === "bewerken" ? KLEUR.blauw : val === "lezen" ? KLEUR.groen : KLEUR.mutedTekst;
+                return (
+                  <button key={val} onClick={() => onZet(o.key, val)} style={{ padding: "4px 11px", border: "none", borderLeft: idx ? `1px solid ${KLEUR.rand}` : "none", background: aan ? kleur : "#fff", color: aan ? "#fff" : KLEUR.subtekst, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>{lab}</button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function RollenBeheer() {
   const [rollen, setRollen] = useState(null);
   const [toewijzingen, setToewijzingen] = useState({});
@@ -38,6 +67,7 @@ export default function RollenBeheer() {
   const [beheerTabs, setBeheerTabs] = useState([]);
   const [functies, setFuncties] = useState([]);
   const [medewerkers, setMedewerkers] = useState([]);
+  const [rechten, setRechten] = useState(null); // volledige wijzigrechten (niveaus + legacy-lijsten) — niet-destructief bewaard
   const [nieuweRol, setNieuweRol] = useState("");
   const [vuil, setVuil] = useState(false);
   const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
@@ -50,6 +80,10 @@ export default function RollenBeheer() {
       .then((d) => { setRollen(d.rollen || []); setToewijzingen(d.toewijzingen || {}); setMedewerkerTabs(d.medewerkerTabs || []); setBeheerTabs(d.beheerTabs || []); setFuncties(d.functies || []); })
       .catch(() => { setRollen([]); setFout("Kon de rollen niet laden."); });
     fetch("/api/beheer-medewerkers").then((r) => (r.ok ? r.json() : {})).then((d) => setMedewerkers(d.medewerkers || [])).catch(() => {});
+    // Niveau (medewerker/manager/beheerder) + de bestaande losse rechten. We bewaren ze volledig en
+    // schrijven ze bij het opslaan ongewijzigd terug (op het niveau na), zodat bestaande per-persoon-
+    // rechten niet verloren gaan — de functies beheer je voortaan via de rol.
+    fetch("/api/beheer-wijzigrechten").then((r) => (r.ok ? r.json() : {})).then((d) => setRechten(d || {})).catch(() => setRechten({}));
   }, []);
 
   const merk = () => { setVuil(true); setStatus("rust"); };
@@ -60,6 +94,21 @@ export default function RollenBeheer() {
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
       const d = await r.json();
       setRollen(d.rollen || rollen); setToewijzingen(d.toewijzingen || toewijzingen);
+      // Niveau bewaren via wijzigrechten — de bestaande lijsten sturen we ongewijzigd mee terug, zodat
+      // er niets verloren gaat (volledige overschrijving op de server).
+      if (rechten) {
+        const payload = {
+          niveaus: rechten.niveaus || {},
+          bulk: rechten.bulk || [], alsKlant: rechten.alsKlant || [], offertes: rechten.offertes || [],
+          contracten: rechten.contracten || [], planning: rechten.planning || [],
+          verwijderIb: rechten.verwijderIb || [], verwijderVpb: rechten.verwijderVpb || [],
+          verwijderContactpersonen: rechten.verwijderContactpersonen || [], verwijderDividendbelasting: rechten.verwijderDividendbelasting || [],
+        };
+        const rw = await fetch("/api/beheer-wijzigrechten", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        if (!rw.ok) throw new Error((await rw.json().catch(() => ({}))).error || `Niveau opslaan mislukt (HTTP ${rw.status})`);
+        const dw = await rw.json().catch(() => null);
+        if (dw) setRechten(dw);
+      }
       setVuil(false); setStatus("opgeslagen"); setTimeout(() => setStatus((s) => (s === "opgeslagen" ? "rust" : s)), 2500);
     } catch (e) { setFout(e.message || "Opslaan mislukt."); setStatus("fout"); }
   };
@@ -77,12 +126,33 @@ export default function RollenBeheer() {
     } catch (e) { setFout(e.message || "Kon 'kijken als rol' niet starten."); setStatus("fout"); }
   };
 
-  const voegRolToe = () => { const naam = nieuweRol.trim(); if (!naam) return; setRollen((h) => [...(h || []), { naam, medewerkerTabs: [], beheerTabs: [], functies: {} }]); setNieuweRol(""); merk(); };
+  const voegRolToe = () => { const naam = nieuweRol.trim(); if (!naam) return; setRollen((h) => [...(h || []), { naam, medewerkerTabs: [], bewerkTabs: [], beheerTabs: [], functies: {} }]); setNieuweRol(""); merk(); };
+  // Per medewerker-tab (rubriek) de staat zetten: uit (verborgen) / lezen (alleen-lezen) / bewerken.
+  const zetTabRecht = (i, key, staat) => {
+    setRollen((h) => h.map((r, idx) => {
+      if (idx !== i) return r;
+      const mw = new Set(r.medewerkerTabs || []);
+      const bew = new Set(r.bewerkTabs || []);
+      if (staat === "uit") { mw.delete(key); bew.delete(key); }
+      else if (staat === "lezen") { mw.add(key); bew.delete(key); }
+      else { mw.add(key); bew.add(key); }
+      return { ...r, medewerkerTabs: [...mw], bewerkTabs: [...bew] };
+    }));
+    merk();
+  };
   const verwijderRol = (i) => { setRollen((h) => h.filter((_, idx) => idx !== i)); merk(); };
   const wijzigRolNaam = (i, naam) => { setRollen((h) => h.map((r, idx) => (idx === i ? { ...r, naam } : r))); merk(); };
   const toggleTab = (i, portaal, key) => { setRollen((h) => h.map((r, idx) => { if (idx !== i) return r; const veld = portaal === "beheer" ? "beheerTabs" : "medewerkerTabs"; const set = new Set(r[veld] || []); set.has(key) ? set.delete(key) : set.add(key); return { ...r, [veld]: [...set] }; })); merk(); };
   const toggleFunctie = (i, key) => { setRollen((h) => h.map((r, idx) => { if (idx !== i) return r; const f = { ...(r.functies || {}) }; f[key] ? delete f[key] : (f[key] = true); return { ...r, functies: f }; })); merk(); };
   const zetToewijzing = (email, sleutel) => { const laag = email.toLowerCase(); setToewijzingen((h) => { const n = { ...h }; if (sleutel) n[laag] = sleutel; else delete n[laag]; return n; }); merk(); };
+  // Niveau (portaaltoegang): medewerker = standaard (niet opgeslagen), manager = mag klantgegevens wijzigen,
+  // beheerder = toegang tot het beheerdersportaal. Dit is de HARDE grens en blijft per medewerker.
+  const niveauVan = (email) => (rechten && rechten.niveaus && rechten.niveaus[email.toLowerCase()]) || "medewerker";
+  const zetNiveau = (email, niveau) => {
+    const laag = email.toLowerCase();
+    setRechten((h) => { const n = { ...(h || {}) }; const niv = { ...(n.niveaus || {}) }; if (!niveau || niveau === "medewerker") delete niv[laag]; else niv[laag] = niveau; n.niveaus = niv; return n; });
+    merk();
+  };
 
   const rolNaam = (sleutel) => (rollen || []).find((r) => r.sleutel === sleutel)?.naam || "";
   const gefilterdeMedewerkers = medewerkers.filter((m) => { const q = zoek.trim().toLowerCase(); return !q || `${m.naam} ${m.email} ${m.functie || ""}`.toLowerCase().includes(q); });
@@ -95,7 +165,7 @@ export default function RollenBeheer() {
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12.5, color: KLEUR.subtekst, background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "10px 12px" }}>
         <ShieldCheck size={15} color={KLEUR.blauw} style={{ flexShrink: 0, marginTop: 1 }} />
-        <div>Maak rollen aan en bepaal per rol welke tabs zichtbaar zijn (medewerkers- én beheerdersportaal) en welke functies de rol mag. Wijs onderaan elke medewerker één rol toe. De harde beveiliging (medewerker/beheerder) blijft altijd gelden — een rol verfijnt daarbinnen.</div>
+        <div>Maak rollen aan en bepaal per rol welke tabs zichtbaar zijn (medewerkers- én beheerdersportaal) en welke functies de rol mag. Wijs onderaan elke medewerker één <strong>rol</strong> toe én een <strong>niveau</strong> (portaaltoegang): medewerker, manager of beheerder. De functies (bulk, als klant, planning, offertes, verwijderrechten) regel je voortaan via de rol; het niveau is de harde toegangsgrens. Eerder per persoon toegekende rechten blijven geldig.</div>
       </div>
 
       {/* Rollen */}
@@ -114,8 +184,8 @@ export default function RollenBeheer() {
               ><Eye size={14} /> Bekijk als rol</button>
               <button onClick={() => verwijderRol(i)} title="Rol verwijderen" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: KLEUR.rood, cursor: "pointer" }}><Trash2 size={14} /></button>
             </div>
-            {sectiekop(Users, "Medewerkersportaal — zichtbare tabs")}
-            <Vinkjes opties={medewerkerTabs} geselecteerd={rol.medewerkerTabs} onToggle={(k) => toggleTab(i, "medewerker", k)} />
+            {sectiekop(Users, "Medewerkersportaal — rubrieken (uit / lezen / bewerken)")}
+            <TabRechten opties={medewerkerTabs} zichtbaar={rol.medewerkerTabs} bewerkbaar={rol.bewerkTabs} onZet={(k, st) => zetTabRecht(i, k, st)} />
             {sectiekop(LayoutGrid, "Beheerdersportaal — zichtbare tabs")}
             <Vinkjes opties={beheerTabs} geselecteerd={rol.beheerTabs} onToggle={(k) => toggleTab(i, "beheer", k)} />
             {sectiekop(ShieldCheck, "Functies")}
@@ -130,11 +200,14 @@ export default function RollenBeheer() {
 
       {/* Toewijzing per medewerker */}
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700, marginBottom: 8 }}><Users size={16} color={KLEUR.blauw} /> Rol per medewerker</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 700, marginBottom: 8 }}><Users size={16} color={KLEUR.blauw} /> Rol &amp; niveau per medewerker</div>
         <input value={zoek} onChange={(e) => setZoek(e.target.value)} placeholder="Zoek een medewerker…" style={{ ...invoerStijl, width: "100%", maxWidth: 360, marginBottom: 10 }} />
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(160px,1fr) 200px 170px", gap: 10, padding: "0 8px 6px", fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>
+          <span>Medewerker</span><span>Rol</span><span title="medewerker = alleen lezen · manager = mag klantgegevens wijzigen · beheerder = toegang beheerdersportaal">Niveau (toegang)</span>
+        </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 420, overflowY: "auto" }}>
           {gefilterdeMedewerkers.map((m) => (
-            <div key={m.email} style={{ display: "grid", gridTemplateColumns: "minmax(160px,1fr) 220px", gap: 10, alignItems: "center", padding: "6px 8px", borderBottom: `1px solid ${KLEUR.rand}55` }}>
+            <div key={m.email} style={{ display: "grid", gridTemplateColumns: "minmax(160px,1fr) 200px 170px", gap: 10, alignItems: "center", padding: "6px 8px", borderBottom: `1px solid ${KLEUR.rand}55` }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: KLEUR.tekst, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.naam}</div>
                 <div style={{ fontSize: 11, color: KLEUR.mutedTekst, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.email}{m.functie ? ` · ${m.functie}` : ""}</div>
@@ -143,11 +216,16 @@ export default function RollenBeheer() {
                 <option value="">— geen rol —</option>
                 {rollen.filter((r) => r.sleutel).map((r) => <option key={r.sleutel} value={r.sleutel}>{r.naam}</option>)}
               </select>
+              <select value={niveauVan(m.email)} onChange={(e) => zetNiveau(m.email, e.target.value)} disabled={rechten === null} title="medewerker = alleen lezen · manager = mag klantgegevens wijzigen · beheerder = toegang tot het beheerdersportaal" style={invoerStijl}>
+                <option value="medewerker">Medewerker</option>
+                <option value="manager">Manager</option>
+                <option value="beheerder">Beheerder</option>
+              </select>
             </div>
           ))}
           {gefilterdeMedewerkers.length === 0 && <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, padding: "6px 2px" }}>{medewerkers.length === 0 ? "Medewerkers laden…" : "Geen medewerker gevonden."}</div>}
         </div>
-        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8 }}>Nieuwe rollen verschijnen pas in deze lijst nadat je hebt opgeslagen.</div>
+        <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8 }}>Nieuwe rollen verschijnen pas in deze lijst nadat je hebt opgeslagen. De rol bepaalt de functies en zichtbare tabs; het niveau bepaalt de portaaltoegang.</div>
       </div>
 
       {/* Opslaan */}
