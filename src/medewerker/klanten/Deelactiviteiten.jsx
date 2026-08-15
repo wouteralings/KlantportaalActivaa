@@ -56,8 +56,9 @@ export default function Deelactiviteiten() {
 
   const [config, setConfig] = useState(null);
   const [activiteiten, setActiviteiten] = useState([]);
+  const [statussen, setStatussen] = useState([]);     // { sleutel, label, kleur } — beheer-statussen
   const [klantenMap, setKlantenMap] = useState({});
-  const [status, setStatus] = useState({});           // { "acc|act|deel": { gereed, wie, datum } }
+  const [status, setStatus] = useState({});           // { "acc|act|deel" of "acc|act|__status__": {...} }
   const [klantDeelstappen, setKlantDeelstappen] = useState({}); // { "acc|act": [ {sleutel,label} ] }
   const [fout, setFout] = useState("");
   const [openCel, setOpenCel] = useState(null);       // { acc, actSleutel } → aftekenpopup
@@ -69,10 +70,11 @@ export default function Deelactiviteiten() {
   const periode = type === "maand" ? `${jaar}-${pad(maand)}` : `${jaar}`;
   const mijnLc = String(mijnNaam || "").trim().toLowerCase();
   const activiteitById = useMemo(() => Object.fromEntries(activiteiten.map((a) => [a.sleutel, a])), [activiteiten]);
+  const statusInfo = useMemo(() => Object.fromEntries((statussen || []).map((s) => [s.sleutel, s])), [statussen]);
 
   useEffect(() => {
     fetch("/api/mw-planning-config").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => setConfig(d.config || [])).catch(() => { setConfig([]); setFout("Configuratie kon niet worden geladen."); });
-    fetch("/api/mw-planning-overzicht").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => setActiviteiten(d.activiteiten || [])).catch(() => setActiviteiten([]));
+    fetch("/api/mw-planning-overzicht").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => { setActiviteiten(d.activiteiten || []); setStatussen(d.statussen || []); }).catch(() => setActiviteiten([]));
     fetch("/api/beheer-klanten?alle=1").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => { const b = {}; (d.klanten || []).forEach((k) => { b[String(k.accountId || "").toLowerCase()] = k; }); setKlantenMap(b); }).catch(() => setKlantenMap({}));
   }, []);
 
@@ -142,7 +144,7 @@ export default function Deelactiviteiten() {
         if (total) { done = eff.filter((d) => stGereed(e.acc, act.sleutel, d.sleutel)).length; gereed = done === total; }
         else { gereed = stGereed(e.acc, act.sleutel, "__hoofd__"); }
         if (!gereed) alles = false;
-        perAct[act.sleutel] = { act, eff, done, total, gereed };
+        perAct[act.sleutel] = { act, eff, done, total, gereed, statusKey: (status[`${e.acc}|${act.sleutel}|__status__`] || {}).statusKey || "" };
       }
       rijen.push({
         acc: e.acc, klantnaam: klant?.klantnaam || "Onbekende klant", klantnummer: klant?.klantnummer || "",
@@ -197,16 +199,38 @@ export default function Deelactiviteiten() {
     } catch (e) { setStatus(vorige); setFout(e.message || "Afvinken mislukt."); }
   };
 
+  // Handmatige status (extra label) zetten voor (klant × hoofdactiviteit × periode) uit de beheer-
+  // statussen; los van het afvinken. "" wist de status. Optimistisch, met terugval.
+  const zetItemStatus = async (acc, actSleutel, statusKey) => {
+    setFout("");
+    const key = `${acc}|${actSleutel}|__status__`;
+    const vorige = status;
+    setStatus((p) => { const n = { ...p }; if (statusKey) n[key] = { statusKey, wie: mijnNaam || "(jij)", datum: new Date().toISOString() }; else delete n[key]; return n; });
+    try {
+      const res = await fetch("/api/mw-planning-deelactiviteiten", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "status", accountId: acc, activiteit: actSleutel, periode, status: statusKey }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+    } catch (e) { setStatus(vorige); setFout(e.message || "Status opslaan mislukt."); }
+  };
+
   const vorige = () => { if (type === "jaar") { setJaar((j) => j - 1); return; } if (maand === 1) { setMaand(12); setJaar((j) => j - 1); } else setMaand((m) => m - 1); };
   const volgende = () => { if (type === "jaar") { setJaar((j) => j + 1); return; } if (maand === 12) { setMaand(1); setJaar((j) => j + 1); } else setMaand((m) => m + 1); };
 
   const cel = (row, act) => {
     const p = row.perAct[act.sleutel];
     if (!p) return <span style={{ color: KLEUR.rand }}>·</span>;
-    if (p.gereed) {
-      return <button onClick={() => setOpenCel({ acc: row.acc, actSleutel: act.sleutel })} title="Gereed — klik om te bekijken/wijzigen" style={{ display: "inline-flex", alignItems: "center", gap: 5, background: KLEUR.groenBg, border: `1px solid ${KLEUR.groen}55`, color: KLEUR.groen, borderRadius: 6, padding: "3px 9px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}><CheckCircle2 size={13} /> Gereed</button>;
-    }
-    return <button onClick={() => setOpenCel({ acc: row.acc, actSleutel: act.sleutel })} title="Klik om deelstappen af te tekenen" style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#fff", border: `1px solid ${KLEUR.rand}`, color: KLEUR.subtekst, borderRadius: 6, padding: "3px 9px", fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>{p.total ? `${p.done}/${p.total}` : "aftekenen"}</button>;
+    const knop = p.gereed
+      ? <button onClick={() => setOpenCel({ acc: row.acc, actSleutel: act.sleutel })} title="Gereed — klik om te bekijken/wijzigen" style={{ display: "inline-flex", alignItems: "center", gap: 5, background: KLEUR.groenBg, border: `1px solid ${KLEUR.groen}55`, color: KLEUR.groen, borderRadius: 6, padding: "3px 9px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}><CheckCircle2 size={13} /> Gereed</button>
+      : <button onClick={() => setOpenCel({ acc: row.acc, actSleutel: act.sleutel })} title="Klik om deelstappen af te tekenen" style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#fff", border: `1px solid ${KLEUR.rand}`, color: KLEUR.subtekst, borderRadius: 6, padding: "3px 9px", fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>{p.total ? `${p.done}/${p.total}` : "aftekenen"}</button>;
+    const si = p.statusKey ? statusInfo[p.statusKey] : null;
+    return (
+      <div style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+        {knop}
+        {si && <span style={{ fontSize: 9.5, fontWeight: 700, color: si.kleur, background: `${si.kleur}18`, border: `1px solid ${si.kleur}55`, borderRadius: 20, padding: "1px 7px", whiteSpace: "nowrap" }}>{si.label}</span>}
+      </div>
+    );
   };
 
   const laden = config === null;
@@ -311,6 +335,9 @@ export default function Deelactiviteiten() {
           acc={openCel.acc} klantnaam={celRow.klantnaam} activiteit={celAct}
           eff={effDeelstappen(openCel.acc, openCel.actSleutel)}
           status={status}
+          statussen={statussen} statusInfo={statusInfo}
+          statusKey={(celRow.perAct[openCel.actSleutel] || {}).statusKey || ""}
+          onStatus={(sk) => zetItemStatus(openCel.acc, openCel.actSleutel, sk)}
           onAfvink={(deelSleutel, gereed) => afvink(openCel.acc, openCel.actSleutel, deelSleutel, gereed)}
           heeftOverride={Array.isArray(klantDeelstappen[`${openCel.acc}|${openCel.actSleutel}`])}
           onStappenOpgeslagen={(lijst) => { setKlantDeelstappen((p) => { const n = { ...p }; const key = `${openCel.acc}|${openCel.actSleutel}`; if (lijst && lijst.length) n[key] = lijst; else delete n[key]; return n; }); }}
@@ -322,7 +349,7 @@ export default function Deelactiviteiten() {
 }
 
 // ── Aftekenpopup: de deelstappen van één (klant × hoofdactiviteit) aftekenen ──
-function AftekenPopup({ acc, klantnaam, activiteit, eff, status, onAfvink, heeftOverride, onStappenOpgeslagen, onSluit }) {
+function AftekenPopup({ acc, klantnaam, activiteit, eff, status, statussen, statusInfo, statusKey, onStatus, onAfvink, heeftOverride, onStappenOpgeslagen, onSluit }) {
   const [stappenBewerken, setStappenBewerken] = useState(false);
   const stFor = (deelSleutel) => status[`${acc}|${activiteit.sleutel}|${deelSleutel}`] || null;
   const rij = (sleutel, label) => {
@@ -350,6 +377,19 @@ function AftekenPopup({ acc, klantnaam, activiteit, eff, status, onAfvink, heeft
           </div>
           <button onClick={onSluit} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.mutedTekst }}><X size={18} /></button>
         </div>
+
+        {Array.isArray(statussen) && statussen.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", margin: "10px 0 6px", paddingBottom: 10, borderBottom: `1px solid ${KLEUR.rand}` }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>Status</span>
+            <select value={statusKey || ""} onChange={(e) => onStatus(e.target.value)} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "6px 10px", fontSize: 12.5, background: "#fff", cursor: "pointer" }}>
+              <option value="">— geen (kleur volgt de deelstappen) —</option>
+              {statussen.map((s) => <option key={s.sleutel} value={s.sleutel}>{s.label}</option>)}
+            </select>
+            {statusKey && statusInfo && statusInfo[statusKey] && (
+              <span style={{ display: "inline-block", fontSize: 10.5, fontWeight: 700, color: statusInfo[statusKey].kleur, background: `${statusInfo[statusKey].kleur}18`, border: `1px solid ${statusInfo[statusKey].kleur}55`, borderRadius: 20, padding: "2px 9px" }}>{statusInfo[statusKey].label}</span>
+            )}
+          </div>
+        )}
 
         {alle && <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: KLEUR.groenBg, color: KLEUR.groen, borderRadius: 20, padding: "3px 10px", fontSize: 11.5, fontWeight: 700, margin: "6px 0 4px" }}><CheckCircle2 size={13} /> Alle deelstappen afgewikkeld</div>}
 

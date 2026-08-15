@@ -61,8 +61,9 @@ export default function MijnWerk() {
 
   const [config, setConfig] = useState(null);
   const [activiteiten, setActiviteiten] = useState([]);
+  const [statussen, setStatussen] = useState([]);      // { sleutel, label, kleur } — beheer-statussen
   const [klantenMap, setKlantenMap] = useState({});
-  const [status, setStatus] = useState({});            // { "acc|act|deel": { gereed, wie, datum } }
+  const [status, setStatus] = useState({});            // { "acc|act|deel" of "acc|act|__status__": {...} }
   const [klantDeelstappen, setKlantDeelstappen] = useState({}); // { "acc|act": [ {sleutel,label} ] }
   const [bezig, setBezig] = useState("");              // key die nu wordt opgeslagen
   const [fout, setFout] = useState("");
@@ -77,11 +78,12 @@ export default function MijnWerk() {
   const periode = type === "maand" ? `${jaar}-${pad(maand)}` : `${jaar}`;
   const activiteitById = useMemo(() => Object.fromEntries(activiteiten.map((a) => [a.sleutel, a])), [activiteiten]);
   const activiteitOrder = useMemo(() => Object.fromEntries(activiteiten.map((a, i) => [a.sleutel, i])), [activiteiten]);
+  const statusInfo = useMemo(() => Object.fromEntries((statussen || []).map((s) => [s.sleutel, s])), [statussen]);
   const mijnLc = String(mijnNaam || "").trim().toLowerCase();
 
   useEffect(() => {
     fetch("/api/mw-planning-config").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => setConfig(d.config || [])).catch(() => { setConfig([]); setFout("Configuratie kon niet worden geladen."); });
-    fetch("/api/mw-planning-overzicht").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => setActiviteiten(d.activiteiten || [])).catch(() => setActiviteiten([]));
+    fetch("/api/mw-planning-overzicht").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => { setActiviteiten(d.activiteiten || []); setStatussen(d.statussen || []); }).catch(() => setActiviteiten([]));
     fetch("/api/beheer-klanten?alle=1").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => { const b = {}; (d.klanten || []).forEach((k) => { b[String(k.accountId || "").toLowerCase()] = k; }); setKlantenMap(b); }).catch(() => setKlantenMap({}));
   }, []);
 
@@ -132,6 +134,7 @@ export default function MijnWerk() {
       const gereed = total ? done === total : !!stFor(acc, act.sleutel, "__hoofd__")?.gereed;
       rijen.push({
         key: dubbelKey, acc, accountId: klant?.accountId || r.klantAccountId || "", actSleutel: act.sleutel, act, eff, done, total, gereed, uitvoerMaand: r.uitvoerMaand,
+        statusKey: (status[`${acc}|${act.sleutel}|__status__`] || {}).statusKey || "",
         klantnaam: klant?.klantnaam || "Onbekende klant", klantnummer: klant?.klantnummer || "", klantgroep: klant?.groepsnaam || "",
       });
     }
@@ -198,6 +201,22 @@ export default function MijnWerk() {
       const d = await res.json().catch(() => ({}));
       setStatus((p) => { const n = { ...p }; if (gereed && d.status) n[key] = d.status; else if (!gereed) delete n[key]; return n; });
     } catch (e) { setStatus(vorigeStatus); setFout(e.message || "Aftekenen mislukt."); } finally { setBezig(""); }
+  };
+
+  // Handmatige status (extra label) zetten voor (klant × hoofdtaak × periode), gekozen uit de beheer-
+  // statussen. Los van het afvinken van deelstappen; "" wist de status. Optimistisch, met terugval.
+  const zetItemStatus = async (acc, actSleutel, statusKey) => {
+    setFout("");
+    const key = `${acc}|${actSleutel}|__status__`;
+    const vorige = status;
+    setStatus((p) => { const n = { ...p }; if (statusKey) n[key] = { statusKey, wie: mijnNaam || "(jij)", datum: new Date().toISOString() }; else delete n[key]; return n; });
+    try {
+      const res = await fetch("/api/mw-planning-deelactiviteiten", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "status", accountId: acc, activiteit: actSleutel, periode, status: statusKey }),
+      });
+      if (!res.ok) { const msg = res.status === 403 ? "Je hebt (nog) geen recht om de planning bij te werken." : ((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`); throw new Error(msg); }
+    } catch (e) { setStatus(vorige); setFout(e.message || "Status opslaan mislukt."); }
   };
 
   const vorige = () => { if (type === "jaar") { setJaar((j) => j - 1); return; } if (maand === 1) { setMaand(12); setJaar((j) => j - 1); } else setMaand((m) => m - 1); };
@@ -317,6 +336,13 @@ export default function MijnWerk() {
                           >
                             {st.kind === "gereed" ? <CheckCircle2 size={12} /> : null}{st.label}
                           </button>
+                          {it.statusKey && statusInfo[it.statusKey] && (
+                            <div style={{ marginTop: 3 }}>
+                              <span style={{ display: "inline-block", fontSize: 9.5, fontWeight: 700, color: statusInfo[it.statusKey].kleur || KLEUR.mutedTekst, background: `${statusInfo[it.statusKey].kleur || KLEUR.mutedTekst}18`, border: `1px solid ${statusInfo[it.statusKey].kleur || KLEUR.rand}55`, borderRadius: 20, padding: "1px 7px", whiteSpace: "nowrap" }}>
+                                {statusInfo[it.statusKey].label}
+                              </span>
+                            </div>
+                          )}
                           {type === "jaar" && (
                             <div style={{ fontSize: 10, color: it.uitvoerMaand ? KLEUR.mutedTekst : KLEUR.amber, marginTop: 3, whiteSpace: "nowrap" }}>
                               {it.uitvoerMaand ? MAAND_KORT[it.uitvoerMaand - 1] : "geen maand"}
@@ -353,6 +379,18 @@ export default function MijnWerk() {
             </div>
 
             <div style={{ padding: 16 }}>
+              {statussen.length > 0 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 14, paddingBottom: 14, borderBottom: `1px solid ${KLEUR.rand}` }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>Status</span>
+                  <select value={actiefItem.statusKey || ""} onChange={(e) => zetItemStatus(actieveRij.acc, actiefItem.actSleutel, e.target.value)} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "6px 10px", fontSize: 12.5, background: "#fff", cursor: "pointer" }}>
+                    <option value="">— geen (kleur volgt de deelstappen) —</option>
+                    {statussen.map((s) => <option key={s.sleutel} value={s.sleutel}>{s.label}</option>)}
+                  </select>
+                  {actiefItem.statusKey && statusInfo[actiefItem.statusKey] && (
+                    <span style={{ display: "inline-block", fontSize: 10.5, fontWeight: 700, color: statusInfo[actiefItem.statusKey].kleur, background: `${statusInfo[actiefItem.statusKey].kleur}18`, border: `1px solid ${statusInfo[actiefItem.statusKey].kleur}55`, borderRadius: 20, padding: "2px 9px" }}>{statusInfo[actiefItem.statusKey].label}</span>
+                  )}
+                </div>
+              )}
               <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 6 }}>Deelstappen</div>
               {(actiefItem.total === 0 ? [{ sleutel: "__hoofd__", label: `${actiefItem.act.label} afgewikkeld` }] : actiefItem.eff).map((d) => {
                 const s = stFor(actieveRij.acc, actiefItem.actSleutel, d.sleutel);

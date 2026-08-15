@@ -14,6 +14,7 @@
  */
 const { haalEmailUitPrincipal, haalNaamUitPrincipal } = require("../_gedeeld/identiteit");
 const { magPlanningLezen, magPlanningGebruiken } = require("../_gedeeld/planningRecht");
+const { magStatus } = require("../_gedeeld/planningInstellingen");
 const deel = require("../_gedeeld/planningDeelactiviteiten");
 
 const verwerk = async function (context, req) {
@@ -36,6 +37,20 @@ const verwerk = async function (context, req) {
         const datum = new Date().toISOString();
         try {
           const rec = await deel.zetStatus(accountId, activiteit, periode, deelstap, !!gereed, wie, datum);
+          context.res = { status: 200, headers: { "Content-Type": "application/json" }, body: { ok: true, status: rec } };
+        } catch (e) {
+          const v = String(e.message || "").startsWith("VALIDATIE:");
+          context.res = { status: v ? 400 : 500, headers: { "Content-Type": "application/json" }, body: { error: v ? e.message.replace("VALIDATIE: ", "") : "Kon de status niet opslaan." } };
+        }
+        return;
+      }
+      if (actie === "status") {
+        const { accountId, activiteit, periode, status } = req.body || {};
+        const wie = haalNaamUitPrincipal(req) || haalEmailUitPrincipal(req) || "";
+        const datum = new Date().toISOString();
+        try {
+          if (status && !(await magStatus(status))) throw new Error("VALIDATIE: onbekende status. Ga naar Beheer → Planning om statussen te beheren.");
+          const rec = await deel.zetActiviteitStatus(accountId, activiteit, periode, status || "", wie, datum);
           context.res = { status: 200, headers: { "Content-Type": "application/json" }, body: { ok: true, status: rec } };
         } catch (e) {
           const v = String(e.message || "").startsWith("VALIDATIE:");

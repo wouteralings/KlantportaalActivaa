@@ -114,7 +114,31 @@ async function zetStatus(accountId, activiteit, periode, deelstap, gereed, wie, 
   return alle[key] || null;
 }
 
+/**
+ * Zet de HANDMATIGE status van een hoofdactiviteit voor (klant, activiteit, periode). Los van het
+ * afvinken van deelstappen: dit is een bewust gekozen status (bijv. "bezig", "wacht op klant") uit de
+ * in Beheer bewerkbare statussenlijst. Opgeslagen onder de speciale deelstap-sleutel "__status__", zodat
+ * haalStatusVoorPeriode 'm automatisch teruggeeft als "<accountId>|<activiteit>|__status__" → { statusKey, wie, datum }.
+ * Lege statusKey wist de handmatige status (val terug op de afgeleide status uit de deelstappen).
+ */
+async function zetActiviteitStatus(accountId, activiteit, periode, statusKey, wie, datumIso) {
+  const acc = String(accountId || "").toLowerCase();
+  const act = String(activiteit || "");
+  const p = String(periode || "");
+  if (!acc || !act || !p) throw new Error("VALIDATIE: klant, activiteit en periode zijn verplicht.");
+  const st = statusKey ? sleutel(statusKey) : "";
+  const alle = await haalAlleStatus();
+  const key = `${acc}|${act}|${p}|__status__`;
+  if (st) {
+    alle[key] = { statusKey: st, wie: schoon(wie, 200), datum: schoon(datumIso, 40) };
+  } else {
+    delete alle[key];
+  }
+  await schrijfObject(BLOB_STATUS, alle);
+  return alle[key] || null;
+}
+
 module.exports = {
   haalAlleKlantDeelstappen, zetKlantDeelstappen,
-  haalStatusVoorPeriode, zetStatus,
+  haalStatusVoorPeriode, zetStatus, zetActiviteitStatus,
 };
