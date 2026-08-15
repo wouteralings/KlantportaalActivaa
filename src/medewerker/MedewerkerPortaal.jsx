@@ -3952,10 +3952,18 @@ function KlantOverzicht({ magPlanning = false }) {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => { setKlanten(d.klanten || []); setAfgekapt(!!d.afgekapt); })
       .catch(() => { setKlanten([]); setFout(true); });
-    fetch("/api/medewerker-rechten")
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { setMagWijzigen(!!d.magWijzigen); setMagBulk(!!d.magBulk); })
-      .catch(() => { setMagWijzigen(false); setMagBulk(false); });
+    // Klantgegevens bewerken = het wijzigrecht (medewerker-rechten) ÉN — als de rol de rubriek
+    // "klantoverzicht" op alleen-lezen zet — bewerken-per-rubriek (mijn-toegang.bewerkTabs). De rol kan
+    // alleen beperken, nooit iets toevoegen.
+    Promise.all([
+      fetch("/api/medewerker-rechten").then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
+      fetch("/api/mijn-toegang").then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
+    ]).then(([dr, dt]) => {
+      const rolBeperkt = !!dt.heeftRol && Array.isArray(dt.medewerkerTabs) && dt.medewerkerTabs.length > 0;
+      const magBewerkKO = !rolBeperkt || (Array.isArray(dt.bewerkTabs) && dt.bewerkTabs.includes("klantoverzicht"));
+      setMagWijzigen(!!dr.magWijzigen && magBewerkKO);
+      setMagBulk(!!dr.magBulk);
+    }).catch(() => { setMagWijzigen(false); setMagBulk(false); });
     fetch("/.auth/me")
       .then((r) => r.json())
       .then((d) => setIsBeheerder(((d.clientPrincipal && d.clientPrincipal.userRoles) || []).includes("beheerder")))

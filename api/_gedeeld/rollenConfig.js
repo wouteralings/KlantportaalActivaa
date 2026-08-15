@@ -114,9 +114,15 @@ function normaliseerRollen(lijst) {
     let sleutel = maakSleutel((r && r.sleutel) || naam);
     if (!sleutel || gezien.has(sleutel)) continue;
     gezien.add(sleutel);
+    const mwTabs = schoonTabs(r && r.medewerkerTabs, MEDEWERKER_TAB_KEYS);
+    const mwSet = new Set(mwTabs);
+    // bewerkTabs = de medewerker-tabs (rubrieken) die de rol mag BEWERKEN; de rest is alleen-lezen.
+    // Altijd een deelverzameling van de zichtbare medewerker-tabs (onbekende/niet-zichtbare keys weg).
+    const bewerkTabs = schoonTabs(r && r.bewerkTabs, MEDEWERKER_TAB_KEYS).filter((k) => mwSet.has(k));
     uit.push({
       sleutel, naam,
-      medewerkerTabs: schoonTabs(r && r.medewerkerTabs, MEDEWERKER_TAB_KEYS),
+      medewerkerTabs: mwTabs,
+      bewerkTabs,
       beheerTabs: schoonTabs(r && r.beheerTabs, BEHEER_TAB_KEYS),
       functies: schoonFuncties(r && r.functies),
     });
