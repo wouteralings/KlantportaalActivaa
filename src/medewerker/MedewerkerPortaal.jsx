@@ -1692,7 +1692,7 @@ const KLANTEN_SUBTABS = [
  * gaan filters en sortering van het andere tabblad dus niet verloren zolang je in het portaal
  * blijft — behalve dat een leeg tabblad niets te onthouden heeft.
  */
-function KlantenModule({ magContracten = false, isBeheerder = false, magPlanning = false }) {
+function KlantenModule({ magContracten = false, isBeheerder = false, magPlanning = false, magVerwijderenRubriek = true }) {
   const [sub, setSub] = useState("klanten");
   // De Contracten-sub-tab alleen tonen met het recht (of als beheerder), net als toen het nog een
   // losse hoofd-tab was.
@@ -1753,7 +1753,7 @@ function KlantenModule({ magContracten = false, isBeheerder = false, magPlanning
         {sub === "contactpersonen" && <ContactpersonenOverzicht />}
         {sub === "brieven" && <BrievenTab />}
         {sub === "contracten" && (magContracten || isBeheerder) && <ContractenOverzicht />}
-        {(sub === "ib" || sub === "vpb" || sub === "dividend" || sub === "notulen") && <MedewerkerDossiers soort={sub} />}
+        {(sub === "ib" || sub === "vpb" || sub === "dividend" || sub === "notulen") && <MedewerkerDossiers soort={sub} magVerwijderenRubriek={magVerwijderenRubriek} />}
         {sub === "lonen" && <NogInTeRichten titel={actief.label} watKomtEr={actief.watKomtEr} />}
       </div>
     </div>
@@ -2002,7 +2002,7 @@ function NieuwDossierModal({ soort, soortLabel, periodeLabel, dossiers, vasteBro
   );
 }
 
-function MedewerkerDossiers({ soort }) {
+function MedewerkerDossiers({ soort, magVerwijderenRubriek = true }) {
   const [dossiers, setDossiers] = useState(null); // null = laden
   const [fout, setFout] = useState(false);
   const [zoek, setZoek] = useState("");
@@ -2216,7 +2216,7 @@ function MedewerkerDossiers({ soort }) {
         gekoppeldeLijstId={detail.gekoppeldeLijstId || ""}
         gekoppeldOnderwerpId={detail.onderwerpId || ""}
         defaultContact={detail.defaultContact || { id: "", naam: "" }}
-        magVerwijderen={magVerwijderen}
+        magVerwijderen={magVerwijderen && magVerwijderenRubriek}
         magWijzigen={magWijzigen}
         onDossierVerwijderd={dossierVerwijderd}
         onTerug={() => { setDetailId(null); setDetail(null); }}
@@ -4728,6 +4728,12 @@ export default function MedewerkerPortaal() {
   // Mag deze medewerker de sub-tab "Planning" (onder Klantoverzicht) zien? Beheert een beheerder
   // via Beheer → Medewerkers. Serverkant afgedwongen op de mw-planning-endpoints (planningRecht.js).
   const [magPlanning, setMagPlanning] = useState(false);
+  // Bewerken-per-rubriek (Rollen & rechten): de medewerker-rubrieken die de rol mag BEWERKEN (null = geen
+  // rolbeperking). O.a. "mijnwerk" bepaalt of iemand zijn eigen taken mag aftekenen.
+  const [bewerkTabs, setBewerkTabs] = useState(null);
+  // Verwijderen-per-rubriek (losse schakelaar naast bewerken): de medewerker-rubrieken waarin de rol mag
+  // VERWIJDEREN (null = geen rolbeperking). Knijpt bestaande verwijderrechten dicht — opent ze niet.
+  const [verwijderTabs, setVerwijderTabs] = useState(null);
   const [tab, setTab] = useState("klantoverzicht"); // klantoverzicht | verzoeken | reacties | ondertekeningen | reviews | offertes | contracten | meekijken
   // Rol-toegang (Beheer → Rollen & toegang): null = nog laden/geen beperking. zichtbareTabs = alleen deze
   // medewerker-tabs tonen (leeg of null = geen beperking, zodat niemand per ongeluk wordt buitengesloten).
@@ -4798,6 +4804,10 @@ export default function MedewerkerPortaal() {
         const t = Array.isArray(d.medewerkerTabs) ? d.medewerkerTabs : [];
         // Bij impersonatie geldt de beperking altijd (ook een lege lijst); anders alleen bij een echte rol met tabs.
         setZichtbareTabs(imp ? t : (d.heeftRol && t.length ? t : null));
+        const bt = Array.isArray(d.bewerkTabs) ? d.bewerkTabs : [];
+        setBewerkTabs(imp ? bt : (d.heeftRol && t.length ? bt : null));
+        const vt = Array.isArray(d.verwijderTabs) ? d.verwijderTabs : [];
+        setVerwijderTabs(imp ? vt : (d.heeftRol && t.length ? vt : null));
         if (imp) {
           // Voorbeeldweergave: toon exact wat de rol mag, niet de eigen beheerder-rechten.
           setIsBeheerder(false);
@@ -4889,6 +4899,15 @@ export default function MedewerkerPortaal() {
   // Rol-toegang verbergt tabs (kan alleen beperken, nooit rechten toevoegen die je niet hebt).
   const tabs = zichtbareTabs ? alleTabs.filter(([k]) => zichtbareTabs.includes(k)) : alleTabs;
 
+  // Rubriek-gates (bewerken/verwijderen per rubriek). Een echte beheerder mag altijd; bij "kijken als rol"
+  // is isBeheerder false, dus dan telt de rol. null = geen rolbeperking → alles toegestaan.
+  const magBewerkenRubriek = (key) => isBeheerder || !bewerkTabs || bewerkTabs.includes(key);
+  const magVerwijderenRubriek = (key) => isBeheerder || !verwijderTabs || verwijderTabs.includes(key);
+  // Verwijderen dat een rol expliciet TOEKENT (grant, geen dichtknijp): standaard alleen de beheerder, plus
+  // elke rol die de rubriek in verwijderTabs heeft. Geen rol → alleen beheerder. Gebruikt voor rubrieken
+  // waar verwijderen normaal een beheerdersactie is (bv. postboek).
+  const magVerwijderenToegekend = (key) => isBeheerder || (Array.isArray(verwijderTabs) && verwijderTabs.includes(key));
+
   return (
     <div style={{ maxWidth: "none", width: "100%", margin: "0 auto", padding: "24px 32px", boxSizing: "border-box", fontFamily: "system-ui, -apple-system, sans-serif", color: KLEUR.tekst }}>
       <ImpersonatieBanner impersonatie={impersonatie} huidigPortaal="medewerker" />
@@ -4972,13 +4991,13 @@ export default function MedewerkerPortaal() {
         ))}
       </div>
 
-      {tab === "klantoverzicht" && <KlantenModule magContracten={magContracten} isBeheerder={isBeheerder} magPlanning={magPlanning} />}
-      {tab === "taken" && <TakenOverzicht />}
-      {tab === "postboek" && <PostboekModule isBeheerder={isBeheerder} onWijziging={laadTellingen} />}
-      {tab === "mijnwerk" && <MijnWerk isBeheerder={isBeheerder} />}
+      {tab === "klantoverzicht" && <KlantenModule magContracten={magContracten} isBeheerder={isBeheerder} magPlanning={magPlanning} magVerwijderenRubriek={magVerwijderenRubriek("klantoverzicht")} />}
+      {tab === "taken" && <TakenOverzicht magBewerken={magBewerkenRubriek("taken")} />}
+      {tab === "postboek" && <PostboekModule isBeheerder={isBeheerder} magBewerken={magBewerkenRubriek("postboek")} magVerwijderen={magVerwijderenToegekend("postboek")} onWijziging={laadTellingen} />}
+      {tab === "mijnwerk" && <MijnWerk isBeheerder={isBeheerder} magAftekenen={magBewerkenRubriek("mijnwerk")} />}
       {tab === "planning" && (magPlanning || isBeheerder) && <PlanningModule />}
       {tab === "vragenlijsten" && <Vragenlijsten />}
-      {tab === "uren" && <Urenregistratie isBeheerder={isBeheerder} />}
+      {tab === "uren" && <Urenregistratie isBeheerder={isBeheerder} magBewerken={magBewerkenRubriek("uren")} magVerwijderen={magVerwijderenRubriek("uren")} />}
       {tab === "verzoeken" && <WijzigingsverzoekBeheer onAfgehandeld={laadTellingen} />}
       {tab === "reacties" && <ReactiesEnOndertekeningen />}
       {tab === "reviews" && <ReviewBeheer />}

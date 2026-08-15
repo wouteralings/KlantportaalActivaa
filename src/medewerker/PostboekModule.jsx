@@ -59,7 +59,10 @@ function PostboekScope({ bereik, setBereik }) {
   );
 }
 
-export default function PostboekModule({ isBeheerder = false, onWijziging }) {
+export default function PostboekModule({ isBeheerder = false, magBewerken = true, magVerwijderen = false, onWijziging }) {
+  // Poststuk verwijderen: standaard alleen de beheerder; een rol met 'postboek' in verwijderTabs krijgt
+  // het recht ook (server dwingt dit af in /api/medewerker-postboek). magVerwijderen bevat dat al incl. beheerder.
+  const magVerwijderenPost = isBeheerder || magVerwijderen;
   const [posten, setPosten] = useState(null); // null = laden
   const [bereik, setBereik] = useState("mijn"); // mijn | kantoor
   const [statusFilter, setStatusFilter] = useState("open"); // alle | open | afgehandeld
@@ -130,6 +133,7 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
   useEffect(() => { laadPosten(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [bereik]);
 
   const kies = async (file) => {
+    if (!magBewerken) return; // alleen-lezen rol
     if (!file) return;
     setModalFout(""); setMelding("");
     try {
@@ -168,6 +172,7 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
   };
 
   const verwerk = async () => {
+    if (!magBewerken) return; // alleen-lezen rol
     if (!drop) return;
     if (!klantId) { setModalFout("Kies een klant."); return; }
     if (!soortId) { setModalFout("Kies een soort."); return; }
@@ -194,6 +199,7 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
   };
 
   const zetStatus = async (post, status) => {
+    if (!magBewerken) return; // alleen-lezen rol
     setRijBezig(post.id);
     try {
       const r = await fetch("/api/medewerker-postboek", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "status", id: post.id, status }) });
@@ -202,6 +208,7 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
     } finally { setRijBezig(""); }
   };
   const bewaarDoc = async (post) => {
+    if (!magBewerken) return; // alleen-lezen rol
     setRijBezig(post.id);
     try {
       const r = await fetch("/api/medewerker-postboek", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "documentlink", id: post.id, documentUrl: editUrl.trim() }) });
@@ -209,8 +216,10 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
       if (r.ok && d.post) { setPosten((lijst) => (lijst || []).map((p) => (p.id === post.id ? d.post : p))); setEditId(""); }
     } finally { setRijBezig(""); }
   };
-  // Alleen beheerders: een poststuk uit het postboek verwijderen. Het document in SharePoint blijft staan.
+  // Een poststuk uit het postboek verwijderen (beheerder óf rol met verwijderrecht). Het document in
+  // SharePoint blijft staan.
   const verwijder = async (post) => {
+    if (!magVerwijderenPost) return; // geen verwijderrecht
     if (!window.confirm(`Poststuk "${post.bestand || ""}" uit het postboek verwijderen?\n\nHet document zelf blijft in SharePoint staan.`)) return;
     setRijBezig(post.id); setLaadFout("");
     try {
@@ -232,6 +241,7 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
 
   // Doorzet-venster openen — standaard taak-soort/rubriek + uren uit de soort-config voorinvullen.
   const openDoorzet = (post) => {
+    if (!magBewerken) return; // alleen-lezen rol
     const cfg = soorten.find((s) => s.id === post.soortId) || {};
     const startSoort = cfg.taakSoort != null ? String(cfg.taakSoort) : "";
     setDoorzet(post);
@@ -249,6 +259,7 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
     if (!dzUrenTouched) setDzUren(autoUrenVoor(doorzetCfg(), waarde));
   };
   const doorzetten = async () => {
+    if (!magBewerken) return; // alleen-lezen rol
     if (!doorzet) return;
     if (!dzEmail) { setDzFout("Kies een medewerker."); return; }
     setDzBezig(true); setDzFout("");
@@ -269,6 +280,7 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
 
   // Een "te accepteren" poststuk (taak afgerond) accepteren → afgehandeld.
   const accepteer = async (post) => {
+    if (!magBewerken) return; // alleen-lezen rol
     setRijBezig(post.id);
     try {
       const r = await fetch("/api/medewerker-postboek", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "accepteren", id: post.id }) });
@@ -333,19 +345,25 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
         Op basis van de soort belandt het bestand in de juiste SharePoint-map en gaat de post naar de juiste persoon.
       </div>
 
-      {/* Dropzone */}
-      <div
-        onDragOver={(e) => { e.preventDefault(); setSleep(true); }}
-        onDragLeave={() => setSleep(false)}
-        onDrop={(e) => { e.preventDefault(); setSleep(false); kies(e.dataTransfer.files && e.dataTransfer.files[0]); }}
-        onClick={() => inputRef.current && inputRef.current.click()}
-        style={{ border: `1.5px dashed ${sleep ? KLEUR.blauw : KLEUR.rand}`, borderRadius: 10, padding: "18px 14px", textAlign: "center", cursor: "pointer", background: sleep ? KLEUR.lichtblauw : "#FAFBF9", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, marginBottom: 16 }}
-      >
-        <Upload size={18} color={KLEUR.mutedTekst} />
-        <div style={{ fontSize: 12.5, fontWeight: 600, color: KLEUR.tekst }}>Sleep een brief hierheen, of klik om te kiezen</div>
-        <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>Alle bestandstypen · max. 20 MB</div>
-        <input ref={inputRef} type="file" onChange={(e) => { kies(e.target.files && e.target.files[0]); e.target.value = ""; }} style={{ display: "none" }} />
-      </div>
+      {/* Dropzone — alleen als je rol postboek mag bewerken; anders een alleen-lezen melding */}
+      {magBewerken ? (
+        <div
+          onDragOver={(e) => { e.preventDefault(); setSleep(true); }}
+          onDragLeave={() => setSleep(false)}
+          onDrop={(e) => { e.preventDefault(); setSleep(false); kies(e.dataTransfer.files && e.dataTransfer.files[0]); }}
+          onClick={() => inputRef.current && inputRef.current.click()}
+          style={{ border: `1.5px dashed ${sleep ? KLEUR.blauw : KLEUR.rand}`, borderRadius: 10, padding: "18px 14px", textAlign: "center", cursor: "pointer", background: sleep ? KLEUR.lichtblauw : "#FAFBF9", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, marginBottom: 16 }}
+        >
+          <Upload size={18} color={KLEUR.mutedTekst} />
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: KLEUR.tekst }}>Sleep een brief hierheen, of klik om te kiezen</div>
+          <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>Alle bestandstypen · max. 20 MB</div>
+          <input ref={inputRef} type="file" onChange={(e) => { kies(e.target.files && e.target.files[0]); e.target.value = ""; }} style={{ display: "none" }} />
+        </div>
+      ) : (
+        <div style={{ fontSize: 12.5, color: KLEUR.subtekst, background: "#FBFBF9", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: "12px 14px", marginBottom: 16 }}>
+          Je rol mag het postboek <strong>alleen inzien</strong>. Post toevoegen, afhandelen of doorzetten kan niet — vraag beheer als dat moet veranderen.
+        </div>
+      )}
 
       {melding && <div style={{ fontSize: 12.5, color: KLEUR.groen, marginBottom: 12 }}>{melding}</div>}
 
@@ -437,7 +455,7 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
                                 {p.documentUrl
                                   ? <a href={p.documentUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12.5, color: KLEUR.blauw, fontWeight: 600, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>{p.bestand || "openen"} <ExternalLink size={12} /></a>
                                   : <span style={{ fontSize: 12.5, color: KLEUR.tekst }}>{p.bestand || "—"}</span>}
-                                <button onClick={() => { setEditId(p.id); setEditUrl(p.documentUrl || ""); }} title="Documentlink aanpassen" style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.mutedTekst, padding: 2 }}><Pencil size={12} /></button>
+                                {magBewerken && <button onClick={() => { setEditId(p.id); setEditUrl(p.documentUrl || ""); }} title="Documentlink aanpassen" style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.mutedTekst, padding: 2 }}><Pencil size={12} /></button>}
                               </div>
                             )}
                           </td>
@@ -461,7 +479,7 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
                           </td>
                           <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
                             <div style={{ display: "inline-flex", gap: 6, alignItems: "center", justifyContent: "flex-end" }}>
-                              {teaccepteren ? (
+                              {magBewerken && (teaccepteren ? (
                                 <button onClick={() => accepteer(p)} disabled={bezig} title="Taak is afgehandeld — accepteren en afwikkelen" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", background: KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: bezig ? "default" : "pointer" }}><CheckCircle2 size={13} /> Accepteren</button>
                               ) : (
                                 <>
@@ -474,9 +492,9 @@ export default function PostboekModule({ isBeheerder = false, onWijziging }) {
                                     <button onClick={() => zetStatus(p, "afgehandeld")} disabled={bezig} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", background: KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: bezig ? "default" : "pointer" }}><CheckCircle2 size={13} /> Afhandelen</button>
                                   )}
                                 </>
-                              )}
-                              {isBeheerder && (
-                                <button onClick={() => verwijder(p)} disabled={bezig} title="Poststuk verwijderen (beheerder)" style={{ display: "inline-flex", alignItems: "center", padding: 6, background: "#fff", color: KLEUR.rood, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, cursor: bezig ? "default" : "pointer" }}><Trash2 size={14} /></button>
+                              ))}
+                              {magVerwijderenPost && (
+                                <button onClick={() => verwijder(p)} disabled={bezig} title="Poststuk verwijderen" style={{ display: "inline-flex", alignItems: "center", padding: 6, background: "#fff", color: KLEUR.rood, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, cursor: bezig ? "default" : "pointer" }}><Trash2 size={14} /></button>
                               )}
                             </div>
                           </td>

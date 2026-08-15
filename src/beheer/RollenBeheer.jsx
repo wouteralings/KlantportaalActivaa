@@ -32,18 +32,23 @@ function Vinkjes({ opties, geselecteerd, onToggle }) {
 }
 
 // Per rubriek (medewerker-tab) een keuze: Uit (verborgen) · Lezen (zichtbaar, alleen-lezen) · Bewerken.
+// Optioneel (alleen medewerker-rubrieken): een losse "mag verwijderen"-schakelaar náást die keuze —
+// pas te zetten als de rubriek zichtbaar is (niet Uit). Geef onZetVerwijder mee om die kolom te tonen.
 const TAB_STATEN = [["uit", "Uit"], ["lezen", "Lezen"], ["bewerken", "Bewerken"]];
-function TabRechten({ opties, zichtbaar, bewerkbaar, onZet }) {
+function TabRechten({ opties, zichtbaar, bewerkbaar, verwijderbaar, onZet, onZetVerwijder }) {
   const zicht = new Set(zichtbaar || []);
   const bew = new Set(bewerkbaar || []);
+  const verw = new Set(verwijderbaar || []);
   const staatVan = (k) => (!zicht.has(k) ? "uit" : (bew.has(k) ? "bewerken" : "lezen"));
+  const toonVerwijder = typeof onZetVerwijder === "function";
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4, maxWidth: 460 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, maxWidth: toonVerwijder ? 620 : 460 }}>
       {opties.map((o) => {
         const st = staatVan(o.key);
+        const uit = st === "uit";
         return (
-          <div key={o.key} style={{ display: "grid", gridTemplateColumns: "minmax(110px,1fr) auto", gap: 8, alignItems: "center" }}>
-            <span style={{ fontSize: 12.5, color: st === "uit" ? KLEUR.mutedTekst : KLEUR.tekst, fontWeight: st === "uit" ? 400 : 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label}</span>
+          <div key={o.key} style={{ display: "grid", gridTemplateColumns: toonVerwijder ? "minmax(110px,1fr) auto auto" : "minmax(110px,1fr) auto", gap: 10, alignItems: "center" }}>
+            <span style={{ fontSize: 12.5, color: uit ? KLEUR.mutedTekst : KLEUR.tekst, fontWeight: uit ? 400 : 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label}</span>
             <div style={{ display: "inline-flex", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, overflow: "hidden" }}>
               {TAB_STATEN.map(([val, lab], idx) => {
                 const aan = st === val;
@@ -53,6 +58,12 @@ function TabRechten({ opties, zichtbaar, bewerkbaar, onZet }) {
                 );
               })}
             </div>
+            {toonVerwijder && (
+              <label title={uit ? "Eerst zichtbaar maken (Lezen of Bewerken)" : "Mag in deze rubriek verwijderen"} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontWeight: 600, color: uit ? KLEUR.mutedTekst : (verw.has(o.key) ? KLEUR.rood : KLEUR.subtekst), cursor: uit ? "default" : "pointer", whiteSpace: "nowrap", opacity: uit ? 0.5 : 1 }}>
+                <input type="checkbox" checked={verw.has(o.key)} disabled={uit} onChange={() => onZetVerwijder(o.key, !verw.has(o.key))} />
+                <Trash2 size={12} /> Verwijderen
+              </label>
+            )}
           </div>
         );
       })}
@@ -126,17 +137,31 @@ export default function RollenBeheer() {
     } catch (e) { setFout(e.message || "Kon 'kijken als rol' niet starten."); setStatus("fout"); }
   };
 
-  const voegRolToe = () => { const naam = nieuweRol.trim(); if (!naam) return; setRollen((h) => [...(h || []), { naam, medewerkerTabs: [], bewerkTabs: [], beheerTabs: [], functies: {} }]); setNieuweRol(""); merk(); };
-  // Per medewerker-tab (rubriek) de staat zetten: uit (verborgen) / lezen (alleen-lezen) / bewerken.
-  const zetTabRecht = (i, key, staat) => {
+  const voegRolToe = () => { const naam = nieuweRol.trim(); if (!naam) return; setRollen((h) => [...(h || []), { naam, medewerkerTabs: [], bewerkTabs: [], verwijderTabs: [], beheerTabs: [], bewerkBeheerTabs: [], functies: {} }]); setNieuweRol(""); merk(); };
+  // Per rubriek (medewerker- of beheer-tab) de staat zetten: uit (verborgen) / lezen (alleen-lezen) / bewerken.
+  const zetTabRecht = (i, portaal, key, staat) => {
+    const zichtVeld = portaal === "beheer" ? "beheerTabs" : "medewerkerTabs";
+    const bewVeld = portaal === "beheer" ? "bewerkBeheerTabs" : "bewerkTabs";
     setRollen((h) => h.map((r, idx) => {
       if (idx !== i) return r;
-      const mw = new Set(r.medewerkerTabs || []);
-      const bew = new Set(r.bewerkTabs || []);
-      if (staat === "uit") { mw.delete(key); bew.delete(key); }
-      else if (staat === "lezen") { mw.add(key); bew.delete(key); }
-      else { mw.add(key); bew.add(key); }
-      return { ...r, medewerkerTabs: [...mw], bewerkTabs: [...bew] };
+      const zicht = new Set(r[zichtVeld] || []);
+      const bew = new Set(r[bewVeld] || []);
+      const verw = new Set(r.verwijderTabs || []);
+      if (staat === "uit") { zicht.delete(key); bew.delete(key); verw.delete(key); } // verborgen → ook geen verwijderrecht
+      else if (staat === "lezen") { zicht.add(key); bew.delete(key); }
+      else { zicht.add(key); bew.add(key); }
+      // verwijderTabs alleen voor het medewerkersportaal; bij beheer laten we het veld ongemoeid.
+      return { ...r, [zichtVeld]: [...zicht], [bewVeld]: [...bew], ...(portaal === "beheer" ? {} : { verwijderTabs: [...verw] }) };
+    }));
+    merk();
+  };
+  // Losse "mag verwijderen"-schakelaar per medewerker-rubriek (naast uit/lezen/bewerken).
+  const zetVerwijderRecht = (i, key, aan) => {
+    setRollen((h) => h.map((r, idx) => {
+      if (idx !== i) return r;
+      const verw = new Set(r.verwijderTabs || []);
+      aan ? verw.add(key) : verw.delete(key);
+      return { ...r, verwijderTabs: [...verw] };
     }));
     merk();
   };
@@ -165,7 +190,7 @@ export default function RollenBeheer() {
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12.5, color: KLEUR.subtekst, background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "10px 12px" }}>
         <ShieldCheck size={15} color={KLEUR.blauw} style={{ flexShrink: 0, marginTop: 1 }} />
-        <div>Maak rollen aan en bepaal per rol welke tabs zichtbaar zijn (medewerkers- én beheerdersportaal) en welke functies de rol mag. Wijs onderaan elke medewerker één <strong>rol</strong> toe én een <strong>niveau</strong> (portaaltoegang): medewerker, manager of beheerder. De functies (bulk, als klant, planning, offertes, verwijderrechten) regel je voortaan via de rol; het niveau is de harde toegangsgrens. Eerder per persoon toegekende rechten blijven geldig.</div>
+        <div>Maak rollen aan en bepaal per rol welke tabs zichtbaar zijn (medewerkers- én beheerdersportaal) en welke functies de rol mag. Per medewerker-rubriek kies je <strong>uit / lezen / bewerken</strong> en zet je apart of de rol daarin mag <strong>verwijderen</strong>. Wijs onderaan elke medewerker één <strong>rol</strong> toe én een <strong>niveau</strong> (portaaltoegang): medewerker, manager of beheerder. Deze verfijning kan bestaande rechten alleen inperken, niet uitbreiden; het niveau blijft de harde toegangsgrens en eerder per persoon toegekende rechten blijven geldig.</div>
       </div>
 
       {/* Rollen */}
@@ -184,10 +209,10 @@ export default function RollenBeheer() {
               ><Eye size={14} /> Bekijk als rol</button>
               <button onClick={() => verwijderRol(i)} title="Rol verwijderen" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: KLEUR.rood, cursor: "pointer" }}><Trash2 size={14} /></button>
             </div>
-            {sectiekop(Users, "Medewerkersportaal — rubrieken (uit / lezen / bewerken)")}
-            <TabRechten opties={medewerkerTabs} zichtbaar={rol.medewerkerTabs} bewerkbaar={rol.bewerkTabs} onZet={(k, st) => zetTabRecht(i, k, st)} />
-            {sectiekop(LayoutGrid, "Beheerdersportaal — zichtbare tabs")}
-            <Vinkjes opties={beheerTabs} geselecteerd={rol.beheerTabs} onToggle={(k) => toggleTab(i, "beheer", k)} />
+            {sectiekop(Users, "Medewerkersportaal — rubrieken (uit / lezen / bewerken · verwijderen)")}
+            <TabRechten opties={medewerkerTabs} zichtbaar={rol.medewerkerTabs} bewerkbaar={rol.bewerkTabs} verwijderbaar={rol.verwijderTabs} onZet={(k, st) => zetTabRecht(i, "medewerker", k, st)} onZetVerwijder={(k, aan) => zetVerwijderRecht(i, k, aan)} />
+            {sectiekop(LayoutGrid, "Beheerdersportaal — rubrieken (uit / lezen / bewerken)")}
+            <TabRechten opties={beheerTabs} zichtbaar={rol.beheerTabs} bewerkbaar={rol.bewerkBeheerTabs} onZet={(k, st) => zetTabRecht(i, "beheer", k, st)} />
             {sectiekop(ShieldCheck, "Functies")}
             <Vinkjes opties={functies} geselecteerd={functies.filter((f) => rol.functies && rol.functies[f.key]).map((f) => f.key)} onToggle={(k) => toggleFunctie(i, k)} />
           </div>

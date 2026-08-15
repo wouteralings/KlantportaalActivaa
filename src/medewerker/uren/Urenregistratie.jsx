@@ -26,7 +26,7 @@ import VerlofOverzicht from "./VerlofOverzicht";
  *   - Rapportage          : declarabel-% en indirecte uren per medewerker
  *   - Bezetting           : ingeplande uren per medewerker per maand t.o.v. beschikbare capaciteit
  */
-export default function Urenregistratie({ isBeheerder }) {
+export default function Urenregistratie({ isBeheerder, magBewerken = true, magVerwijderen = true }) {
   const [sub, setSub] = useState("schrijven");
   const [teGoedkeuren, setTeGoedkeuren] = useState(0);
   const [verlofTeGoedkeuren, setVerlofTeGoedkeuren] = useState(0);
@@ -78,7 +78,7 @@ export default function Urenregistratie({ isBeheerder }) {
         ))}
       </div>
 
-      {sub === "schrijven" && <Schrijven />}
+      {sub === "schrijven" && <Schrijven magBewerken={magBewerken} magVerwijderen={magVerwijderen} />}
       {sub === "verlof" && <VerlofAanvragen />}
       {sub === "verlofgoedkeuren" && <VerlofGoedkeuren isBeheerder={isBeheerder} onGewijzigd={laadVerlofTelling} />}
       {sub === "vakantieoverzicht" && <VerlofOverzicht />}
@@ -95,7 +95,7 @@ const LEEG = { id: "", datum: "", soort: "abonnement", urencode: "", accountId: 
 const WEEKDAG_KORT = ["Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"];
 const STATUS_LABEL = { concept: "Concept", ingediend: "Ingediend", goedgekeurd: "Goedgekeurd", gefactureerd: "Gefactureerd" };
 
-function Schrijven() {
+function Schrijven({ magBewerken = true, magVerwijderen = true }) {
   const klanten = useKlanten();
   const [weekStart, setWeekStart] = useState(maandagVan(vandaagIso()));
   const [boekingen, setBoekingen] = useState(null); // null = laden
@@ -127,12 +127,13 @@ function Schrijven() {
   const zet = (veld) => (e) => setForm((f) => ({ ...f, [veld]: e && e.target ? e.target.value : e }));
   const kiesCode = (code) => setForm((f) => ({ ...f, urencode: code.naam, soort: code.categorie, ...(isDeclarabel(code.categorie) ? {} : { accountId: "", klantnaam: "" }) }));
   const kiesSoort = (key) => setForm((f) => ({ ...f, soort: key, urencode: "", ...(isDeclarabel(key) ? {} : { accountId: "", klantnaam: "" }) }));
-  const bewerk = (b) => setForm({ ...LEEG, id: b.id, datum: b.datum, soort: b.soort, urencode: b.urencode || "", accountId: b.accountId || "", klantnaam: b.klantnaam || "", omschrijving: b.omschrijving || "", uren: String(b.uren), tariefSoort: b.tariefSoort || "normaal", jaar: b.jaar != null ? String(b.jaar) : "" });
+  const bewerk = (b) => { if (!magBewerken) return; setForm({ ...LEEG, id: b.id, datum: b.datum, soort: b.soort, urencode: b.urencode || "", accountId: b.accountId || "", klantnaam: b.klantnaam || "", omschrijving: b.omschrijving || "", uren: String(b.uren), tariefSoort: b.tariefSoort || "normaal", jaar: b.jaar != null ? String(b.jaar) : "" }); };
   const annuleer = () => setForm({ ...LEEG, datum: form.datum || vandaagIso() });
   const weekDagen = Array.from({ length: 7 }, (_, i) => voegDagenToe(weekStart, i));
   const toggleDag = (iso) => setForm((f) => ({ ...f, dagen: f.dagen.includes(iso) ? f.dagen.filter((d) => d !== iso) : [...f.dagen, iso] }));
 
   const bewaar = async () => {
+    if (!magBewerken) return; // alleen-lezen rol
     setFout("");
     if (codes.length > 0 && !form.urencode) { setFout("Kies een urencode."); return; }
     const decl = isDeclarabel(form.soort);
@@ -161,6 +162,7 @@ function Schrijven() {
   };
 
   const dienIn = async () => {
+    if (!magBewerken) return; // alleen-lezen rol
     setFout(""); setBezig(true);
     try {
       const res = await fetch("/api/mw-uren-boekingen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actie: "indienen", weekStart }) });
@@ -172,6 +174,7 @@ function Schrijven() {
   };
 
   const verwijder = async (b) => {
+    if (!magVerwijderen) return; // rol mag in deze rubriek niet verwijderen
     if (b.status !== "concept") return;
     setBezig(true);
     try {
@@ -246,7 +249,7 @@ function Schrijven() {
               {weekCompleet ? <Check size={12} /> : null}{uur(totalen.totaal)} / {weekEis} u
             </span>
           )}
-          {heeftInTeDienen && !weekVergrendeld && (
+          {heeftInTeDienen && !weekVergrendeld && magBewerken && (
             <button onClick={dienIn} disabled={bezig || !weekCompleet} title={weekCompleet ? "Weekstaat indienen bij je leidinggevende" : `Je week moet op precies ${weekEis} uur uitkomen voordat je 'm kunt indienen`} style={{ ...knopStijl(true), padding: "7px 12px", marginLeft: "auto", opacity: weekCompleet ? 1 : 0.55, cursor: weekCompleet ? "pointer" : "not-allowed" }}>
               {bezig ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> : <Send size={13} />} Week indienen
             </button>
@@ -254,10 +257,14 @@ function Schrijven() {
         </div>
       )}
 
-      {/* Boekingsformulier — alleen zolang de week nog concept is */}
+      {/* Boekingsformulier — alleen zolang de week nog concept is én je rol mag bewerken */}
       {weekVergrendeld ? (
         <div style={{ fontSize: 12.5, color: KLEUR.subtekst, background: "#FBFBF9", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: "12px 14px", marginBottom: 16 }}>
           Deze week is <strong>{STATUS_LABEL[weekStatus]?.toLowerCase() || weekStatus}</strong> en kan niet meer worden bewerkt. Neem contact op met je leidinggevende als er iets moet wijzigen.
+        </div>
+      ) : !magBewerken ? (
+        <div style={{ fontSize: 12.5, color: KLEUR.subtekst, background: "#FBFBF9", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: "12px 14px", marginBottom: 16 }}>
+          Je rol mag de urenregistratie <strong>alleen inzien</strong>. Zelf uren schrijven, wijzigen of indienen kan niet — vraag beheer als dat moet veranderen.
         </div>
       ) : (
         <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14, marginBottom: 16, background: "#FBFBF9" }}>
@@ -374,10 +381,14 @@ function Schrijven() {
                         {b.vast ? (
                           <span title={b.soort === "verlof" ? "Goedgekeurd verlof — niet zelf te wijzigen" : "Vaste (contract)uren — door beheer vastgezet, niet zelf te wijzigen"} style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10.5, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 999, padding: "2px 8px" }}><Lock size={11} /> {b.soort === "verlof" ? "Verlof" : "Vast"}</span>
                         ) : b.status === "concept" ? (
-                          <div style={{ display: "flex", gap: 4 }}>
-                            <button onClick={() => bewerk(b)} title="Bewerken" style={ikoonKnop}><Pencil size={13} color={KLEUR.subtekst} /></button>
-                            <button onClick={() => verwijder(b)} title="Verwijderen" style={ikoonKnop}><Trash2 size={13} color={KLEUR.rood} /></button>
-                          </div>
+                          (magBewerken || magVerwijderen) ? (
+                            <div style={{ display: "flex", gap: 4 }}>
+                              {magBewerken && <button onClick={() => bewerk(b)} title="Bewerken" style={ikoonKnop}><Pencil size={13} color={KLEUR.subtekst} /></button>}
+                              {magVerwijderen && <button onClick={() => verwijder(b)} title="Verwijderen" style={ikoonKnop}><Trash2 size={13} color={KLEUR.rood} /></button>}
+                            </div>
+                          ) : (
+                            <span title="Alleen-lezen" style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst }}><Lock size={11} /> Concept</span>
+                          )
                         ) : (
                           <span title={STATUS_LABEL[b.status] || b.status} style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst }}><Lock size={11} /> {STATUS_LABEL[b.status] || b.status}</span>
                         )}

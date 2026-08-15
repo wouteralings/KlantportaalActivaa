@@ -119,11 +119,21 @@ function normaliseerRollen(lijst) {
     // bewerkTabs = de medewerker-tabs (rubrieken) die de rol mag BEWERKEN; de rest is alleen-lezen.
     // Altijd een deelverzameling van de zichtbare medewerker-tabs (onbekende/niet-zichtbare keys weg).
     const bewerkTabs = schoonTabs(r && r.bewerkTabs, MEDEWERKER_TAB_KEYS).filter((k) => mwSet.has(k));
+    // verwijderTabs = de medewerker-rubrieken waarin de rol mag VERWIJDEREN (een losse schakelaar,
+    // náást bewerken). Alleen zinvol op een zichtbare rubriek → altijd een deelverzameling van de
+    // zichtbare medewerker-tabs. Het knijpt bestaande verwijderrechten dicht (UI), het opent ze niet.
+    const verwijderTabs = schoonTabs(r && r.verwijderTabs, MEDEWERKER_TAB_KEYS).filter((k) => mwSet.has(k));
+    // Idem voor het beheerdersportaal (uniform): bewerkBeheerTabs = deelverzameling van de zichtbare beheer-tabs.
+    const bhTabs = schoonTabs(r && r.beheerTabs, BEHEER_TAB_KEYS);
+    const bhSet = new Set(bhTabs);
+    const bewerkBeheerTabs = schoonTabs(r && r.bewerkBeheerTabs, BEHEER_TAB_KEYS).filter((k) => bhSet.has(k));
     uit.push({
       sleutel, naam,
       medewerkerTabs: mwTabs,
       bewerkTabs,
-      beheerTabs: schoonTabs(r && r.beheerTabs, BEHEER_TAB_KEYS),
+      verwijderTabs,
+      beheerTabs: bhTabs,
+      bewerkBeheerTabs,
       functies: schoonFuncties(r && r.functies),
     });
   }
@@ -178,7 +188,21 @@ async function haalRolVoorEmail(email) {
   } catch { return null; }
 }
 
+/**
+ * Mag de (toegewezen) rol van dit e-mailadres in de gegeven medewerker-rubriek VERWIJDEREN?
+ * Dit is een expliciet TOE TE KENNEN recht (grant): zonder rol, of met een rol waarin de rubriek niet
+ * in verwijderTabs staat, is het false. Voor rubrieken waar verwijderen standaard alleen bij de beheerder
+ * hoort (zoals het postboek) opent dit het recht dus gericht voor een rol — de aanroeper checkt de
+ * SWA-rol 'beheerder' apart. Best-effort: false bij twijfel.
+ */
+async function magRubriekVerwijderen(email, rubriek) {
+  try {
+    const rol = await haalRolVoorEmail(email);
+    return !!(rol && Array.isArray(rol.verwijderTabs) && rol.verwijderTabs.includes(String(rubriek || "")));
+  } catch { return false; }
+}
+
 module.exports = {
-  haalRollenConfig, zetRollenConfig, haalRolVoorEmail,
+  haalRollenConfig, zetRollenConfig, haalRolVoorEmail, magRubriekVerwijderen,
   MEDEWERKER_TABS, BEHEER_TABS, FUNCTIES,
 };

@@ -115,7 +115,7 @@ function AfwikkelingBadge({ waarde }) {
 }
 
 // ── Detailweergave van één taak ──────────────────────────────────────────────
-function TaakDetail({ taak, modus, appUrl, onTerug, onAfgehandeld, onTijd }) {
+function TaakDetail({ taak, modus, appUrl, magBewerken = true, onTerug, onAfgehandeld, onTijd }) {
   const [bezig, setBezig] = useState(false);
   const [fout, setFout] = useState("");
   const [afgerond, setAfgerond] = useState(false); // net afgehandeld → uren schrijven tonen
@@ -126,6 +126,7 @@ function TaakDetail({ taak, modus, appUrl, onTerug, onAfgehandeld, onTijd }) {
   const dynamicsLink = appUrl ? `${appUrl}/main.aspx?pagetype=entityrecord&etn=task&id=${taak.id}` : "";
 
   const bewaarUren = async () => {
+    if (!magBewerken) return; // alleen-lezen rol
     setUrenBezig(true); setUrenStatus("");
     try {
       const r = await fetch("/api/mw-taken", {
@@ -144,6 +145,7 @@ function TaakDetail({ taak, modus, appUrl, onTerug, onAfgehandeld, onTijd }) {
   };
 
   const rond = async () => {
+    if (!magBewerken) return; // alleen-lezen rol
     if (!window.confirm("Deze taak markeren als afgehandeld (voltooid)?")) return;
     setBezig(true);
     setFout("");
@@ -217,10 +219,13 @@ function TaakDetail({ taak, modus, appUrl, onTerug, onAfgehandeld, onTijd }) {
               <ExternalLink size={14} /> Open in Dynamics
             </a>
           )}
-          {modus === "open" && (
+          {modus === "open" && magBewerken && (
             <button onClick={rond} disabled={bezig} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: bezig ? "default" : "pointer", opacity: bezig ? 0.7 : 1 }}>
               <CheckCircle2 size={14} /> {bezig ? "Bezig…" : "Markeer als afgehandeld"}
             </button>
+          )}
+          {modus === "open" && !magBewerken && (
+            <span title="Je rol mag taken alleen inzien, niet afhandelen" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", background: KLEUR.amberBg, color: KLEUR.amber, borderRadius: 8, fontSize: 12, fontWeight: 700 }}>Alleen-lezen</span>
           )}
         </div>
       </div>
@@ -247,7 +252,7 @@ function TaakDetail({ taak, modus, appUrl, onTerug, onAfgehandeld, onTijd }) {
           </div>
         )}
 
-        {modus === "open" && (
+        {modus === "open" && magBewerken && (
           <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${KLEUR.rand}` }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 6 }}>Indicatie-uren (planning &amp; bezetting)</div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -276,7 +281,7 @@ function TaakDetail({ taak, modus, appUrl, onTerug, onAfgehandeld, onTijd }) {
 }
 
 // ── De tabel voor één modus (open | afgehandeld) ─────────────────────────────
-function TakenTabel({ modus }) {
+function TakenTabel({ modus, magBewerken = true }) {
   const [taken, setTaken] = useState(null); // null = laden
   const [fout, setFout] = useState(false);
   const [configNodig, setConfigNodig] = useState(false);
@@ -420,6 +425,7 @@ function TakenTabel({ modus }) {
           taak={taak}
           modus={modus}
           appUrl={appUrl}
+          magBewerken={magBewerken}
           onTerug={() => setDetailId(null)}
           onAfgehandeld={(id) => { setTaken((h) => (h || []).filter((x) => x.id !== id)); setDetailId(null); }}
           onTijd={(id, override) => setTaken((h) => (h || []).map((x) => {
@@ -638,7 +644,7 @@ function TakenTabel({ modus }) {
 }
 
 // ── Hoofdcomponent: sub-tabbladen Openstaand / Afgehandeld ────────────────────
-export default function TakenOverzicht() {
+export default function TakenOverzicht({ magBewerken = true }) {
   const [modus, setModus] = useState("open");
   const subTab = (waarde, label) => (
     <button onClick={() => setModus(waarde)} style={{
@@ -656,7 +662,7 @@ export default function TakenOverzicht() {
         {subTab("open", "Openstaand")}
         {subTab("afgehandeld", "Afgehandeld")}
       </div>
-      <TakenTabel key={modus} modus={modus} />
+      <TakenTabel key={modus} modus={modus} magBewerken={magBewerken} />
     </div>
   );
 }
