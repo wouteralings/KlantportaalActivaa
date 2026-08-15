@@ -69,6 +69,7 @@ export default function PlanningJaar({ onInstellen }) {
   const [activiteiten, setActiviteiten] = useState([]);
   const [regels, setRegels] = useState([]);        // losse planningsregels (met status), uit mw-planning-overzicht
   const [statussen, setStatussen] = useState([]);  // { sleutel, label, kleur, actief }
+  const [statusMap, setStatusMap] = useState({});  // handmatige status per jaar: "acc|act|__status__" → { statusKey }
   const [klantenMap, setKlantenMap] = useState({});
   const [taken, setTaken] = useState([]);          // open taken (met effectieve indicatie-uren), uit mw-taken
   const [capaciteit, setCapaciteit] = useState(null); // { medewerkers: [...] } uit mw-planning-capaciteit?jaar
@@ -109,6 +110,14 @@ export default function PlanningJaar({ onInstellen }) {
       .then((d) => setTaken(d.taken || []))
       .catch(() => setTaken([]));
   }, []);
+
+  // Handmatige status per jaartaak (deze jaar-periode) — voor het status-label op de config-jaartaken.
+  useEffect(() => {
+    fetch(`/api/mw-planning-deelactiviteiten?periode=${jaar}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setStatusMap(d.status || {}))
+      .catch(() => setStatusMap({}));
+  }, [jaar]);
 
   // Beschikbare capaciteit per medewerker voor het gekozen jaar (rooster − goedgekeurd verlof).
   // Kantoorbreed = iedereen; anders je eigen team (op leidinggevende, incl. jezelf) — zie de capaciteits-API.
@@ -207,7 +216,7 @@ export default function PlanningJaar({ onInstellen }) {
         wanneer: nz.length ? nz.map((i) => MAANDEN_KORT[i]).join(", ") : "geen maand",
         klantnaam: klant?.klantnaam || "Onbekende klant", klantnummer: klant?.klantnummer || "",
         klantgroep: klant?.groepsnaam || "— geen groep —",
-        wie, uren, statusKey: "gepland", deadline: null,
+        wie, uren, statusKey: (statusMap[`${key}|${r.activiteit}|__status__`] || {}).statusKey || "gepland", deadline: null,
         afwijkend: !!override && override.toLowerCase() !== (team || "").toLowerCase(),
       });
     }
@@ -273,7 +282,7 @@ export default function PlanningJaar({ onInstellen }) {
 
     const maandTotalen = Array.from({ length: 12 }, (_, m) => items.reduce((s, it) => s + it.maanden[m], 0));
     return { groepen, aantal: items.length, uren: items.reduce((s, i) => s + i.uren, 0), maandTotalen };
-  }, [weergave, config, jaarRegels, activiteitById, klantenMap, teamFilter, zoekLaag]);
+  }, [weergave, config, jaarRegels, activiteitById, klantenMap, teamFilter, zoekLaag, statusMap]);
 
   // ── Bezetting: totale werklast (jaarconfig + maandconfig + taken) vs. beschikbare uren, per medewerker ──
   const bezetting = useMemo(() => {

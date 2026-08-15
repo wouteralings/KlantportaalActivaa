@@ -65,6 +65,9 @@ export default function PlanningMaand() {
 
   const [config, setConfig] = useState(null);
   const [activiteiten, setActiviteiten] = useState([]);
+  const [statussen, setStatussen] = useState([]);     // beheer-statussen { sleutel, label, kleur }
+  const [statusMap, setStatusMap] = useState({});     // handmatige status per periode: "acc|act|__status__" → { statusKey }
+  const [statusBezig, setStatusBezig] = useState(null); // id van de regel waarvan de status wordt opgeslagen
   const [klantenMap, setKlantenMap] = useState({});
   const [capaciteit, setCapaciteit] = useState(null); // { werkdagen, normPerDag, medewerkers:[...] }
   const [alleMedewerkers, setAlleMedewerkers] = useState([]); // volledige lijst (niet gescoped) voor de verplaats-keuzelijst
@@ -82,7 +85,7 @@ export default function PlanningMaand() {
       .catch((e) => { setConfig([]); setFout(e.message || "Configuratie kon niet worden opgehaald."); });
     fetch("/api/mw-planning-overzicht")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => setActiviteiten(d.activiteiten || []))
+      .then((d) => { setActiviteiten(d.activiteiten || []); setStatussen(d.statussen || []); })
       .catch(() => setActiviteiten([]));
     fetch("/api/beheer-klanten?alle=1")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
@@ -111,6 +114,32 @@ export default function PlanningMaand() {
       .then((d) => setMaandToewijzing(d.toewijzingen || {}))
       .catch(() => setMaandToewijzing({}));
   }, [maandStr]);
+
+  // Handmatige status per activiteit (deze maand) ophalen — voor het status-label/keuze in de tabel.
+  useEffect(() => {
+    fetch(`/api/mw-planning-deelactiviteiten?periode=${maandStr}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setStatusMap(d.status || {}))
+      .catch(() => setStatusMap({}));
+  }, [maandStr]);
+  const statusInfo = useMemo(() => Object.fromEntries((statussen || []).map((s) => [s.sleutel, s])), [statussen]);
+
+  // Handmatige status van een config-regel zetten (deze maand), gekozen uit de beheer-statussen. "" wist.
+  const zetItemStatus = async (i, statusKey) => {
+    if (statusBezig) return;
+    setStatusBezig(i.id);
+    const key = `${i.acc}|${i.actSleutel}|__status__`;
+    const vorige = statusMap;
+    setStatusMap((p) => { const n = { ...p }; if (statusKey) n[key] = { statusKey }; else delete n[key]; return n; });
+    try {
+      const res = await fetch("/api/mw-planning-deelactiviteiten", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "status", accountId: i.acc, activiteit: i.actSleutel, periode: maandStr, status: statusKey }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+    } catch (e) { setStatusMap(vorige); setFout(e.message || "Status opslaan mislukt."); }
+    finally { setStatusBezig(null); }
+  };
 
   const { maanditems, zonderMaand, perMedewerker } = useMemo(() => {
     const maanditems = [], zonderMaand = [];
@@ -160,7 +189,8 @@ export default function PlanningMaand() {
       const wie = koppelAanRooster(rauweNaam, rauwEmail, rauwId);
       const vastWie = koppelAanRooster(vastNaamRauw, vastEmail, vastId);
       const uren = Number(r.indicatieUren) || 0;
-      const item = { id: r.id, klantnaam: klant?.klantnaam || "Onbekende klant", klantnummer: klant?.klantnummer || "",
+      const item = { id: r.id, acc: String(r.klantAccountId || "").toLowerCase(), actSleutel: r.activiteit,
+        klantnaam: klant?.klantnaam || "Onbekende klant", klantnummer: klant?.klantnummer || "",
         activiteit: act.label, frequentie: r.frequentie, uitvoerMaand: r.uitvoerMaand, indicatieUren: r.indicatieUren, uren, wie, vastWie, eenmalig,
         afwijkend: !!override && override.toLowerCase() !== (team.naam || "").toLowerCase() };
       if (valtInMaand(r, maand)) {
@@ -352,6 +382,21 @@ export default function PlanningMaand() {
             onBlur={(e) => { const v = e.target.value; if (String(v) !== String(i.indicatieUren ?? "")) wijzigConfigRegel(i.id, { indicatieUren: v === "" ? null : v }); }}
             title="Indicatie-uren voor deze regel" style={{ ...kiesStijl, width: 80, cursor: "text" }} />
         </td>
+        <td style={td}>
+          {statussen.length > 0 ? (() => {
+            const sk = (statusMap[`${i.acc}|${i.actSleutel}|__status__`] || {}).statusKey || "";
+            const si = sk ? statusInfo[sk] : null;
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                <select value={sk} disabled={statusBezig === i.id} onChange={(e) => zetItemStatus(i, e.target.value)} style={kiesStijl}>
+                  <option value="">— geen —</option>
+                  {statussen.map((s) => <option key={s.sleutel} value={s.sleutel}>{s.label}</option>)}
+                </select>
+                {si && <span style={{ fontSize: 9.5, fontWeight: 700, color: si.kleur, background: `${si.kleur}18`, border: `1px solid ${si.kleur}55`, borderRadius: 20, padding: "1px 7px", whiteSpace: "nowrap", alignSelf: "flex-start" }}>{si.label}</span>}
+              </div>
+            );
+          })() : <span style={{ color: KLEUR.mutedTekst }}>—</span>}
+        </td>
       </tr>
     );
   };
@@ -497,13 +542,13 @@ export default function PlanningMaand() {
 
       <div style={{ fontSize: 13, fontWeight: 700, margin: "6px 0 8px" }}>Ingeplande activiteiten ({maanditems.length})</div>
       <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, marginBottom: zonderMaand.length ? 20 : 0 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1040 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1180 }}>
           <thead><tr>
-            <th style={th}>Klant</th><th style={th}>Activiteit</th><th style={th}>Frequentie</th><th style={th}>Uitvoermaand</th><th style={th}>Uitvoerder</th><th style={th}>Indicatie-uren</th>
+            <th style={th}>Klant</th><th style={th}>Activiteit</th><th style={th}>Frequentie</th><th style={th}>Uitvoermaand</th><th style={th}>Uitvoerder</th><th style={th}>Indicatie-uren</th><th style={th}>Status</th>
           </tr></thead>
           <tbody>
             {pagineer(maanditems, toonAct).map((i) => rijBewerkbaar(i))}
-            {maanditems.length === 0 && <tr><td colSpan={6} style={{ ...td, color: KLEUR.mutedTekst, textAlign: "center", padding: 20 }}>Niets ingepland deze maand (op basis van de configuratie).</td></tr>}
+            {maanditems.length === 0 && <tr><td colSpan={7} style={{ ...td, color: KLEUR.mutedTekst, textAlign: "center", padding: 20 }}>Niets ingepland deze maand (op basis van de configuratie).</td></tr>}
           </tbody>
         </table>
       </div>
@@ -514,9 +559,9 @@ export default function PlanningMaand() {
           <div style={{ fontSize: 13, fontWeight: 700, margin: "6px 0 8px", color: KLEUR.amber }}>Jaar-/eenmalige taken zonder uitvoermaand ({zonderMaand.length})</div>
           <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 8 }}>Stel bij deze taken een uitvoermaand in op de klantkaart (Per klant), dan vallen ze automatisch in de juiste maand.</div>
           <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.amber}55`, borderRadius: 10 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1040 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1180 }}>
               <thead><tr>
-                <th style={th}>Klant</th><th style={th}>Activiteit</th><th style={th}>Frequentie</th><th style={th}>Uitvoermaand</th><th style={th}>Uitvoerder</th><th style={th}>Indicatie-uren</th>
+                <th style={th}>Klant</th><th style={th}>Activiteit</th><th style={th}>Frequentie</th><th style={th}>Uitvoermaand</th><th style={th}>Uitvoerder</th><th style={th}>Indicatie-uren</th><th style={th}>Status</th>
               </tr></thead>
               <tbody>
                 {zonderMaand.map((i) => rijBewerkbaar(i))}
