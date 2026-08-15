@@ -9,8 +9,8 @@
  *
  * Data + opslaan via /api/mw-planning-deelactiviteiten (zelfde als het Afwikkeling-scherm).
  */
-import { useState, useEffect, useMemo } from "react";
-import { ClipboardCheck, ChevronLeft, ChevronRight, CheckSquare, Square, CheckCircle2, Loader2, Search, X } from "lucide-react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { ClipboardCheck, ChevronLeft, ChevronRight, ChevronDown, CheckSquare, Square, CheckCircle2, Loader2, Search, X, Users, Building2 } from "lucide-react";
 import { useMijnNaam } from "../MijnFilter";
 import UrenSchrijvenPanel from "../UrenSchrijvenPanel";
 
@@ -21,6 +21,12 @@ const KLEUR = {
   amber: "#A9660C", amberBg: "#FFF4E5", amberRand: "#F2D9A8", lichtblauw: "#EAF2F8",
 };
 const MAANDEN = ["januari", "februari", "maart", "april", "mei", "juni", "juli", "augustus", "september", "oktober", "november", "december"];
+// De uit de deelstappen AFGELEIDE status (bepaalt ook de celkleur) — staat in het statusfilter boven
+// de handmatige beheer-statussen. Sleutels moeten los blijven van de beheer-statussleutels.
+const AFGELEIDE_STATUSSEN = [["open", "Open"], ["bezig", "Bezig"], ["gereed", "Gereed"]];
+// Rij- en kopje-stijl in de "Werk van"-combobox.
+const werkVanRij = { display: "block", width: "100%", textAlign: "left", background: "none", border: "none", borderRadius: 6, padding: "7px 10px", fontSize: 12.5, cursor: "pointer", color: "#1C2321" };
+const werkVanKopje = { padding: "8px 10px 3px", fontSize: 10.5, fontWeight: 700, color: "#8A9089", textTransform: "uppercase", letterSpacing: ".03em" };
 const MAAND_KORT = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
 const pad = (n) => String(n).padStart(2, "0");
 const datumKort = (iso) => { if (!iso) return ""; const d = new Date(iso); return isNaN(d.getTime()) ? "" : d.toLocaleDateString("nl-NL"); };
@@ -57,7 +63,15 @@ export default function MijnWerk({ isBeheerder = false } = {}) {
   const { mijnNaam, geladen: naamGeladen } = useMijnNaam();
   // Beheerders mogen ook het werk van een ANDERE medewerker bekijken/aftekenen ("" = mijzelf).
   const [bekeken, setBekeken] = useState("");
+  // Klantgroep-verfijning: beperkt het getoonde werk tot de klanten in die groep. Staat LOS van de
+  // medewerker-keuze (ze zijn combineerbaar) en is voor iedereen beschikbaar — ook een gewone
+  // medewerker mag zijn eigen werk tot één klantgroep beperken.
+  const [bekekenGroep, setBekekenGroep] = useState("");
   const [medewerkerLijst, setMedewerkerLijst] = useState([]);
+  // Type-to-search combobox voor "Werk van" (medewerkers + klantgroepen in één lijst).
+  const [werkVanOpen, setWerkVanOpen] = useState(false);
+  const [werkVanZoek, setWerkVanZoek] = useState("");
+  const werkVanRef = useRef(null);
   const [type, setType] = useState("maand"); // maand | jaar
   const [jaar, setJaar] = useState(nu.getFullYear());
   const [maand, setMaand] = useState(nu.getMonth() + 1);
@@ -73,7 +87,10 @@ export default function MijnWerk({ isBeheerder = false } = {}) {
 
   // Filters + actieve cel (uitgeklapte deelstappen).
   const [klantZoek, setKlantZoek] = useState("");
-  const [groepFilter, setGroepFilter] = useState("");
+  // Statusfilter: "" = alles. Eén gecombineerde lijst — de afgeleide status uit de deelstappen
+  // ("open"/"bezig"/"gereed"), de handmatige beheer-statussen (op sleutel), en "__geen__" voor taken
+  // zónder handmatig statuslabel.
+  const [statusFilter, setStatusFilter] = useState("");
   const [verborgenTaken, setVerborgenTaken] = useState(() => new Set()); // hoofdtaken (kolommen) die verborgen zijn
   const [alleenOpen, setAlleenOpen] = useState(false);
   const [actieveCel, setActieveCel] = useState(null);  // { acc, actSleutel } of null
@@ -85,6 +102,8 @@ export default function MijnWerk({ isBeheerder = false } = {}) {
   // Wiens werk tonen we? Standaard mijzelf; een beheerder kan een andere medewerker kiezen.
   const bekekenNaam = isBeheerder && bekeken ? bekeken : (mijnNaam || "");
   const bekekenLc = String(bekekenNaam).trim().toLowerCase();
+  // Klantgroep-verfijning actief? (Niet beheerder-gated: geldt voor iedereen.)
+  const groepActief = !!bekekenGroep;
 
   useEffect(() => {
     fetch("/api/mw-planning-config").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => setConfig(d.config || [])).catch(() => { setConfig([]); setFout("Configuratie kon niet worden geladen."); });
@@ -134,6 +153,8 @@ export default function MijnWerk({ isBeheerder = false } = {}) {
       const klant = klantenMap[acc] || null;
       const wie = (r.toegewezenAan || "").trim() || teamPersoon(klant, act.rol);
       if (String(wie || "").trim().toLowerCase() !== bekekenLc) continue;
+      // Klantgroep-verfijning: beperk hetzelfde werk tot de klanten in de gekozen groep.
+      if (groepActief && (klant?.groepsnaam || "") !== bekekenGroep) continue;
       const dubbelKey = `${acc}|${act.sleutel}`;
       if (seen.has(dubbelKey)) continue;
       seen.add(dubbelKey);
@@ -141,14 +162,24 @@ export default function MijnWerk({ isBeheerder = false } = {}) {
       const total = eff.length;
       const done = total ? eff.filter((d) => stFor(acc, act.sleutel, d.sleutel)?.gereed).length : 0;
       const gereed = total ? done === total : !!stFor(acc, act.sleutel, "__hoofd__")?.gereed;
+      const statusKey = (status[`${acc}|${act.sleutel}|__status__`] || {}).statusKey || "";
+      if (statusFilter) {
+        // Eén filter over twee soorten status: de afgeleide (uit de deelstappen) en de handmatige
+        // (het beheer-statuslabel). "__geen__" = juist de taken zónder handmatig label.
+        const afgeleid = gereed ? "gereed" : done > 0 ? "bezig" : "open";
+        const past = statusFilter === "__geen__" ? !statusKey
+          : AFGELEIDE_STATUSSEN.some(([k]) => k === statusFilter) ? afgeleid === statusFilter
+          : statusKey === statusFilter;
+        if (!past) continue;
+      }
       rijen.push({
         key: dubbelKey, acc, accountId: klant?.accountId || r.klantAccountId || "", actSleutel: act.sleutel, act, eff, done, total, gereed, uitvoerMaand: r.uitvoerMaand,
-        statusKey: (status[`${acc}|${act.sleutel}|__status__`] || {}).statusKey || "",
+        statusKey,
         klantnaam: klant?.klantnaam || "Onbekende klant", klantnummer: klant?.klantnummer || "", klantgroep: klant?.groepsnaam || "",
       });
     }
     return rijen;
-  }, [config, activiteitById, klantenMap, klantDeelstappen, status, type, maand, bekekenLc]);
+  }, [config, activiteitById, klantenMap, klantDeelstappen, status, type, maand, bekekenLc, groepActief, bekekenGroep, statusFilter]);
 
   // Kolommen: de hoofdtaken die in mijn werk voorkomen (op definitie-volgorde).
   const alleTaken = useMemo(() => {
@@ -168,20 +199,54 @@ export default function MijnWerk({ isBeheerder = false } = {}) {
     return [...perKlant.values()].sort((a, b) => String(a.klantnaam).localeCompare(String(b.klantnaam), "nl"));
   }, [items]);
 
-  const groepen = useMemo(() => [...new Set(klantRijen.map((k) => k.klantgroep).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), "nl")), [klantRijen]);
+  // Alle klantgroepen uit de KLANTENLIJST (niet uit de zichtbare rijen) — anders zou je alleen de
+  // groepen kunnen kiezen die al in je eigen werk voorkomen.
+  const alleKlantgroepen = useMemo(
+    () => [...new Set(Object.values(klantenMap).map((k) => k.groepsnaam).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), "nl")),
+    [klantenMap]
+  );
+
+  // "Werk van"-combobox: medewerkers + klantgroepen, gefilterd op wat je typt.
+  const werkVanFilter = werkVanZoek.trim().toLowerCase();
+  const werkVanMedewerkers = useMemo(
+    () => medewerkerLijst.filter((n) => n.toLowerCase() !== String(mijnNaam || "").toLowerCase() && (!werkVanFilter || n.toLowerCase().includes(werkVanFilter))),
+    [medewerkerLijst, mijnNaam, werkVanFilter]
+  );
+  const werkVanGroepen = useMemo(
+    () => alleKlantgroepen.filter((g) => !werkVanFilter || g.toLowerCase().includes(werkVanFilter)),
+    [alleKlantgroepen, werkVanFilter]
+  );
+  // Persoon en klantgroep zijn twee losse assen die tegelijk actief mogen zijn ("werk van Jan, binnen
+  // klantgroep X"). Het label toont beide; wie geen beheerder is, ziet alleen het groep-deel.
+  const persoonLabel = bekeken || (isBeheerder ? `Mijzelf${mijnNaam ? ` (${mijnNaam})` : ""}` : "");
+  const werkVanLabel = [persoonLabel, bekekenGroep].filter(Boolean).join(" · ") || "Alle klantgroepen";
+  const kiesWerkVan = (soort, waarde) => {
+    if (soort === "medewerker") setBekeken(waarde);      // "" = mijzelf
+    else setBekekenGroep(waarde);                        // "" = alle klantgroepen
+    setActieveCel(null);
+    setWerkVanOpen(false);
+    setWerkVanZoek("");
+  };
+
+  // Klik buiten de combobox = sluiten (en de typtekst wissen, zodat je bij heropenen alles ziet).
+  useEffect(() => {
+    if (!werkVanOpen) return;
+    const buiten = (e) => { if (werkVanRef.current && !werkVanRef.current.contains(e.target)) { setWerkVanOpen(false); setWerkVanZoek(""); } };
+    document.addEventListener("mousedown", buiten);
+    return () => document.removeEventListener("mousedown", buiten);
+  }, [werkVanOpen]);
 
   const zichtbareRijen = useMemo(() => {
     const q = klantZoek.trim().toLowerCase();
     return klantRijen.filter((k) => {
       if (q && !`${k.klantnaam} ${k.klantnummer}`.toLowerCase().includes(q)) return false;
-      if (groepFilter && k.klantgroep !== groepFilter) return false;
       if (alleenOpen) {
         const relevante = zichtbareTaken.map((t) => k.taken[t.sleutel]).filter(Boolean);
         if (relevante.length && relevante.every((it) => it.gereed)) return false;
       }
       return true;
     });
-  }, [klantRijen, klantZoek, groepFilter, alleenOpen, zichtbareTaken]);
+  }, [klantRijen, klantZoek, alleenOpen, zichtbareTaken]);
 
   const totaalCellen = items.length;
   const gereedCellen = items.filter((i) => i.gereed).length;
@@ -231,7 +296,7 @@ export default function MijnWerk({ isBeheerder = false } = {}) {
   const vorige = () => { if (type === "jaar") { setJaar((j) => j - 1); return; } if (maand === 1) { setMaand(12); setJaar((j) => j - 1); } else setMaand((m) => m - 1); };
   const volgende = () => { if (type === "jaar") { setJaar((j) => j + 1); return; } if (maand === 12) { setMaand(1); setJaar((j) => j + 1); } else setMaand((m) => m + 1); };
   const toggleTaak = (sleutel) => setVerborgenTaken((s) => { const n = new Set(s); if (n.has(sleutel)) n.delete(sleutel); else n.add(sleutel); return n; });
-  const filterActief = !!klantZoek.trim() || !!groepFilter || verborgenTaken.size > 0 || alleenOpen;
+  const filterActief = !!klantZoek.trim() || !!bekekenGroep || verborgenTaken.size > 0 || alleenOpen || !!statusFilter;
 
   const laden = config === null || !naamGeladen;
 
@@ -242,7 +307,7 @@ export default function MijnWerk({ isBeheerder = false } = {}) {
     <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700 }}>
-          <ClipboardCheck size={17} color={KLEUR.blauw} /> {isBeheerder && bekeken ? "Werk van" : "Mijn werk"}{bekekenNaam ? <span style={{ fontSize: 12.5, fontWeight: 500, color: KLEUR.mutedTekst }}>· {bekekenNaam}</span> : null}{isBeheerder && bekeken ? <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 20, padding: "2px 8px", marginLeft: 6 }}>als beheerder</span> : null}
+          <ClipboardCheck size={17} color={KLEUR.blauw} /> {isBeheerder && bekeken ? "Werk van" : "Mijn werk"}{bekekenNaam ? <span style={{ fontSize: 12.5, fontWeight: 500, color: KLEUR.mutedTekst }}>· {bekekenNaam}</span> : null}{groepActief ? <span style={{ fontSize: 12.5, fontWeight: 500, color: KLEUR.mutedTekst }}> · {bekekenGroep}</span> : null}{isBeheerder && bekeken ? <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 20, padding: "2px 8px", marginLeft: 6 }}>als beheerder</span> : null}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button onClick={vorige} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, background: "#fff", cursor: "pointer", color: KLEUR.subtekst }}><ChevronLeft size={16} /></button>
@@ -263,30 +328,81 @@ export default function MijnWerk({ isBeheerder = false } = {}) {
             <button key={k} onClick={() => setType(k)} style={{ padding: "6px 12px", borderRadius: 20, border: `1px solid ${type === k ? KLEUR.blauw : KLEUR.rand}`, background: type === k ? KLEUR.blauw : "#fff", color: type === k ? "#fff" : KLEUR.subtekst, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{label}</button>
           ))}
         </div>
-        {isBeheerder && (
-          <label style={{ fontSize: 12, color: KLEUR.subtekst, display: "inline-flex", alignItems: "center", gap: 6 }} title="Als beheerder kun je het werk van een andere medewerker bekijken en aftekenen">
-            Werk van
-            <select value={bekeken} onChange={(e) => { setBekeken(e.target.value); setActieveCel(null); }} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "6px 8px", fontSize: 12.5, background: bekeken ? KLEUR.lichtblauw : "#fff", color: bekeken ? KLEUR.blauw : KLEUR.tekst, fontWeight: bekeken ? 700 : 400, cursor: "pointer" }}>
-              <option value="">Mijzelf{mijnNaam ? ` (${mijnNaam})` : ""}</option>
-              {medewerkerLijst.filter((n) => n.toLowerCase() !== String(mijnNaam || "").toLowerCase()).map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </label>
-        )}
+        {/* Zoek-en-kies: klantgroep voor iedereen, medewerker-namen alleen voor beheerders. */}
+        <div ref={werkVanRef} style={{ position: "relative", fontSize: 12, color: KLEUR.subtekst, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            {isBeheerder ? "Werk van" : "Klantgroep"}
+            <button
+              onClick={() => { setWerkVanOpen((o) => !o); setWerkVanZoek(""); }}
+              title={isBeheerder ? "Kies een medewerker en/of een klantgroep — typ om te zoeken" : "Beperk je werk tot één klantgroep — typ om te zoeken"}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 190, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "6px 8px", fontSize: 12.5, background: (bekeken || bekekenGroep) ? KLEUR.lichtblauw : "#fff", color: (bekeken || bekekenGroep) ? KLEUR.blauw : KLEUR.tekst, fontWeight: (bekeken || bekekenGroep) ? 700 : 400, cursor: "pointer", textAlign: "left" }}
+            >
+              {bekekenGroep ? <Building2 size={13} /> : bekeken ? <Users size={13} /> : null}
+              <span style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{werkVanLabel}</span>
+              <ChevronDown size={14} color={KLEUR.mutedTekst} />
+            </button>
+            {werkVanOpen && (
+              <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 62, zIndex: 30, width: 280, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,.10)", overflow: "hidden" }}>
+                <div style={{ position: "relative", padding: 8, borderBottom: `1px solid ${KLEUR.rand}` }}>
+                  <Search size={13} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 17, top: "50%", transform: "translateY(-50%)" }} />
+                  <input
+                    autoFocus
+                    value={werkVanZoek}
+                    onChange={(e) => setWerkVanZoek(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Escape") { setWerkVanOpen(false); setWerkVanZoek(""); } }}
+                    placeholder={isBeheerder ? "Zoek medewerker of klantgroep…" : "Zoek klantgroep…"}
+                    style={{ width: "100%", boxSizing: "border-box", padding: "6px 8px 6px 26px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 7 }}
+                  />
+                </div>
+                <div style={{ maxHeight: 260, overflowY: "auto", padding: 4 }}>
+                  {/* Medewerker-deel: alleen voor beheerders. Klantgroep-deel: voor iedereen. */}
+                  {isBeheerder && (
+                    <>
+                      <button onClick={() => kiesWerkVan("medewerker", "")} style={{ ...werkVanRij, fontWeight: !bekeken ? 700 : 400 }}>
+                        Mijzelf{mijnNaam ? ` (${mijnNaam})` : ""}
+                      </button>
+                      {werkVanMedewerkers.length > 0 && <div style={werkVanKopje}>Medewerkers</div>}
+                      {werkVanMedewerkers.map((n) => (
+                        <button key={`mw-${n}`} onClick={() => kiesWerkVan("medewerker", n)} style={{ ...werkVanRij, fontWeight: bekeken === n ? 700 : 400, color: bekeken === n ? KLEUR.blauw : KLEUR.tekst }}>{n}</button>
+                      ))}
+                    </>
+                  )}
+                  <div style={werkVanKopje}>Klantgroepen</div>
+                  <button onClick={() => kiesWerkVan("klantgroep", "")} style={{ ...werkVanRij, fontWeight: !bekekenGroep ? 700 : 400 }}>Alle klantgroepen</button>
+                  {werkVanGroepen.map((g) => (
+                    <button key={`gr-${g}`} onClick={() => kiesWerkVan("klantgroep", g)} style={{ ...werkVanRij, fontWeight: bekekenGroep === g ? 700 : 400, color: bekekenGroep === g ? KLEUR.blauw : KLEUR.tekst }}>{g}</button>
+                  ))}
+                  {werkVanGroepen.length === 0 && (isBeheerder ? werkVanMedewerkers.length === 0 : true) && (
+                    <div style={{ padding: "8px 10px", fontSize: 12, color: KLEUR.mutedTekst }}>Niets gevonden.</div>
+                  )}
+                </div>
+              </div>
+            )}
+        </div>
         <div style={{ position: "relative", flex: "1 1 220px", maxWidth: 300 }}>
           <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
           <input value={klantZoek} onChange={(e) => setKlantZoek(e.target.value)} placeholder="Zoek op klant of klantnummer…" style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px 7px 32px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }} />
         </div>
-        <label style={{ fontSize: 12, color: KLEUR.subtekst, display: "inline-flex", alignItems: "center", gap: 6 }}>
-          Klantgroep
-          <select value={groepFilter} onChange={(e) => setGroepFilter(e.target.value)} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "6px 8px", fontSize: 12.5, background: "#fff", cursor: "pointer" }}>
+        <label style={{ fontSize: 12, color: KLEUR.subtekst, display: "inline-flex", alignItems: "center", gap: 6 }} title="Filter op status: bovenaan de status uit de deelstappen, daaronder de handmatige statuslabels uit Beheer → Planning">
+          Status
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "6px 8px", fontSize: 12.5, background: statusFilter ? KLEUR.lichtblauw : "#fff", color: statusFilter ? KLEUR.blauw : KLEUR.tekst, fontWeight: statusFilter ? 700 : 400, cursor: "pointer" }}>
             <option value="">Alle</option>
-            {groepen.map((g) => <option key={g} value={g}>{g}</option>)}
+            <optgroup label="Voortgang">
+              {AFGELEIDE_STATUSSEN.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+            </optgroup>
+            {statussen.length > 0 && (
+              <optgroup label="Statuslabel">
+                {statussen.map((s) => <option key={s.sleutel} value={s.sleutel}>{s.label}</option>)}
+              </optgroup>
+            )}
+            <optgroup label="Overig">
+              <option value="__geen__">— geen status —</option>
+            </optgroup>
           </select>
         </label>
         <label style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: "pointer", fontSize: 12, color: KLEUR.subtekst }}>
           <input type="checkbox" checked={alleenOpen} onChange={(e) => setAlleenOpen(e.target.checked)} /> Alleen openstaand
         </label>
-        {filterActief && <button onClick={() => { setKlantZoek(""); setGroepFilter(""); setVerborgenTaken(new Set()); setAlleenOpen(false); }} style={{ padding: "6px 10px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Filters wissen</button>}
+        {filterActief && <button onClick={() => { setKlantZoek(""); setBekekenGroep(""); setVerborgenTaken(new Set()); setAlleenOpen(false); setStatusFilter(""); }} style={{ padding: "6px 10px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Filters wissen</button>}
       </div>
 
       {/* Taak-filter (kolommen aan/uit) + statuslegenda */}
@@ -319,7 +435,7 @@ export default function MijnWerk({ isBeheerder = false } = {}) {
       ) : !bekekenLc ? (
         <div style={{ color: KLEUR.mutedTekst, fontSize: 13, padding: "16px 0" }}>Je naam kon niet worden bepaald, dus je toegewezen werk kan niet worden getoond. Log opnieuw in of neem contact op met beheer.</div>
       ) : klantRijen.length === 0 ? (
-        <div style={{ color: KLEUR.mutedTekst, fontSize: 13, padding: "16px 0" }}>Er is voor deze periode niets aan {isBeheerder && bekeken ? bekekenNaam : "jou"} toegewezen.</div>
+        <div style={{ color: KLEUR.mutedTekst, fontSize: 13, padding: "16px 0" }}>Er is voor deze periode niets aan {isBeheerder && bekeken ? bekekenNaam : "jou"} toegewezen{groepActief ? ` binnen klantgroep ${bekekenGroep}` : ""}{statusFilter ? " met deze status" : ""}.</div>
       ) : zichtbareRijen.length === 0 ? (
         <div style={{ color: KLEUR.mutedTekst, fontSize: 13, padding: "16px 0" }}>Geen klanten voor deze filters.</div>
       ) : (
