@@ -52,9 +52,12 @@ function celStatus(item) {
   return { kind: "open", label: item.total ? `0/${item.total}` : "Open", bg: KLEUR.roodBg, kleur: KLEUR.rood, rand: KLEUR.roodRand };
 }
 
-export default function MijnWerk() {
+export default function MijnWerk({ isBeheerder = false } = {}) {
   const nu = new Date();
   const { mijnNaam, geladen: naamGeladen } = useMijnNaam();
+  // Beheerders mogen ook het werk van een ANDERE medewerker bekijken/aftekenen ("" = mijzelf).
+  const [bekeken, setBekeken] = useState("");
+  const [medewerkerLijst, setMedewerkerLijst] = useState([]);
   const [type, setType] = useState("maand"); // maand | jaar
   const [jaar, setJaar] = useState(nu.getFullYear());
   const [maand, setMaand] = useState(nu.getMonth() + 1);
@@ -79,13 +82,19 @@ export default function MijnWerk() {
   const activiteitById = useMemo(() => Object.fromEntries(activiteiten.map((a) => [a.sleutel, a])), [activiteiten]);
   const activiteitOrder = useMemo(() => Object.fromEntries(activiteiten.map((a, i) => [a.sleutel, i])), [activiteiten]);
   const statusInfo = useMemo(() => Object.fromEntries((statussen || []).map((s) => [s.sleutel, s])), [statussen]);
-  const mijnLc = String(mijnNaam || "").trim().toLowerCase();
+  // Wiens werk tonen we? Standaard mijzelf; een beheerder kan een andere medewerker kiezen.
+  const bekekenNaam = isBeheerder && bekeken ? bekeken : (mijnNaam || "");
+  const bekekenLc = String(bekekenNaam).trim().toLowerCase();
 
   useEffect(() => {
     fetch("/api/mw-planning-config").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => setConfig(d.config || [])).catch(() => { setConfig([]); setFout("Configuratie kon niet worden geladen."); });
     fetch("/api/mw-planning-overzicht").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => { setActiviteiten(d.activiteiten || []); setStatussen(d.statussen || []); }).catch(() => setActiviteiten([]));
     fetch("/api/beheer-klanten?alle=1").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => { const b = {}; (d.klanten || []).forEach((k) => { b[String(k.accountId || "").toLowerCase()] = k; }); setKlantenMap(b); }).catch(() => setKlantenMap({}));
-  }, []);
+    // Alleen beheerders: de medewerkerslijst voor de "werk van"-keuze.
+    if (isBeheerder) {
+      fetch("/api/mw-planning-medewerkers").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => setMedewerkerLijst((d.medewerkers || []).map((m) => m.naam).filter(Boolean).sort((a, b) => String(a).localeCompare(String(b), "nl")))).catch(() => setMedewerkerLijst([]));
+    }
+  }, [isBeheerder]);
 
   useEffect(() => {
     setActieveCel(null);
@@ -103,7 +112,7 @@ export default function MijnWerk() {
 
   // Alleen de aan mij toegewezen hoofdactiviteiten in deze periode → per (klant × hoofdtaak) één item.
   const items = useMemo(() => {
-    if (!config || !mijnLc) return [];
+    if (!config || !bekekenLc) return [];
     const seen = new Set();
     const rijen = [];
     for (const r of config) {
@@ -124,7 +133,7 @@ export default function MijnWerk() {
       const acc = String(r.klantAccountId || "").toLowerCase();
       const klant = klantenMap[acc] || null;
       const wie = (r.toegewezenAan || "").trim() || teamPersoon(klant, act.rol);
-      if (String(wie || "").trim().toLowerCase() !== mijnLc) continue;
+      if (String(wie || "").trim().toLowerCase() !== bekekenLc) continue;
       const dubbelKey = `${acc}|${act.sleutel}`;
       if (seen.has(dubbelKey)) continue;
       seen.add(dubbelKey);
@@ -139,7 +148,7 @@ export default function MijnWerk() {
       });
     }
     return rijen;
-  }, [config, activiteitById, klantenMap, klantDeelstappen, status, type, maand, mijnLc]);
+  }, [config, activiteitById, klantenMap, klantDeelstappen, status, type, maand, bekekenLc]);
 
   // Kolommen: de hoofdtaken die in mijn werk voorkomen (op definitie-volgorde).
   const alleTaken = useMemo(() => {
@@ -233,7 +242,7 @@ export default function MijnWerk() {
     <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700 }}>
-          <ClipboardCheck size={17} color={KLEUR.blauw} /> Mijn werk{mijnNaam ? <span style={{ fontSize: 12.5, fontWeight: 500, color: KLEUR.mutedTekst }}>· {mijnNaam}</span> : null}
+          <ClipboardCheck size={17} color={KLEUR.blauw} /> {isBeheerder && bekeken ? "Werk van" : "Mijn werk"}{bekekenNaam ? <span style={{ fontSize: 12.5, fontWeight: 500, color: KLEUR.mutedTekst }}>· {bekekenNaam}</span> : null}{isBeheerder && bekeken ? <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 20, padding: "2px 8px", marginLeft: 6 }}>als beheerder</span> : null}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button onClick={vorige} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, background: "#fff", cursor: "pointer", color: KLEUR.subtekst }}><ChevronLeft size={16} /></button>
@@ -254,6 +263,15 @@ export default function MijnWerk() {
             <button key={k} onClick={() => setType(k)} style={{ padding: "6px 12px", borderRadius: 20, border: `1px solid ${type === k ? KLEUR.blauw : KLEUR.rand}`, background: type === k ? KLEUR.blauw : "#fff", color: type === k ? "#fff" : KLEUR.subtekst, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{label}</button>
           ))}
         </div>
+        {isBeheerder && (
+          <label style={{ fontSize: 12, color: KLEUR.subtekst, display: "inline-flex", alignItems: "center", gap: 6 }} title="Als beheerder kun je het werk van een andere medewerker bekijken en aftekenen">
+            Werk van
+            <select value={bekeken} onChange={(e) => { setBekeken(e.target.value); setActieveCel(null); }} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "6px 8px", fontSize: 12.5, background: bekeken ? KLEUR.lichtblauw : "#fff", color: bekeken ? KLEUR.blauw : KLEUR.tekst, fontWeight: bekeken ? 700 : 400, cursor: "pointer" }}>
+              <option value="">Mijzelf{mijnNaam ? ` (${mijnNaam})` : ""}</option>
+              {medewerkerLijst.filter((n) => n.toLowerCase() !== String(mijnNaam || "").toLowerCase()).map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
+        )}
         <div style={{ position: "relative", flex: "1 1 220px", maxWidth: 300 }}>
           <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
           <input value={klantZoek} onChange={(e) => setKlantZoek(e.target.value)} placeholder="Zoek op klant of klantnummer…" style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px 7px 32px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }} />
@@ -298,10 +316,10 @@ export default function MijnWerk() {
 
       {laden ? (
         <div style={{ display: "flex", alignItems: "center", gap: 8, color: KLEUR.mutedTekst, fontSize: 13, padding: "16px 0" }}><Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} /> Laden…</div>
-      ) : !mijnNaam ? (
+      ) : !bekekenLc ? (
         <div style={{ color: KLEUR.mutedTekst, fontSize: 13, padding: "16px 0" }}>Je naam kon niet worden bepaald, dus je toegewezen werk kan niet worden getoond. Log opnieuw in of neem contact op met beheer.</div>
       ) : klantRijen.length === 0 ? (
-        <div style={{ color: KLEUR.mutedTekst, fontSize: 13, padding: "16px 0" }}>Er is voor deze periode niets aan jou toegewezen.</div>
+        <div style={{ color: KLEUR.mutedTekst, fontSize: 13, padding: "16px 0" }}>Er is voor deze periode niets aan {isBeheerder && bekeken ? bekekenNaam : "jou"} toegewezen.</div>
       ) : zichtbareRijen.length === 0 ? (
         <div style={{ color: KLEUR.mutedTekst, fontSize: 13, padding: "16px 0" }}>Geen klanten voor deze filters.</div>
       ) : (

@@ -4967,7 +4967,7 @@ export default function MedewerkerPortaal() {
       {tab === "klantoverzicht" && <KlantenModule magContracten={magContracten} isBeheerder={isBeheerder} magPlanning={magPlanning} />}
       {tab === "taken" && <TakenOverzicht />}
       {tab === "postboek" && <PostboekModule isBeheerder={isBeheerder} onWijziging={laadTellingen} />}
-      {tab === "mijnwerk" && <MijnWerk />}
+      {tab === "mijnwerk" && <MijnWerk isBeheerder={isBeheerder} />}
       {tab === "planning" && (magPlanning || isBeheerder) && <PlanningModule />}
       {tab === "vragenlijsten" && <Vragenlijsten />}
       {tab === "uren" && <Urenregistratie isBeheerder={isBeheerder} />}
