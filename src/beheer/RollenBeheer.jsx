@@ -15,22 +15,6 @@ const KLEUR = {
 };
 const invoerStijl = { boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 13, outline: "none", background: "#fff" };
 
-function Vinkjes({ opties, geselecteerd, onToggle }) {
-  const set = new Set(geselecteerd || []);
-  return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-      {opties.map((o) => {
-        const aan = set.has(o.key);
-        return (
-          <button key={o.key} onClick={() => onToggle(o.key)} style={{ padding: "5px 10px", borderRadius: 20, border: `1px solid ${aan ? KLEUR.blauw : KLEUR.rand}`, background: aan ? KLEUR.lichtblauw : "#fff", color: aan ? KLEUR.blauw : KLEUR.mutedTekst, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-            {aan ? "✓ " : ""}{o.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 // Per rubriek (medewerker-tab) een keuze: Uit (verborgen) · Lezen (zichtbaar, alleen-lezen) · Bewerken.
 // Optioneel (alleen medewerker-rubrieken): een losse "mag verwijderen"-schakelaar náást die keuze —
 // pas te zetten als de rubriek zichtbaar is (niet Uit). Geef onZetVerwijder mee om die kolom te tonen.
@@ -64,6 +48,38 @@ function TabRechten({ opties, zichtbaar, bewerkbaar, verwijderbaar, onZet, onZet
                 <Trash2 size={12} /> Verwijderen
               </label>
             )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Losse functies (bulk wijzigen, als klant kijken) in dezelfde rij-lay-out als de rubrieken hierboven:
+// label links, keuze rechts. Deze rechten zijn booleaans — géén uit/lezen/bewerken-drieslag — dus de
+// segmented control heeft twee standen. Puur presentatie: het onderliggende recht blijft de vlag in
+// rol.functies[key], die net als voorheen met één toggle-aanroep wordt omgezet.
+const FUNCTIE_STATEN = [["uit", "Uit"], ["aan", "Aan"]];
+function FunctieRechten({ opties, geselecteerd, onToggle }) {
+  const set = new Set(geselecteerd || []);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, maxWidth: 460 }}>
+      {opties.map((o) => {
+        const aan = set.has(o.key);
+        return (
+          <div key={o.key} style={{ display: "grid", gridTemplateColumns: "minmax(110px,1fr) auto", gap: 10, alignItems: "center" }}>
+            <span style={{ fontSize: 12.5, color: aan ? KLEUR.tekst : KLEUR.mutedTekst, fontWeight: aan ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label}</span>
+            <div style={{ display: "inline-flex", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, overflow: "hidden" }}>
+              {FUNCTIE_STATEN.map(([val, lab], idx) => {
+                const isAan = val === "aan";
+                const actief = isAan === aan;
+                const kleur = isAan ? KLEUR.blauw : KLEUR.mutedTekst;
+                // Alleen omzetten als de stand echt verandert — zo blijft het één toggle per wijziging.
+                return (
+                  <button key={val} onClick={() => { if (isAan !== aan) onToggle(o.key); }} style={{ padding: "4px 11px", minWidth: 54, border: "none", borderLeft: idx ? `1px solid ${KLEUR.rand}` : "none", background: actief ? kleur : "#fff", color: actief ? "#fff" : KLEUR.subtekst, fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>{lab}</button>
+                );
+              })}
+            </div>
           </div>
         );
       })}
@@ -315,8 +331,8 @@ export default function RollenBeheer() {
             )}
             {sectiekop(LayoutGrid, "Beheerdersportaal — rubrieken (uit / lezen / bewerken)")}
             <TabRechten opties={beheerTabs} zichtbaar={rol.beheerTabs} bewerkbaar={rol.bewerkBeheerTabs} onZet={(k, st) => zetTabRecht(i, "beheer", k, st)} />
-            {sectiekop(ShieldCheck, "Functies")}
-            <Vinkjes opties={functies} geselecteerd={functies.filter((f) => rol.functies && rol.functies[f.key]).map((f) => f.key)} onToggle={(k) => toggleFunctie(i, k)} />
+            {sectiekop(ShieldCheck, "Losse functies (uit / aan)")}
+            <FunctieRechten opties={functies} geselecteerd={functies.filter((f) => rol.functies && rol.functies[f.key]).map((f) => f.key)} onToggle={(k) => toggleFunctie(i, k)} />
           </div>
         ))}
         <div style={{ display: "flex", gap: 8 }}>
