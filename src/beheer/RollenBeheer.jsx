@@ -7,7 +7,10 @@
  * portaal precies zoals die rol het ziet en kan (server-ondersteund via /api/impersonatie).
  */
 import { useEffect, useState } from "react";
-import { Plus, Trash2, Save, CheckCircle2, ShieldCheck, Users, LayoutGrid, Eye, Layers } from "lucide-react";
+import { Plus, Trash2, Save, CheckCircle2, ShieldCheck, Users, LayoutGrid, Eye, Layers, ChevronDown } from "lucide-react";
+// Zelfde paginatie-bouwstenen als de planningsschermen (Deelactiviteiten/PlanningJaar), zodat de
+// "Toon 25/50/…/Alle"-balk er overal hetzelfde uitziet en zich hetzelfde gedraagt.
+import { Paginatie, pagineer, getoondAantal } from "../medewerker/klanten/PlanningUI";
 
 const KLEUR = {
   blauw: "#1C5D8C", tekst: "#1C2321", subtekst: "#5B6259", mutedTekst: "#8A9089",
@@ -159,6 +162,11 @@ export default function RollenBeheer() {
   const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
   const [fout, setFout] = useState("");
   const [zoek, setZoek] = useState("");
+  // Welke rollen staan open? Standaard alles dichtgeklapt — met veel rollen wordt de pagina anders erg
+  // lang. Een net toegevoegde rol klapt wél meteen open (zie voegRolToe), want die wil je direct invullen.
+  const [openRollen, setOpenRollen] = useState(() => new Set());
+  // Paginagrootte van de medewerkerslijst onderaan (rol + niveau per medewerker).
+  const [toon, setToon] = useState(25);
 
   useEffect(() => {
     fetch("/api/beheer-rollen")
@@ -212,7 +220,21 @@ export default function RollenBeheer() {
     } catch (e) { setFout(e.message || "Kon 'kijken als rol' niet starten."); setStatus("fout"); }
   };
 
-  const voegRolToe = () => { const naam = nieuweRol.trim(); if (!naam) return; setRollen((h) => [...(h || []), { naam, medewerkerTabs: [], bewerkTabs: [], verwijderTabs: [], subTabs: [], bewerkSubTabs: [], verwijderSubTabs: [], bulkVerwijderSubTabs: [], beheerTabs: [], bewerkBeheerTabs: [], functies: {} }]); setNieuweRol(""); merk(); };
+  // Sleutel waarop we onthouden of een rol open staat. Een net toegevoegde rol heeft nog geen
+  // sleutel uit de opslag; die valt terug op zijn index (net als de React-key hieronder).
+  const rolKey = (rol, i) => String(rol.sleutel || i);
+  const toggleRol = (sleutel) => setOpenRollen((s) => { const n = new Set(s); n.has(sleutel) ? n.delete(sleutel) : n.add(sleutel); return n; });
+
+  const voegRolToe = () => {
+    const naam = nieuweRol.trim();
+    if (!naam) return;
+    // Index die de nieuwe rol krijgt — buiten de state-updater bepaald, zodat die updater zuiver blijft.
+    const nieuweIndex = (rollen || []).length;
+    setRollen((h) => [...(h || []), { naam, medewerkerTabs: [], bewerkTabs: [], verwijderTabs: [], subTabs: [], bewerkSubTabs: [], verwijderSubTabs: [], bulkVerwijderSubTabs: [], beheerTabs: [], bewerkBeheerTabs: [], functies: {} }]);
+    setOpenRollen((s) => new Set(s).add(String(nieuweIndex)));
+    setNieuweRol("");
+    merk();
+  };
   // Subpagina-tri-state: uit (verborgen) → ook geen verwijder/bulk; lezen; bewerken. Zet subTabs/bewerkSubTabs.
   const zetSubTabRecht = (i, key, staat) => {
     setRollen((h) => h.map((r, idx) => {
@@ -307,9 +329,22 @@ export default function RollenBeheer() {
       {/* Rollen */}
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {rollen.length === 0 && <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Nog geen rollen. Voeg er hieronder één toe.</div>}
-        {rollen.map((rol, i) => (
+        {rollen.map((rol, i) => {
+          const rk = rolKey(rol, i);
+          const open = openRollen.has(rk);
+          return (
           <div key={rol.sleutel || i} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 14 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: open ? 4 : 0 }}>
+              {/* Chevron-knop: zelfde patroon als de inklapbare rubrieken in BeheerPortaal/DossierSjablonenBeheer.
+                  Alleen de chevron klapt in/uit — het naamveld blijft gewoon bewerkbaar. */}
+              <button
+                onClick={() => toggleRol(rk)}
+                aria-expanded={open}
+                title={open ? "Rol dichtklappen" : "Rol openklappen"}
+                style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 26, height: 30, border: "none", background: "none", cursor: "pointer", color: KLEUR.mutedTekst, padding: 0, flexShrink: 0 }}
+              >
+                <ChevronDown size={16} style={{ transform: open ? "none" : "rotate(-90deg)", transition: "transform .15s" }} />
+              </button>
               <input value={rol.naam} onChange={(e) => wijzigRolNaam(i, e.target.value)} placeholder="Naam van de rol" style={{ ...invoerStijl, flex: "0 1 320px", fontWeight: 700 }} />
               <span style={{ flex: 1 }} />
               <button
@@ -320,6 +355,7 @@ export default function RollenBeheer() {
               ><Eye size={14} /> Bekijk als rol</button>
               <button onClick={() => verwijderRol(i)} title="Rol verwijderen" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: KLEUR.rood, cursor: "pointer" }}><Trash2 size={14} /></button>
             </div>
+            {open && (<>
             {sectiekop(Users, "Medewerkersportaal — rubrieken (uit / lezen / bewerken · verwijderen)")}
             <TabRechten opties={medewerkerTabs} zichtbaar={rol.medewerkerTabs} bewerkbaar={rol.bewerkTabs} verwijderbaar={rol.verwijderTabs} onZet={(k, st) => zetTabRecht(i, "medewerker", k, st)} onZetVerwijder={(k, aan) => zetVerwijderRecht(i, k, aan)} />
             {medewerkerSubTabs.length > 0 && (
@@ -333,8 +369,10 @@ export default function RollenBeheer() {
             <TabRechten opties={beheerTabs} zichtbaar={rol.beheerTabs} bewerkbaar={rol.bewerkBeheerTabs} onZet={(k, st) => zetTabRecht(i, "beheer", k, st)} />
             {sectiekop(ShieldCheck, "Losse functies (uit / aan)")}
             <FunctieRechten opties={functies} geselecteerd={functies.filter((f) => rol.functies && rol.functies[f.key]).map((f) => f.key)} onToggle={(k) => toggleFunctie(i, k)} />
+            </>)}
           </div>
-        ))}
+          );
+        })}
         <div style={{ display: "flex", gap: 8 }}>
           <input value={nieuweRol} onChange={(e) => setNieuweRol(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); voegRolToe(); } }} placeholder="Nieuwe rol, bijv. Assistent, Manager, Loonadministratie" style={{ ...invoerStijl, flex: "0 1 340px" }} />
           <button onClick={voegRolToe} disabled={!nieuweRol.trim()} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: nieuweRol.trim() ? KLEUR.blauw : "#9DB4A5", color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: nieuweRol.trim() ? "pointer" : "default" }}><Plus size={14} /> Rol toevoegen</button>
@@ -349,7 +387,7 @@ export default function RollenBeheer() {
           <span>Medewerker</span><span>Rol</span><span title="medewerker = alleen lezen · manager = mag klantgegevens wijzigen · beheerder = toegang beheerdersportaal">Niveau (toegang)</span>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 420, overflowY: "auto" }}>
-          {gefilterdeMedewerkers.map((m) => (
+          {pagineer(gefilterdeMedewerkers, toon).map((m) => (
             <div key={m.email} style={{ display: "grid", gridTemplateColumns: "minmax(160px,1fr) 200px 170px", gap: 10, alignItems: "center", padding: "6px 8px", borderBottom: `1px solid ${KLEUR.rand}55` }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: KLEUR.tekst, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.naam}</div>
@@ -368,6 +406,9 @@ export default function RollenBeheer() {
           ))}
           {gefilterdeMedewerkers.length === 0 && <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, padding: "6px 2px" }}>{medewerkers.length === 0 ? "Medewerkers laden…" : "Geen medewerker gevonden."}</div>}
         </div>
+        {gefilterdeMedewerkers.length > 0 && (
+          <Paginatie totaal={gefilterdeMedewerkers.length} getoond={getoondAantal(gefilterdeMedewerkers.length, toon)} grootte={toon} setGrootte={setToon} eenheid="medewerkers" />
+        )}
         <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8 }}>Nieuwe rollen verschijnen pas in deze lijst nadat je hebt opgeslagen. De rol bepaalt de functies en zichtbare tabs; het niveau bepaalt de portaaltoegang.</div>
       </div>
 
