@@ -14,6 +14,7 @@
  */
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
+const { magSubBulkVerwijderen } = require("../_gedeeld/rollenConfig");
 
 const CLIENTNUMMER_VELD = process.env.DYNAMICS_KLANT_NUMMER_VELD || "sk_clientnrauto";
 
@@ -85,10 +86,9 @@ module.exports = async function (context, req) {
 
   const email = haalEmailUitPrincipal(req);
   const beheerder = haalRollenUitPrincipal(req).includes("beheerder");
-  if (!beheerder) {
-    context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Alleen een beheerder mag cliënten toevoegen of verwijderen." } };
-    return;
-  }
+  // Toevoegen en losse verwijdering blijven beheerder-only (per actie afgedwongen, zie hieronder).
+  // Bulk-verwijderen mag óók een rol met het bulk-recht op de subpagina Klanten (grant) — daarom is
+  // de rol-gate niet meer over de hele functie, maar per actie.
 
   const methode = (req.method || "GET").toUpperCase();
   if (methode !== "PATCH" && methode !== "POST") {
@@ -101,6 +101,7 @@ module.exports = async function (context, req) {
     const { actie, accountId, account } = req.body || {};
 
     if (actie === "toevoegen") {
+      if (!beheerder) { context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Alleen een beheerder mag cliënten toevoegen." } }; return; }
       const velden = filterVelden(account, ACCOUNT_VELDEN);
       if (!velden.name || !String(velden.name).trim()) {
         context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef minimaal een naam voor de cliënt." } };
@@ -119,7 +120,41 @@ module.exports = async function (context, req) {
       return;
     }
 
+    // ── Meerdere cliënten in één keer deactiveren (bulk) ──
+    //    Gate: BEHEERDER, of een rol met bulk-verwijderrecht op de subpagina Klanten
+    //    (Beheer → Rollen & rechten → subpagina's → Klanten → Bulk). Zelfde deactivatie per cliënt.
+    if (actie === "bulk-verwijderen") {
+      const magBulkWeg = beheerder || (await magSubBulkVerwijderen(email, "klantoverzicht.klanten"));
+      if (!magBulkWeg) {
+        context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Je rol mag cliënten niet in bulk verwijderen." } };
+        return;
+      }
+      const ids = Array.isArray(req.body && req.body.accountIds)
+        ? [...new Set(req.body.accountIds.map((x) => String(x || "").trim()).filter(Boolean))]
+        : [];
+      if (!ids.length) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'accountIds' mee." } }; return; }
+      if (ids.length > 200) { context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Maximaal 200 cliënten per keer." } }; return; }
+      let gelukt = 0;
+      const mislukt = [];
+      for (const aid of ids) {
+        try {
+          const voor = await haalAccountKort(resource, token, aid);
+          await patch(resource, token, "accounts", aid, { statecode: 1, statuscode: 2 });
+          await logGebeurtenis({
+            door: email || "onbekend", actie: "verwijderen",
+            accountId: aid, accountIds: [aid],
+            klantnaam: voor ? voor.klantnaam : "", klantnummer: voor ? voor.klantnummer : "",
+            tekst: `Cliënt ${voor ? voor.klantnaam : ""} gedeactiveerd (bulk) — verwijderd uit het portaal; de portaal-toegang is vervallen.`,
+          }).catch(() => {});
+          gelukt += 1;
+        } catch (e) { mislukt.push(aid); }
+      }
+      context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, verwijderd: gelukt, mislukt } };
+      return;
+    }
+
     if (actie === "verwijderen") {
+      if (!beheerder) { context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Alleen een beheerder mag een cliënt verwijderen." } }; return; }
       if (!accountId) {
         context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef 'accountId' mee." } };
         return;

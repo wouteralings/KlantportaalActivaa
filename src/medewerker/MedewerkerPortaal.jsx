@@ -1692,12 +1692,15 @@ const KLANTEN_SUBTABS = [
  * gaan filters en sortering van het andere tabblad dus niet verloren zolang je in het portaal
  * blijft — behalve dat een leeg tabblad niets te onthouden heeft.
  */
-function KlantenModule({ magContracten = false, isBeheerder = false, magPlanning = false, magVerwijderenRubriek = true }) {
+function KlantenModule({ magContracten = false, isBeheerder = false, magPlanning = false, subRechten = null }) {
   const [sub, setSub] = useState("klanten");
-  // De Contracten-sub-tab alleen tonen met het recht (of als beheerder), net als toen het nog een
-  // losse hoofd-tab was.
-  const subtabs = KLANTEN_SUBTABS.filter((s) => (s.alleenMet === "contracten" ? (magContracten || isBeheerder) : true));
+  const zicht = subRechten ? subRechten.zien : () => true;
+  // De Contracten-sub-tab alleen tonen met het recht (of als beheerder), net als toen het nog een losse
+  // hoofd-tab was; daarnaast de subpagina-zichtbaarheid uit Rollen & rechten (leeg = alles zichtbaar).
+  const subtabs = KLANTEN_SUBTABS.filter((s) => (s.alleenMet === "contracten" ? (magContracten || isBeheerder) : true)).filter((s) => zicht(s.key));
   const actief = subtabs.find((s) => s.key === sub) || subtabs[0];
+  // Als de actieve sub niet meer zichtbaar is (rol verbergt 'm), spring naar de eerste zichtbare.
+  useEffect(() => { if (subtabs.length && !subtabs.find((s) => s.key === sub)) setSub(subtabs[0].key); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [subRechten]);
 
   return (
     <div>
@@ -1749,11 +1752,11 @@ function KlantenModule({ magContracten = false, isBeheerder = false, magPlanning
       </div>
 
       <div style={{ paddingTop: 24 }}>
-        {sub === "klanten" && <KlantOverzicht magPlanning={magPlanning} />}
-        {sub === "contactpersonen" && <ContactpersonenOverzicht />}
+        {sub === "klanten" && <KlantOverzicht magPlanning={magPlanning} magBulkVerwijderen={subRechten ? subRechten.bulk("klanten") : isBeheerder} />}
+        {sub === "contactpersonen" && <ContactpersonenOverzicht magBulkVerwijderen={subRechten ? subRechten.bulk("contactpersonen") : isBeheerder} magSubVerwijderen={subRechten ? subRechten.verwijderen("contactpersonen") : true} />}
         {sub === "brieven" && <BrievenTab />}
         {sub === "contracten" && (magContracten || isBeheerder) && <ContractenOverzicht />}
-        {(sub === "ib" || sub === "vpb" || sub === "dividend" || sub === "notulen") && <MedewerkerDossiers soort={sub} magVerwijderenRubriek={magVerwijderenRubriek} />}
+        {(sub === "ib" || sub === "vpb" || sub === "dividend" || sub === "notulen") && <MedewerkerDossiers soort={sub} magVerwijderenRubriek={subRechten ? subRechten.verwijderen(sub) : true} magBulkVerwijderen={subRechten ? subRechten.bulk(sub) : isBeheerder} />}
         {sub === "lonen" && <NogInTeRichten titel={actief.label} watKomtEr={actief.watKomtEr} />}
       </div>
     </div>
@@ -2002,7 +2005,7 @@ function NieuwDossierModal({ soort, soortLabel, periodeLabel, dossiers, vasteBro
   );
 }
 
-function MedewerkerDossiers({ soort, magVerwijderenRubriek = true }) {
+function MedewerkerDossiers({ soort, magVerwijderenRubriek = true, magBulkVerwijderen = false }) {
   const [dossiers, setDossiers] = useState(null); // null = laden
   const [fout, setFout] = useState(false);
   const [zoek, setZoek] = useState("");
@@ -2028,6 +2031,8 @@ function MedewerkerDossiers({ soort, magVerwijderenRubriek = true }) {
   const [nieuwOpen, setNieuwOpen] = useState(false); // "+ Nieuwe ..."-popup
   const [magVerwijderen, setMagVerwijderen] = useState(false); // los in te stellen recht (Beheer → Medewerkers) — beheerders mogen dit sowieso altijd
   const [magWijzigen, setMagWijzigen] = useState(false); // klant-wijzigrecht — zelfde recht als op de klantkaart, hier nodig voor de ingebedde "Vaste uitvragen" (zie DossierDetail)
+  const [selectie, setSelectie] = useState(() => new Set()); // geselecteerde dossier-id's voor bulk verwijderen
+  const [bulkBezig, setBulkBezig] = useState(false);
   const [extraKolommen, setExtraKolommen] = useState([]); // door Beheer → Kolommen toegevoegde extra velden voor déze soort
   // true zodra de opgeslagen weergaven/laatste stand zijn opgehaald én toegepast — pas dan mag de
   // auto-opslag-effect verderop in dit component gaan schrijven (zie ook api/_gedeeld/weergaven.js).
@@ -2070,6 +2075,7 @@ function MedewerkerDossiers({ soort, magVerwijderenRubriek = true }) {
     setDetailId(null);
     setDetail(null);
     setNieuwOpen(false);
+    setSelectie(new Set()); // selectie niet meenemen naar een andere dossiersoort
     geladenRef.current = false; // pas weer laten auto-opslaan zodra de weergaven-fetch hieronder klaar is
     let actief = true;
     fetch(`/api/medewerker-dossiers?soort=${encodeURIComponent(soort)}`)
@@ -2273,6 +2279,34 @@ function MedewerkerDossiers({ soort, magVerwijderenRubriek = true }) {
   const zichtbaar = gesorteerd.slice(0, toonAantal);
   const zichtKols = geordendeKolommen.filter((c) => zichtbareSet.has(c.key));
 
+  // Bulk verwijderen (meerdere dossiers van deze soort definitief weg) — alleen met het bulk-recht op
+  // de subpagina (magBulkVerwijderen; beheerders krijgen dat altijd). "Alles" werkt op de gefilterde lijst.
+  const gefilterdeIds = gefilterd.map((d) => d.id);
+  const allesGeselecteerd = gefilterdeIds.length > 0 && gefilterdeIds.every((id) => selectie.has(id));
+  const toggleSelectie = (id) => setSelectie((h) => { const n = new Set(h); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleAlles = () => setSelectie(() => (allesGeselecteerd ? new Set() : new Set(gefilterdeIds)));
+  const bulkVerwijder = async () => {
+    if (!magBulkVerwijderen) return;
+    const ids = [...selectie];
+    if (!ids.length) return;
+    if (!window.confirm(`${ids.length} geselecteerde ${soortLabelText.toLowerCase()}-dossier${ids.length === 1 ? "" : "s"} DEFINITIEF verwijderen uit Dynamics?\n\nDit kan niet ongedaan worden gemaakt.`)) return;
+    setBulkBezig(true); setFout(false);
+    try {
+      const res = await fetch("/api/medewerker-dossier", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ soort, actie: "bulk-verwijderen", ids }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+      const d = await res.json().catch(() => ({}));
+      const mislukt = new Set((d.mislukt || []).map((x) => String(x)));
+      const wegIds = new Set(ids.filter((id) => !mislukt.has(id)));
+      setDossiers((h) => (h || []).filter((x) => !wegIds.has(x.id)));
+      setSelectie(new Set());
+      if (mislukt.size) window.alert(`${mislukt.size} dossier(s) konden niet worden verwijderd.`);
+    } catch (e) { window.alert(e.message || "Bulk verwijderen mislukt."); }
+    finally { setBulkBezig(false); }
+  };
+
   const openKopMenu = (e, key) => {
     const r = e.currentTarget.getBoundingClientRect();
     setMenuZoek("");
@@ -2437,6 +2471,16 @@ function MedewerkerDossiers({ soort, magVerwijderenRubriek = true }) {
         <div style={{ fontSize: 12, color: KLEUR.goud, marginBottom: 8 }}>Je naam kon niet automatisch worden bepaald; gebruik <strong>Kantoorbreed</strong>.</div>
       )}
 
+      {magBulkVerwijderen && selectie.size > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10, padding: "8px 12px", background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: KLEUR.blauw }}>{selectie.size} geselecteerd</span>
+          <button onClick={bulkVerwijder} disabled={bulkBezig} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", background: "#fff", color: KLEUR.rood, border: `1px solid ${KLEUR.rood}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: bulkBezig ? "default" : "pointer", opacity: bulkBezig ? 0.6 : 1 }}>
+            <Trash2 size={13} /> {bulkBezig ? "Verwijderen…" : "Verwijder geselecteerde"}
+          </button>
+          <button onClick={() => setSelectie(new Set())} style={{ padding: "7px 12px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Selectie wissen</button>
+        </div>
+      )}
+
       {dossiers.length === 0 ? (
         <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, padding: "16px 2px" }}>Nog geen dossiers gevonden.</div>
       ) : (
@@ -2445,6 +2489,11 @@ function MedewerkerDossiers({ soort, magVerwijderenRubriek = true }) {
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: Math.max(560, zichtKols.length * 120) }}>
               <thead>
                 <tr>
+                  {magBulkVerwijderen && (
+                    <th style={{ ...th, width: 34, cursor: "default" }} onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" checked={allesGeselecteerd} onChange={toggleAlles} title="Alles op deze lijst selecteren" />
+                    </th>
+                  )}
                   {zichtKols.map((kol) => {
                     const kolActief = sortKey === kol.key || kolomFilters[kol.key];
                     return (
@@ -2471,6 +2520,11 @@ function MedewerkerDossiers({ soort, magVerwijderenRubriek = true }) {
                     onMouseEnter={(e) => (e.currentTarget.style.background = "#FBFBF9")}
                     onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                   >
+                    {magBulkVerwijderen && (
+                      <td style={{ ...td, width: 34 }} onClick={(e) => e.stopPropagation()}>
+                        <input type="checkbox" checked={selectie.has(d.id)} onChange={() => toggleSelectie(d.id)} />
+                      </td>
+                    )}
                     {zichtKols.map((kol) => (
                       <td key={kol.key} style={td}>
                         {kol.key === "klantnaam" ? (
@@ -3909,7 +3963,7 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
   );
 }
 
-function KlantOverzicht({ magPlanning = false }) {
+function KlantOverzicht({ magPlanning = false, magBulkVerwijderen = false }) {
   const [klanten, setKlanten] = useState(null); // null = laden
   const [afgekapt, setAfgekapt] = useState(false);
   const [fout, setFout] = useState(false);
@@ -3938,6 +3992,7 @@ function KlantOverzicht({ magPlanning = false }) {
   const [isBeheerder, setIsBeheerder] = useState(false);
   const [selectie, setSelectie] = useState(() => new Set()); // geselecteerde accountId's voor bulk
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkVerwijderBezig, setBulkVerwijderBezig] = useState(false);
   const [bulkVragenlijstOpen, setBulkVragenlijstOpen] = useState(false);
   const [klantToevoegenOpen, setKlantToevoegenOpen] = useState(false);
   const { mijnNaam, geladen: naamGeladen } = useMijnNaam();
@@ -4144,10 +4199,33 @@ function KlantOverzicht({ magPlanning = false }) {
   const wisAllesFilters = () => { setKolomFilters({}); setZoek(""); };
 
   // Bulk-selectie: op basis van accountId. "Alles" werkt op de gefilterde lijst.
+  // Selectie tonen zodra bulk-bewerken (magBulk) óf bulk-verwijderen (rol-recht) mag.
+  const toonSelectie = magBulk || magBulkVerwijderen;
   const gefilterdeIds = gefilterd.map((k) => k.accountId);
   const allesGeselecteerd = gefilterdeIds.length > 0 && gefilterdeIds.every((id) => selectie.has(id));
   const toggleSelectie = (id) => setSelectie((h) => { const n = new Set(h); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const toggleAlles = () => setSelectie(() => (allesGeselecteerd ? new Set() : new Set(gefilterdeIds)));
+  const bulkVerwijder = async () => {
+    if (!magBulkVerwijderen) return;
+    const ids = [...selectie];
+    if (!ids.length) return;
+    if (!window.confirm(`${ids.length} geselecteerde cliënt${ids.length === 1 ? "" : "en"} verwijderen uit het portaal?\n\nZe worden op inactief gezet en verdwijnen uit het portaal; de portaal-toegang van hun contactpersonen vervalt. Terug te draaien in Dynamics.`)) return;
+    setBulkVerwijderBezig(true);
+    try {
+      const res = await fetch("/api/medewerker-klant", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "bulk-verwijderen", accountIds: ids }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+      const d = await res.json().catch(() => ({}));
+      const mislukt = new Set((d.mislukt || []).map((x) => String(x)));
+      const wegIds = new Set(ids.filter((id) => !mislukt.has(id)));
+      setKlanten((h) => (h || []).filter((x) => !wegIds.has(x.accountId)));
+      setSelectie(new Set());
+      if (mislukt.size) window.alert(`${mislukt.size} cliënt(en) konden niet worden verwijderd.`);
+    } catch (e) { window.alert(e.message || "Bulk verwijderen mislukt."); }
+    finally { setBulkVerwijderBezig(false); }
+  };
   const bulkToepassen = async (veld, waarde, naam) => {
     const ids = [...selectie];
     const res = await fetch("/api/medewerker-bulk-wijzigen", {
@@ -4333,11 +4411,18 @@ function KlantOverzicht({ magPlanning = false }) {
         {afgekapt ? " · lijst afgekapt, verfijn je zoekopdracht" : ""}
       </div>
 
-      {magBulk && selectie.size > 0 && (
+      {toonSelectie && selectie.size > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 10, padding: "10px 14px", background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.blauw}`, borderRadius: 10 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: KLEUR.blauw }}>{selectie.size} geselecteerd</span>
-          <button onClick={() => setBulkOpen(true)} style={{ padding: "7px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Bulk bewerken</button>
-          <button onClick={() => setBulkVragenlijstOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px", background: "#fff", color: KLEUR.blauw, border: `1px solid ${KLEUR.blauw}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><Mail size={13} /> Vragenlijst versturen</button>
+          {magBulk && (
+            <>
+              <button onClick={() => setBulkOpen(true)} style={{ padding: "7px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Bulk bewerken</button>
+              <button onClick={() => setBulkVragenlijstOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px", background: "#fff", color: KLEUR.blauw, border: `1px solid ${KLEUR.blauw}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><Mail size={13} /> Vragenlijst versturen</button>
+            </>
+          )}
+          {magBulkVerwijderen && (
+            <button onClick={bulkVerwijder} disabled={bulkVerwijderBezig} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px", background: "#fff", color: KLEUR.rood, border: `1px solid ${KLEUR.rood}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: bulkVerwijderBezig ? "default" : "pointer", opacity: bulkVerwijderBezig ? 0.6 : 1 }}><Trash2 size={13} /> {bulkVerwijderBezig ? "Verwijderen…" : "Verwijder geselecteerde"}</button>
+          )}
           <button onClick={() => setSelectie(new Set())} style={{ padding: "7px 12px", background: "#fff", color: KLEUR.subtekst, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Selectie wissen</button>
         </div>
       )}
@@ -4350,7 +4435,7 @@ function KlantOverzicht({ magPlanning = false }) {
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: Math.max(600, zichtKols.length * 95) }}>
           <thead>
             <tr>
-              {magBulk && (
+              {toonSelectie && (
                 <th style={{ ...th, width: 1, cursor: "pointer" }} title="Alles op deze gefilterde lijst selecteren">
                   <input type="checkbox" checked={allesGeselecteerd} onChange={toggleAlles} />
                 </th>
@@ -4373,7 +4458,7 @@ function KlantOverzicht({ magPlanning = false }) {
           <tbody>
             {zichtbaar.map((k) => (
               <tr key={k.accountId} style={selectie.has(k.accountId) ? { background: KLEUR.lichtblauw } : undefined}>
-                {magBulk && (
+                {toonSelectie && (
                   <td style={td}>
                     <input type="checkbox" checked={selectie.has(k.accountId)} onChange={() => toggleSelectie(k.accountId)} />
                   </td>
@@ -4734,6 +4819,13 @@ export default function MedewerkerPortaal() {
   // Verwijderen-per-rubriek (losse schakelaar naast bewerken): de medewerker-rubrieken waarin de rol mag
   // VERWIJDEREN (null = geen rolbeperking). Knijpt bestaande verwijderrechten dicht — opent ze niet.
   const [verwijderTabs, setVerwijderTabs] = useState(null);
+  // Subpagina-rechten (Rollen & rechten → subpagina's). Per subpagina "<rubriek>.<sub>": zichtbaar (subTabs),
+  // bewerkbaar (bewerkSubTabs), verwijderen (verwijderSubTabs, grant) en bulk-verwijderen (bulkVerwijderSubTabs,
+  // grant). Een rubriek zonder subpagina-config erft de rechten van de hoofd-rubriek.
+  const [subTabs, setSubTabs] = useState([]);
+  const [bewerkSubTabs, setBewerkSubTabs] = useState([]);
+  const [verwijderSubTabs, setVerwijderSubTabs] = useState([]);
+  const [bulkVerwijderSubTabs, setBulkVerwijderSubTabs] = useState([]);
   const [tab, setTab] = useState("klantoverzicht"); // klantoverzicht | verzoeken | reacties | ondertekeningen | reviews | offertes | contracten | meekijken
   // Rol-toegang (Beheer → Rollen & toegang): null = nog laden/geen beperking. zichtbareTabs = alleen deze
   // medewerker-tabs tonen (leeg of null = geen beperking, zodat niemand per ongeluk wordt buitengesloten).
@@ -4808,6 +4900,11 @@ export default function MedewerkerPortaal() {
         setBewerkTabs(imp ? bt : (d.heeftRol && t.length ? bt : null));
         const vt = Array.isArray(d.verwijderTabs) ? d.verwijderTabs : [];
         setVerwijderTabs(imp ? vt : (d.heeftRol && t.length ? vt : null));
+        // Subpagina-rechten gelden altijd zodra ze gezet zijn (ook zonder tab-beperking); leeg = erven van de rubriek.
+        setSubTabs(Array.isArray(d.subTabs) ? d.subTabs : []);
+        setBewerkSubTabs(Array.isArray(d.bewerkSubTabs) ? d.bewerkSubTabs : []);
+        setVerwijderSubTabs(Array.isArray(d.verwijderSubTabs) ? d.verwijderSubTabs : []);
+        setBulkVerwijderSubTabs(Array.isArray(d.bulkVerwijderSubTabs) ? d.bulkVerwijderSubTabs : []);
         if (imp) {
           // Voorbeeldweergave: toon exact wat de rol mag, niet de eigen beheerder-rechten.
           setIsBeheerder(false);
@@ -4908,6 +5005,23 @@ export default function MedewerkerPortaal() {
   // waar verwijderen normaal een beheerdersactie is (bv. postboek).
   const magVerwijderenToegekend = (key) => isBeheerder || (Array.isArray(verwijderTabs) && verwijderTabs.includes(key));
 
+  // Subpagina-rechten. Een rubriek (parent) is "geconfigureerd" zodra er ≥1 subpagina van in subTabs staat;
+  // dan gelden de subpagina-instellingen. Anders erven de subpagina's de rechten van de hoofd-rubriek.
+  const subGroepAan = (parent) => subTabs.some((k) => k.startsWith(parent + "."));
+  const parentVanSub = (k) => String(k).split(".")[0];
+  const magSubZien = (k) => !subGroepAan(parentVanSub(k)) || subTabs.includes(k);
+  const magSubBewerken = (k) => { const p = parentVanSub(k); return subGroepAan(p) ? (isBeheerder || bewerkSubTabs.includes(k)) : magBewerkenRubriek(p); };
+  const magSubVerwijderen = (k) => { const p = parentVanSub(k); return subGroepAan(p) ? (isBeheerder || verwijderSubTabs.includes(k)) : magVerwijderenRubriek(p); };
+  const magSubBulk = (k) => { const p = parentVanSub(k); return subGroepAan(p) ? (isBeheerder || bulkVerwijderSubTabs.includes(k)) : isBeheerder; };
+  // Bundel per rubriek een set predicaten die een KALE sub-sleutel aannemen (bijv. "ib"), zodat de modules
+  // niet met het volledige "<rubriek>.<sub>" hoeven te werken.
+  const subRechtenVoor = (parent) => ({
+    zien: (s) => magSubZien(`${parent}.${s}`),
+    bewerken: (s) => magSubBewerken(`${parent}.${s}`),
+    verwijderen: (s) => magSubVerwijderen(`${parent}.${s}`),
+    bulk: (s) => magSubBulk(`${parent}.${s}`),
+  });
+
   return (
     <div style={{ maxWidth: "none", width: "100%", margin: "0 auto", padding: "24px 32px", boxSizing: "border-box", fontFamily: "system-ui, -apple-system, sans-serif", color: KLEUR.tekst }}>
       <ImpersonatieBanner impersonatie={impersonatie} huidigPortaal="medewerker" />
@@ -4991,13 +5105,13 @@ export default function MedewerkerPortaal() {
         ))}
       </div>
 
-      {tab === "klantoverzicht" && <KlantenModule magContracten={magContracten} isBeheerder={isBeheerder} magPlanning={magPlanning} magVerwijderenRubriek={magVerwijderenRubriek("klantoverzicht")} />}
+      {tab === "klantoverzicht" && <KlantenModule magContracten={magContracten} isBeheerder={isBeheerder} magPlanning={magPlanning} subRechten={subRechtenVoor("klantoverzicht")} />}
       {tab === "taken" && <TakenOverzicht magBewerken={magBewerkenRubriek("taken")} />}
       {tab === "postboek" && <PostboekModule isBeheerder={isBeheerder} magBewerken={magBewerkenRubriek("postboek")} magVerwijderen={magVerwijderenToegekend("postboek")} onWijziging={laadTellingen} />}
       {tab === "mijnwerk" && <MijnWerk isBeheerder={isBeheerder} magAftekenen={magBewerkenRubriek("mijnwerk")} />}
-      {tab === "planning" && (magPlanning || isBeheerder) && <PlanningModule />}
+      {tab === "planning" && (magPlanning || isBeheerder) && <PlanningModule subRechten={subRechtenVoor("planning")} />}
       {tab === "vragenlijsten" && <Vragenlijsten />}
-      {tab === "uren" && <Urenregistratie isBeheerder={isBeheerder} magBewerken={magBewerkenRubriek("uren")} magVerwijderen={magVerwijderenRubriek("uren")} />}
+      {tab === "uren" && <Urenregistratie isBeheerder={isBeheerder} magBewerken={magBewerkenRubriek("uren")} magVerwijderen={magVerwijderenRubriek("uren")} subRechten={subRechtenVoor("uren")} />}
       {tab === "verzoeken" && <WijzigingsverzoekBeheer onAfgehandeld={laadTellingen} />}
       {tab === "reacties" && <ReactiesEnOndertekeningen />}
       {tab === "reviews" && <ReviewBeheer />}

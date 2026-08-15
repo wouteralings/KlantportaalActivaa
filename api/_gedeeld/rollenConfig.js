@@ -66,9 +66,40 @@ const FUNCTIES = [
   { key: "verwijderContactpersonen", label: "Contactpersonen verwijderen" },
 ];
 
+// Subpagina's (sub-tabbladen) binnen de medewerker-rubrieken die sub-navigatie hebben. Sleutel =
+// "<rubriek>.<sub>", parent = de medewerker-tab-key. Hiermee kan een rol per subpagina apart geregeld
+// worden: uit/lezen/bewerken + verwijderen + bulk-verwijderen. Een rubriek zonder subpagina-config
+// gedraagt zich als voorheen (de subpagina's erven dan de rechten van de hoofd-rubriek).
+const MEDEWERKER_SUBTABS = [
+  { key: "klantoverzicht.klanten", parent: "klantoverzicht", label: "Klanten" },
+  { key: "klantoverzicht.contactpersonen", parent: "klantoverzicht", label: "Contactpersonen" },
+  { key: "klantoverzicht.brieven", parent: "klantoverzicht", label: "Brieven" },
+  { key: "klantoverzicht.contracten", parent: "klantoverzicht", label: "Contracten" },
+  { key: "klantoverzicht.ib", parent: "klantoverzicht", label: "Inkomstenbelasting" },
+  { key: "klantoverzicht.vpb", parent: "klantoverzicht", label: "Vennootschapsbelasting" },
+  { key: "klantoverzicht.dividend", parent: "klantoverzicht", label: "Dividenduitkeringen" },
+  { key: "klantoverzicht.notulen", parent: "klantoverzicht", label: "Notulen" },
+  { key: "klantoverzicht.lonen", parent: "klantoverzicht", label: "Lonen" },
+  { key: "uren.schrijven", parent: "uren", label: "Schrijven" },
+  { key: "uren.verlof", parent: "uren", label: "Verlof" },
+  { key: "uren.verlofgoedkeuren", parent: "uren", label: "Verlof goedkeuren" },
+  { key: "uren.vakantieoverzicht", parent: "uren", label: "Vakantieoverzicht" },
+  { key: "uren.goedkeuren", parent: "uren", label: "Goedkeuren" },
+  { key: "uren.controle", parent: "uren", label: "Facturatiecontrole" },
+  { key: "uren.facturatie", parent: "uren", label: "Facturatie" },
+  { key: "uren.rapportage", parent: "uren", label: "Rapportage" },
+  { key: "uren.bezetting", parent: "uren", label: "Bezetting" },
+  { key: "planning.maand", parent: "planning", label: "Maand" },
+  { key: "planning.jaar", parent: "planning", label: "Jaar" },
+  { key: "planning.deel", parent: "planning", label: "Deelactiviteiten" },
+  { key: "planning.config", parent: "planning", label: "Config per klant" },
+  { key: "planning.overzicht", parent: "planning", label: "Overzicht" },
+];
+
 const MEDEWERKER_TAB_KEYS = new Set(MEDEWERKER_TABS.map((t) => t.key));
 const BEHEER_TAB_KEYS = new Set(BEHEER_TABS.map((t) => t.key));
 const FUNCTIE_KEYS = new Set(FUNCTIES.map((f) => f.key));
+const MEDEWERKER_SUBTAB_KEYS = new Set(MEDEWERKER_SUBTABS.map((t) => t.key));
 
 async function haalContainerClient() {
   if (cachedContainerClient) return cachedContainerClient;
@@ -127,11 +158,25 @@ function normaliseerRollen(lijst) {
     const bhTabs = schoonTabs(r && r.beheerTabs, BEHEER_TAB_KEYS);
     const bhSet = new Set(bhTabs);
     const bewerkBeheerTabs = schoonTabs(r && r.bewerkBeheerTabs, BEHEER_TAB_KEYS).filter((k) => bhSet.has(k));
+    // Subpagina-rechten (hiërarchisch): subTabs = zichtbare subpagina's; bewerkSubTabs ⊆ subTabs;
+    // verwijderSubTabs ⊆ subTabs (verwijderen kan alleen op een zichtbare subpagina); en
+    // bulkVerwijderSubTabs ⊆ verwijderSubTabs (bulk vereist het gewone verwijderrecht). verwijder/bulk zijn
+    // TOE TE KENNEN rechten (grant): expliciet aanzetten geeft het recht, ook aan niet-beheerders.
+    const subTabs = schoonTabs(r && r.subTabs, MEDEWERKER_SUBTAB_KEYS);
+    const subSet = new Set(subTabs);
+    const bewerkSubTabs = schoonTabs(r && r.bewerkSubTabs, MEDEWERKER_SUBTAB_KEYS).filter((k) => subSet.has(k));
+    const verwijderSubTabs = schoonTabs(r && r.verwijderSubTabs, MEDEWERKER_SUBTAB_KEYS).filter((k) => subSet.has(k));
+    const verwSubSet = new Set(verwijderSubTabs);
+    const bulkVerwijderSubTabs = schoonTabs(r && r.bulkVerwijderSubTabs, MEDEWERKER_SUBTAB_KEYS).filter((k) => verwSubSet.has(k));
     uit.push({
       sleutel, naam,
       medewerkerTabs: mwTabs,
       bewerkTabs,
       verwijderTabs,
+      subTabs,
+      bewerkSubTabs,
+      verwijderSubTabs,
+      bulkVerwijderSubTabs,
       beheerTabs: bhTabs,
       bewerkBeheerTabs,
       functies: schoonFuncties(r && r.functies),
@@ -202,7 +247,27 @@ async function magRubriekVerwijderen(email, rubriek) {
   } catch { return false; }
 }
 
+/**
+ * Mag de rol van dit e-mailadres op de gegeven SUBPAGINA verwijderen (grant)? subSleutel = "<rubriek>.<sub>".
+ * Zonder rol of zonder de subpagina in verwijderSubTabs → false. Best-effort.
+ */
+async function magSubVerwijderen(email, subSleutel) {
+  try {
+    const rol = await haalRolVoorEmail(email);
+    return !!(rol && Array.isArray(rol.verwijderSubTabs) && rol.verwijderSubTabs.includes(String(subSleutel || "")));
+  } catch { return false; }
+}
+
+/** Mag de rol op de gegeven SUBPAGINA in BULK verwijderen (meerdere tegelijk)? Vereist het bulk-recht. Best-effort. */
+async function magSubBulkVerwijderen(email, subSleutel) {
+  try {
+    const rol = await haalRolVoorEmail(email);
+    return !!(rol && Array.isArray(rol.bulkVerwijderSubTabs) && rol.bulkVerwijderSubTabs.includes(String(subSleutel || "")));
+  } catch { return false; }
+}
+
 module.exports = {
-  haalRollenConfig, zetRollenConfig, haalRolVoorEmail, magRubriekVerwijderen,
-  MEDEWERKER_TABS, BEHEER_TABS, FUNCTIES,
+  haalRollenConfig, zetRollenConfig, haalRolVoorEmail,
+  magRubriekVerwijderen, magSubVerwijderen, magSubBulkVerwijderen,
+  MEDEWERKER_TABS, BEHEER_TABS, FUNCTIES, MEDEWERKER_SUBTABS,
 };
