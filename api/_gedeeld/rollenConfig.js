@@ -61,10 +61,19 @@ const FUNCTIES = [
   { key: "planning", label: "Planning aanpassen" },
   { key: "offertes", label: "Offertes maken" },
   { key: "contracten", label: "Contracten zien" },
-  { key: "verwijderIb", label: "IB-dossier verwijderen" },
-  { key: "verwijderVpb", label: "VPB-dossier verwijderen" },
-  { key: "verwijderContactpersonen", label: "Contactpersonen verwijderen" },
 ];
+
+// Verwijder-functies die vroeger als losse pill in de FUNCTIES-sectie stonden. Ze zijn daar weggehaald:
+// verwijderen stel je nu per subpagina in met de Verwijderen-schakelaar (verwijderSubTabs), dezelfde bron
+// die bulk-verwijderen al gebruikt — zo kan een rol niet meer wél bulk maar géén los verwijderen.
+// De sleutels blijven hier staan zodat schoonFuncties() ze NIET wegsaneert bij een volgende opslag: dan
+// zou een bestaande rol z'n oude recht kwijtraken vóór de migratie hieronder is gedraaid. De terugval
+// blijft ook server-side bestaan (zie de OR in api/_gedeeld/wijzigrechten.js).
+const LEGACY_VERWIJDER_FUNCTIES = {
+  verwijderIb: "klantoverzicht.ib",
+  verwijderVpb: "klantoverzicht.vpb",
+  verwijderContactpersonen: "klantoverzicht.contactpersonen",
+};
 
 // Subpagina's (sub-tabbladen) binnen de medewerker-rubrieken die sub-navigatie hebben. Sleutel =
 // "<rubriek>.<sub>", parent = de medewerker-tab-key. Hiermee kan een rol per subpagina apart geregeld
@@ -132,6 +141,9 @@ function schoonFuncties(obj) {
   const uit = {};
   const bron = obj && typeof obj === "object" ? obj : {};
   for (const k of FUNCTIE_KEYS) if (bron[k]) uit[k] = true;
+  // Oude verwijder-vlaggen bewaren we ongemoeid (ze staan niet meer in FUNCTIES, zie daar): weggooien
+  // zou een bestaande rol z'n verwijderrecht afnemen zodra iemand de rollen opnieuw opslaat.
+  for (const k of Object.keys(LEGACY_VERWIJDER_FUNCTIES)) if (bron[k]) uit[k] = true;
   return uit;
 }
 
@@ -166,6 +178,17 @@ function normaliseerRollen(lijst) {
     const subSet = new Set(subTabs);
     const bewerkSubTabs = schoonTabs(r && r.bewerkSubTabs, MEDEWERKER_SUBTAB_KEYS).filter((k) => subSet.has(k));
     const verwijderSubTabs = schoonTabs(r && r.verwijderSubTabs, MEDEWERKER_SUBTAB_KEYS).filter((k) => subSet.has(k));
+    // Migratie van de oude losse verwijder-pills naar de per-subpagina Verwijderen-schakelaar. Alleen
+    // TOEVOEGEN, nooit afnemen, en alleen voor een subpagina die deze rol al mag zien (anders zou de
+    // filter hierboven 'm toch wegknippen én zouden we ongevraagd zichtbaarheid uitbreiden). Draait bij
+    // elke normalisatie en is idempotent: staat het recht er al, dan verandert er niets. Rollen waarvan
+    // de subpagina niet zichtbaar is houden hun oude recht via de terugval in wijzigrechten.js.
+    const funcs = r && r.functies && typeof r.functies === "object" ? r.functies : {};
+    for (const [legacyKey, subSleutel] of Object.entries(LEGACY_VERWIJDER_FUNCTIES)) {
+      if (funcs[legacyKey] && subSet.has(subSleutel) && !verwijderSubTabs.includes(subSleutel)) {
+        verwijderSubTabs.push(subSleutel);
+      }
+    }
     const verwSubSet = new Set(verwijderSubTabs);
     const bulkVerwijderSubTabs = schoonTabs(r && r.bulkVerwijderSubTabs, MEDEWERKER_SUBTAB_KEYS).filter((k) => verwSubSet.has(k));
     uit.push({

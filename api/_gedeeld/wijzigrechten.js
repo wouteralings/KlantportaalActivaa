@@ -51,7 +51,7 @@
  *              "verwijderDividendbelasting": ["naam@activaa.nl"] }
  */
 const { BlobServiceClient } = require("@azure/storage-blob");
-const { haalRolVoorEmail } = require("./rollenConfig");
+const { haalRolVoorEmail, magSubVerwijderen } = require("./rollenConfig");
 
 const CONTAINER_NAAM = "portaalcontent";
 const BLOB_NAAM = "wijzigrechten.json";
@@ -272,28 +272,39 @@ async function magPlanning(email, isBeheerder) {
   return (await haalPlanning()).includes(laag) || (await rolFunctie(laag, "planning"));
 }
 
-/** Bepaalt of deze gebruiker IB-dossiers mag verwijderen: beheerder (Azure) mag altijd; anders in de verwijderIb-lijst. */
+/**
+ * Verwijderrechten op dossiers/contactpersonen. Sinds de samentrekking is de per-subpagina
+ * Verwijderen-schakelaar (rol.verwijderSubTabs, zie rollenConfig.magSubVerwijderen) de plek waar je dit
+ * instelt — dezelfde bron die bulk-verwijderen gebruikt, zodat los en bulk niet meer uit elkaar kunnen
+ * lopen. De twee oudere bronnen blijven er tijdens de overgang naast staan (e-maillijst in
+ * wijzigrechten.json en de oude functie-vlag op de rol), zodat niemand plots een recht kwijtraakt.
+ * Een OR van drie bronnen dus; fail-closed als geen enkele bron iets teruggeeft.
+ */
 async function magVerwijderIb(email, isBeheerder) {
   if (isBeheerder) return true;
   const laag = String(email || "").trim().toLowerCase();
   if (!laag) return false;
-  return (await haalVerwijderIb()).includes(laag) || (await rolFunctie(laag, "verwijderIb"));
+  return (await magSubVerwijderen(laag, "klantoverzicht.ib"))
+    || (await haalVerwijderIb()).includes(laag)
+    || (await rolFunctie(laag, "verwijderIb"));
 }
 
-/** Bepaalt of deze gebruiker VPB-dossiers mag verwijderen: beheerder (Azure) mag altijd; anders in de verwijderVpb-lijst. */
 async function magVerwijderVpb(email, isBeheerder) {
   if (isBeheerder) return true;
   const laag = String(email || "").trim().toLowerCase();
   if (!laag) return false;
-  return (await haalVerwijderVpb()).includes(laag) || (await rolFunctie(laag, "verwijderVpb"));
+  return (await magSubVerwijderen(laag, "klantoverzicht.vpb"))
+    || (await haalVerwijderVpb()).includes(laag)
+    || (await rolFunctie(laag, "verwijderVpb"));
 }
 
-/** Bepaalt of deze gebruiker contactpersonen mag verwijderen: beheerder (Azure) mag altijd; anders in de verwijderContactpersonen-lijst. */
 async function magVerwijderContactpersonen(email, isBeheerder) {
   if (isBeheerder) return true;
   const laag = String(email || "").trim().toLowerCase();
   if (!laag) return false;
-  return (await haalVerwijderContactpersonen()).includes(laag) || (await rolFunctie(laag, "verwijderContactpersonen"));
+  return (await magSubVerwijderen(laag, "klantoverzicht.contactpersonen"))
+    || (await haalVerwijderContactpersonen()).includes(laag)
+    || (await rolFunctie(laag, "verwijderContactpersonen"));
 }
 
 /** Bepaalt of deze gebruiker dividendbelasting-aangiftes mag verwijderen: beheerder (Azure) mag altijd; anders in de verwijderDividendbelasting-lijst. Nog nergens serverkant afgedwongen (tab bestaat nog niet). */
