@@ -58,7 +58,7 @@ function celStatus(item) {
   return { kind: "open", label: item.total ? `0/${item.total}` : "Open", bg: KLEUR.roodBg, kleur: KLEUR.rood, rand: KLEUR.roodRand };
 }
 
-export default function MijnWerk({ isBeheerder = false } = {}) {
+export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = {}) {
   const nu = new Date();
   const { mijnNaam, geladen: naamGeladen } = useMijnNaam();
   // Beheerders mogen ook het werk van een ANDERE medewerker bekijken/aftekenen ("" = mijzelf).
@@ -258,6 +258,8 @@ export default function MijnWerk({ isBeheerder = false } = {}) {
   const STATUS_LABEL = { open: "Open", bezig: "Bezig", gereed: "Gereed" };
 
   const afvink = async (acc, actSleutel, deelSleutel, gereed) => {
+    // Alleen-lezen rol: hard blokkeren, niet alleen de knop uitzetten.
+    if (!magAftekenen) return;
     setFout("");
     const key = `${acc}|${actSleutel}|${deelSleutel}`;
     setBezig(key);
@@ -280,6 +282,8 @@ export default function MijnWerk({ isBeheerder = false } = {}) {
   // Handmatige status (extra label) zetten voor (klant × hoofdtaak × periode), gekozen uit de beheer-
   // statussen. Los van het afvinken van deelstappen; "" wist de status. Optimistisch, met terugval.
   const zetItemStatus = async (acc, actSleutel, statusKey) => {
+    // Alleen-lezen rol: hard blokkeren, niet alleen de keuzelijst uitzetten.
+    if (!magAftekenen) return;
     setFout("");
     const key = `${acc}|${actSleutel}|__status__`;
     const vorige = status;
@@ -307,7 +311,7 @@ export default function MijnWerk({ isBeheerder = false } = {}) {
     <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700 }}>
-          <ClipboardCheck size={17} color={KLEUR.blauw} /> {isBeheerder && bekeken ? "Werk van" : "Mijn werk"}{bekekenNaam ? <span style={{ fontSize: 12.5, fontWeight: 500, color: KLEUR.mutedTekst }}>· {bekekenNaam}</span> : null}{groepActief ? <span style={{ fontSize: 12.5, fontWeight: 500, color: KLEUR.mutedTekst }}> · {bekekenGroep}</span> : null}{isBeheerder && bekeken ? <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 20, padding: "2px 8px", marginLeft: 6 }}>als beheerder</span> : null}
+          <ClipboardCheck size={17} color={KLEUR.blauw} /> {isBeheerder && bekeken ? "Werk van" : "Mijn werk"}{bekekenNaam ? <span style={{ fontSize: 12.5, fontWeight: 500, color: KLEUR.mutedTekst }}>· {bekekenNaam}</span> : null}{groepActief ? <span style={{ fontSize: 12.5, fontWeight: 500, color: KLEUR.mutedTekst }}> · {bekekenGroep}</span> : null}{isBeheerder && bekeken ? <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 20, padding: "2px 8px", marginLeft: 6 }}>als beheerder</span> : null}{!magAftekenen ? <span title="Je rol staat 'Mijn werk' op alleen-lezen; aftekenen is uitgeschakeld." style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.amber, background: KLEUR.amberBg, border: `1px solid ${KLEUR.amberRand}`, borderRadius: 20, padding: "2px 8px", marginLeft: 6 }}>alleen-lezen</span> : null}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button onClick={vorige} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, background: "#fff", cursor: "pointer", color: KLEUR.subtekst }}><ChevronLeft size={16} /></button>
@@ -516,7 +520,7 @@ export default function MijnWerk({ isBeheerder = false } = {}) {
               {statussen.length > 0 && (
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 14, paddingBottom: 14, borderBottom: `1px solid ${KLEUR.rand}` }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>Status</span>
-                  <select value={actiefItem.statusKey || ""} onChange={(e) => zetItemStatus(actieveRij.acc, actiefItem.actSleutel, e.target.value)} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "6px 10px", fontSize: 12.5, background: "#fff", cursor: "pointer" }}>
+                  <select value={actiefItem.statusKey || ""} disabled={!magAftekenen} onChange={(e) => zetItemStatus(actieveRij.acc, actiefItem.actSleutel, e.target.value)} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "6px 10px", fontSize: 12.5, background: "#fff", cursor: magAftekenen ? "pointer" : "default", opacity: magAftekenen ? 1 : 0.6 }}>
                     <option value="">— geen (kleur volgt de deelstappen) —</option>
                     {statussen.map((s) => <option key={s.sleutel} value={s.sleutel}>{s.label}</option>)}
                   </select>
@@ -532,7 +536,7 @@ export default function MijnWerk({ isBeheerder = false } = {}) {
                 const key = `${actieveRij.acc}|${actiefItem.actSleutel}|${d.sleutel}`;
                 return (
                   <div key={d.sleutel} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 2px", borderBottom: `1px solid ${KLEUR.rand}55`, borderLeft: d.kleur ? `3px solid ${d.kleur}` : "3px solid transparent", paddingLeft: 8 }}>
-                    <button disabled={bezig === key} onClick={() => afvink(actieveRij.acc, actiefItem.actSleutel, d.sleutel, !gereed)} style={{ background: "none", border: "none", cursor: bezig === key ? "default" : "pointer", color: gereed ? KLEUR.groen : KLEUR.mutedTekst, padding: 0, display: "inline-flex" }}>
+                    <button disabled={bezig === key || !magAftekenen} onClick={() => afvink(actieveRij.acc, actiefItem.actSleutel, d.sleutel, !gereed)} title={!magAftekenen ? "Je mag hier alleen lezen" : undefined} style={{ background: "none", border: "none", cursor: (bezig === key || !magAftekenen) ? "default" : "pointer", color: gereed ? KLEUR.groen : KLEUR.mutedTekst, opacity: !magAftekenen ? 0.5 : 1, padding: 0, display: "inline-flex" }}>
                       {gereed ? <CheckSquare size={20} /> : <Square size={20} />}
                     </button>
                     {d.kleur ? <span style={{ width: 10, height: 10, borderRadius: 3, background: d.kleur, flexShrink: 0 }} /> : null}
