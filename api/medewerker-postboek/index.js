@@ -13,7 +13,7 @@
  *   POST { actie:"doorzetten", id, naarEmail, opmerking?, uren?, taakSoort?, taakRubriek?, meldingBijAfronden? }
  *        → { ok, post, taakId }  (maakt een Dynamics-taak voor de medewerker; poststuk → status "doorgezet")
  *   POST { actie:"accepteren", id }  → { ok, post }  (een "teaccepteren"-poststuk definitief afhandelen)
- *   POST { actie:"verwijder", id }  (alléén beheerders)        → { ok, verwijderd }
+ *   POST { actie:"verwijder", id }  (beheerder óf rol met 'postboek' in verwijderTabs) → { ok, verwijderd }
  *
  * Sync: bij het ophalen (GET) worden doorgezette poststukken waarvan de Dynamics-taak is afgetekend
  * (statecode 1) automatisch bijgewerkt: zonder gevraagde melding → "afgehandeld"; mét melding →
@@ -29,6 +29,7 @@
  * Route beveiligd via staticwebapp.config.json (rol 'medewerker'/'beheerder'); extra rolcheck hier.
  */
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
+const { magRubriekVerwijderen } = require("../_gedeeld/rollenConfig");
 const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/sharepointUpload");
 const { haalAppGraphToken } = require("../_gedeeld/graphApp");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
@@ -274,9 +275,12 @@ module.exports = async function (context, req) {
         return;
       }
 
-      // ── Poststuk verwijderen (alléén beheerders) — verwijdert de registratie, niet het SharePoint-bestand ──
+      // ── Poststuk verwijderen — verwijdert de registratie, niet het SharePoint-bestand.
+      //    Toegestaan voor beheerders, óf voor een rol die 'postboek' expliciet in verwijderTabs heeft
+      //    (Beheer → Rollen & rechten → Verwijderen-schakelaar). Zonder dat recht: 403. ──
       if (actie === "verwijder") {
-        if (!rollen.includes("beheerder")) { context.res = json(403, { error: "Alleen beheerders mogen poststukken verwijderen." }); return; }
+        const magWeg = rollen.includes("beheerder") || (await magRubriekVerwijderen(email, "postboek"));
+        if (!magWeg) { context.res = json(403, { error: "Je rol mag geen poststukken verwijderen." }); return; }
         const id = String((req.body && req.body.id) || "");
         if (!id) { context.res = json(400, { error: "Geef 'id' mee." }); return; }
         const weg = await verwijder(id);
