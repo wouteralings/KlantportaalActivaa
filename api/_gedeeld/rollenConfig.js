@@ -55,12 +55,11 @@ const BEHEER_TABS = [
 // Losse functies (rechten) die aan een rol gekoppeld kunnen worden. De sleutels sluiten aan op
 // api/_gedeeld/wijzigrechten.js zodat latere fases ze server-side kunnen voeden.
 const FUNCTIES = [
-  { key: "wijzigen", label: "Klantgegevens wijzigen" },
+  // "Bulk wijzigen" blijft bewust een eigen pill: het geldt over rubriekgrenzen heen (klantoverzicht
+  // én het bulk uitzetten van vragenlijsten in api/medewerker-aanleververzoeken), dus het is geen
+  // synoniem van Klantoverzicht-bewerken. Zie de analyse bij stap 3.
   { key: "bulk", label: "Bulk wijzigen" },
   { key: "alsKlant", label: "Als klant kijken (meekijken)" },
-  { key: "planning", label: "Planning aanpassen" },
-  { key: "offertes", label: "Offertes maken" },
-  { key: "contracten", label: "Contracten zien" },
 ];
 
 // Verwijder-functies die vroeger als losse pill in de FUNCTIES-sectie stonden. Ze zijn daar weggehaald:
@@ -74,6 +73,13 @@ const LEGACY_VERWIJDER_FUNCTIES = {
   verwijderVpb: "klantoverzicht.vpb",
   verwijderContactpersonen: "klantoverzicht.contactpersonen",
 };
+
+// Idem voor de bewerk-/zichtbaarheidsfuncties (stap 2). "Planning aanpassen" en "Offertes maken" zijn
+// bewerk-rechten op een rubriek (bewerkTabs); "Contracten zien" is ZICHTBAARHEID van een subpagina
+// (subTabs) — dat is bewust een ander niveau: zien is lezen, niet bewerken. Zelfde afspraak als
+// hierboven: de sleutels blijven bewaard in de opslag en de server-terugval blijft bestaan.
+const LEGACY_BEWERK_FUNCTIES = { planning: "planning", offertes: "offertes", wijzigen: "klantoverzicht" };
+const LEGACY_ZICHTBAAR_FUNCTIES = { contracten: "klantoverzicht.contracten" };
 
 // Subpagina's (sub-tabbladen) binnen de medewerker-rubrieken die sub-navigatie hebben. Sleutel =
 // "<rubriek>.<sub>", parent = de medewerker-tab-key. Hiermee kan een rol per subpagina apart geregeld
@@ -144,6 +150,8 @@ function schoonFuncties(obj) {
   // Oude verwijder-vlaggen bewaren we ongemoeid (ze staan niet meer in FUNCTIES, zie daar): weggooien
   // zou een bestaande rol z'n verwijderrecht afnemen zodra iemand de rollen opnieuw opslaat.
   for (const k of Object.keys(LEGACY_VERWIJDER_FUNCTIES)) if (bron[k]) uit[k] = true;
+  for (const k of Object.keys(LEGACY_BEWERK_FUNCTIES)) if (bron[k]) uit[k] = true;
+  for (const k of Object.keys(LEGACY_ZICHTBAAR_FUNCTIES)) if (bron[k]) uit[k] = true;
   return uit;
 }
 
@@ -159,9 +167,17 @@ function normaliseerRollen(lijst) {
     gezien.add(sleutel);
     const mwTabs = schoonTabs(r && r.medewerkerTabs, MEDEWERKER_TAB_KEYS);
     const mwSet = new Set(mwTabs);
+    // Oude functie-vlaggen van deze rol — bron voor de migraties hieronder (stap 1 + 2).
+    const funcs = r && r.functies && typeof r.functies === "object" ? r.functies : {};
     // bewerkTabs = de medewerker-tabs (rubrieken) die de rol mag BEWERKEN; de rest is alleen-lezen.
     // Altijd een deelverzameling van de zichtbare medewerker-tabs (onbekende/niet-zichtbare keys weg).
     const bewerkTabs = schoonTabs(r && r.bewerkTabs, MEDEWERKER_TAB_KEYS).filter((k) => mwSet.has(k));
+    // Migratie (stap 2): oude pill "Planning aanpassen"/"Offertes maken" → bewerkrecht op die rubriek.
+    // Alleen als de rubriek voor deze rol zichtbaar is (invariant bewerkTabs ⊆ medewerkerTabs); anders
+    // houdt de rol z'n recht via de terugval in wijzigrechten.js. Alleen toevoegen, nooit afnemen.
+    for (const [legacyKey, tab] of Object.entries(LEGACY_BEWERK_FUNCTIES)) {
+      if (funcs[legacyKey] && mwSet.has(tab) && !bewerkTabs.includes(tab)) bewerkTabs.push(tab);
+    }
     // verwijderTabs = de medewerker-rubrieken waarin de rol mag VERWIJDEREN (een losse schakelaar,
     // náást bewerken). Alleen zinvol op een zichtbare rubriek → altijd een deelverzameling van de
     // zichtbare medewerker-tabs. Het knijpt bestaande verwijderrechten dicht (UI), het opent ze niet.
@@ -175,6 +191,12 @@ function normaliseerRollen(lijst) {
     // bulkVerwijderSubTabs ⊆ verwijderSubTabs (bulk vereist het gewone verwijderrecht). verwijder/bulk zijn
     // TOE TE KENNEN rechten (grant): expliciet aanzetten geeft het recht, ook aan niet-beheerders.
     const subTabs = schoonTabs(r && r.subTabs, MEDEWERKER_SUBTAB_KEYS);
+    // Migratie (stap 2): oude pill "Contracten zien" → ZICHTBAARHEID van de subpagina Contracten.
+    // Bewust subTabs en niet bewerkSubTabs: zien is lezen. Vóór subSet, zodat de afgeleide rechten
+    // hieronder de toevoeging meenemen. Alleen toevoegen, nooit afnemen.
+    for (const [legacyKey, sub] of Object.entries(LEGACY_ZICHTBAAR_FUNCTIES)) {
+      if (funcs[legacyKey] && !subTabs.includes(sub)) subTabs.push(sub);
+    }
     const subSet = new Set(subTabs);
     const bewerkSubTabs = schoonTabs(r && r.bewerkSubTabs, MEDEWERKER_SUBTAB_KEYS).filter((k) => subSet.has(k));
     const verwijderSubTabs = schoonTabs(r && r.verwijderSubTabs, MEDEWERKER_SUBTAB_KEYS).filter((k) => subSet.has(k));
@@ -183,7 +205,6 @@ function normaliseerRollen(lijst) {
     // filter hierboven 'm toch wegknippen én zouden we ongevraagd zichtbaarheid uitbreiden). Draait bij
     // elke normalisatie en is idempotent: staat het recht er al, dan verandert er niets. Rollen waarvan
     // de subpagina niet zichtbaar is houden hun oude recht via de terugval in wijzigrechten.js.
-    const funcs = r && r.functies && typeof r.functies === "object" ? r.functies : {};
     for (const [legacyKey, subSleutel] of Object.entries(LEGACY_VERWIJDER_FUNCTIES)) {
       if (funcs[legacyKey] && subSet.has(subSleutel) && !verwijderSubTabs.includes(subSleutel)) {
         verwijderSubTabs.push(subSleutel);
@@ -274,6 +295,28 @@ async function magRubriekVerwijderen(email, rubriek) {
  * Mag de rol van dit e-mailadres op de gegeven SUBPAGINA verwijderen (grant)? subSleutel = "<rubriek>.<sub>".
  * Zonder rol of zonder de subpagina in verwijderSubTabs → false. Best-effort.
  */
+/**
+ * Mag deze gebruiker de rubriek BEWERKEN (Uit/Lezen/Bewerken op "bewerken")? Bron voor de functies die
+ * vroeger een losse pill hadden ("Planning aanpassen", "Offertes maken"). Zonder rol → false (fail-closed).
+ */
+async function magRubriekBewerken(email, rubriek) {
+  try {
+    const rol = await haalRolVoorEmail(email);
+    return !!(rol && Array.isArray(rol.bewerkTabs) && rol.bewerkTabs.includes(String(rubriek || "")));
+  } catch { return false; }
+}
+
+/**
+ * Is de subpagina voor deze gebruiker ZICHTBAAR (lezen-niveau)? Bron voor "Contracten zien" — bewust
+ * zichtbaarheid en niet bewerken. Zonder rol → false (fail-closed).
+ */
+async function magSubZichtbaar(email, subSleutel) {
+  try {
+    const rol = await haalRolVoorEmail(email);
+    return !!(rol && Array.isArray(rol.subTabs) && rol.subTabs.includes(String(subSleutel || "")));
+  } catch { return false; }
+}
+
 async function magSubVerwijderen(email, subSleutel) {
   try {
     const rol = await haalRolVoorEmail(email);
@@ -292,5 +335,6 @@ async function magSubBulkVerwijderen(email, subSleutel) {
 module.exports = {
   haalRollenConfig, zetRollenConfig, haalRolVoorEmail,
   magRubriekVerwijderen, magSubVerwijderen, magSubBulkVerwijderen,
+  magRubriekBewerken, magSubZichtbaar,
   MEDEWERKER_TABS, BEHEER_TABS, FUNCTIES, MEDEWERKER_SUBTABS,
 };

@@ -51,7 +51,7 @@
  *              "verwijderDividendbelasting": ["naam@activaa.nl"] }
  */
 const { BlobServiceClient } = require("@azure/storage-blob");
-const { haalRolVoorEmail, magSubVerwijderen } = require("./rollenConfig");
+const { haalRolVoorEmail, magSubVerwijderen, magRubriekBewerken, magSubZichtbaar } = require("./rollenConfig");
 
 const CONTAINER_NAAM = "portaalcontent";
 const BLOB_NAAM = "wijzigrechten.json";
@@ -222,11 +222,19 @@ async function rolFunctie(laag, sleutel) {
   try { const rol = await haalRolVoorEmail(laag); return !!(rol && rol.functies && rol.functies[sleutel]); } catch { return false; }
 }
 
-/** Bepaalt of deze gebruiker mag wijzigen: beheerder (Azure) mag altijd; anders niveau manager/beheerder of via rol. */
+/**
+ * Klantgegevens wijzigen. Bron is nu het BEWERK-recht op de rubriek Klantoverzicht; daarnaast blijven
+ * de bestaande bronnen bestaan (OR), zodat niemand z'n recht verliest:
+ *   - het NIVEAU van de medewerker (manager/beheerder) — die regel zit nergens anders en blijft dus
+ *     ongewijzigd staan; niveau is de harde toegangsgrens, los van de rol-rubrieken;
+ *   - de oude functie-vlag op de rol.
+ * Beheerder (Azure-rol) mag altijd. Fail-closed als geen enkele bron iets teruggeeft.
+ */
 async function magWijzigen(email, isBeheerder) {
   if (isBeheerder) return true;
   const laag = String(email || "").trim().toLowerCase();
   if (!laag) return false;
+  if (await magRubriekBewerken(laag, "klantoverzicht")) return true;
   const niveaus = await haalNiveaus();
   if (niveaus[laag] === "manager" || niveaus[laag] === "beheerder") return true;
   return await rolFunctie(laag, "wijzigen");
@@ -249,27 +257,47 @@ async function magAlsKlant(email, isBeheerder) {
 }
 
 /** Bepaalt of deze gebruiker offertes/opdrachtbevestigingen mag maken: beheerder (Azure) mag altijd; anders in de offertes-lijst. */
+/**
+ * Offertetool gebruiken. Bron is nu het BEWERK-recht op de rubriek Offertes (Uit/Lezen/Bewerken);
+ * de oude e-maillijst en functie-vlag blijven er tijdens de overgang naast staan (OR), zodat niemand
+ * z'n toegang verliest. Let op: alle offertetool-endpoints hangen achter één poort
+ * (api/_gedeeld/offertesRecht.js), dus dit dekt lezen én schrijven.
+ */
 async function magOffertes(email, isBeheerder) {
   if (isBeheerder) return true;
   const laag = String(email || "").trim().toLowerCase();
   if (!laag) return false;
-  return (await haalOffertes()).includes(laag) || (await rolFunctie(laag, "offertes"));
+  return (await magRubriekBewerken(laag, "offertes"))
+    || (await haalOffertes()).includes(laag)
+    || (await rolFunctie(laag, "offertes"));
 }
 
 /** Bepaalt of deze gebruiker de tab "Contracten" mag zien: beheerder (Azure) mag altijd; anders in de contracten-lijst. */
+/**
+ * Contracten zien. Dit is ZICHTBAARHEID, dus gekoppeld aan de subpagina Contracten op lezen-niveau
+ * (rol.subTabs) — bewust niet aan bewerken. Oude bronnen blijven er tijdens de overgang naast staan.
+ */
 async function magContracten(email, isBeheerder) {
   if (isBeheerder) return true;
   const laag = String(email || "").trim().toLowerCase();
   if (!laag) return false;
-  return (await haalContracten()).includes(laag) || (await rolFunctie(laag, "contracten"));
+  return (await magSubZichtbaar(laag, "klantoverzicht.contracten"))
+    || (await haalContracten()).includes(laag)
+    || (await rolFunctie(laag, "contracten"));
 }
 
 /** Bepaalt of deze gebruiker de Planning mag zien/gebruiken: beheerder (Azure) mag altijd; anders in de planning-lijst. */
+/**
+ * Planning aanpassen. Bron is nu het BEWERK-recht op de rubriek Planning; oude e-maillijst en
+ * functie-vlag blijven er tijdens de overgang naast staan (OR).
+ */
 async function magPlanning(email, isBeheerder) {
   if (isBeheerder) return true;
   const laag = String(email || "").trim().toLowerCase();
   if (!laag) return false;
-  return (await haalPlanning()).includes(laag) || (await rolFunctie(laag, "planning"));
+  return (await magRubriekBewerken(laag, "planning"))
+    || (await haalPlanning()).includes(laag)
+    || (await rolFunctie(laag, "planning"));
 }
 
 /**
