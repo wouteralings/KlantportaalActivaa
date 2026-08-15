@@ -21,6 +21,7 @@ const KLEUR = {
   amber: "#A9660C", amberBg: "#FFF4E5", amberRand: "#F2D9A8", lichtblauw: "#EAF2F8",
 };
 const MAANDEN = ["januari", "februari", "maart", "april", "mei", "juni", "juli", "augustus", "september", "oktober", "november", "december"];
+const MAAND_KORT = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
 const pad = (n) => String(n).padStart(2, "0");
 const datumKort = (iso) => { if (!iso) return ""; const d = new Date(iso); return isNaN(d.getTime()) ? "" : d.toLocaleDateString("nl-NL"); };
 
@@ -114,6 +115,10 @@ export default function MijnWerk() {
         else if (jaar < Number(String(r.vanaf).slice(0, 4))) continue;
       }
       if (type === "maand" && !valtInMaand(r, maand)) continue;
+      // Jaar-weergave: filter op de ingeplande maand (uitvoermaand) — net als de maand-weergave, maar dan
+      // voor jaartaken. Taken zónder ingestelde uitvoermaand tonen we altijd (ze horen bij geen enkele
+      // maand en zouden anders overal verdwijnen), gemarkeerd als "geen maand".
+      if (type === "jaar" && r.uitvoerMaand && Number(r.uitvoerMaand) !== maand) continue;
       const acc = String(r.klantAccountId || "").toLowerCase();
       const klant = klantenMap[acc] || null;
       const wie = (r.toegewezenAan || "").trim() || teamPersoon(klant, act.rol);
@@ -126,7 +131,7 @@ export default function MijnWerk() {
       const done = total ? eff.filter((d) => stFor(acc, act.sleutel, d.sleutel)?.gereed).length : 0;
       const gereed = total ? done === total : !!stFor(acc, act.sleutel, "__hoofd__")?.gereed;
       rijen.push({
-        key: dubbelKey, acc, accountId: klant?.accountId || r.klantAccountId || "", actSleutel: act.sleutel, act, eff, done, total, gereed,
+        key: dubbelKey, acc, accountId: klant?.accountId || r.klantAccountId || "", actSleutel: act.sleutel, act, eff, done, total, gereed, uitvoerMaand: r.uitvoerMaand,
         klantnaam: klant?.klantnaam || "Onbekende klant", klantnummer: klant?.klantnummer || "", klantgroep: klant?.groepsnaam || "",
       });
     }
@@ -215,6 +220,11 @@ export default function MijnWerk() {
           <button onClick={vorige} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, background: "#fff", cursor: "pointer", color: KLEUR.subtekst }}><ChevronLeft size={16} /></button>
           <div style={{ fontSize: 14, fontWeight: 700, minWidth: type === "maand" ? 150 : 60, textAlign: "center" }}>{type === "maand" ? `${MAANDEN[maand - 1]} ${jaar}` : jaar}</div>
           <button onClick={volgende} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, background: "#fff", cursor: "pointer", color: KLEUR.subtekst }}><ChevronRight size={16} /></button>
+          {type === "jaar" && (
+            <select value={maand} onChange={(e) => setMaand(Number(e.target.value))} title="Filter op ingeplande maand (standaard: huidige maand)" style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "6px 8px", fontSize: 12.5, background: "#fff", cursor: "pointer" }}>
+              {MAANDEN.map((m, idx) => <option key={idx} value={idx + 1}>{m}</option>)}
+            </select>
+          )}
         </div>
       </div>
 
@@ -307,6 +317,11 @@ export default function MijnWerk() {
                           >
                             {st.kind === "gereed" ? <CheckCircle2 size={12} /> : null}{st.label}
                           </button>
+                          {type === "jaar" && (
+                            <div style={{ fontSize: 10, color: it.uitvoerMaand ? KLEUR.mutedTekst : KLEUR.amber, marginTop: 3, whiteSpace: "nowrap" }}>
+                              {it.uitvoerMaand ? MAAND_KORT[it.uitvoerMaand - 1] : "geen maand"}
+                            </div>
+                          )}
                         </td>
                       );
                     })}
@@ -319,7 +334,7 @@ export default function MijnWerk() {
       )}
 
       <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 10, lineHeight: 1.5 }}>
-        Klanten in de rijen, jouw hoofdtaken in de kolommen. De kleur toont de status: <span style={{ color: KLEUR.rood, fontWeight: 700 }}>open</span>, <span style={{ color: KLEUR.amber, fontWeight: 700 }}>bezig</span> of <span style={{ color: KLEUR.groen, fontWeight: 700 }}>gereed</span>. Klik een cel om af te tekenen; is alles gereed, dan schrijf je gelijk je uren op de klant.
+        Klanten in de rijen, jouw hoofdtaken in de kolommen. De kleur toont de status: <span style={{ color: KLEUR.rood, fontWeight: 700 }}>open</span>, <span style={{ color: KLEUR.amber, fontWeight: 700 }}>bezig</span> of <span style={{ color: KLEUR.groen, fontWeight: 700 }}>gereed</span>. Klik een cel om af te tekenen; is alles gereed, dan schrijf je gelijk je uren op de klant. In de jaar-weergave filter je met de maand-keuze (standaard de huidige maand) op de ingeplande maand; jaartaken zonder ingestelde maand blijven altijd staan.
       </div>
 
       {/* Aftekenen-popup: deelstappen + status per taak; is de taak gereed, dan gelijk uren schrijven */}
