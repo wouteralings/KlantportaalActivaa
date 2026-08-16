@@ -24,7 +24,7 @@
  * Route beveiligd via staticwebapp.config.json (rol 'medewerker'/'beheerder'); extra rolcheck hier.
  */
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
-const { SOORTEN, haalEenDossier, maakDossier, werkDossierBij, metAangepasteVelden } = require("../_gedeeld/dossiers");
+const { SOORTEN, haalEenDossier, maakDossier, werkDossierBij, verwijderDossier, metAangepasteVelden } = require("../_gedeeld/dossiers");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
 const { haalAppGraphToken } = require("../_gedeeld/graphApp");
 const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/sharepointUpload");
@@ -125,15 +125,24 @@ async function haalSubmap() {
  * relaties, en een aandeelhouder in de notulen hoeft geen relatie in Dynamics te zijn. De namen
  * staan in het stuk zelf en in notulen-opgesteld.json (zie _gedeeld/notulenStore.js).
  */
-function bouwDossierVelden({ soort, dossierVelden, aandeelhouders, datum }) {
+function bouwDossierVelden({ soort, dossierVelden, zichtbareSleutels, aandeelhouders, datum }) {
   const uit = {};
   const catalogus = Array.isArray(soort && soort.catalogus) ? soort.catalogus : [];
+  // Velden die de medewerker in het scherm ook echt zag: die mogen leeggemaakt worden. Een veld dat
+  // niet getoond werd (verborgen, voorwaardelijk, of niet in een rubriek ingedeeld) laten we met rust
+  // — anders zou opnieuw opslaan stilletjes gegevens wissen die je nooit onder ogen hebt gehad.
+  const zichtbaar = new Set(Array.isArray(zichtbareSleutels) ? zichtbareSleutels : []);
   if (dossierVelden && typeof dossierVelden === "object") {
     for (const [key, waarde] of Object.entries(dossierVelden)) {
       if (!key || key.startsWith("__")) continue;
       const def = catalogus.find((v) => v.key === key);
       if (!def || def.type === "lookup") continue;
-      if (waarde === undefined || waarde === null || waarde === "") continue;
+      const leeg = waarde === undefined || waarde === null || waarde === "";
+      if (leeg) {
+        // Leeg én zichtbaar geweest → bewust leeggemaakt, dus ook in Dynamics leegmaken.
+        if (zichtbaar.has(key)) uit[key] = null;
+        continue;
+      }
       uit[key] = waarde;
     }
   }
@@ -185,6 +194,54 @@ module.exports = async function (context, req) {
   const body = req.body || {};
   const accountId = veiligeStr(body.accountId);
   const blokken = Array.isArray(body.blokken) ? body.blokken : [];
+  const actie = veiligeStr(body.actie) || "opslaan";
+
+  // ── actie "aanmaken": meteen een lege notulenrij in Dynamics ──────────────────────────────────
+  // Zodra de medewerker in "Notulen opstellen" een cliënt kiest, ontstaat het notulendossier al —
+  // dan staat het meteen in het overzicht en heeft het stuk vanaf het begin een dossier om aan te
+  // hangen. Het vullen gebeurt daarna met "Opslaan" op dezelfde rij.
+  if (actie === "aanmaken") {
+    if (!accountId) {
+      context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Kies eerst een cliënt." } };
+      return;
+    }
+    try {
+      const soort = await haalNotulenSoort();
+      const token = await haalDynamicsToken();
+      const datumNieuw = veiligeStr(body.datum).slice(0, 10) || null;
+      const dossierId = await maakDossier(resource, token, soort, { accountId, begindatum: datumNieuw, velden: {} });
+      const dossier = await haalEenDossier(resource, token, soort, dossierId).catch(() => null);
+      context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, dossierId, dossier } };
+    } catch (err) {
+      if (context.log) context.log.error(err);
+      context.res = { status: 500, headers: { "Content-Type": "application/json" }, body: { error: "Kon het notulendossier niet aanmaken.", detail: String((err && err.message) || err) } };
+    }
+    return;
+  }
+
+  // ── actie "verwijderen": een zojuist automatisch aangemaakte, nog lege rij weer opruimen ──────
+  // Gebeurt als de medewerker van cliënt wisselt zonder iets te hebben opgeslagen; zonder dit zou
+  // elke wissel een lege notulenrij achterlaten.
+  if (actie === "verwijderen") {
+    const teVerwijderen = veiligeStr(body.dossierId);
+    if (!teVerwijderen) {
+      context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geen dossierId meegegeven." } };
+      return;
+    }
+    try {
+      const soort = await haalNotulenSoort();
+      const token = await haalDynamicsToken();
+      await verwijderDossier(resource, token, soort, teVerwijderen);
+      context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true } };
+    } catch (err) {
+      // Best-effort: lukt het opruimen niet, dan blijft er een lege rij staan — dat mag het werken
+      // van het scherm niet blokkeren.
+      if (context.log) context.log.error(err);
+      context.res = { headers: { "Content-Type": "application/json" }, body: { ok: false, reden: String((err && err.message) || err) } };
+    }
+    return;
+  }
+
   if (!accountId) {
     context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Kies eerst een cliënt." } };
     return;
@@ -208,7 +265,13 @@ module.exports = async function (context, req) {
     const token = await haalDynamicsToken();
 
     // 1. Dossier: bestaand bijwerken (opnieuw opslaan) of een nieuw notulendossier aanmaken.
-    const dossierVelden = bouwDossierVelden({ soort, dossierVelden: body.dossierVelden, aandeelhouders: body.aandeelhouders, datum });
+    const dossierVelden = bouwDossierVelden({
+      soort,
+      dossierVelden: body.dossierVelden,
+      zichtbareSleutels: body.zichtbareSleutels,
+      aandeelhouders: body.aandeelhouders,
+      datum,
+    });
     let dossierId = veiligeStr(body.dossierId);
     if (dossierId) {
       await werkDossierBij(resource, token, soort, dossierId, { velden: dossierVelden });

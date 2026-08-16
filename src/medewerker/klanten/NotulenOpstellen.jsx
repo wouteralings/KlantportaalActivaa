@@ -107,12 +107,15 @@ export default function NotulenOpstellen({ onTerug }) {
   // Het besluit (punt I) van dit ene stuk: begint bij het besluit van het gekozen model en is hier
   // vrij aan te passen. Kop en staart komen uit Beheer en gelden voor álle notulen.
   const [besluit, setBesluit] = useState("");
-  const [opbouw, setOpbouw] = useState({ kop: "", staart: "" });
+  const [opbouw, setOpbouw] = useState({ kop: "", staart: "", standaard: null });
 
   // Vastleggen: het notulendossier waar dit stuk bij hoort. Leeg = nog niet opgeslagen; na de eerste
   // keer opslaan werkt "Opslaan" hetzelfde dossier bij in plaats van er een tweede naast te zetten.
   const [dossierId, setDossierId] = useState("");
   const [opslaanBezig, setOpslaanBezig] = useState(false);
+  // Is er op dít stuk al eens opgeslagen? Bepaalt alleen het opschrift van de knop — het dossier
+  // bestaat namelijk al zodra je een cliënt kiest, dus daar kunnen we het niet aan aflezen.
+  const [opgeslagenOoit, setOpgeslagenOoit] = useState(false);
   const [pdfUrl, setPdfUrl] = useState("");
   const [eerdere, setEerdere] = useState([]); // eerder opgestelde notulen van deze cliënt
 
@@ -147,6 +150,7 @@ export default function NotulenOpstellen({ onTerug }) {
         setOpbouw({
           kop: veiligeStr(d.sjabloonOpbouw && d.sjabloonOpbouw.kop),
           staart: veiligeStr(d.sjabloonOpbouw && d.sjabloonOpbouw.staart),
+          standaard: (d.sjabloonOpbouw && d.sjabloonOpbouw.standaard) || null,
         });
         const uitBeheer = Array.isArray(d.sjablonen) ? d.sjablonen.filter((s) => s && (veiligeStr(s.tekst) || veiligeStr(s.besluit))) : [];
         if (uitBeheer.length) { setSjablonen(uitBeheer); setSjabloonBron("beheer"); }
@@ -186,11 +190,14 @@ export default function NotulenOpstellen({ onTerug }) {
     const plaats = veiligeStr(klant.adres && klant.adres.plaats) || veiligeStr(klant.contact && klant.contact.adres && klant.contact.adres.plaats);
     const contactNaam = veiligeStr(klant.contact && klant.contact.naam);
     setVestigingsplaats(plaats);
-    zetVeld("directeur", contactNaam);
+    // Voorzitter: de contactpersoon van de cliënt, of de vaste naam uit Beheer.
+    const st = opbouw.standaard || {};
+    zetVeld("directeur", st.voorzitterBron === "vast" && veiligeStr(st.voorzitterVast) ? veiligeStr(st.voorzitterVast) : contactNaam);
     setAandeelhouders([{ naam: contactNaam, percentage: "100" }]);
     setMelding(null);
-    // Een andere cliënt = een ander stuk: de koppeling met het vorige notulendossier loslaten.
-    setDossierId(""); setPdfUrl("");
+    // Een andere cliënt = een ander stuk: de koppeling met het vorige notulendossier loslaten. Het
+    // effect hieronder maakt meteen een nieuwe rij aan en zet dossierId opnieuw.
+    setDossierId(""); setPdfUrl(""); setOpgeslagenOoit(false);
   }, [klant]);
 
   // Eerder opgestelde notulen van deze cliënt (om te heropenen en bij te werken). Best-effort.
@@ -206,7 +213,62 @@ export default function NotulenOpstellen({ onTerug }) {
     return () => { bezig = false; };
   }, [klant]);
 
-  useEffect(() => { if (mijnNaam && !notulist) setNotulist(mijnNaam); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [mijnNaam]);
+  // Notulist: standaard de medewerker die het stuk opstelt, of de vaste naam uit Beheer.
+  useEffect(() => {
+    const st = opbouw.standaard || {};
+    const vast = st.notulistBron === "vast" ? veiligeStr(st.notulistVast) : "";
+    if (vast) { setNotulist(vast); return; }
+    if (mijnNaam && !notulist) setNotulist(mijnNaam);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mijnNaam, opbouw.standaard]);
+
+  /**
+   * Zodra je een cliënt kiest, maken we het notulendossier in Dynamics al aan — dan staat de rij
+   * meteen in het Notulen-overzicht en heeft het stuk vanaf het begin een dossier om aan te hangen.
+   * "Opslaan" vult daarna diezelfde rij (en zet het stuk in SharePoint).
+   *
+   * Wissel je van cliënt of loop je weg zonder ooit op te slaan, dan ruimen we die nog lege rij weer
+   * op (best-effort) — anders blijft er bij elke wissel een leeg dossier achter. autoRef houdt bij om
+   * welke rij dat gaat; zodra je opslaat is het geen wegwerp-rij meer en wordt de ref losgelaten.
+   */
+  const autoRef = useRef("");
+  useEffect(() => {
+    const vorige = autoRef.current;
+    if (vorige) {
+      autoRef.current = "";
+      fetch("/api/medewerker-notulen-opslaan", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actie: "verwijderen", dossierId: vorige }),
+      }).catch(() => { /* opruimen is best-effort */ });
+    }
+    if (!klant || !klant.accountId) return;
+    let bezig = true;
+    fetch("/api/medewerker-notulen-opslaan", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ actie: "aanmaken", accountId: klant.accountId, datum: datumactie }),
+    })
+      .then(async (r) => ({ ok: r.ok, d: await r.json().catch(() => ({})) }))
+      .then(({ ok, d }) => {
+        if (!bezig || !levend.current) return;
+        if (!ok || !d.dossierId) { setMelding({ type: "fout", tekst: `Het notulendossier kon nog niet worden aangemaakt: ${d.error || "onbekende reden"}. Je kunt gewoon doorwerken; bij Opslaan wordt het alsnog aangemaakt.` }); return; }
+        setDossierId(d.dossierId);
+        autoRef.current = d.dossierId;
+      })
+      .catch(() => { /* stil: bij Opslaan wordt het dossier alsnog aangemaakt */ });
+    return () => { bezig = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [klant]);
+
+  // Weglopen uit het scherm met een nog lege, automatisch aangemaakte rij → opruimen.
+  useEffect(() => () => {
+    const id = autoRef.current;
+    if (!id) return;
+    autoRef.current = "";
+    fetch("/api/medewerker-notulen-opslaan", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ actie: "verwijderen", dossierId: id }),
+    }).catch(() => { /* best-effort */ });
+  }, []);
 
   /** Eén dossierveld zetten (catalogussleutel → waarde). */
   function zetVeld(key, waarde) { setVeldenState((h) => ({ ...h, [key]: waarde })); }
@@ -239,6 +301,15 @@ export default function NotulenOpstellen({ onTerug }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [indeling, veldenState, catalogus, allesTonen]);
 
+  // Heeft het gekozen model eigen Dynamics-kolommen (Beheer → Voorbeelddocumenten → "Dynamics-
+  // kolommen bij dit model")? Dan tonen we precies die velden, in die volgorde — één rubriek, geen
+  // "alleen tonen als"-regels ertussen. Niets gekozen = de volledige indeling hieronder.
+  const modelVelden = useMemo(() => {
+    const keys = sjabloon && Array.isArray(sjabloon.velden) ? sjabloon.velden : [];
+    return keys.filter(toonbaar);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sjabloon, catalogus]);
+
   // Velden uit de catalogus die in Beheer in géén enkele rubriek staan — die zouden hier anders
   // onzichtbaar blijven. We tonen ze onderaan onder "Overige velden", zodat je nooit een veld mist
   // doordat het (nog) niet is ingedeeld.
@@ -253,6 +324,19 @@ export default function NotulenOpstellen({ onTerug }) {
       .filter((k) => toonbaar(k) && !inSecties.has(k) && !(indeling.verborgen || []).includes(k));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [indeling, catalogus]);
+
+  // De sleutels die dit scherm daadwerkelijk toont. Gaat mee naar de server, zodat een veld dat je
+  // hier hebt leeggemaakt óók in Dynamics leeg wordt — en een veld dat je nooit zag ongemoeid blijft.
+  const zichtbareSleutels = useMemo(() => {
+    if (modelVelden.length) return modelVelden;
+    const uit = [];
+    for (const s of zichtbareSecties) {
+      uit.push(...s.velden);
+      for (const sub of s.subsecties || []) uit.push(...sub.velden);
+    }
+    uit.push(...overigeVelden);
+    return uit;
+  }, [zichtbareSecties, overigeVelden, modelVelden]);
 
   // Hoeveel velden nu wegvallen door een "alleen tonen als"-regel (dus niet door "verborgen").
   const aantalVoorwaardelijkVerborgen = useMemo(() => {
@@ -412,6 +496,8 @@ export default function NotulenOpstellen({ onTerug }) {
           datum: datumactie,
           // De dossiervelden (catalogussleutel → waarde) gaan naar het notulendossier in Dynamics…
           dossierVelden: veldenState,
+          // Alleen de velden die je hier ook echt zag mogen leeggemaakt worden in Dynamics.
+          zichtbareSleutels,
           // …en dit zijn de gegevens die het scherm zelf beheert; die worden bewaard zodat je het
           // stuk later kunt heropenen (vooral de aandeelhoudersnamen — die passen niet in Dynamics).
           velden: { vestigingsplaats, notulist },
@@ -426,9 +512,11 @@ export default function NotulenOpstellen({ onTerug }) {
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || `Opslaan mislukt (${res.status}).`);
       if (!levend.current) return;
+      const nieuw = !dossierId || autoRef.current === dossierId;
       setDossierId(d.dossierId || "");
       setPdfUrl(d.pdfUrl || "");
-      const nieuw = !dossierId;
+      autoRef.current = ""; // opgeslagen: deze rij is geen wegwerp-rij meer
+      setOpgeslagenOoit(true);
       setMelding(
         d.sharepoint && d.sharepoint.gedaan
           ? { type: "ok", tekst: `De notulen staan in het dossier${nieuw ? " (nieuw notulendossier aangemaakt)" : ""} en in de SharePoint-map van ${veiligeStr(klant.klantnaam)}.` }
@@ -452,6 +540,8 @@ export default function NotulenOpstellen({ onTerug }) {
     const v = r.velden || {};
     setDossierId(r.dossierId || "");
     setPdfUrl(r.pdfUrl || "");
+    autoRef.current = ""; // een bestaand stuk is nooit een wegwerp-rij
+    setOpgeslagenOoit(true);
     const model = lijst.find((s) => veiligeStr(s.naam) === veiligeStr(r.modelNaam));
     if (model) setSjabloonId(model.id);
     // Het besluit van dat stuk terug; oudere records hadden alleen de volledige tekst — daar halen we
@@ -643,7 +733,19 @@ export default function NotulenOpstellen({ onTerug }) {
           {/* Dossiervelden — precies de velden, rubrieken, volgorde en "alleen tonen als"-regels die
               in Beheer → Dossiers → Notulen zijn ingesteld. Wat je hier invult komt zowel in het stuk
               ({{sleutel}}) als, bij opslaan, in het notulendossier terecht. */}
-          {zichtbareSecties.map((sectie) => (
+          {/* Model met eigen kolomkeuze: precies die velden, in de volgorde uit Beheer. */}
+          {modelVelden.length > 0 ? (
+            <div>
+              <span style={label}>Gegevens voor dit model</span>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 }}>
+                {modelVelden.map(renderDossierVeld)}
+              </div>
+              <div style={{ marginTop: 6, fontSize: 11.5, color: KLEUR.mutedTekst }}>
+                Deze kolommen horen bij “{veiligeStr(sjabloon && sjabloon.naam)}” — in te stellen bij
+                Beheer → Dossiers → Notulen → Voorbeelddocumenten.
+              </div>
+            </div>
+          ) : zichtbareSecties.map((sectie) => (
             <div key={sectie.sleutel || sectie.titel}>
               <span style={label}>{sectie.titel || "Gegevens"}</span>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 }}>
@@ -661,7 +763,7 @@ export default function NotulenOpstellen({ onTerug }) {
           ))}
 
           {/* Velden die in Beheer nog in geen enkele rubriek staan — anders zou je ze hier missen. */}
-          {overigeVelden.length > 0 && (
+          {modelVelden.length === 0 && overigeVelden.length > 0 && (
             <div>
               <span style={label}>Overige velden</span>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 }}>
@@ -675,7 +777,7 @@ export default function NotulenOpstellen({ onTerug }) {
           )}
 
           {/* Velden die wegvallen door een "alleen tonen als"-regel: laten weten dát ze er zijn. */}
-          {(aantalVoorwaardelijkVerborgen > 0 || allesTonen) && (
+          {modelVelden.length === 0 && (aantalVoorwaardelijkVerborgen > 0 || allesTonen) && (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", fontSize: 11.5, color: KLEUR.mutedTekst, border: `1px dashed ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px" }}>
               <span>
                 {allesTonen
@@ -727,7 +829,7 @@ export default function NotulenOpstellen({ onTerug }) {
           <div style={{ borderTop: `1px solid ${KLEUR.rand}`, paddingTop: 14 }}>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <button style={knop(KLEUR.groen, !!klant && !leeg && !opslaanBezig)} disabled={!klant || leeg || opslaanBezig} onClick={opslaan}>
-                {opslaanBezig ? <Loader2 size={15} className="spin" /> : <Save size={15} />} {opslaanBezig ? "Opslaan…" : (dossierId ? "Opnieuw opslaan" : "Opslaan in dossier")}
+                {opslaanBezig ? <Loader2 size={15} className="spin" /> : <Save size={15} />} {opslaanBezig ? "Opslaan…" : (opgeslagenOoit ? "Opnieuw opslaan" : "Opslaan in dossier")}
               </button>
               <button style={knop(KLEUR.blauw, !leeg)} disabled={leeg} onClick={afdrukken}><Printer size={15} /> Afdrukken / PDF</button>
               <button style={{ ...knopLicht, opacity: leeg ? 0.5 : 1, cursor: leeg ? "not-allowed" : "pointer" }} disabled={leeg} onClick={kopieerTekst}><Copy size={15} /> Tekst kopiëren</button>

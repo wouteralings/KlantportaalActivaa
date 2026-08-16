@@ -59,6 +59,9 @@ function naarLijst(eigen) {
         // kop en staart voortaan centraal staan. Lukt dat niet, dan blijft het besluit leeg en zie je
         // in het scherm de melding dat dit sjabloon nog gesplitst moet worden — er verdwijnt niets.
         besluit: s.besluit != null ? String(s.besluit) : haalBesluitUitTekst(s.tekst || ""),
+        // De Dynamics-kolommen die bij dít model horen (catalogussleutels). Leeg = alle velden van de
+        // soort, volgens de indeling in Beheer → Dossiers.
+        velden: Array.isArray(s.velden) ? s.velden.map(String) : [],
       }));
   }
   const lijst = [];
@@ -79,6 +82,10 @@ export default function DossierSjablonenPerSoort({ soort }) {
   // Leeg = de standaardtekst uit notulenSjablonen.js.
   const [kop, setKop] = useState("");
   const [staart, setStaart] = useState("");
+  // Wie standaard als voorzitter en notulist wordt voorgesteld bij "Notulen opstellen".
+  // bron "contact" = de contactpersoon van de cliënt, "medewerker" = de ingelogde medewerker,
+  // "vast" = altijd dezelfde naam (het invulveld ernaast).
+  const [standaard, setStandaard] = useState({ voorzitterBron: "contact", voorzitterVast: "", notulistBron: "medewerker", notulistVast: "" });
   const [openIds, setOpenIds] = useState(() => new Set()); // welke sjabloon-kaarten opengeklapt zijn
   const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
   const [fout, setFout] = useState("");
@@ -100,6 +107,13 @@ export default function DossierSjablonenPerSoort({ soort }) {
         setSjablonen(naarLijst(eigen));
         setKop(eigen && typeof eigen.kop === "string" ? eigen.kop : "");
         setStaart(eigen && typeof eigen.staart === "string" ? eigen.staart : "");
+        const st = (eigen && eigen.standaard && typeof eigen.standaard === "object") ? eigen.standaard : {};
+        setStandaard({
+          voorzitterBron: st.voorzitterBron === "vast" ? "vast" : "contact",
+          voorzitterVast: String(st.voorzitterVast || ""),
+          notulistBron: st.notulistBron === "vast" ? "vast" : "medewerker",
+          notulistVast: String(st.notulistVast || ""),
+        });
         setGeladen(true);
       })
       .catch(() => { if (actief) { setFout("De voorbeeld-sjablonen konden niet worden geladen."); setGeladen(true); } });
@@ -110,7 +124,7 @@ export default function DossierSjablonenPerSoort({ soort }) {
 
   const toggleKaart = (id) => setOpenIds((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const zet = (id, key, waarde) => setSjablonen((lijst) => lijst.map((s) => (s.id === id ? { ...s, [key]: waarde } : s)));
-  const nieuw = () => { const id = nieuwSjabloonId(); setSjablonen((lijst) => [...lijst, { id, naam: "Nieuw sjabloon", tekst: "", besluit: "" }]); setOpenIds((s) => new Set([...s, id])); };
+  const nieuw = () => { const id = nieuwSjabloonId(); setSjablonen((lijst) => [...lijst, { id, naam: "Nieuw sjabloon", tekst: "", besluit: "", velden: [] }]); setOpenIds((s) => new Set([...s, id])); };
   // De vaste Activaa-notulen in één keer klaarzetten (overgezet uit de Word-modellen, zie
   // notulenSjablonen.js). Voegt alleen toe wat er nog niet staat — op naam — zodat je 'm veilig nog
   // eens kunt indrukken nadat je zelf iets hebt aangepast. Opslaan doe je daarna zelf.
@@ -120,7 +134,7 @@ export default function DossierSjablonenPerSoort({ soort }) {
       const nieuweIds = [];
       const erbij = NOTULEN_SJABLONEN
         .filter((s) => !bestaand.has(s.naam.trim().toLowerCase()))
-        .map((s) => { const id = nieuwSjabloonId(); nieuweIds.push(id); return { id, naam: s.naam, tekst: s.tekst, besluit: s.besluit || "" }; });
+        .map((s) => { const id = nieuwSjabloonId(); nieuweIds.push(id); return { id, naam: s.naam, tekst: s.tekst, besluit: s.besluit || "", velden: [] }; });
       if (nieuweIds.length) setOpenIds((o) => new Set([...o, nieuweIds[0]]));
       return [...lijst, ...erbij];
     });
@@ -176,9 +190,9 @@ export default function DossierSjablonenPerSoort({ soort }) {
         const tekst = isNotulen && besluit.trim()
           ? steltNotulenSamen({ kop, besluit, staart })
           : String(s.tekst || "");
-        return { id: s.id, naam: String(s.naam || "").trim() || "Naamloos sjabloon", tekst, besluit };
+        return { id: s.id, naam: String(s.naam || "").trim() || "Naamloos sjabloon", tekst, besluit, velden: Array.isArray(s.velden) ? s.velden : [] };
       });
-      const nieuweAlle = { ...alle, [soort]: isNotulen ? { sjablonen: schoon, kop, staart } : { sjablonen: schoon } };
+      const nieuweAlle = { ...alle, [soort]: isNotulen ? { sjablonen: schoon, kop, staart, standaard } : { sjablonen: schoon } };
       const res = await fetch("/api/beheer-instellingen", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dossierSjablonen: nieuweAlle }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || "Opslaan mislukt.");
@@ -265,6 +279,52 @@ export default function DossierSjablonenPerSoort({ soort }) {
                   style={{ ...invoerStijl, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }}
                 />
               </div>
+              <div style={{ marginTop: 14, borderTop: `1px solid ${KLEUR.rand}`, paddingTop: 12 }}>
+                <span style={labelStijl}>Standaard voorzitter en notulist</span>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                  <div style={{ flex: "1 1 260px" }}>
+                    <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 4 }}>Voorzitter</div>
+                    <select
+                      value={standaard.voorzitterBron}
+                      onChange={(e) => setStandaard((h) => ({ ...h, voorzitterBron: e.target.value }))}
+                      style={invoerStijl}
+                    >
+                      <option value="contact">De contactpersoon van de cliënt</option>
+                      <option value="vast">Altijd deze naam…</option>
+                    </select>
+                    {standaard.voorzitterBron === "vast" && (
+                      <input
+                        value={standaard.voorzitterVast}
+                        onChange={(e) => setStandaard((h) => ({ ...h, voorzitterVast: e.target.value }))}
+                        placeholder="naam voorzitter"
+                        style={{ ...invoerStijl, marginTop: 6 }}
+                      />
+                    )}
+                  </div>
+                  <div style={{ flex: "1 1 260px" }}>
+                    <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 4 }}>Notulist</div>
+                    <select
+                      value={standaard.notulistBron}
+                      onChange={(e) => setStandaard((h) => ({ ...h, notulistBron: e.target.value }))}
+                      style={invoerStijl}
+                    >
+                      <option value="medewerker">De medewerker die de notulen opstelt</option>
+                      <option value="vast">Altijd deze naam…</option>
+                    </select>
+                    {standaard.notulistBron === "vast" && (
+                      <input
+                        value={standaard.notulistVast}
+                        onChange={(e) => setStandaard((h) => ({ ...h, notulistVast: e.target.value }))}
+                        placeholder="naam notulist"
+                        style={{ ...invoerStijl, marginTop: 6 }}
+                      />
+                    )}
+                  </div>
+                </div>
+                <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 6 }}>
+                  Dit is alleen het voorstel: bij het opstellen kun je er altijd iemand anders bij zoeken.
+                </div>
+              </div>
             </div>
           )}
 
@@ -330,6 +390,40 @@ export default function DossierSjablonenPerSoort({ soort }) {
                             />
                           </div>
                         )}
+                        {isNotulen && (
+                          <div style={{ marginBottom: 12 }}>
+                            <span style={labelStijl}>Dynamics-kolommen bij dit model</span>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                              {(catalogus || [])
+                                .filter((v) => v && v.key && !String(v.key).startsWith("__") && v.type !== "lookup")
+                                .map((v) => {
+                                  const aan = (s.velden || []).includes(v.key);
+                                  return (
+                                    <button
+                                      key={v.key}
+                                      type="button"
+                                      onClick={() => zet(s.id, "velden", aan ? (s.velden || []).filter((k) => k !== v.key) : [...(s.velden || []), v.key])}
+                                      title={v.key}
+                                      style={{
+                                        border: `1px solid ${aan ? KLEUR.blauw : KLEUR.rand}`,
+                                        background: aan ? KLEUR.lichtblauw : "#F7F8F6",
+                                        color: aan ? KLEUR.blauw : KLEUR.tekst,
+                                        borderRadius: 999, padding: "4px 10px", fontSize: 11.5, fontWeight: 600, cursor: "pointer",
+                                      }}
+                                    >
+                                      {v.label || v.key}
+                                    </button>
+                                  );
+                                })}
+                            </div>
+                            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 6 }}>
+                              {(s.velden || []).length === 0
+                                ? "Niets gekozen = alle velden van de soort, volgens de rubrieken uit de indeling hierboven."
+                                : `${(s.velden || []).length} kolom${(s.velden || []).length === 1 ? "" : "men"} gekozen — in "Notulen opstellen" verschijnen bij dit model precies deze velden, in deze volgorde.`}
+                            </div>
+                          </div>
+                        )}
+
                         <div>
                           <span style={labelStijl}>Merge-velden — klik om in te voegen</span>
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
