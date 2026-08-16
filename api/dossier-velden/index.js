@@ -74,5 +74,7 @@ module.exports = async function (context, req) {
     picklistOpties = {};
   }
 
-  context.res = { headers: { "Content-Type": "application/json" }, body: { soort: soort.key, catalogus, picklistOpties, standaardIndeling: standaardIndelingVoor(soort) } };
+  // statusOpties erbij: Beheer → Dossiers gebruikt die om per review-uitkomst de dossierstatus te
+  // kiezen (zie het Review-blok in DossierIndelingBeheer.jsx). Zelfde lijst als het dossierdetail.
+  context.res = { headers: { "Content-Type": "application/json" }, body: { soort: soort.key, catalogus, picklistOpties, standaardIndeling: standaardIndelingVoor(soort), statusOpties: soort.statusOpties || [] } };
 };

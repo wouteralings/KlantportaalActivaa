@@ -56,6 +56,8 @@ const { haalOnderwerpen } = require("../_gedeeld/aanleveronderwerpen");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
 const { magVerwijderIb, magVerwijderVpb } = require("../_gedeeld/wijzigrechten");
 const { magSubBulkVerwijderen } = require("../_gedeeld/rollenConfig");
+const { haalSystemuser } = require("../_gedeeld/takenGedeeld");
+const dossierReview = require("../_gedeeld/dossierReview");
 
 /** Haalt de (door Beheer → Dossiers ingestelde) indeling van een soort op — secties (met
  * eventuele subrubrieken), verborgen velden, tonen-alleen-als-voorwaarden, alleen-lezen velden,
@@ -222,14 +224,24 @@ module.exports = async function (context, req) {
       // Gekoppelde uitvraaglijst(en) (aanleververzoeken) — alleen als Wouter in Beheer → Dossiers
       // een onderwerp aan deze dossiersoort heeft gekoppeld (indeling.onderwerpId). Primaire
       // contactpersoon van de cliënt — voor het voorinvullen van de ingebedde "Vaste uitvragen".
-      const [gekoppeldeUitvragen, gekoppeldeLijstId, defaultContact, sjabloon, bijlage] = await Promise.all([
+      const [gekoppeldeUitvragen, gekoppeldeLijstId, defaultContact, sjabloon, bijlage, reviewCfg, reviewGeschiedenis] = await Promise.all([
         gekoppeldeUitvragenVoorDossier(dossier, indeling.onderwerpId),
         gekoppeldeLijstIdVoorDossier(indeling.onderwerpId),
         haalPrimairContactVoorDossier(resource, token, dossier.accountId),
         haalSjabloonVoor(soort.key),
         haalBijlageVoor(soort.key),
+        dossierReview.instellingenVoorSoort(soort.key).catch(() => ({ aan: false })),
+        dossierReview.haalVoorDossier(soort.key, id).catch(() => []),
       ]);
-      context.res = { headers: { "Content-Type": "application/json" }, body: { dossier, statusOpties: soort.statusOpties, catalogus, secties: indeling.secties, verborgen: indeling.verborgen, voorwaarden: indeling.voorwaarden, alleenLezen: indeling.alleenLezen, picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId, onderwerpId: indeling.onderwerpId || "", defaultContact, sjabloon, bijlage } };
+      // `review` vertelt het scherm of de knop "Review aanvragen" mag verschijnen (aan + een
+      // gekoppelde taaksoort), of er al een review loopt, en wat de vorige rondes opleverden.
+      const review = {
+        aan: !!reviewCfg.aan && reviewCfg.taakSoort !== null && reviewCfg.taakSoort !== undefined,
+        ingesteld: !!reviewCfg.aan,
+        lopend: reviewGeschiedenis.find((r) => r.status === "open") || null,
+        geschiedenis: reviewGeschiedenis.slice(0, 20),
+      };
+      context.res = { headers: { "Content-Type": "application/json" }, body: { dossier, statusOpties: soort.statusOpties, catalogus, secties: indeling.secties, verborgen: indeling.verborgen, voorwaarden: indeling.voorwaarden, alleenLezen: indeling.alleenLezen, picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId, onderwerpId: indeling.onderwerpId || "", defaultContact, sjabloon, bijlage, review } };
       return;
     }
 
@@ -293,6 +305,115 @@ module.exports = async function (context, req) {
           tekst: `Dossier ${soort.label}${huidig.jaar ? ` ${huidig.jaar}` : ""} van ${huidig.klantnaam || "de cliënt"} definitief verwijderd.`,
         });
         context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true } };
+        return;
+      }
+
+      // ── Review aanvragen: leg dit dossier ter review bij een collega neer ──────────────────
+      //    Maakt een REVIEWTAAK in Dynamics bij de gekozen reviewer, zet de dossierstatus op
+      //    "gereed voor review" en legt vast wie de aanvrager was — die krijgt na het aftekenen de
+      //    vervolgtaak terug (zie api/mw-taken, acties review-akkoord / review-aanpassen).
+      if (actie === "review-aanvragen") {
+        const cfg = await dossierReview.instellingenVoorSoort(soort.key);
+        if (!cfg.aan) {
+          context.res = { status: 409, headers: { "Content-Type": "application/json" }, body: { error: `Review staat voor ${soort.label.toLowerCase()}-dossiers nog uit. Zet 'm aan bij Beheer → Dossiers → Review.` } };
+          return;
+        }
+        if (cfg.taakSoort === null) {
+          context.res = { status: 409, headers: { "Content-Type": "application/json" }, body: { error: "Er is nog geen taaksoort gekoppeld aan de reviewtaak. Stel die in bij Beheer → Dossiers → Review." } };
+          return;
+        }
+        const reviewerEmail = String((req.body && req.body.reviewerEmail) || "").trim().toLowerCase();
+        const reviewerNaam = String((req.body && req.body.reviewerNaam) || "").trim();
+        const toelichting = String((req.body && req.body.toelichting) || "").trim();
+        if (!reviewerEmail) {
+          context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Kies een reviewer met een bekend e-mailadres." } };
+          return;
+        }
+        if (reviewerEmail === String(email || "").toLowerCase()) {
+          context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Je kunt de review niet bij jezelf neerleggen." } };
+          return;
+        }
+        const huidigDossier = await haalEenDossier(resource, token, soort, id);
+        if (!huidigDossier) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Dossier niet gevonden." } }; return; }
+        if (!huidigDossier.actief) { context.res = { status: 409, headers: { "Content-Type": "application/json" }, body: { error: "Dit dossier staat op inactief en kan niet ter review worden gelegd." } }; return; }
+
+        const alLopend = await dossierReview.haalOpenVoorDossier(soort.key, id).catch(() => null);
+        if (alLopend) {
+          context.res = { status: 409, headers: { "Content-Type": "application/json" }, body: { error: `Er loopt al een review bij ${alLopend.reviewerNaam || alLopend.reviewerEmail}. Laat die eerst aftekenen.` } };
+          return;
+        }
+
+        // Reviewer → systemuser (eigenaar van de taak). Zonder match kan de taak nergens heen.
+        const reviewerUser = await haalSystemuser(resource, token, reviewerEmail).catch(() => null);
+        if (!reviewerUser || !reviewerUser.id) {
+          context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: `Geen actieve Dynamics-gebruiker gevonden voor ${reviewerEmail}. Controleer het e-mailadres bij Beheer → Uren → Tarieven.` } };
+          return;
+        }
+        const aanvrager = await haalSystemuser(resource, token, email).catch(() => null);
+
+        const sjabloonVelden = {
+          klant: huidigDossier.klantnaam || "",
+          jaar: huidigDossier.jaar || "",
+          soort: soort.label,
+          aanvrager: (aanvrager && aanvrager.naam) || email || "",
+          reviewer: reviewerUser.naam || reviewerNaam || reviewerEmail,
+        };
+        const omschrijving = [
+          `Review aangevraagd door ${(aanvrager && aanvrager.naam) || email || "een collega"} op het dossier ${soort.label}${huidigDossier.jaar ? ` ${huidigDossier.jaar}` : ""} van ${huidigDossier.klantnaam || "de cliënt"}.`,
+          toelichting ? `\nToelichting van de aanvrager:\n${toelichting}` : "",
+          "\nTeken de review af in het Taken-overzicht met \"Akkoord\" of \"Aanpassen na review\"; je opmerking komt in de vervolgtaak terecht.",
+        ].filter(Boolean).join("\n");
+
+        const taakId = await dossierReview.maakTaak(resource, token, {
+          subject: dossierReview.vulSjabloonIn(cfg.taakOnderwerp, sjabloonVelden),
+          description: omschrijving,
+          accountId: huidigDossier.accountId,
+          soortWaarde: cfg.taakSoort,
+          rubriekWaarde: cfg.taakRubriek,
+          eigenaarId: reviewerUser.id,
+        });
+
+        await dossierReview.zetReview({
+          taakId,
+          dossierSoort: soort.key,
+          dossierId: id,
+          accountId: huidigDossier.accountId,
+          klantnaam: huidigDossier.klantnaam,
+          jaar: huidigDossier.jaar,
+          aanvragerEmail: email,
+          aanvragerNaam: (aanvrager && aanvrager.naam) || "",
+          reviewerEmail,
+          reviewerNaam: reviewerUser.naam || reviewerNaam,
+          toelichting,
+        });
+
+        // Status + "Review door" op het dossier meebewegen — best-effort: de taak staat er al, die
+        // mag niet sneuvelen op een dossierveld dat toevallig op alleen-lezen staat.
+        try {
+          const indelingNu = await haalIndeling(soort);
+          const alleenLezenNu = new Set(indelingNu.alleenLezen || []);
+          const teZetten = {};
+          if (cfg.statusAanvraag !== null && !alleenLezenNu.has("__status")) teZetten.status = cfg.statusAanvraag;
+          const catalogusKeys = new Set((soort.catalogus || []).map((v) => v.key));
+          if (catalogusKeys.has("reviewdoor") && !alleenLezenNu.has("reviewdoor")) {
+            teZetten.velden = { reviewdoor: (reviewerUser.naam || reviewerNaam || reviewerEmail).slice(0, 100) };
+          }
+          if (Object.keys(teZetten).length) await werkDossierBij(resource, token, soort, id, teZetten);
+        } catch (e) {
+          context.log.error("Dossierstatus na review-aanvraag bijwerken mislukt (de reviewtaak staat er wél):", e);
+        }
+
+        await logGebeurtenis({
+          door: email || "onbekend", actie: "dossier", accountId: huidigDossier.accountId, accountIds: [huidigDossier.accountId],
+          klantnaam: huidigDossier.klantnaam,
+          tekst: `Dossier ${soort.label}${huidigDossier.jaar ? ` ${huidigDossier.jaar}` : ""} ter review neergelegd bij ${reviewerUser.naam || reviewerEmail}.`,
+        }).catch(() => {});
+
+        const dossierNa = await haalEenDossier(resource, token, soortVan(soort.key), id).catch(() => null);
+        context.res = {
+          headers: { "Content-Type": "application/json" },
+          body: { ok: true, taakId, reviewer: { naam: reviewerUser.naam || reviewerNaam, email: reviewerEmail }, dossier: dossierNa },
+        };
         return;
       }
 

@@ -171,6 +171,37 @@ function TaakDetail({ taak, modus, appUrl, urencodes = [], magBewerken = true, o
     }
   };
 
+  // ── Dossier-review: deze taak kan een REVIEWTAAK zijn (zie api/_gedeeld/dossierReview.js).
+  //    De reviewer tekent hier af met "Akkoord" of "Aanpassen na review" en geeft zijn opmerking
+  //    mee; die komt in de vervolgtaak voor de aanvrager én in het review-notitieveld van het dossier.
+  const openReview = taak.review && taak.review.status === "open" ? taak.review : null;
+  const [reviewOpmerking, setReviewOpmerking] = useState("");
+  const [reviewBezig, setReviewBezig] = useState("");   // "" | "akkoord" | "aanpassen"
+  const [reviewFout, setReviewFout] = useState("");
+  const [reviewKlaar, setReviewKlaar] = useState(null); // { uitkomst, aanvrager, vervolgFout }
+
+  const tekenReviewAf = async (uitkomst) => {
+    if (!magBewerken || reviewBezig) return;
+    if (uitkomst === "aanpassen" && !reviewOpmerking.trim()) {
+      setReviewFout("Geef aan wát er aangepast moet worden — die opmerking komt in de vervolgtaak.");
+      return;
+    }
+    setReviewBezig(uitkomst); setReviewFout("");
+    try {
+      const r = await fetch("/api/mw-taken", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: taak.id, actie: uitkomst === "aanpassen" ? "review-aanpassen" : "review-akkoord", opmerking: reviewOpmerking.trim() }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      setReviewKlaar({ uitkomst, aanvrager: d.aanvrager || "", vervolgFout: d.vervolgFout || "" });
+    } catch (e) {
+      setReviewFout(e.message || "Aftekenen mislukt.");
+    } finally {
+      setReviewBezig("");
+    }
+  };
+
   const rond = async () => {
     if (!magBewerken) return; // alleen-lezen rol
     if (!window.confirm("Deze taak markeren als afgehandeld (voltooid)?")) return;
@@ -253,7 +284,9 @@ function TaakDetail({ taak, modus, appUrl, urencodes = [], magBewerken = true, o
               <Clock size={14} /> Uren schrijven
             </button>
           )}
-          {modus === "open" && magBewerken && (
+          {/* Een openstaande REVIEWTAAK rond je niet met de gewone knop af — dan zou de vervolgtaak
+              voor de aanvrager nooit ontstaan. Aftekenen doe je in het reviewblok hieronder. */}
+          {modus === "open" && magBewerken && !openReview && (
             <button onClick={rond} disabled={bezig} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: bezig ? "default" : "pointer", opacity: bezig ? 0.7 : 1 }}>
               <CheckCircle2 size={14} /> {bezig ? "Bezig…" : "Markeer als afgehandeld"}
             </button>
@@ -265,6 +298,69 @@ function TaakDetail({ taak, modus, appUrl, urencodes = [], magBewerken = true, o
       </div>
 
       {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 12 }}>{fout}</div>}
+
+      {/* ── Dossier-review aftekenen ─────────────────────────────────────────────────────────── */}
+      {reviewKlaar ? (
+        <div style={{ maxWidth: 720, marginBottom: 14, border: `1px solid ${KLEUR.rand}`, background: reviewKlaar.uitkomst === "aanpassen" ? KLEUR.amberBg : KLEUR.groenBg, borderRadius: 10, padding: "14px 16px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, fontWeight: 700, color: reviewKlaar.uitkomst === "aanpassen" ? KLEUR.amber : KLEUR.groen }}>
+            <CheckCircle2 size={16} /> Review afgetekend als {reviewKlaar.uitkomst === "aanpassen" ? "“aanpassen na review”" : "akkoord"}
+          </div>
+          <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginTop: 6, lineHeight: 1.6 }}>
+            {reviewKlaar.vervolgFout
+              ? <>De reviewtaak is afgerond, maar de vervolgtaak kon niet worden aangemaakt: {reviewKlaar.vervolgFout}</>
+              : <>Er staat nu een vervolgtaak klaar voor <strong>{reviewKlaar.aanvrager || "de aanvrager"}</strong>, met jouw opmerking erin. Deze taak is afgerond en verhuist naar "Afgehandeld".</>}
+          </div>
+        </div>
+      ) : openReview && modus === "open" ? (
+        <div style={{ maxWidth: 720, marginBottom: 14, border: `1px solid ${KLEUR.blauw}`, borderRadius: 10, padding: "14px 16px", background: KLEUR.lichtblauw }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, fontWeight: 700, color: KLEUR.blauw, marginBottom: 4 }}>
+            <CheckCircle2 size={16} /> Review van een dossier
+          </div>
+          <div style={{ fontSize: 12.5, color: KLEUR.subtekst, lineHeight: 1.6, marginBottom: 10 }}>
+            {openReview.aanvragerNaam || "Een collega"} vraagt je om {openReview.klantnaam ? <strong>{openReview.klantnaam}</strong> : "dit dossier"}
+            {openReview.jaar ? ` (${openReview.jaar})` : ""} te reviewen. Je opmerking hieronder komt in de vervolgtaak
+            voor {openReview.aanvragerNaam || "de aanvrager"} én in het review-notitieveld van het dossier.
+          </div>
+          {magBewerken ? (
+            <>
+              <textarea
+                value={reviewOpmerking}
+                onChange={(e) => { setReviewOpmerking(e.target.value); setReviewFout(""); }}
+                rows={3}
+                placeholder="Opmerking voor de vervolgtaak — verplicht bij 'Aanpassen na review'"
+                style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 13, resize: "vertical", fontFamily: "inherit", background: "#fff" }}
+              />
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                <button
+                  onClick={() => tekenReviewAf("akkoord")}
+                  disabled={!!reviewBezig}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", background: KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: reviewBezig ? "default" : "pointer", opacity: reviewBezig ? 0.7 : 1 }}
+                >
+                  <CheckCircle2 size={14} /> {reviewBezig === "akkoord" ? "Bezig…" : "Akkoord"}
+                </button>
+                <button
+                  onClick={() => tekenReviewAf("aanpassen")}
+                  disabled={!!reviewBezig}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", background: "#fff", color: KLEUR.amber, border: `1px solid ${KLEUR.amber}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: reviewBezig ? "default" : "pointer", opacity: reviewBezig ? 0.7 : 1 }}
+                >
+                  {reviewBezig === "aanpassen" ? "Bezig…" : "Aanpassen na review"}
+                </button>
+              </div>
+              {reviewFout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginTop: 8 }}>{reviewFout}</div>}
+            </>
+          ) : (
+            <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>Je rol mag taken alleen inzien; aftekenen is uitgeschakeld.</div>
+          )}
+        </div>
+      ) : taak.review && taak.review.status !== "open" ? (
+        <div style={{ maxWidth: 720, marginBottom: 14, border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: "12px 16px" }}>
+          <div style={{ fontSize: 12.5, color: KLEUR.subtekst, lineHeight: 1.6 }}>
+            Review afgetekend als <strong>{taak.review.uitkomst === "aanpassen" ? "aanpassen na review" : "akkoord"}</strong>
+            {taak.review.afgerondOp ? ` op ${new Date(taak.review.afgerondOp).toLocaleDateString("nl-NL")}` : ""}.
+            {taak.review.opmerking ? <div style={{ marginTop: 4, whiteSpace: "pre-wrap", color: KLEUR.tekst }}>{taak.review.opmerking}</div> : null}
+          </div>
+        </div>
+      ) : null}
 
       {/* Uren schrijven zónder de taak af te ronden — urencode/cliënt/omschrijving staan al goed. */}
       {urenSchrijven && taak.klantAccountId && (

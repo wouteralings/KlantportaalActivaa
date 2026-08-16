@@ -15,6 +15,17 @@ const KLEUR = {
 };
 const invoerStijl = { boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 13, outline: "none" };
 
+// Standaard review-instellingen per dossiersoort — moet gelijk lopen met STANDAARD_REVIEW in
+// api/_gedeeld/dossierReview.js. 601280001 = "Aangifte gereed voor review", 601280002 = "Aangifte
+// aanpassen na review"; de status ná akkoord laten we leeg tot Wouter 'm hier zelf kiest.
+const STANDAARD_REVIEW_CFG = {
+  aan: false,
+  taakSoort: "", taakOnderwerp: "Review {soort} {jaar} — {klant}", taakRubriek: "",
+  statusAanvraag: 601280001,
+  akkoordTaakSoort: "", akkoordTaakOnderwerp: "Afronden na review: {soort} {jaar} — {klant}", statusAkkoord: "",
+  aanpassenTaakSoort: "", aanpassenTaakOnderwerp: "Aanpassen na review: {soort} {jaar} — {klant}", statusAanpassen: 601280002,
+};
+
 // Types die via "Nieuw veld aanmaken" in Dynamics aangemaakt kunnen worden — zelfde vijf typen
 // als de rest van de catalogus ondersteunt (zie VeldInvoer in MedewerkerPortaal.jsx). Keuzelijst
 // (picklist) zit hier bewust nog niet bij: dat vraagt ook eigen opties/optionset-beheer, een
@@ -260,6 +271,13 @@ function SoortIndelingPaneel({ soort, onderaan }) {
   const [taakRubriek, setTaakRubriek] = useState("");
   const [taakRubriekOpties, setTaakRubriekOpties] = useState([]); // [{ waarde, label }]
   const [taakInstellingStatus, setTaakInstellingStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
+  // ── Dossier-review (instellingen-sleutel `dossierReview`, zie api/_gedeeld/dossierReview.js) ──
+  //    Eén genest object per dossiersoort i.p.v. losse top-level sleutels: het zijn er tien per
+  //    soort, en zo blijft de opslag overzichtelijk.
+  const [reviewCfg, setReviewCfg] = useState(null);          // null = nog niet geladen
+  const [alleReviewCfg, setAlleReviewCfg] = useState({});    // de andere soorten, ongemoeid terugschrijven
+  const [statusOpties, setStatusOpties] = useState([]);      // [{ waarde, label }] van deze soort
+  const [reviewStatus, setReviewStatus] = useState("rust");  // rust | bezig | opgeslagen | fout
   const [fout, setFout] = useState("");
   const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
   const [nieuweSectieTitel, setNieuweSectieTitel] = useState("");
@@ -343,6 +361,10 @@ function SoortIndelingPaneel({ soort, onderaan }) {
         setTaakSoortOpties((taaksoortenData && taaksoortenData.opties) || []);
         setTaakRubriek(instellingenData[kTaakRubriek] != null ? String(instellingenData[kTaakRubriek]) : "");
         setTaakRubriekOpties((taakrubriekenData && taakrubriekenData.opties) || []);
+        setStatusOpties((veldenData && veldenData.statusOpties) || []);
+        const alleReview = (instellingenData && instellingenData.dossierReview) || {};
+        setAlleReviewCfg(alleReview);
+        setReviewCfg({ ...STANDAARD_REVIEW_CFG, ...(alleReview[soort] || {}) });
       })
       .catch(() => { setCatalogus([]); setSecties([]); setFout("Kon de dossierindeling niet laden."); });
   }, []);
@@ -462,6 +484,37 @@ function SoortIndelingPaneel({ soort, onderaan }) {
       setTaakInstellingStatus("opgeslagen");
     } catch {
       setTaakInstellingStatus("fout");
+    }
+  };
+
+  /** Review-instellingen van DEZE soort opslaan; de andere soorten blijven onaangeroerd. */
+  const bewaarReviewInstellingen = async () => {
+    setReviewStatus("bezig");
+    try {
+      const getal = (v) => (v === "" || v === null || v === undefined ? null : (Number.isFinite(Number(v)) ? Number(v) : null));
+      const schoon = {
+        aan: !!reviewCfg.aan,
+        taakSoort: getal(reviewCfg.taakSoort),
+        taakOnderwerp: String(reviewCfg.taakOnderwerp || "").trim(),
+        taakRubriek: getal(reviewCfg.taakRubriek),
+        statusAanvraag: getal(reviewCfg.statusAanvraag),
+        akkoordTaakSoort: getal(reviewCfg.akkoordTaakSoort),
+        akkoordTaakOnderwerp: String(reviewCfg.akkoordTaakOnderwerp || "").trim(),
+        statusAkkoord: getal(reviewCfg.statusAkkoord),
+        aanpassenTaakSoort: getal(reviewCfg.aanpassenTaakSoort),
+        aanpassenTaakOnderwerp: String(reviewCfg.aanpassenTaakOnderwerp || "").trim(),
+        statusAanpassen: getal(reviewCfg.statusAanpassen),
+      };
+      const r = await fetch("/api/beheer-instellingen", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dossierReview: { ...alleReviewCfg, [soort]: schoon } }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      setAlleReviewCfg((h) => ({ ...h, [soort]: schoon }));
+      setReviewStatus("opgeslagen");
+    } catch {
+      setReviewStatus("fout");
     }
   };
 
@@ -967,6 +1020,115 @@ function SoortIndelingPaneel({ soort, onderaan }) {
         </div>
       </div>
       </>
+      )}
+
+      {/* ── Review: het dossier bij een collega neerleggen ─────────────────────────────────────
+          De medewerker klikt in het dossier op "Review aanvragen" en kiest een collega; die krijgt
+          een taak van de hieronder gekozen soort. Tekent hij af — akkoord of aanpassen — dan
+          ontstaat de bijbehorende vervolgtaak bij de AANVRAGER, met de opmerking van de reviewer
+          erin, en beweegt de dossierstatus mee. Zie api/_gedeeld/dossierReview.js. */}
+      {reviewCfg && (
+        <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 16, marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>Review — {soortLabelKort}</div>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 600, color: reviewCfg.aan ? KLEUR.blauw : KLEUR.subtekst, cursor: "pointer" }}>
+              <input type="checkbox" checked={!!reviewCfg.aan} onChange={(e) => { setReviewCfg((h) => ({ ...h, aan: e.target.checked })); setReviewStatus("rust"); }} />
+              Review-knop tonen in het {soortWoord}-dossier
+            </label>
+          </div>
+          <div style={{ fontSize: 12.5, color: KLEUR.subtekst, lineHeight: 1.6, marginBottom: 14 }}>
+            Een medewerker legt zijn dossier ter review bij een collega neer; die krijgt er een taak van.
+            De reviewer tekent die taak af met <strong>Akkoord</strong> of <strong>Aanpassen na review</strong> en
+            geeft daarbij een opmerking mee. Die opmerking komt in de vervolgtaak — die altijd naar de
+            aanvrager gaat — en in het veld "Review-notitie" van het dossier. In de onderwerpen kun je{" "}
+            <code>{"{klant}"}</code>, <code>{"{jaar}"}</code>, <code>{"{soort}"}</code>, <code>{"{aanvrager}"}</code> en{" "}
+            <code>{"{reviewer}"}</code> gebruiken. Laat een taaksoort leeg om voor die uitkomst géén taak aan te maken.
+          </div>
+
+          {[
+            { titel: "1. De reviewtaak (naar de gekozen collega)", soortKey: "taakSoort", ondKey: "taakOnderwerp", statusKey: "statusAanvraag", statusLabel: "Dossierstatus bij aanvragen", verplicht: true },
+            { titel: "2. Uitkomst “Akkoord” — vervolgtaak naar de aanvrager", soortKey: "akkoordTaakSoort", ondKey: "akkoordTaakOnderwerp", statusKey: "statusAkkoord", statusLabel: "Dossierstatus na akkoord" },
+            { titel: "3. Uitkomst “Aanpassen na review” — taak terug naar de aanvrager", soortKey: "aanpassenTaakSoort", ondKey: "aanpassenTaakOnderwerp", statusKey: "statusAanpassen", statusLabel: "Dossierstatus bij aanpassen" },
+          ].map((blok) => (
+            <div key={blok.soortKey} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 12, marginBottom: 10, opacity: reviewCfg.aan ? 1 : 0.55 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 8 }}>{blok.titel}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(180px, 1fr) minmax(180px, 1fr)", gap: 10, marginBottom: 8 }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Taaksoort{blok.verplicht ? " (verplicht)" : ""}</div>
+                  <select
+                    value={reviewCfg[blok.soortKey] === null || reviewCfg[blok.soortKey] === undefined ? "" : String(reviewCfg[blok.soortKey])}
+                    onChange={(e) => { setReviewCfg((h) => ({ ...h, [blok.soortKey]: e.target.value })); setReviewStatus("rust"); }}
+                    disabled={!reviewCfg.aan}
+                    style={{ ...invoerStijl, width: "100%", background: "#fff" }}
+                  >
+                    <option value="">— geen taak aanmaken —</option>
+                    {taakSoortOpties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>{blok.statusLabel}</div>
+                  <select
+                    value={reviewCfg[blok.statusKey] === null || reviewCfg[blok.statusKey] === undefined ? "" : String(reviewCfg[blok.statusKey])}
+                    onChange={(e) => { setReviewCfg((h) => ({ ...h, [blok.statusKey]: e.target.value })); setReviewStatus("rust"); }}
+                    disabled={!reviewCfg.aan}
+                    style={{ ...invoerStijl, width: "100%", background: "#fff" }}
+                  >
+                    <option value="">— status niet wijzigen —</option>
+                    {statusOpties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Onderwerp van de taak</div>
+              <input
+                value={reviewCfg[blok.ondKey] || ""}
+                onChange={(e) => { setReviewCfg((h) => ({ ...h, [blok.ondKey]: e.target.value })); setReviewStatus("rust"); }}
+                disabled={!reviewCfg.aan}
+                style={{ ...invoerStijl, width: "100%", background: "#fff" }}
+              />
+            </div>
+          ))}
+
+          <div style={{ marginBottom: 12, opacity: reviewCfg.aan ? 1 : 0.55 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Rubriek op de aangemaakte taken (optioneel)</div>
+            {taakRubriekOpties.length > 0 ? (
+              <select
+                value={reviewCfg.taakRubriek === null || reviewCfg.taakRubriek === undefined ? "" : String(reviewCfg.taakRubriek)}
+                onChange={(e) => { setReviewCfg((h) => ({ ...h, taakRubriek: e.target.value })); setReviewStatus("rust"); }}
+                disabled={!reviewCfg.aan}
+                style={{ ...invoerStijl, width: "100%", maxWidth: 300, background: "#fff" }}
+              >
+                <option value="">— geen rubriek —</option>
+                {taakRubriekOpties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
+              </select>
+            ) : (
+              <input
+                value={reviewCfg.taakRubriek === null || reviewCfg.taakRubriek === undefined ? "" : String(reviewCfg.taakRubriek)}
+                onChange={(e) => { setReviewCfg((h) => ({ ...h, taakRubriek: e.target.value })); setReviewStatus("rust"); }}
+                disabled={!reviewCfg.aan}
+                placeholder="optiesetwaarde (nummer), of leeg"
+                style={{ ...invoerStijl, width: "100%", maxWidth: 300, background: "#fff" }}
+              />
+            )}
+          </div>
+
+          {reviewCfg.aan && (reviewCfg.taakSoort === "" || reviewCfg.taakSoort === null) && (
+            <div style={{ fontSize: 12, color: KLEUR.rood, marginBottom: 10 }}>
+              Kies een taaksoort voor de reviewtaak — zonder die soort verschijnt de knop wel, maar kan er geen review worden uitgezet.
+            </div>
+          )}
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button
+              onClick={bewaarReviewInstellingen}
+              disabled={reviewStatus === "bezig"}
+              style={{ padding: "7px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: reviewStatus === "bezig" ? "default" : "pointer" }}
+            >
+              {reviewStatus === "bezig" ? "Opslaan…" : "Opslaan"}
+            </button>
+            {reviewStatus === "opgeslagen" && <span style={{ fontSize: 11.5, color: KLEUR.groen }}>Opgeslagen</span>}
+            {reviewStatus === "fout" && <span style={{ fontSize: 11.5, color: KLEUR.rood }}>Opslaan mislukt</span>}
+          </div>
+        </div>
       )}
 
       {/* Notulen/dividend: dezelfde geblokte layout als de IB/VPB-"aangifte versturen"-blokken, maar dan

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload, Lightbulb, Binoculars, BookOpen, FileSignature, Printer } from "lucide-react";
+import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload, Lightbulb, Binoculars, BookOpen, FileSignature, Printer, UserCheck } from "lucide-react";
 import { startMeekijken } from "../meekijken";
 import OffertesModule from "./OffertesModule";
 import ContractenOverzicht from "./ContractenOverzicht";
@@ -2222,6 +2222,25 @@ function MedewerkerDossiers({ soort, magVerwijderenRubriek = true, magBulkVerwij
         gekoppeldeLijstId={detail.gekoppeldeLijstId || ""}
         gekoppeldOnderwerpId={detail.onderwerpId || ""}
         defaultContact={detail.defaultContact || { id: "", naam: "" }}
+        review={detail.review || { aan: false, ingesteld: false, lopend: null, geschiedenis: [] }}
+        onReviewAangevraagd={(res) => {
+          // Het hele detail opnieuw laden laat het scherm knipperen; we werken de review-status en
+          // het (server-bijgewerkte) dossier lokaal bij, net als bij opslaan.
+          setDetail((h) => ({
+            ...h,
+            dossier: res.dossier || h.dossier,
+            review: {
+              ...(h.review || {}),
+              lopend: {
+                status: "open", taakId: res.taakId,
+                reviewerNaam: (res.reviewer && res.reviewer.naam) || "",
+                reviewerEmail: (res.reviewer && res.reviewer.email) || "",
+                aangevraagdOp: new Date().toISOString(),
+              },
+            },
+          }));
+          if (res.dossier) setDossiers((h) => (h || []).map((x) => (x.id === res.dossier.id ? res.dossier : x)));
+        }}
         magVerwijderen={magVerwijderen && magVerwijderenRubriek}
         magWijzigen={magWijzigen}
         onDossierVerwijderd={dossierVerwijderd}
@@ -3479,7 +3498,141 @@ function DossierVoorbeeldModal({ dossier, soortLabel, periodeTekst, catalogus, v
    kaart bovenaan (vóór de secties) de gekoppelde uitvraaglijst(en) — de volledige vragenlijst
    (documenten aftekenen/heropenen, vragen van de klant beantwoorden) rechtstreeks ingebouwd via
    VragenlijstDetail, dezelfde functionaliteit als het tabblad Vragenlijsten. */
-function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen, picklistOpties, sjabloon, bijlage, gekoppeldeUitvragen, gekoppeldeLijstId, gekoppeldOnderwerpId, defaultContact, magVerwijderen, magWijzigen, onDossierVerwijderd, onTerug, onOpgeslagen, onDossierAangemaakt }) {
+
+/* Review aanvragen: kies een collega die dit dossier reviewt. Die krijgt er een taak van in zijn
+   Taken-overzicht; daar tekent hij af met "Akkoord" of "Aanpassen na review" en geeft hij zijn
+   opmerking mee. De vervolgtaak komt daarna bij de AANVRAGER terecht, met die opmerking erin.
+   Welke taaksoort en welke dossierstatus daarbij horen staat in Beheer → Dossiers → Review. */
+function ReviewAanvragenModal({ dossier, soortLabel, onSluit, onKlaar }) {
+  const [medewerkers, setMedewerkers] = useState(null); // null = laden
+  const [zoek, setZoek] = useState("");
+  const [gekozen, setGekozen] = useState(null); // { naam, email }
+  const [toelichting, setToelichting] = useState("");
+  const [bezig, setBezig] = useState(false);
+  const [fout, setFout] = useState("");
+
+  useEffect(() => {
+    fetch("/api/mw-planning-medewerkers")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("lijst"))))
+      .then((d) => setMedewerkers((d.medewerkers || []).filter((m) => m && m.email)))
+      .catch(() => setMedewerkers([]));
+  }, []);
+
+  const treffers = (medewerkers || []).filter((m) => {
+    const t = zoek.trim().toLowerCase();
+    if (!t) return true;
+    return String(m.naam || "").toLowerCase().includes(t) || String(m.email || "").toLowerCase().includes(t);
+  }).slice(0, 40);
+
+  const versturen = async () => {
+    if (!gekozen) return;
+    setBezig(true); setFout("");
+    try {
+      const r = await fetch("/api/medewerker-dossier", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          soort: dossier.soort, id: dossier.id, actie: "review-aanvragen",
+          reviewerEmail: gekozen.email, reviewerNaam: gekozen.naam, toelichting: toelichting.trim(),
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      onKlaar(d);
+    } catch (e) {
+      setFout(e.message || "Kon de review niet uitzetten.");
+    } finally {
+      setBezig(false);
+    }
+  };
+
+  return (
+    <div onClick={onSluit} style={{ position: "fixed", inset: 0, background: "rgba(28,35,33,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 12, width: "100%", maxWidth: 520, maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 48px rgba(0,0,0,0.2)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: `1px solid ${KLEUR.rand}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700 }}>
+            <UserCheck size={17} color={KLEUR.blauw} /> Review aanvragen
+          </div>
+          <button onClick={onSluit} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.mutedTekst, padding: 4 }}><X size={17} /></button>
+        </div>
+
+        <div style={{ padding: "14px 20px", overflowY: "auto" }}>
+          <div style={{ fontSize: 12.5, color: KLEUR.subtekst, lineHeight: 1.6, marginBottom: 14 }}>
+            {soortLabel}{dossier.jaar ? ` ${dossier.jaar}` : ""} — <strong>{dossier.klantnaam || "cliënt onbekend"}</strong>.
+            De collega die je kiest krijgt hier een taak van. Zodra hij aftekent — akkoord of aanpassen —
+            krijg jij een vervolgtaak terug, met zijn opmerking erin.
+          </div>
+
+          <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 5 }}>Reviewer</label>
+          {gekozen ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, border: `1px solid ${KLEUR.blauw}`, background: KLEUR.lichtblauw, borderRadius: 8, padding: "9px 12px", marginBottom: 14 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{gekozen.naam}</div>
+                <div style={{ fontSize: 11.5, color: KLEUR.subtekst }}>{gekozen.email}</div>
+              </div>
+              <button onClick={() => { setGekozen(null); setZoek(""); }} style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Wijzigen</button>
+            </div>
+          ) : (
+            <>
+              <input
+                value={zoek}
+                onChange={(e) => setZoek(e.target.value)}
+                autoFocus
+                placeholder="Zoek een collega…"
+                style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 13, marginBottom: 8 }}
+              />
+              <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, maxHeight: 190, overflowY: "auto", marginBottom: 14 }}>
+                {medewerkers === null ? (
+                  <div style={{ padding: "10px 12px", fontSize: 12.5, color: KLEUR.mutedTekst }}>Medewerkers laden…</div>
+                ) : treffers.length === 0 ? (
+                  <div style={{ padding: "10px 12px", fontSize: 12.5, color: KLEUR.mutedTekst }}>
+                    {medewerkers.length === 0
+                      ? "Geen medewerkers met een e-mailadres gevonden. Vul die aan bij Beheer → Uren → Tarieven & deadline per medewerker."
+                      : "Geen collega gevonden."}
+                  </div>
+                ) : treffers.map((m, i) => (
+                  <button
+                    key={m.email}
+                    onClick={() => setGekozen(m)}
+                    style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", background: "#fff", border: "none", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, cursor: "pointer" }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = KLEUR.lichtblauw)}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
+                  >
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{m.naam}</div>
+                    <div style={{ fontSize: 11.5, color: KLEUR.subtekst }}>{m.email}</div>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 5 }}>Toelichting <span style={{ fontWeight: 400, color: KLEUR.mutedTekst }}>(optioneel)</span></label>
+          <textarea
+            value={toelichting}
+            onChange={(e) => setToelichting(e.target.value)}
+            rows={3}
+            placeholder="Waar moet de reviewer specifiek naar kijken?"
+            style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 13, resize: "vertical", fontFamily: "inherit" }}
+          />
+          {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginTop: 10 }}>{fout}</div>}
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "12px 20px", borderTop: `1px solid ${KLEUR.rand}` }}>
+          <button onClick={onSluit} style={{ padding: "8px 14px", background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, color: KLEUR.subtekst, cursor: "pointer" }}>Annuleren</button>
+          <button
+            onClick={versturen}
+            disabled={!gekozen || bezig}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", background: !gekozen || bezig ? "#9DB4C8" : KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: !gekozen || bezig ? "default" : "pointer" }}
+          >
+            <UserCheck size={14} /> {bezig ? "Uitzetten…" : "Review uitzetten"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen, picklistOpties, sjabloon, bijlage, gekoppeldeUitvragen, gekoppeldeLijstId, gekoppeldOnderwerpId, defaultContact, review, onReviewAangevraagd, magVerwijderen, magWijzigen, onDossierVerwijderd, onTerug, onOpgeslagen, onDossierAangemaakt }) {
   const [status, setStatus] = useState(dossier.status != null ? String(dossier.status) : "");
   const [urlDossier, setUrlDossier] = useState(dossier.urlDossier || "");
   const [documentUrl, setDocumentUrl] = useState(dossier.documentUrl || "");
@@ -3497,6 +3650,11 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
   const [fout, setFout] = useState("");
   const [kopieOpen, setKopieOpen] = useState(false); // "Aangifte kopiëren naar volgend jaar"-popup
   const [voorbeeldOpen, setVoorbeeldOpen] = useState(false); // "Voorbeeld"-document (notulen/dividend)
+  const [reviewOpen, setReviewOpen] = useState(false); // "Review aanvragen"-popup
+  const reviewInfo = review || { aan: false, ingesteld: false, lopend: null, geschiedenis: [] };
+  const lopendeReview = reviewInfo.lopend || null;
+  // Laatste afgeronde review (voor het bandje "akkoord bevonden" / "aanpassen na review").
+  const laatsteReview = (reviewInfo.geschiedenis || []).find((r) => r && r.status !== "open") || null;
   const [verwijderBezig, setVerwijderBezig] = useState(false);
   const [verwijderFout, setVerwijderFout] = useState("");
   const bewerkbaar = dossier.actief !== false;
@@ -3786,6 +3944,18 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
               <Copy size={14} /> {dossier.soort === "notulen" ? "Kopiëren naar nieuw dossier" : dossier.soort === "ib" ? "Aangifte kopiëren naar volgend jaar" : "Kopiëren naar volgend jaar"}
             </button>
           )}
+          {reviewInfo.aan && magWijzigen && dossier.actief !== false && (
+            <button
+              onClick={() => setReviewOpen(true)}
+              disabled={!!lopendeReview}
+              title={lopendeReview
+                ? `De review ligt al bij ${lopendeReview.reviewerNaam || lopendeReview.reviewerEmail || "een collega"}. Laat die eerst aftekenen.`
+                : "Leg dit dossier ter review bij een collega neer — die krijgt er een taak van"}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, background: lopendeReview ? "#F4F5F2" : "#fff", border: `1px solid ${lopendeReview ? KLEUR.rand : KLEUR.blauw}`, color: lopendeReview ? KLEUR.mutedTekst : KLEUR.blauw, fontSize: 12.5, fontWeight: 600, cursor: lopendeReview ? "default" : "pointer", padding: "6px 12px", borderRadius: 7 }}
+            >
+              <UserCheck size={14} /> {lopendeReview ? "Review loopt" : "Review aanvragen"}
+            </button>
+          )}
           {magVerwijderen && (
             <button onClick={verwijder} disabled={verwijderBezig} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#fff", border: `1px solid ${KLEUR.rand}`, color: KLEUR.rood, fontSize: 12.5, fontWeight: 600, cursor: verwijderBezig ? "default" : "pointer", padding: "6px 12px", borderRadius: 7 }}>
               <Trash2 size={14} /> {verwijderBezig ? "Verwijderen…" : "Verwijderen"}
@@ -3794,6 +3964,39 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
         </div>
       </div>
       {verwijderFout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 10 }}>{verwijderFout}</div>}
+
+      {/* Reviewstand: loopt er een review, of wat leverde de laatste op? */}
+      {lopendeReview && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.blauw, background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 12px", marginBottom: 12 }}>
+          <UserCheck size={15} />
+          <span>
+            Ligt ter review bij <strong>{lopendeReview.reviewerNaam || lopendeReview.reviewerEmail || "een collega"}</strong>
+            {lopendeReview.aangevraagdOp ? ` sinds ${new Date(lopendeReview.aangevraagdOp).toLocaleDateString("nl-NL")}` : ""}. Zodra hij aftekent krijg jij er een taak van terug.
+          </span>
+        </div>
+      )}
+      {!lopendeReview && laatsteReview && (
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, color: laatsteReview.uitkomst === "aanpassen" ? "#A9660C" : "#2E7D46", background: laatsteReview.uitkomst === "aanpassen" ? "#FDF4E3" : "#EDF6EF", border: `1px solid ${laatsteReview.uitkomst === "aanpassen" ? "#EBD9B4" : "#C9E2D1"}`, borderRadius: 8, padding: "8px 12px", marginBottom: 12 }}>
+          <UserCheck size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+          <div>
+            <div>
+              {laatsteReview.uitkomst === "aanpassen" ? "Aanpassen na review" : "Akkoord bevonden"} door{" "}
+              <strong>{laatsteReview.reviewerNaam || laatsteReview.reviewerEmail || "de reviewer"}</strong>
+              {laatsteReview.afgerondOp ? ` op ${new Date(laatsteReview.afgerondOp).toLocaleDateString("nl-NL")}` : ""}.
+            </div>
+            {laatsteReview.opmerking && <div style={{ marginTop: 3, whiteSpace: "pre-wrap", color: KLEUR.tekst }}>{laatsteReview.opmerking}</div>}
+          </div>
+        </div>
+      )}
+
+      {reviewOpen && (
+        <ReviewAanvragenModal
+          dossier={dossier}
+          soortLabel={soortLabel}
+          onSluit={() => setReviewOpen(false)}
+          onKlaar={(res) => { setReviewOpen(false); if (onReviewAangevraagd) onReviewAangevraagd(res); }}
+        />
+      )}
 
       {kopieOpen && (
         <NieuwDossierModal

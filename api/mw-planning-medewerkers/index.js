@@ -6,10 +6,18 @@
  *
  * GET → { medewerkers: [{ naam, email }] } (alleen actieve, op naam gesorteerd)
  */
-const { metPlanningRecht } = require("../_gedeeld/planningRecht");
+const { magPlanningLezen } = require("../_gedeeld/planningRecht");
 const uren = require("../_gedeeld/urenDataverse");
 
-module.exports = metPlanningRecht(async function (context, req) {
+// Bewust op magPlanningLezen (elke ingelogde MEDEWERKER) i.p.v. het granulaire Planning-recht: dit is
+// niet meer dan de namenlijst van collega's, en hij wordt inmiddels ook buiten de Planning gebruikt —
+// o.a. door de reviewkiezer in het dossier (zie api/_gedeeld/dossierReview.js). Klant-gastgebruikers
+// hebben de rol 'medewerker' niet en komen er dus nog steeds niet in.
+module.exports = async function (context, req) {
+  if (!magPlanningLezen(req)) {
+    context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Geen toegang." } };
+    return;
+  }
   try {
     if (req.method !== "GET") {
       context.res = { status: 405, headers: { "Content-Type": "application/json" }, body: { error: "Methode niet ondersteund." } };
@@ -29,4 +37,4 @@ module.exports = metPlanningRecht(async function (context, req) {
     context.log && context.log.error && context.log.error(err);
     context.res = { status: 500, headers: { "Content-Type": "application/json" }, body: { error: "Kon de medewerkerslijst niet ophalen.", detail: String(err.message || err) } };
   }
-});
+};
