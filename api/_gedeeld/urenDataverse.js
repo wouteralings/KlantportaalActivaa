@@ -355,6 +355,47 @@ function normaliseerBron({ bronSoort, bronId, bronLabel }) {
 }
 
 /**
+ * Geschreven uren in een periode, gegroepeerd per MEDEWERKER × CLIËNT × SOORT — de tegenhanger van de
+ * geplande (indicatie-)uren uit de planning. Hiermee kan de planner zien of er meer op een klant is
+ * geschreven dan ingepland, en of dat op de standaard dienstverlening (abonnement) of op meerwerk
+ * (UXT) staat. Alle statussen tellen mee (concept t/m gefactureerd): het gaat om wat er is besteed.
+ *
+ * Geeft platte rijen terug; het optellen/groeperen doet de voorkant.
+ *   [{ email, naam, accountId, klantnaam, soort, urencode, uren, bedrag }]
+ * `bedrag` = uren × het tarief-snapshot van de boeking (0 als er geen tarief bekend is).
+ */
+async function geschrevenPerKlant({ vanaf, tot }) {
+  const resource = process.env.DYNAMICS_RESOURCE_URL;
+  const token = await haalDynamicsToken();
+  let f = "";
+  if (vanaf) f += `${P}_datum ge ${vanaf}`;
+  if (tot) f += `${f ? " and " : ""}${P}_datum le ${tot}`;
+  const boekingen = await haalBoekingen(resource, token, f || null, `${P}_datum asc`);
+  const per = new Map();
+  for (const b of boekingen) {
+    if (b.soort === "verlof") continue; // verlof is geen werk op een klant
+    const email = String(b.medewerkerEmail || "").toLowerCase();
+    const acc = String(b.accountId || "").toLowerCase();
+    const sleutel = `${email}|${acc}|${b.soort}`;
+    if (!per.has(sleutel)) {
+      per.set(sleutel, {
+        email: b.medewerkerEmail || "", naam: b.medewerkerNaam || b.medewerkerEmail || "",
+        accountId: acc, klantnaam: b.klantnaam || "", soort: b.soort || "",
+        uren: 0, bedrag: 0,
+      });
+    }
+    const r = per.get(sleutel);
+    r.uren += Number(b.uren) || 0;
+    r.bedrag += (Number(b.uren) || 0) * (Number(b.tariefBedrag) || 0);
+  }
+  return [...per.values()].map((r) => ({
+    ...r,
+    uren: Math.round(r.uren * 100) / 100,
+    bedrag: Math.round(r.bedrag * 100) / 100,
+  }));
+}
+
+/**
  * Alle geschreven uren per bron, over ALLE medewerkers heen — voor de terugkoppeling "hoeveel is er
  * al op deze taak/planningstaak geschreven?" t.o.v. de indicatie-uren. Geeft
  * { "<bronId>": { uren, aantal } } terug. Bestaan de bron-kolommen nog niet (schema-setup nog niet
@@ -830,7 +871,7 @@ module.exports = {
   haalKlantMeta,
   haalTarief, lijstTarieven, zetTarief,
   boekingenVanMedewerker, maakBoeking, werkBoekingBij, verwijderBoeking,
-  BRON_SOORTEN, urenPerBron,
+  BRON_SOORTEN, urenPerBron, geschrevenPerKlant,
   vasteUrenSlots, vasteUrenVirtueel,
   dienWeekIn, weekstatenVoorLeidinggevende, keurWeekGoed, keurWeekAf, verwijderWeek,
   boekingenVoorControle, controleActie,

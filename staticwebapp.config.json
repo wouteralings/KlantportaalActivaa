@@ -770,6 +770,13 @@
       ]
     },
     {
+      "route": "/api/mw-planning-geschreven",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
       "route": "/api/mw-taken",
       "allowedRoles": [
         "beheerder",

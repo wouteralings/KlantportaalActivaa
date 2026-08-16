@@ -13,6 +13,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { ClipboardCheck, ChevronLeft, ChevronRight, ChevronDown, CheckSquare, Square, CheckCircle2, Loader2, Search, X, Users, Building2 } from "lucide-react";
 import { useMijnNaam } from "../MijnFilter";
 import UrenSchrijvenPanel from "../UrenSchrijvenPanel";
+import { werkRegels, MAANDEN, MAAND_KORT } from "./planningWerk";
 
 const KLEUR = {
   blauw: "#1C5D8C", tekst: "#1C2321", subtekst: "#5B6259", mutedTekst: "#8A9089", rand: "#E2E4DF",
@@ -20,35 +21,16 @@ const KLEUR = {
   groen: "#2E7D46", groenBg: "#E7F3EB", groenRand: "#BFE3C9",
   amber: "#A9660C", amberBg: "#FFF4E5", amberRand: "#F2D9A8", lichtblauw: "#EAF2F8",
 };
-const MAANDEN = ["januari", "februari", "maart", "april", "mei", "juni", "juli", "augustus", "september", "oktober", "november", "december"];
 // De uit de deelstappen AFGELEIDE status (bepaalt ook de celkleur) — staat in het statusfilter boven
 // de handmatige beheer-statussen. Sleutels moeten los blijven van de beheer-statussleutels.
 const AFGELEIDE_STATUSSEN = [["open", "Open"], ["bezig", "Bezig"], ["gereed", "Gereed"]];
 // Rij- en kopje-stijl in de "Werk van"-combobox.
 const werkVanRij = { display: "block", width: "100%", textAlign: "left", background: "none", border: "none", borderRadius: 6, padding: "7px 10px", fontSize: 12.5, cursor: "pointer", color: "#1C2321" };
 const werkVanKopje = { padding: "8px 10px 3px", fontSize: 10.5, fontWeight: 700, color: "#8A9089", textTransform: "uppercase", letterSpacing: ".03em" };
-const MAAND_KORT = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
 const pad = (n) => String(n).padStart(2, "0");
 const datumKort = (iso) => { if (!iso) return ""; const d = new Date(iso); return isNaN(d.getTime()) ? "" : d.toLocaleDateString("nl-NL"); };
 
-function teamPersoon(klant, rol) {
-  if (!klant || !rol) return "";
-  switch (rol) {
-    case "assistent": return klant.assistent?.naam || "";
-    case "manager": return klant.manager?.naam || klant.relatiebeheerder || "";
-    case "accountant": return klant.accountantPersoon?.naam || klant.accountant || "";
-    case "fiscaal": return klant.fiscaalMedewerker?.naam || "";
-    case "loonadministratie": return klant.loonadministratie?.naam || "";
-    case "backup": return klant.backup?.naam || "";
-    default: return "";
-  }
-}
-function valtInMaand(r, maand1) {
-  if (r.frequentie === "maandelijks") return true;
-  if (r.frequentie === "kwartaal") return [1, 4, 7, 10].includes(maand1);
-  if (r.frequentie === "jaarlijks" || r.frequentie === "eenmalig") return Number(r.uitvoerMaand) === maand1;
-  return false;
-}
+// teamPersoon/valtInMaand/MAANDEN staan in planningWerk.js — gedeeld met Planning → "Gepland vs geschreven".
 
 const uurTekst = (n) => `${Number(n || 0).toLocaleString("nl-NL", { maximumFractionDigits: 1 })} u`;
 
@@ -333,45 +315,16 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
   // uitvoerder (`wieLc`) erbij. Hieruit komen zowel de eigen matrix (filteren op de bekeken persoon)
   // als het overzicht "voortgang per medewerker".
   const alleItems = useMemo(() => {
-    if (!config) return [];
-    const seen = new Set();
-    const rijen = [];
-    for (const r of config) {
-      if (r.actief === false) continue;
-      const act = activiteitById[r.activiteit];
-      if (!act || (act.type || "maand") !== type) continue;
-      // "Vanaf" (maand/jaar) — per klant ingesteld (Planning → configuratie per klant): de activiteit
-      // wordt voor deze klant pas vanaf dat moment in de planning/Mijn werk opgenomen.
-      if (r.vanaf) {
-        if (type === "maand") { if (`${jaar}-${pad(maand)}` < r.vanaf) continue; }
-        else if (jaar < Number(String(r.vanaf).slice(0, 4))) continue;
-      }
-      if (type === "maand" && !valtInMaand(r, maand)) continue;
-      // (De jaar-weergave filtert pas hieronder op de ingeplande maand — de werkvoorraad zelf is het
-      // hele jaar, zodat die tegen de jaarcapaciteit gezet kan worden.)
-      const acc = String(r.klantAccountId || "").toLowerCase();
-      const klant = klantenMap[acc] || null;
-      const wie = (r.toegewezenAan || "").trim() || teamPersoon(klant, act.rol);
-      const dubbelKey = `${acc}|${act.sleutel}`;
-      if (seen.has(dubbelKey)) continue;
-      seen.add(dubbelKey);
-      const eff = effDeelstappen(acc, act.sleutel);
+    // De werkvoorraad zelf komt uit de gedeelde helper (zelfde berekening als Planning → "Gepland vs
+    // geschreven"); hier komt alleen de afteken-status uit de deelstappen erbij.
+    return werkRegels({ config, activiteitById, klantenMap, type, jaar, maand }).map((r) => {
+      const eff = effDeelstappen(r.acc, r.actSleutel);
       const total = eff.length;
-      const done = total ? eff.filter((d) => stFor(acc, act.sleutel, d.sleutel)?.gereed).length : 0;
-      const gereed = total ? done === total : !!stFor(acc, act.sleutel, "__hoofd__")?.gereed;
-      const statusKey = (status[`${acc}|${act.sleutel}|__status__`] || {}).statusKey || "";
-      rijen.push({
-        key: dubbelKey, acc, accountId: klant?.accountId || r.klantAccountId || "", actSleutel: act.sleutel, act, eff, done, total, gereed, uitvoerMaand: r.uitvoerMaand,
-        statusKey,
-        wie: String(wie || "").trim(), wieLc: String(wie || "").trim().toLowerCase(),
-        // Urencode + indicatie-uren voor het gekoppelde urenschrijven: per klant ingesteld
-        // (planning-configuratie), anders de standaard van de activiteit (Beheer → Planning).
-        urencode: (r.urencode || "").trim() || act.standaardUrencode || "",
-        indicatieUren: r.indicatieUren != null ? r.indicatieUren : (act.standaardUren != null ? act.standaardUren : null),
-        klantnaam: klant?.klantnaam || "Onbekende klant", klantnummer: klant?.klantnummer || "", klantgroep: klant?.groepsnaam || "",
-      });
-    }
-    return rijen;
+      const done = total ? eff.filter((d) => stFor(r.acc, r.actSleutel, d.sleutel)?.gereed).length : 0;
+      const gereed = total ? done === total : !!stFor(r.acc, r.actSleutel, "__hoofd__")?.gereed;
+      const statusKey = (status[`${r.acc}|${r.actSleutel}|__status__`] || {}).statusKey || "";
+      return { ...r, eff, done, total, gereed, statusKey };
+    });
   }, [config, activiteitById, klantenMap, klantDeelstappen, status, type, maand, jaar]);
 
   // De werkvoorraad van de bekeken persoon (zonder de klantgroep-/statusverfijning, zodat de
