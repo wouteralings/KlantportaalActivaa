@@ -14,14 +14,20 @@ export function normaliseerSleutel(s) { return String(s == null ? "" : s).toLowe
  * van niets. Zo oogt een voorbeeld nooit als een leeg vel en zie je meteen wat er nog ingevuld moet
  * worden, net als in de Word-modellen.
  *
- * Met {{sleutel|EIGEN LABEL}} bepaal je zelf wat er in die invulplek komt; laat je dat weg, dan wordt
- * het de sleutel in hoofdletters.
+ * Drie vormen:
+ *   {{sleutel}}              → waarde, of de invulplek [SLEUTEL]
+ *   {{sleutel|EIGEN LABEL}}  → waarde, of de invulplek [EIGEN LABEL]
+ *   {{sleutel?}}             → OPTIONEEL: waarde, of niets. Staat de plaatshouder alleen op een regel,
+ *                              dan verdwijnt die regel dus helemaal — gebruik dit voor een stuk tekst
+ *                              dat alléén hoort te verschijnen als het veld in het dossier is
+ *                              ingevuld (bijv. de extra toelichting bij notulen).
  */
 export function vulSjabloonIn(tekst, waarden) {
-  return String(tekst || "").replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*(?:\|\s*([^}]*?)\s*)?\}\}/g, (_, sleutel, label) => {
+  return String(tekst || "").replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*(\?)?\s*(?:\|\s*([^}]*?)\s*)?\}\}/g, (_, sleutel, optioneel, label) => {
     const key = normaliseerSleutel(sleutel);
     const waarde = Object.prototype.hasOwnProperty.call(waarden, key) ? String(waarden[key] == null ? "" : waarden[key]).trim() : "";
     if (waarde) return waarde;
+    if (optioneel) return ""; // niets ingevuld = niets tonen (geen invulplek)
     const plek = (label && label.trim()) || String(sleutel).replace(/[_.-]+/g, " ").toUpperCase();
     return `[${plek}]`;
   });

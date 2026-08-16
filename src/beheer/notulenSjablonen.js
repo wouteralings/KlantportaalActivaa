@@ -13,6 +13,10 @@
  * Invulplekken: {{sleutel|LABEL}}. Is het veld in het dossier gevuld, dan komt die waarde te staan;
  * is het leeg of bestaat het veld niet bij deze soort, dan toont het document [LABEL] — precies zoals
  * in de Word-modellen, zodat je ziet wát er nog moet worden ingevuld.
+ *
+ * Met een vraagteken — {{sleutel?}} — is de plaatshouder OPTIONEEL: is het veld leeg, dan komt er
+ * niets te staan (ook geen invulplek) en verdwijnt de regel uit het stuk. Zo staat de extra
+ * toelichting hieronder alleen in de notulen als hij in het dossier is ingevuld.
  */
 
 export const ROMP = `# Notulen
@@ -44,7 +48,7 @@ Vervolgens stelt de voorzitter de onderwerpen aan de orde waarover de Vergaderin
 Na beraadslaging, waarbij de bestuurder van de Vennootschap in de gelegenheid is gesteld de Vergadering ter zake van de voorgenomen besluiten te adviseren, worden deze in stemming gebracht. Vervolgens constateert de voorzitter dat de Vergadering met algemene stemmen de navolgende besluiten heeft genomen:
 `;
 
-export const STAART = `{{toelichting|EXTRA TOELICHTING}}
+export const STAART = `{{toelichting?}}
 
 ### Besluit:
 Gehoord de toelichting van het bestuur wijst de Vergadering hierbij, voor zover vereist en voor zover zij zulks niet reeds eerder heeft gedaan, het bestuur alsmede de bestuurder alsnog aan als bevoegd vertegenwoordiger van de Vennootschap ter zake van:

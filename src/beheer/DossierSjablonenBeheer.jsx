@@ -228,7 +228,12 @@ export default function DossierSjablonenPerSoort({ soort }) {
                 <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>{"{{aandeelhouders}}"}</code>
                 vult de aandeelhouders met naam en aandeel in, en
                 <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>[ondertekening] Voorzitter | {"{{directeur}}"}</code>
-                laat het ondertekenblok meelopen met wie je bij het opstellen invult.
+                laat het ondertekenblok meelopen met wie je bij het opstellen invult. Zet er een
+                vraagteken in —
+                <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>{"{{toelichting?}}"}</code>
+                — dan is dat stukje optioneel: is het veld in het dossier leeg, dan komt er niets te
+                staan en verdwijnt die regel uit het stuk (zonder vraagteken zie je de invulplek
+                <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>[EXTRA TOELICHTING]</code>).
               </div>
               <div style={{ marginBottom: 12 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
