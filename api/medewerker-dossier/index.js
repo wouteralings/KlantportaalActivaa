@@ -370,9 +370,12 @@ module.exports = async function (context, req) {
           return;
         }
 
+        const periode = dossierReview.periodeTekst(huidigDossier);
         const sjabloonVelden = {
           klant: huidigDossier.klantnaam || "",
           jaar: huidigDossier.jaar || "",
+          // {periode} = jaar, of bij notulen de vergaderdatum — zo werkt één sjabloon voor elke soort.
+          periode,
           soort: soort.label,
           aanvrager: (aanvrager && aanvrager.naam) || email || "",
           reviewer: reviewerUser.naam || reviewerNaam || reviewerEmail,
@@ -399,6 +402,7 @@ module.exports = async function (context, req) {
           accountId: huidigDossier.accountId,
           klantnaam: huidigDossier.klantnaam,
           jaar: huidigDossier.jaar,
+          periode,
           aanvragerEmail: email,
           aanvragerNaam: (aanvrager && aanvrager.naam) || "",
           reviewerEmail: reviewerUser.email || reviewerEmail,

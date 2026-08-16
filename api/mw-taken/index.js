@@ -232,6 +232,7 @@ module.exports = async function (context, req) {
             vervolgTaakId = await dossierReview.maakTaak(resource, token, {
               subject: dossierReview.vulSjabloonIn(taakOnderwerp, {
                 klant: review.klantnaam || "", jaar: review.jaar || "",
+                periode: review.periode || review.jaar || "",
                 soort: (soort && soort.label) || review.dossierSoort || "",
                 aanvrager: review.aanvragerNaam || review.aanvragerEmail || "",
                 reviewer: reviewerNaam || "",
@@ -241,7 +242,7 @@ module.exports = async function (context, req) {
                   ? `De review is afgetekend met "aanpassen na review" door ${reviewerNaam}.`
                   : `De review is akkoord bevonden door ${reviewerNaam}.`,
                 opmerking ? `\nOpmerking van de reviewer:\n${opmerking}` : "\n(De reviewer heeft geen opmerking achtergelaten.)",
-                `\nDossier: ${(soort && soort.label) || review.dossierSoort}${review.jaar ? ` ${review.jaar}` : ""} — ${review.klantnaam || "cliënt onbekend"}.`,
+                `\nDossier: ${(soort && soort.label) || review.dossierSoort}${(review.periode || review.jaar) ? ` ${review.periode || review.jaar}` : ""} — ${review.klantnaam || "cliënt onbekend"}.`,
               ].join("\n"),
               accountId: review.accountId,
               soortWaarde: taakSoort,

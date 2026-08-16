@@ -41,7 +41,7 @@ module.exports = async function (context, req) {
   const soortKey = (req.query && req.query.soort) || "ib";
   const soort = SOORTEN.find((s) => s.key === soortKey);
   if (!soort) {
-    context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef een geldige 'soort' mee (ib)." } };
+    context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: `Geef een geldige 'soort' mee (${SOORTEN.map((s) => s.key).join("/")}).` } };
     return;
   }
 

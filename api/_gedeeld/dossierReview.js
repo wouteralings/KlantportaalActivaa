@@ -61,24 +61,36 @@ const tekst = (v, max = 300) => String(v == null ? "" : v).trim().slice(0, max);
 const sleutel = (id) => String(id || "").trim().toLowerCase();
 
 // ── Beheer-instellingen per dossiersoort ────────────────────────────────────
-// Statuswaarden komen uit de vaste optiesets in dossiers.js (STATUS_OPTIES_IB/VPB): 601280001 =
-// "Aangifte gereed voor review", 601280002 = "Aangifte aanpassen na review". Voor "na akkoord" is er
-// geen voor de hand liggende standaard (IB kent 601280005 "Aangifte verzenden naar client", VPB
-// 601280003) — die laten we leeg tot Wouter 'm in Beheer kiest, zodat we nooit ongevraagd een status
-// zetten die niet bij zijn werkwijze past.
+// LET OP met de statusdefaults: elke dossiersoort heeft zijn EIGEN optieset (IB/VPB
+// cr283_statusaangifte, dividend cr283_statusdividenduitkering, notulen cr283_statusnotulen) en
+// dezelfde getalswaarde betekent per soort iets heel anders. Alleen IB en VPB kennen echte
+// review-statussen (601280001 "Aangifte gereed voor review", 601280002 "Aangifte aanpassen na
+// review"); voor dividend en notulen zou 601280001/2 "Verzonden naar client" resp. "Getekend"
+// betekenen — daar laten we de status dus met rust tot Wouter 'm zelf in Beheer kiest. Voor "na
+// akkoord" is er nergens een vanzelfsprekende keuze, dus die is overal leeg.
+const REVIEW_STATUS_DEFAULTS = {
+  ib: { statusAanvraag: 601280001, statusAanpassen: 601280002 },
+  vpb: { statusAanvraag: 601280001, statusAanpassen: 601280002 },
+};
+
 const STANDAARD_REVIEW = {
   aan: false,
   taakSoort: null,
-  taakOnderwerp: "Review {soort} {jaar} — {klant}",
+  taakOnderwerp: "Review {soort} {periode} — {klant}",
   taakRubriek: null,
-  statusAanvraag: 601280001,
+  statusAanvraag: null,
   akkoordTaakSoort: null,
-  akkoordTaakOnderwerp: "Afronden na review: {soort} {jaar} — {klant}",
+  akkoordTaakOnderwerp: "Afronden na review: {soort} {periode} — {klant}",
   statusAkkoord: null,
   aanpassenTaakSoort: null,
-  aanpassenTaakOnderwerp: "Aanpassen na review: {soort} {jaar} — {klant}",
-  statusAanpassen: 601280002,
+  aanpassenTaakOnderwerp: "Aanpassen na review: {soort} {periode} — {klant}",
+  statusAanpassen: null,
 };
+
+/** De standaardconfiguratie van één soort — met de soort-eigen statusdefaults erin. */
+function standaardVoorSoort(soortKey) {
+  return { ...STANDAARD_REVIEW, ...(REVIEW_STATUS_DEFAULTS[String(soortKey || "").toLowerCase()] || {}) };
+}
 
 function getalOfNull(v) {
   if (v === undefined || v === null || v === "") return null;
@@ -115,15 +127,35 @@ function normaliseerAlleReviewConfig(ruw) {
   return uit;
 }
 
-/** De review-instellingen van één dossiersoort (met de standaarden als terugval). */
+/** De review-instellingen van één dossiersoort (met de soort-eigen standaarden als terugval). */
 async function instellingenVoorSoort(soortKey) {
   const instellingen = await haalInstellingen().catch(() => ({}));
   const alle = normaliseerAlleReviewConfig(instellingen && instellingen.dossierReview);
   const eigen = alle[String(soortKey || "").toLowerCase()];
-  return eigen || { ...STANDAARD_REVIEW };
+  return eigen || standaardVoorSoort(soortKey);
 }
 
-/** Vult {klant}/{jaar}/{soort}/{aanvrager}/{reviewer} in een onderwerp-sjabloon in. */
+/**
+ * De periode van een dossier als tekst: het jaar (IB/VPB/dividend), of de datum (notulen — die hebben
+ * geen jaar maar een vergaderdatum). Gebruikt voor de plaatshouder {periode} in de onderwerpen, zodat
+ * één sjabloon voor alle dossiersoorten werkt.
+ */
+function periodeTekst(dossier) {
+  if (!dossier) return "";
+  if (dossier.jaar !== null && dossier.jaar !== undefined && dossier.jaar !== "") return String(dossier.jaar);
+  const jaarVan = (x) => { const d = x ? new Date(x) : null; return d && !isNaN(d.getTime()) ? d.getFullYear() : null; };
+  const van = jaarVan(dossier.begindatum);
+  const tot = jaarVan(dossier.einddatum);
+  // Begin- én einddatum = een boekjaar (VPB): "2025" of "2025–2026", net als in het dossieroverzicht.
+  if (van && tot) return van === tot ? String(van) : `${van}–${tot}`;
+  // Alleen een begindatum = één moment (notulen: de vergaderdatum) — dan de hele datum.
+  const datum = dossier.begindatum || dossier.einddatum || "";
+  if (!datum) return "";
+  const d = new Date(datum);
+  return isNaN(d.getTime()) ? "" : d.toLocaleDateString("nl-NL");
+}
+
+/** Vult {klant}/{jaar}/{periode}/{soort}/{aanvrager}/{reviewer} in een onderwerp-sjabloon in. */
 function vulSjabloonIn(sjabloon, velden) {
   let uit = String(sjabloon || "").trim();
   for (const [k, v] of Object.entries(velden || {})) {
@@ -175,6 +207,8 @@ async function zetReview(review) {
     accountId: sleutel(review.accountId),
     klantnaam: tekst(review.klantnaam, 200),
     jaar: tekst(review.jaar, 10),
+    // Leesbare periode: jaar, of bij notulen de vergaderdatum — voor {periode} in de onderwerpen.
+    periode: tekst(review.periode, 40),
     aanvragerEmail: tekst(review.aanvragerEmail, 200).toLowerCase(),
     aanvragerNaam: tekst(review.aanvragerNaam, 200),
     reviewerEmail: tekst(review.reviewerEmail, 200).toLowerCase(),
@@ -229,6 +263,7 @@ async function zetVervolgtaakVerwijzing(vervolgTaakId, review, uitkomst, opmerki
     accountId: review.accountId || "",
     klantnaam: review.klantnaam || "",
     jaar: review.jaar || "",
+    periode: review.periode || "",
     aanvragerEmail: review.aanvragerEmail || "",
     aanvragerNaam: review.aanvragerNaam || "",
     reviewerEmail: review.reviewerEmail || "",
@@ -318,8 +353,8 @@ async function maakTaak(resource, token, { subject, description, accountId, soor
 }
 
 module.exports = {
-  STANDAARD_REVIEW,
-  normaliseerReviewConfig, normaliseerAlleReviewConfig, instellingenVoorSoort, vulSjabloonIn,
+  STANDAARD_REVIEW, standaardVoorSoort,
+  normaliseerReviewConfig, normaliseerAlleReviewConfig, instellingenVoorSoort, vulSjabloonIn, periodeTekst,
   haalAlle, haalVoorTaak, haalVoorDossier, haalOpenVoorDossier, zetReview, rondReviewAf,
   zetVervolgtaakVerwijzing, verwijderReview,
   maakTaak, haalSystemuserOpId,

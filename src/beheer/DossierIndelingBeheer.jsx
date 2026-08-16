@@ -16,15 +16,22 @@ const KLEUR = {
 const invoerStijl = { boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 13, outline: "none" };
 
 // Standaard review-instellingen per dossiersoort — moet gelijk lopen met STANDAARD_REVIEW in
-// api/_gedeeld/dossierReview.js. 601280001 = "Aangifte gereed voor review", 601280002 = "Aangifte
-// aanpassen na review"; de status ná akkoord laten we leeg tot Wouter 'm hier zelf kiest.
+// api/_gedeeld/dossierReview.js. LET OP: elke dossiersoort heeft zijn eigen status-optieset, dus
+// dezelfde getalswaarde betekent per soort iets anders. Alleen IB en VPB kennen echte
+// review-statussen (601280001 "gereed voor review", 601280002 "aanpassen na review"); bij dividend
+// en notulen zouden die "Verzonden naar client" resp. "Getekend" betekenen, dus daar geen default.
 const STANDAARD_REVIEW_CFG = {
   aan: false,
-  taakSoort: "", taakOnderwerp: "Review {soort} {jaar} — {klant}", taakRubriek: "",
-  statusAanvraag: 601280001,
-  akkoordTaakSoort: "", akkoordTaakOnderwerp: "Afronden na review: {soort} {jaar} — {klant}", statusAkkoord: "",
-  aanpassenTaakSoort: "", aanpassenTaakOnderwerp: "Aanpassen na review: {soort} {jaar} — {klant}", statusAanpassen: 601280002,
+  taakSoort: "", taakOnderwerp: "Review {soort} {periode} — {klant}", taakRubriek: "",
+  statusAanvraag: "",
+  akkoordTaakSoort: "", akkoordTaakOnderwerp: "Afronden na review: {soort} {periode} — {klant}", statusAkkoord: "",
+  aanpassenTaakSoort: "", aanpassenTaakOnderwerp: "Aanpassen na review: {soort} {periode} — {klant}", statusAanpassen: "",
 };
+const REVIEW_STATUS_DEFAULTS = {
+  ib: { statusAanvraag: 601280001, statusAanpassen: 601280002 },
+  vpb: { statusAanvraag: 601280001, statusAanpassen: 601280002 },
+};
+const standaardReviewVoor = (soort) => ({ ...STANDAARD_REVIEW_CFG, ...(REVIEW_STATUS_DEFAULTS[soort] || {}) });
 
 // Types die via "Nieuw veld aanmaken" in Dynamics aangemaakt kunnen worden — zelfde vijf typen
 // als de rest van de catalogus ondersteunt (zie VeldInvoer in MedewerkerPortaal.jsx). Keuzelijst
@@ -278,6 +285,9 @@ function SoortIndelingPaneel({ soort, onderaan }) {
   const [alleReviewCfg, setAlleReviewCfg] = useState({});    // de andere soorten, ongemoeid terugschrijven
   const [statusOpties, setStatusOpties] = useState([]);      // [{ waarde, label }] van deze soort
   const [reviewStatus, setReviewStatus] = useState("rust");  // rust | bezig | opgeslagen | fout
+  // Heeft deze dossiersoort een veld "reviewnotitie"? Zo niet, dan komt de opmerking van de reviewer
+  // alleen in de vervolgtaak — dat zeggen we er dan bij (IB en VPB hebben het veld, dividend/notulen niet).
+  const heeftReviewNotitieVeld = (catalogus || []).some((v) => v && v.key === "reviewnotitie");
   const [fout, setFout] = useState("");
   const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
   const [nieuweSectieTitel, setNieuweSectieTitel] = useState("");
@@ -364,7 +374,7 @@ function SoortIndelingPaneel({ soort, onderaan }) {
         setStatusOpties((veldenData && veldenData.statusOpties) || []);
         const alleReview = (instellingenData && instellingenData.dossierReview) || {};
         setAlleReviewCfg(alleReview);
-        setReviewCfg({ ...STANDAARD_REVIEW_CFG, ...(alleReview[soort] || {}) });
+        setReviewCfg({ ...standaardReviewVoor(soort), ...(alleReview[soort] || {}) });
       })
       .catch(() => { setCatalogus([]); setSecties([]); setFout("Kon de dossierindeling niet laden."); });
   }, []);
@@ -1040,10 +1050,19 @@ function SoortIndelingPaneel({ soort, onderaan }) {
             Een medewerker legt zijn dossier ter review bij een collega neer; die krijgt er een taak van.
             De reviewer tekent die taak af met <strong>Akkoord</strong> of <strong>Aanpassen na review</strong> en
             geeft daarbij een opmerking mee. Die opmerking komt in de vervolgtaak — die altijd naar de
-            aanvrager gaat — en in het veld "Review-notitie" van het dossier. In de onderwerpen kun je{" "}
-            <code>{"{klant}"}</code>, <code>{"{jaar}"}</code>, <code>{"{soort}"}</code>, <code>{"{aanvrager}"}</code> en{" "}
-            <code>{"{reviewer}"}</code> gebruiken. Laat een taaksoort leeg om voor die uitkomst géén taak aan te maken.
+            aanvrager gaat{heeftReviewNotitieVeld ? ' — en in het veld "Review-notitie" van het dossier' : ""}. In de
+            onderwerpen kun je <code>{"{klant}"}</code>, <code>{"{periode}"}</code>, <code>{"{soort}"}</code>,{" "}
+            <code>{"{aanvrager}"}</code> en <code>{"{reviewer}"}</code> gebruiken — <code>{"{periode}"}</code> wordt
+            het jaar, of bij notulen de vergaderdatum. Laat een taaksoort leeg om voor die uitkomst géén taak aan te maken.
           </div>
+          {!heeftReviewNotitieVeld && (
+            <div style={{ fontSize: 12, color: KLEUR.subtekst, background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", marginBottom: 14, lineHeight: 1.6 }}>
+              Deze dossiersoort heeft geen veld <strong>Review-notitie</strong> in de catalogus. De opmerking van de
+              reviewer komt dan alleen in de vervolgtaak terecht — dat werkt prima, maar je leest 'm niet terug in het
+              dossier zelf. Wil je dat wel, maak dan hierboven met "Nieuw veld aanmaken" een memo-veld met de sleutel{" "}
+              <code>reviewnotitie</code>.
+            </div>
+          )}
 
           {[
             { titel: "1. De reviewtaak (naar de gekozen collega)", soortKey: "taakSoort", ondKey: "taakOnderwerp", statusKey: "statusAanvraag", statusLabel: "Dossierstatus bij aanvragen", verplicht: true },
