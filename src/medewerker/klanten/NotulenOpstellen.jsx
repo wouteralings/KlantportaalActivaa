@@ -15,6 +15,11 @@ import { useMijnNaam } from "../MijnFilter";
  * staart van de notulen liggen vast (zie src/beheer/notulenSjablonen.js) — alleen het besluit
  * ertussen verschilt per model.
  *
+ * Namen (aandeelhouders, voorzitter, notulist) zoek je op in plaats van ze te typen — dat scheelt
+ * typefouten en houdt de schrijfwijze gelijk aan Dynamics. Er wordt gezocht in de cliënten (holdings
+ * en andere vennootschappen), de contactpersonen (/api/klant-contacten) en, voor de notulist, de
+ * medewerkers. Zelf iets intypen mag altijd: een aandeelhouder die nog nergens staat, tik je gewoon in.
+ *
  * De modellen komen uit Beheer → Dossiers → Voorbeelddocumenten (soort "notulen"); staat daar nog
  * niets, dan gebruikt dit scherm de vijf standaardmodellen uit de code, zodat je altijd kunt
  * beginnen. Wat je hier invult wordt niet in Dynamics weggeschreven — dit scherm maakt het stuk;
@@ -91,6 +96,7 @@ export default function NotulenOpstellen({ onTerug }) {
   const [sjabloonBron, setSjabloonBron] = useState(""); // "beheer" | "standaard"
   const [klanten, setKlanten] = useState(null);
   const [klantFout, setKlantFout] = useState("");
+  const [medewerkers, setMedewerkers] = useState([]); // voor het opzoeken van de notulist
 
   const [zoek, setZoek] = useState("");
   const [klant, setKlant] = useState(null);
@@ -130,6 +136,12 @@ export default function NotulenOpstellen({ onTerug }) {
       .then((r) => (r.ok ? r.json() : Promise.reject(r)))
       .then((d) => { if (levend.current) setKlanten(d.klanten || []); })
       .catch(() => { if (levend.current) { setKlanten([]); setKlantFout("De klantenlijst kon niet worden geladen."); } });
+    // Medewerkers: alleen voor het opzoeken van de notulist. Best-effort — lukt dit niet, dan blijft
+    // die suggestielijst leeg en typ je de naam gewoon zelf.
+    fetch("/api/beheer-medewerkers")
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((d) => { if (levend.current) setMedewerkers(d.medewerkers || []); })
+      .catch(() => { if (levend.current) setMedewerkers([]); });
   }, []);
 
   const lijst = sjablonen || [];
@@ -347,13 +359,19 @@ export default function NotulenOpstellen({ onTerug }) {
                 <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>Datum vergadering</div>
                 <input type="date" value={datumactie} onChange={(e) => setDatumactie(e.target.value)} style={input} />
               </div>
-              <div style={{ flex: "1 1 180px" }}>
+              <div style={{ flex: "1 1 180px", display: "flex", flexDirection: "column" }}>
                 <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>Voorzitter (directeur)</div>
-                <input value={directeur} onChange={(e) => setDirecteur(e.target.value)} style={input} placeholder="naam voorzitter" />
+                <NaamZoeker
+                  waarde={directeur} opWaarde={setDirecteur} placeholder="zoek of typ een naam…"
+                  bronnen={["contact", "klant"]} klanten={klanten} medewerkers={medewerkers} invoerStijl={input}
+                />
               </div>
-              <div style={{ flex: "1 1 180px" }}>
+              <div style={{ flex: "1 1 180px", display: "flex", flexDirection: "column" }}>
                 <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>Notulist</div>
-                <input value={notulist} onChange={(e) => setNotulist(e.target.value)} style={input} placeholder="naam notulist" />
+                <NaamZoeker
+                  waarde={notulist} opWaarde={setNotulist} placeholder="zoek of typ een naam…"
+                  bronnen={["medewerker", "contact"]} klanten={klanten} medewerkers={medewerkers} invoerStijl={input}
+                />
               </div>
             </div>
           </div>
@@ -370,11 +388,14 @@ export default function NotulenOpstellen({ onTerug }) {
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {aandeelhouders.map((r, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <input
-                    value={r.naam}
-                    onChange={(e) => zetAandeelhouder(i, "naam", e.target.value)}
-                    placeholder={`Naam aandeelhouder ${i + 1}`}
-                    style={{ ...input, flex: "1 1 auto" }}
+                  <NaamZoeker
+                    waarde={r.naam}
+                    opWaarde={(v) => zetAandeelhouder(i, "naam", v)}
+                    placeholder={`Aandeelhouder ${i + 1} — zoek of typ een naam…`}
+                    bronnen={["klant", "contact"]}
+                    klanten={klanten}
+                    medewerkers={medewerkers}
+                    invoerStijl={{ ...input, flex: "1 1 auto" }}
                   />
                   <div style={{ position: "relative", flex: "0 0 110px" }}>
                     <input
@@ -395,7 +416,7 @@ export default function NotulenOpstellen({ onTerug }) {
             <div style={{ marginTop: 6, fontSize: 11.5, color: aandeelIngevuld && Math.abs(somAandeel - 100) > 0.01 ? KLEUR.goud : KLEUR.mutedTekst }}>
               {aandeelIngevuld
                 ? `Totaal ${percentageTekst(somAandeel)}%${Math.abs(somAandeel - 100) > 0.01 ? " — dat is geen 100%." : ""}`
-                : "Vul per aandeelhouder het aandeel in; ze verschijnen direct in het “Aanwezig”-blok rechts."}
+                : "Typ twee letters om te zoeken in de cliënten en contactpersonen; ze verschijnen direct in het “Aanwezig”-blok rechts."}
             </div>
           </div>
 
@@ -483,6 +504,110 @@ export default function NotulenOpstellen({ onTerug }) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Naamveld met opzoeken. Je typt (minimaal 2 tekens) en krijgt suggesties uit de meegegeven bronnen:
+ *   - "klant"      → de al geladen cliëntenlijst (holdings, B.V.'s — vaak de aandeelhouder zelf)
+ *   - "contact"    → contactpersonen uit Dynamics via /api/klant-contacten (met vertraging, zodat
+ *                    niet elke toetsaanslag een aanroep wordt)
+ *   - "medewerker" → de al geladen medewerkerslijst (voor de notulist)
+ * Kiezen vult de naam exact zoals hij in Dynamics staat. Zelf een naam intikken blijft gewoon
+ * mogelijk — de suggesties zijn hulp, geen verplichting.
+ */
+function NaamZoeker({ waarde, opWaarde, placeholder, bronnen, klanten, medewerkers, invoerStijl }) {
+  const [open, setOpen] = useState(false);
+  const [term, setTerm] = useState("");
+  const [contacten, setContacten] = useState([]);
+  const [bezig, setBezig] = useState(false);
+  const doosRef = useRef(null);
+  const levend = useRef(true);
+  useEffect(() => () => { levend.current = false; }, []);
+
+  // Buiten het veld klikken sluit de suggestielijst (blur alleen is te vroeg: dan gaat de klik op een
+  // suggestie verloren).
+  useEffect(() => {
+    if (!open) return;
+    const buiten = (e) => { if (doosRef.current && !doosRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", buiten);
+    return () => document.removeEventListener("mousedown", buiten);
+  }, [open]);
+
+  // Contactpersonen ophalen, 250 ms na de laatste toetsaanslag.
+  useEffect(() => {
+    if (!bronnen.includes("contact") || term.trim().length < 2) { setContacten([]); return; }
+    setBezig(true);
+    const t = setTimeout(() => {
+      fetch("/api/klant-contacten?zoek=" + encodeURIComponent(term.trim()))
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then((d) => { if (levend.current) setContacten(Array.isArray(d.contacten) ? d.contacten : []); })
+        .catch(() => { if (levend.current) setContacten([]); })
+        .finally(() => { if (levend.current) setBezig(false); });
+    }, 250);
+    return () => { clearTimeout(t); setBezig(false); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [term]);
+
+  const suggesties = useMemo(() => {
+    const t = term.trim().toLowerCase();
+    if (t.length < 2) return [];
+    const uit = [];
+    if (bronnen.includes("klant")) {
+      for (const k of klanten || []) {
+        if (!veiligeStr(k.klantnaam).toLowerCase().includes(t)) continue;
+        uit.push({
+          sleutel: `k-${k.accountId}`, naam: veiligeStr(k.klantnaam), soort: "Cliënt",
+          sub: [veiligeStr(k.klantnummer) && `nr ${veiligeStr(k.klantnummer)}`, veiligeStr(k.groepsnaam)].filter(Boolean).join("  ·  "),
+        });
+        if (uit.length >= 8) break;
+      }
+    }
+    if (bronnen.includes("medewerker")) {
+      for (const m of medewerkers || []) {
+        if (!veiligeStr(m.naam).toLowerCase().includes(t)) continue;
+        uit.push({ sleutel: `m-${m.id}`, naam: veiligeStr(m.naam), soort: "Medewerker", sub: veiligeStr(m.functie) });
+        if (uit.length >= 16) break;
+      }
+    }
+    for (const c of contacten) {
+      uit.push({ sleutel: `c-${c.id}`, naam: veiligeStr(c.naam), soort: "Contactpersoon", sub: veiligeStr(c.email) });
+      if (uit.length >= 24) break;
+    }
+    // Dezelfde naam uit twee bronnen (cliënt én contactpersoon) maar één keer tonen.
+    const gezien = new Set();
+    return uit.filter((s) => { const k = s.naam.toLowerCase(); if (!s.naam || gezien.has(k)) return false; gezien.add(k); return true; });
+  }, [term, contacten, klanten, medewerkers, bronnen]);
+
+  const invoer = invoerStijl || {};
+  return (
+    <div ref={doosRef} style={{ position: "relative", flex: invoer.flex || "1 1 auto" }}>
+      <input
+        value={waarde}
+        onChange={(e) => { opWaarde(e.target.value); setTerm(e.target.value); setOpen(true); }}
+        onFocus={() => { setTerm(waarde); setOpen(true); }}
+        placeholder={placeholder}
+        style={{ ...invoer, flex: undefined, width: "100%" }}
+      />
+      {open && term.trim().length >= 2 && (
+        <div style={{ position: "absolute", zIndex: 20, left: 0, right: 0, top: "calc(100% + 4px)", background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.10)", maxHeight: 240, overflowY: "auto" }}>
+          {suggesties.length === 0 ? (
+            <div style={{ padding: "9px 12px", fontSize: 12, color: KLEUR.mutedTekst }}>
+              {bezig ? "Zoeken…" : "Niets gevonden — je kunt de naam ook gewoon intypen."}
+            </div>
+          ) : suggesties.map((s) => (
+            <button
+              key={s.sleutel}
+              onClick={() => { opWaarde(s.naam); setOpen(false); }}
+              style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", border: "none", borderBottom: `1px solid ${KLEUR.rand}`, background: "#fff", cursor: "pointer" }}
+            >
+              <div style={{ fontSize: 12.5, fontWeight: 600, color: KLEUR.tekst }}>{s.naam}</div>
+              <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>{s.soort}{s.sub ? `  ·  ${s.sub}` : ""}</div>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
