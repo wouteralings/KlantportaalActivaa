@@ -11,8 +11,13 @@
  * endpoint geeft de losse bouwstenen terug, zodat beide combinaties mogelijk zijn zonder
  * herberekening op de server.
  *
- * GET ?maand=YYYY-MM[&scope=alle] → { maand, werkdagen, normPerDag, medewerkers: [{ email, naam,
- *   leidinggevende, parttimeFactor, roosterUren, declarabelDoel, verlofGoedgekeurd, verlofAangevraagd }] }
+ * GET ?maand=YYYY-MM[&scope=alle] → { maand, werkdagen, werkdagenResterend, vandaag, normPerDag,
+ *   medewerkers: [{ email, naam, leidinggevende, parttimeFactor, roosterUren, declarabelDoel,
+ *   verlofGoedgekeurd, verlofAangevraagd, beschikbaar, resterend: { werkdagen, roosterUren, verlof,
+ *   beschikbaar } }] }
+ *
+ * `resterend` = het deel van de periode vanaf vandaag (nul als de periode al voorbij is), zodat een
+ * scherm "nog te doen werk" tegen "nog beschikbare uren" kan zetten.
  *
  * Scoping als bij mw-uren-bezetting: standaard alleen wie de ingelogde medewerker als leidinggevende
  * heeft; een beheerder kan met ?scope=alle iedereen zien.
@@ -56,6 +61,39 @@ function verdeelVerlofOverMaanden(record, jaar) {
 function maandVanNu() {
   const d = new Date();
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}`;
+}
+
+/** Aantal werkdagen (ma-vr) tussen twee ISO-datums, beide inclusief. 0 als van ná tot ligt. */
+function werkdagenTussen(vanISO, totISO) {
+  if (!vanISO || !totISO || vanISO > totISO) return 0;
+  const tot = new Date(`${totISO}T00:00:00Z`);
+  let n = 0;
+  for (let dt = new Date(`${vanISO}T00:00:00Z`); dt <= tot; dt.setUTCDate(dt.getUTCDate() + 1)) {
+    const dow = dt.getUTCDay();
+    if (dow !== 0 && dow !== 6) n++;
+  }
+  return n;
+}
+
+/**
+ * Het deel van de uren van één verlofrecord dat in [van, tot] valt, naar rato van de werkdagen —
+ * zelfde pro-rata-aanpak als verdeelVerlofOverMaanden, maar dan voor een vrij venster (gebruikt voor
+ * het RESTERENDE deel van de periode: van vandaag tot het einde van de maand/het jaar).
+ */
+function verlofUrenInVenster(record, vanISO, totISO) {
+  const urenTot = Number(record && record.aantalUren) || 0;
+  if (!urenTot) return 0;
+  const s = String(record.startdatum || "").slice(0, 10);
+  if (!s) return 0;
+  const eRuw = String(record.einddatum || record.startdatum || "").slice(0, 10);
+  const e = eRuw < s ? s : eRuw;
+  const totaalDagen = werkdagenTussen(s, e);
+  if (!totaalDagen) return 0;
+  const van = s > vanISO ? s : vanISO;
+  const tot = e < totISO ? e : totISO;
+  const dagen = werkdagenTussen(van, tot);
+  if (!dagen) return 0;
+  return urenTot * (dagen / totaalDagen);
 }
 
 async function mijnNaam(req, email) {
@@ -170,11 +208,22 @@ module.exports = metPlanningRecht(async function (context, req) {
       verlof.berekenParttimeFactor(t.medewerker_email).catch(() => 1)
     ));
 
+    // RESTEREND deel van de periode: vanaf vandaag (of vanaf het begin als de periode nog moet
+    // beginnen) tot het einde. Hiermee kan een scherm "nog te doen werk" tegen "nog beschikbare uren"
+    // zetten. Ligt de periode helemaal in het verleden, dan is het resterende deel 0.
+    const vandaag = new Date().toISOString().slice(0, 10);
+    const restVanaf = vandaag > eerste ? vandaag : eerste;
+    const werkdagenResterend = werkdagenTussen(restVanaf, laatste);
+
     const rond = (n) => Math.round(n * 100) / 100;
     const medewerkers = tarieven.map((t, i) => {
       const e = String(t.medewerker_email || "").toLowerCase();
       const factor = factoren[i];
       const roosterUren = rond(werkdagen * normPerDag * factor);
+      const roosterResterend = rond(werkdagenResterend * normPerDag * factor);
+      const verlofResterend = rond(goedgekeurd
+        .filter((a) => String(a.medewerkerEmail || "").toLowerCase() === e && overlaptMaand(a))
+        .reduce((som, a) => som + verlofUrenInVenster(a, restVanaf, laatste), 0));
       // Declarabel-doel = het deel van de rooster-uren dat declarabel (direct) is; de rest is
       // indirecte tijd. Zelfde omrekening als de maandplanning (doelFactor): 80 → 0,8, of 0,8 → 0,8.
       const doel = t.declarabel_doel != null ? Number(t.declarabel_doel) : null;
@@ -201,11 +250,20 @@ module.exports = metPlanningRecht(async function (context, req) {
         declarabelDoel: t.declarabel_doel != null ? Number(t.declarabel_doel) : null,
         verlofGoedgekeurd: rond(goedPerEmail[e] || 0),
         verlofAangevraagd: rond(aangePerEmail[e] || 0),
+        // Bruto beschikbaar in de hele periode = rooster − goedgekeurd verlof (declarabel-doel wordt
+        // hier bewust NIET toegepast; dat is een aparte keuze van het scherm dat het gebruikt).
+        beschikbaar: rond(Math.max(0, roosterUren - (goedPerEmail[e] || 0))),
+        resterend: {
+          werkdagen: werkdagenResterend,
+          roosterUren: roosterResterend,
+          verlof: verlofResterend,
+          beschikbaar: rond(Math.max(0, roosterResterend - verlofResterend)),
+        },
         maanden,
       };
     }).sort((a, b) => String(a.naam).localeCompare(String(b.naam), "nl"));
 
-    context.res = { headers: { "Content-Type": "application/json" }, body: { periode: periodeLabel, maand: heelJaar ? null : periodeLabel, jaar: heelJaar ? jaar : null, werkdagen, normPerDag, medewerkers } };
+    context.res = { headers: { "Content-Type": "application/json" }, body: { periode: periodeLabel, maand: heelJaar ? null : periodeLabel, jaar: heelJaar ? jaar : null, werkdagen, werkdagenResterend, vandaag, normPerDag, medewerkers } };
   } catch (err) {
     if (err.message === "MISSING_CONFIG") {
       context.res = { status: 501, headers: { "Content-Type": "application/json" }, body: { error: "De database of Dynamics-koppeling is nog niet geconfigureerd." } };

@@ -50,6 +50,76 @@ function valtInMaand(r, maand1) {
   return false;
 }
 
+const uurTekst = (n) => `${Number(n || 0).toLocaleString("nl-NL", { maximumFractionDigits: 1 })} u`;
+
+/**
+ * Voortgangsbalk boven de matrix: beschikbare uren in de periode, hoeveel er al is weggewerkt
+ * (afgetekend én daadwerkelijk geschreven), en of het nog te doen werk nog in de resterende uren van
+ * de periode past. Puur informatief — alle cijfers komen uit de indicatie-uren van de planning en de
+ * capaciteit uit rooster/verlof.
+ */
+function VoortgangBalk({ v, periodeLabel, wie }) {
+  const pctGereed = v.ingepland > 0 ? Math.min(100, Math.round((v.gereedUren / v.ingepland) * 100)) : 0;
+  // Past het nog? Nog te doen versus wat er vanaf vandaag nog aan uren in de periode zit.
+  const heeftRest = v.restBeschikbaar != null;
+  const ruimte = heeftRest ? Math.round((v.restBeschikbaar - v.openUren) * 10) / 10 : null;
+  const krap = heeftRest && ruimte < 0;
+  const bijnaKrap = heeftRest && !krap && v.restBeschikbaar > 0 && v.openUren / v.restBeschikbaar > 0.85;
+  const tegel = (label, waarde, kleur, hint) => (
+    <div title={hint} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "7px 11px", background: "#fff", minWidth: 108 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", whiteSpace: "nowrap" }}>{label}</div>
+      <div style={{ fontSize: 14.5, fontWeight: 700, color: kleur || KLEUR.tekst }}>{waarde}</div>
+      {hint ? <div style={{ fontSize: 10.5, color: KLEUR.mutedTekst, whiteSpace: "nowrap" }}>{hint}</div> : null}
+    </div>
+  );
+  return (
+    <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: "12px 14px", background: "#FBFCFB", marginBottom: 12 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "stretch" }}>
+        {v.beschikbaar != null
+          ? tegel("Beschikbaar", uurTekst(v.beschikbaar), KLEUR.tekst, `rooster ${uurTekst(v.roosterUren)}${v.verlof ? ` − verlof ${uurTekst(v.verlof)}` : ""}`)
+          : tegel("Beschikbaar", "—", KLEUR.mutedTekst, "geen rooster/tarief bekend")}
+        {tegel("Ingepland", uurTekst(v.ingepland), KLEUR.blauw, `${v.taken} ${v.taken === 1 ? "taak" : "taken"} in ${periodeLabel}`)}
+        {tegel("Gereed", uurTekst(v.gereedUren), KLEUR.groen, `${v.takenGereed}/${v.taken} taken afgetekend`)}
+        {tegel("Geschreven", uurTekst(v.geschreven), v.geschreven ? KLEUR.groen : KLEUR.mutedTekst, "werkelijk geboekte uren")}
+        {tegel("Nog te doen", uurTekst(v.openUren), v.openUren ? KLEUR.amber : KLEUR.groen, `${v.taken - v.takenGereed} taken open`)}
+        {heeftRest
+          ? tegel("Resterend beschikbaar", uurTekst(v.restBeschikbaar), krap ? KLEUR.rood : bijnaKrap ? KLEUR.amber : KLEUR.groen, `nog ${v.restWerkdagen} werkdag${v.restWerkdagen === 1 ? "" : "en"} in ${periodeLabel}`)
+          : null}
+      </div>
+
+      {/* Voortgang van het afgetekende werk t.o.v. alles wat in deze periode is ingepland. */}
+      {v.ingepland > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ height: 8, borderRadius: 999, background: "#EDEFEA", overflow: "hidden" }}>
+            <div style={{ width: `${pctGereed}%`, height: "100%", background: KLEUR.groen, transition: "width .2s" }} />
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", fontSize: 11.5, color: KLEUR.subtekst, marginTop: 5 }}>
+            <span><strong style={{ color: KLEUR.tekst }}>{pctGereed}%</strong> van het ingeplande werk is afgetekend</span>
+            {heeftRest && (
+              <span style={{ color: krap ? KLEUR.rood : bijnaKrap ? KLEUR.amber : KLEUR.groen, fontWeight: 600 }}>
+                {krap
+                  ? `${uurTekst(Math.abs(ruimte))} meer werk dan er nog beschikbaar is`
+                  : `${uurTekst(ruimte)} ruimte over na het nog te doen werk`}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {v.zonderIndicatie > 0 && (
+        <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 6 }}>
+          {v.zonderIndicatie} {v.zonderIndicatie === 1 ? "taak heeft" : "taken hebben"} geen indicatie-uren — die tellen als 0 mee. Stel ze in bij Beheer → Planning of in de planning-configuratie van de klant.
+        </div>
+      )}
+      {!v.gevonden && (
+        <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 6 }}>
+          Geen rooster/uurtarief gevonden voor {wie}, dus de beschikbare uren kunnen niet worden berekend (Beheer → Uren → Tarieven).
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Statuskleur van één cel (hoofdtaak × klant).
 function celStatus(item) {
   if (!item) return null;
@@ -75,10 +145,13 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
   const [type, setType] = useState("maand"); // maand | jaar
   const [jaar, setJaar] = useState(nu.getFullYear());
   const [maand, setMaand] = useState(nu.getMonth() + 1);
+  // Alleen in de jaar-weergave: het hele jaar in één keer tonen i.p.v. filteren op de ingeplande maand.
+  const [heelJaar, setHeelJaar] = useState(false);
 
   const [config, setConfig] = useState(null);
   const [activiteiten, setActiviteiten] = useState([]);
   const [urenPerBron, setUrenPerBron] = useState({}); // "acc|act|periode" → { uren, aantal } geschreven uren
+  const [capaciteit, setCapaciteit] = useState(null); // { werkdagen, werkdagenResterend, medewerkers: [...] }
   const [urenSchrijvenOpen, setUrenSchrijvenOpen] = useState(false); // uren schrijven zónder alles af te vinken
   const [statussen, setStatussen] = useState([]);      // { sleutel, label, kleur } — beheer-statussen
   const [klantenMap, setKlantenMap] = useState({});
@@ -119,6 +192,17 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
     }
   }, [isBeheerder]);
 
+  // Beschikbare capaciteit in de gekozen periode (rooster − goedgekeurd verlof), plus wat daarvan
+  // resteert vanaf vandaag. Een beheerder kan het werk van iemand anders bekijken en heeft daarvoor
+  // scope=alle nodig; een gewone medewerker krijgt sowieso zichzelf terug.
+  useEffect(() => {
+    const vraag = type === "maand" ? `maand=${jaar}-${pad(maand)}` : `jaar=${jaar}`;
+    fetch(`/api/mw-planning-capaciteit?${vraag}${isBeheerder ? "&scope=alle" : ""}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setCapaciteit(d || null))
+      .catch(() => setCapaciteit(null));
+  }, [type, jaar, maand, isBeheerder]);
+
   useEffect(() => {
     setActieveCel(null);
     fetch(`/api/mw-planning-deelactiviteiten?periode=${periode}`)
@@ -137,7 +221,10 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
   const stFor = (acc, actSleutel, deelSleutel) => status[`${acc}|${actSleutel}|${deelSleutel}`] || null;
 
   // Alleen de aan mij toegewezen hoofdactiviteiten in deze periode → per (klant × hoofdtaak) één item.
-  const items = useMemo(() => {
+  // `basisItems` is de VOLLEDIGE werkvoorraad van deze persoon in deze periode: nog zonder de
+  // klantgroep-/status-verfijning, zodat de voortgangsbalk (werklast vs. capaciteit) niet meebeweegt
+  // met een filter — je wilt dan nog steeds zien hoeveel werk er in totaal ligt.
+  const basisItems = useMemo(() => {
     if (!config || !bekekenLc) return [];
     const seen = new Set();
     const rijen = [];
@@ -152,16 +239,12 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
         else if (jaar < Number(String(r.vanaf).slice(0, 4))) continue;
       }
       if (type === "maand" && !valtInMaand(r, maand)) continue;
-      // Jaar-weergave: filter op de ingeplande maand (uitvoermaand) — net als de maand-weergave, maar dan
-      // voor jaartaken. Taken zónder ingestelde uitvoermaand tonen we altijd (ze horen bij geen enkele
-      // maand en zouden anders overal verdwijnen), gemarkeerd als "geen maand".
-      if (type === "jaar" && r.uitvoerMaand && Number(r.uitvoerMaand) !== maand) continue;
+      // (De jaar-weergave filtert pas hieronder op de ingeplande maand — de werkvoorraad zelf is het
+      // hele jaar, zodat die tegen de jaarcapaciteit gezet kan worden.)
       const acc = String(r.klantAccountId || "").toLowerCase();
       const klant = klantenMap[acc] || null;
       const wie = (r.toegewezenAan || "").trim() || teamPersoon(klant, act.rol);
       if (String(wie || "").trim().toLowerCase() !== bekekenLc) continue;
-      // Klantgroep-verfijning: beperk hetzelfde werk tot de klanten in de gekozen groep.
-      if (groepActief && (klant?.groepsnaam || "") !== bekekenGroep) continue;
       const dubbelKey = `${acc}|${act.sleutel}`;
       if (seen.has(dubbelKey)) continue;
       seen.add(dubbelKey);
@@ -170,15 +253,6 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
       const done = total ? eff.filter((d) => stFor(acc, act.sleutel, d.sleutel)?.gereed).length : 0;
       const gereed = total ? done === total : !!stFor(acc, act.sleutel, "__hoofd__")?.gereed;
       const statusKey = (status[`${acc}|${act.sleutel}|__status__`] || {}).statusKey || "";
-      if (statusFilter) {
-        // Eén filter over twee soorten status: de afgeleide (uit de deelstappen) en de handmatige
-        // (het beheer-statuslabel). "__geen__" = juist de taken zónder handmatig label.
-        const afgeleid = gereed ? "gereed" : done > 0 ? "bezig" : "open";
-        const past = statusFilter === "__geen__" ? !statusKey
-          : AFGELEIDE_STATUSSEN.some(([k]) => k === statusFilter) ? afgeleid === statusFilter
-          : statusKey === statusFilter;
-        if (!past) continue;
-      }
       rijen.push({
         key: dubbelKey, acc, accountId: klant?.accountId || r.klantAccountId || "", actSleutel: act.sleutel, act, eff, done, total, gereed, uitvoerMaand: r.uitvoerMaand,
         statusKey,
@@ -190,7 +264,60 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
       });
     }
     return rijen;
-  }, [config, activiteitById, klantenMap, klantDeelstappen, status, type, maand, bekekenLc, groepActief, bekekenGroep, statusFilter]);
+  }, [config, activiteitById, klantenMap, klantDeelstappen, status, type, maand, bekekenLc]);
+
+  // De getoonde items: de werkvoorraad met de maand-, klantgroep- en statusverfijning erop.
+  const items = useMemo(() => basisItems.filter((it) => {
+    // Jaar-weergave: filter op de ingeplande maand (uitvoermaand) — net als de maand-weergave, maar dan
+    // voor jaartaken. Taken zónder ingestelde uitvoermaand tonen we altijd (ze horen bij geen enkele
+    // maand en zouden anders overal verdwijnen), gemarkeerd als "geen maand". Met "Heel jaar" aan
+    // vervalt dit filter.
+    if (type === "jaar" && !heelJaar && it.uitvoerMaand && Number(it.uitvoerMaand) !== maand) return false;
+    if (groepActief && it.klantgroep !== bekekenGroep) return false;
+    if (statusFilter) {
+      // Eén filter over twee soorten status: de afgeleide (uit de deelstappen) en de handmatige
+      // (het beheer-statuslabel). "__geen__" = juist de taken zónder handmatig label.
+      const afgeleid = it.gereed ? "gereed" : it.done > 0 ? "bezig" : "open";
+      const past = statusFilter === "__geen__" ? !it.statusKey
+        : AFGELEIDE_STATUSSEN.some(([k]) => k === statusFilter) ? afgeleid === statusFilter
+        : it.statusKey === statusFilter;
+      if (!past) return false;
+    }
+    return true;
+  }), [basisItems, type, heelJaar, maand, groepActief, bekekenGroep, statusFilter]);
+
+  /**
+   * Voortgang & capaciteit van de bekeken persoon in deze periode (maand of heel jaar):
+   *   - beschikbaar        : rooster − goedgekeurd verlof (uit /api/mw-planning-capaciteit)
+   *   - ingepland          : som van de indicatie-uren van al zijn/haar taken in deze periode
+   *   - gereed / geschreven: wat er al is afgetekend resp. daadwerkelijk op geschreven
+   *   - nog te doen        : indicatie-uren van de nog niet afgeronde taken
+   *   - resterend beschikbaar: de uren die er vanaf vandaag nog in de periode zitten
+   * Bewust op basis van `basisItems` (de hele werkvoorraad), zodat de cijfers niet meebewegen met de
+   * zoek-/status-/klantgroepfilters.
+   */
+  const voortgang = useMemo(() => {
+    const mij = (capaciteit && capaciteit.medewerkers || []).find((m) => String(m.naam || "").trim().toLowerCase() === bekekenLc) || null;
+    let ingepland = 0, gereedUren = 0, openUren = 0, geschreven = 0, zonderIndicatie = 0, takenGereed = 0;
+    for (const it of basisItems) {
+      const u = Number(it.indicatieUren) || 0;
+      if (it.indicatieUren == null) zonderIndicatie++;
+      ingepland += u;
+      if (it.gereed) { takenGereed++; gereedUren += u; } else openUren += u;
+      geschreven += (urenPerBron[`${it.acc}|${it.actSleutel}|${periode}`] || {}).uren || 0;
+    }
+    const rond = (n) => Math.round(n * 10) / 10;
+    return {
+      gevonden: !!mij,
+      taken: basisItems.length, takenGereed, zonderIndicatie,
+      ingepland: rond(ingepland), gereedUren: rond(gereedUren), openUren: rond(openUren), geschreven: rond(geschreven),
+      beschikbaar: mij ? rond(Number(mij.beschikbaar) || 0) : null,
+      roosterUren: mij ? rond(Number(mij.roosterUren) || 0) : null,
+      verlof: mij ? rond(Number(mij.verlofGoedgekeurd) || 0) : null,
+      restBeschikbaar: mij && mij.resterend ? rond(Number(mij.resterend.beschikbaar) || 0) : null,
+      restWerkdagen: mij && mij.resterend ? mij.resterend.werkdagen : (capaciteit ? capaciteit.werkdagenResterend : null),
+    };
+  }, [basisItems, urenPerBron, periode, capaciteit, bekekenLc]);
 
   // Kolommen: de hoofdtaken die in mijn werk voorkomen (op definitie-volgorde).
   const alleTaken = useMemo(() => {
@@ -334,9 +461,14 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
           <div style={{ fontSize: 14, fontWeight: 700, minWidth: type === "maand" ? 150 : 60, textAlign: "center" }}>{type === "maand" ? `${MAANDEN[maand - 1]} ${jaar}` : jaar}</div>
           <button onClick={volgende} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, background: "#fff", cursor: "pointer", color: KLEUR.subtekst }}><ChevronRight size={16} /></button>
           {type === "jaar" && (
-            <select value={maand} onChange={(e) => setMaand(Number(e.target.value))} title="Filter op ingeplande maand (standaard: huidige maand)" style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "6px 8px", fontSize: 12.5, background: "#fff", cursor: "pointer" }}>
+            <select value={maand} onChange={(e) => setMaand(Number(e.target.value))} disabled={heelJaar} title={heelJaar ? "Uit: je ziet nu het hele jaar" : "Filter op ingeplande maand (standaard: huidige maand)"} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "6px 8px", fontSize: 12.5, background: heelJaar ? "#F4F5F2" : "#fff", color: heelJaar ? KLEUR.mutedTekst : KLEUR.tekst, cursor: heelJaar ? "default" : "pointer" }}>
               {MAANDEN.map((m, idx) => <option key={idx} value={idx + 1}>{m}</option>)}
             </select>
+          )}
+          {type === "jaar" && (
+            <label title="Toon alle jaartaken van dit jaar in één keer, ongeacht de ingeplande maand" style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: "pointer", fontSize: 12, fontWeight: heelJaar ? 700 : 400, color: heelJaar ? KLEUR.blauw : KLEUR.subtekst, whiteSpace: "nowrap" }}>
+              <input type="checkbox" checked={heelJaar} onChange={(e) => setHeelJaar(e.target.checked)} /> Heel jaar
+            </label>
           )}
         </div>
       </div>
@@ -444,6 +576,15 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
         </div>
       )}
 
+      {/* Voortgang & capaciteit van deze persoon in deze periode */}
+      {!laden && basisItems.length > 0 && (
+        <VoortgangBalk
+          v={voortgang}
+          periodeLabel={type === "maand" ? `${MAANDEN[maand - 1]} ${jaar}` : String(jaar)}
+          wie={isBeheerder && bekeken ? bekekenNaam : "jou"}
+        />
+      )}
+
       <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 10 }}>
         <strong style={{ color: KLEUR.tekst }}>{zichtbareRijen.length}</strong> {zichtbareRijen.length === 1 ? "klant" : "klanten"} · {gereedCellen}/{totaalCellen} taken gereed
       </div>
@@ -481,22 +622,23 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
                       const st = celStatus(it);
                       if (!st) return <td key={t.sleutel} style={{ ...cel, textAlign: "center", color: KLEUR.rand }}>—</td>;
                       const isActief = celOpen && actieveCel.actSleutel === t.sleutel;
+                      // Heeft de taak een handmatig statuslabel? Dan is DAT de cel — het vervangt de
+                      // afgeleide "Open/Bezig/Gereed" (staat er dus niet meer als los badge onder).
+                      // De voortgang uit de deelstappen blijft als teller (2/3) in dezelfde badge staan.
+                      const label = it.statusKey ? statusInfo[it.statusKey] : null;
+                      const celKleur = label ? (label.kleur || KLEUR.mutedTekst) : st.kleur;
+                      const celBg = label ? `${label.kleur || KLEUR.mutedTekst}18` : st.bg;
+                      const celRand = label ? `${label.kleur || KLEUR.mutedTekst}55` : st.rand;
+                      const celTekst = label ? `${label.label}${it.total ? ` · ${it.done}/${it.total}` : ""}` : st.label;
                       return (
                         <td key={t.sleutel} style={{ ...cel, textAlign: "center" }}>
                           <button
                             onClick={() => setActieveCel({ acc: rij.acc, actSleutel: t.sleutel })}
-                            title={`${t.label} — ${rij.klantnaam} · aftekenen`}
-                            style={{ display: "inline-flex", alignItems: "center", gap: 5, minWidth: 62, justifyContent: "center", padding: "4px 10px", borderRadius: 20, background: st.bg, color: st.kleur, border: `1px solid ${isActief ? st.kleur : st.rand}`, fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
+                            title={label ? `${t.label} — ${rij.klantnaam} · status: ${label.label} (voortgang: ${STATUS_LABEL[st.kind]}) · aftekenen` : `${t.label} — ${rij.klantnaam} · aftekenen`}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 5, minWidth: 62, justifyContent: "center", padding: "4px 10px", borderRadius: 20, background: celBg, color: celKleur, border: `1px solid ${isActief ? celKleur : celRand}`, fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
                           >
-                            {st.kind === "gereed" ? <CheckCircle2 size={12} /> : null}{st.label}
+                            {st.kind === "gereed" ? <CheckCircle2 size={12} /> : null}{celTekst}
                           </button>
-                          {it.statusKey && statusInfo[it.statusKey] && (
-                            <div style={{ marginTop: 3 }}>
-                              <span style={{ display: "inline-block", fontSize: 9.5, fontWeight: 700, color: statusInfo[it.statusKey].kleur || KLEUR.mutedTekst, background: `${statusInfo[it.statusKey].kleur || KLEUR.mutedTekst}18`, border: `1px solid ${statusInfo[it.statusKey].kleur || KLEUR.rand}55`, borderRadius: 20, padding: "1px 7px", whiteSpace: "nowrap" }}>
-                                {statusInfo[it.statusKey].label}
-                              </span>
-                            </div>
-                          )}
                           {type === "jaar" && (
                             <div style={{ fontSize: 10, color: it.uitvoerMaand ? KLEUR.mutedTekst : KLEUR.amber, marginTop: 3, whiteSpace: "nowrap" }}>
                               {it.uitvoerMaand ? MAAND_KORT[it.uitvoerMaand - 1] : "geen maand"}
@@ -514,7 +656,7 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
       )}
 
       <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 10, lineHeight: 1.5 }}>
-        Klanten in de rijen, jouw hoofdtaken in de kolommen. De kleur toont de status: <span style={{ color: KLEUR.rood, fontWeight: 700 }}>open</span>, <span style={{ color: KLEUR.amber, fontWeight: 700 }}>bezig</span> of <span style={{ color: KLEUR.groen, fontWeight: 700 }}>gereed</span>. Klik een cel om af te tekenen; is alles gereed, dan schrijf je gelijk je uren op de klant. In de jaar-weergave filter je met de maand-keuze (standaard de huidige maand) op de ingeplande maand; jaartaken zonder ingestelde maand blijven altijd staan.
+        Klanten in de rijen, jouw hoofdtaken in de kolommen. De kleur toont de status: <span style={{ color: KLEUR.rood, fontWeight: 700 }}>open</span>, <span style={{ color: KLEUR.amber, fontWeight: 700 }}>bezig</span> of <span style={{ color: KLEUR.groen, fontWeight: 700 }}>gereed</span>. Kies je in een cel zelf een <strong>statuslabel</strong> (bijv. "Wacht op klant"), dan komt dat label mét zijn eigen kleur in de plaats van open/bezig/gereed; de voortgang uit de deelstappen blijft als teller zichtbaar. Klik een cel om af te tekenen, je status te kiezen of gelijk je uren op de klant te schrijven. In de jaar-weergave filter je met de maand-keuze (standaard de huidige maand) op de ingeplande maand — vink <strong>Heel jaar</strong> aan om alle jaartaken in één keer te zien; jaartaken zonder ingestelde maand blijven altijd staan.
       </div>
 
       {/* Aftekenen-popup: deelstappen + status per taak; is de taak gereed, dan gelijk uren schrijven */}
