@@ -25,6 +25,13 @@ const KLEUR = {
   rand: "#E2E4DF",
   lichtblauw: "#EAF2F8",
   rood: "#B23B3B",
+  // groen/amber werden al gebruikt (o.a. de "Toevoegen aan Dynamics"-knop en statusteksten) maar
+  // stonden hier nog niet — die vielen daardoor terug op géén kleur. Zelfde tinten als de rest van
+  // het portaal (zie MijnWerk.jsx / PlanningInstellingenBeheer.jsx).
+  groen: "#2E7D46",
+  amber: "#A9660C",
+  amberBg: "#FDF4E3",
+  amberRand: "#EBD9B4",
 };
 
 // De vier vaste BTW-categorieën (moet overeenkomen met de CHECK-constraint in de database).
@@ -336,6 +343,10 @@ export default function BeheerPortaal() {
   const [taaksoortenOpties, setTaaksoortenOpties] = useState(null); // null = laden
   const [taaksoortenConfig, setTaaksoortenConfig] = useState({});
   const [taaksoortenConfiguratieNodig, setTaaksoortenConfiguratieNodig] = useState(false);
+  // Aantal OPENSTAANDE taken per soort (kantoorbreed, uit Dynamics) — { "<waarde>": n }. Best-effort:
+  // lukt de telling niet, dan blijft dit leeg en tonen we alleen de reden in de kop.
+  const [taaksoortOpen, setTaaksoortOpen] = useState({});
+  const [taaksoortOpenFout, setTaaksoortOpenFout] = useState("");
   const [taaksoortenFout, setTaaksoortenFout] = useState("");
   // Urencodes (Beheer → Uren): keuzelijst voor de standaard-urencode per taaksoort.
   const [urencodes, setUrencodes] = useState([]);
@@ -532,6 +543,8 @@ export default function BeheerPortaal() {
         setTaaksoortenOpties(d.opties || []);
         setTaaksoortenConfig(d.config || {});
         setTaaksoortenConfiguratieNodig(!!d.configuratieNodig);
+        setTaaksoortOpen(d.openAantallen || {});
+        setTaaksoortOpenFout(d.aantallenFout || "");
         if (d.error) setTaaksoortenFout(d.error);
       })
       .catch(() => { setTaaksoortenOpties([]); setTaaksoortenFout("Kon de taaksoorten niet ophalen."); });
@@ -3080,8 +3093,16 @@ export default function BeheerPortaal() {
             meetelt; die is per losse taak te overschrijven in het Taken-overzicht. Met "Toevoegen aan
             Dynamics" breid je de keuzelijst uit met een nieuwe soort. Zet "Bevroren" aan om een soort uit
             álle keuzelijsten te halen (klantportaal, doorzetten, dossier-taken) — bestaande taken houden
-            hun soort en er wordt niets in Dynamics verwijderd.
+            hun soort en er wordt niets in Dynamics verwijderd. Onder de naam kun je een korte{" "}
+            <strong>toelichting</strong> kwijt (waar is deze soort voor bedoeld?) — die is alleen hier
+            zichtbaar, niet voor de cliënt. De kolom <strong>Open</strong> toont hoeveel taken van die
+            soort kantoorbreed nog openstaan, zodat je ziet welke soorten écht in gebruik zijn.
           </div>
+          {taaksoortOpenFout && (
+            <div style={{ fontSize: 12, color: KLEUR.amber, background: KLEUR.amberBg, border: `1px solid ${KLEUR.amberRand}`, borderRadius: 8, padding: "8px 10px", marginBottom: 12 }}>
+              De teller met openstaande taken kon niet worden opgehaald; de kolom "Open" blijft daarom leeg. ({taaksoortOpenFout})
+            </div>
+          )}
 
           {taaksoortenOpties === null ? (
             <div style={{ fontSize: 13, color: KLEUR.mutedTekst }}>Laden…</div>
@@ -3128,8 +3149,9 @@ export default function BeheerPortaal() {
                 {soortToevoegenStatus === "gelukt" && <span style={{ fontSize: 12, color: KLEUR.groen }}>Toegevoegd.</span>}
                 {soortToevoegenStatus === "fout" && <span style={{ fontSize: 12, color: KLEUR.rood }}>{soortToevoegenFout || "Toevoegen mislukt."}</span>}
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto auto auto auto", gap: "0 18px", alignItems: "center" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto auto auto auto auto", gap: "0 18px", alignItems: "center" }}>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}` }}>Soort</div>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }} title={taaksoortOpenFout ? `Aantal openstaande taken kon niet worden geteld: ${taaksoortOpenFout}` : "Aantal nog niet afgeronde taken van deze soort, kantoorbreed. Zo zie je welke soorten écht in gebruik zijn."}>Open{taaksoortOpenFout ? " ⚠" : ""}</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }} title="Standaard-tijd per taak van deze soort, voor de planning/bezetting. Per losse taak overschrijfbaar in het Taken-overzicht.">Std. uren</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }} title="Urencode waarop de uren van taken van deze soort geschreven worden. Staat voorgevuld bij 'Uren schrijven' vanuit een taak; per losse taak overschrijfbaar in het Taken-overzicht.">Urencode</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Zichtbaar</div>
@@ -3144,7 +3166,8 @@ export default function BeheerPortaal() {
                   const rijRand = cfg.vervolgtaakBackoffice ? "none" : `1px solid ${KLEUR.rand}`;
                   return (
                     <React.Fragment key={optie.waarde}>
-                      <div style={{ fontSize: 13, padding: "10px 0", borderBottom: rijRand, display: "flex", alignItems: "center", gap: 8, color: cfg.bevroren ? KLEUR.mutedTekst : KLEUR.tekst }}>
+                      <div style={{ fontSize: 13, padding: "10px 0", borderBottom: rijRand, display: "flex", flexDirection: "column", gap: 3, color: cfg.bevroren ? KLEUR.mutedTekst : KLEUR.tekst }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <input
                           value={soortNaam[String(optie.waarde)] ?? optie.label}
                           onChange={(e) => setSoortNaam((h) => ({ ...h, [String(optie.waarde)]: e.target.value }))}
@@ -3163,6 +3186,31 @@ export default function BeheerPortaal() {
                           <span title={soortNaamStatus[String(optie.waarde)]} style={{ fontSize: 11, color: KLEUR.rood, fontWeight: 600 }}>niet hernoemd</span>
                         )}
                         {cfg.bevroren && <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.rood, background: `${KLEUR.rood}14`, borderRadius: 999, padding: "1px 8px" }}>bevroren</span>}
+                      </div>
+                        {/* Eigen toelichting: waar is deze soort voor bedoeld? Alleen voor intern gebruik
+                            in dit beheerscherm — de cliënt ziet hem niet en Dynamics blijft ongemoeid. */}
+                        <input
+                          value={cfg.toelichting ?? ""}
+                          onChange={(e) => wijzigTaaksoort(optie.waarde, "toelichting", e.target.value, optie.label)}
+                          onFocus={(e) => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.borderColor = KLEUR.rand; }}
+                          onBlur={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "transparent"; }}
+                          placeholder="Toelichting — waar is deze soort voor?"
+                          title="Korte omschrijving van deze taaksoort, voor jezelf en je collega's. Wordt alleen hier getoond; de cliënt ziet hem niet en er verandert niets in Dynamics."
+                          style={{ maxWidth: 420, border: "1px solid transparent", borderRadius: 6, padding: "3px 7px", fontSize: 11.5, background: "transparent", color: KLEUR.mutedTekst, fontStyle: cfg.toelichting ? "normal" : "italic" }}
+                        />
+                      </div>
+                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: rijRand }}>
+                        {(() => {
+                          const n = taaksoortOpen[String(optie.waarde)] || 0;
+                          return (
+                            <span
+                              title={n > 0
+                                ? `${n} openstaande ${n === 1 ? "taak" : "taken"} van deze soort (kantoorbreed, nog niet afgerond)`
+                                : "Geen openstaande taken van deze soort"}
+                              style={{ fontSize: 12, fontWeight: n > 0 ? 700 : 400, color: n > 0 ? KLEUR.tekst : KLEUR.mutedTekst, background: n > 0 ? KLEUR.lichtblauw : "transparent", border: `1px solid ${n > 0 ? KLEUR.rand : "transparent"}`, borderRadius: 999, padding: "2px 9px", whiteSpace: "nowrap" }}
+                            >{n > 0 ? n : "–"}</span>
+                          );
+                        })()}
                       </div>
                       <div style={{ textAlign: "center", padding: "10px 0", borderBottom: rijRand }}>
                         <input

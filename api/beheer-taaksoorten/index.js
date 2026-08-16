@@ -42,6 +42,34 @@ async function haalOpties(resource, token) {
   }));
 }
 
+/**
+ * Hoeveel OPENSTAANDE taken (statecode 0 = Open) er per soort zijn, kantoorbreed. Eén aggregatie-
+ * query op Dataverse i.p.v. alle taken ophalen. Best-effort: lukt het niet (soort-veld is een
+ * multiselect, of de aggregatie loopt tegen de 50.000-recordgrens), dan geven we {} terug en toont
+ * het beheerscherm gewoon geen tellers — de rest van het scherm blijft werken.
+ */
+async function haalOpenAantallen(resource, token) {
+  const url = `${resource}/api/data/v9.2/tasks?$apply=filter(statecode eq 0)/groupby((${SOORT_VELD}),aggregate($count as aantal))`;
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+      "OData-MaxVersion": "4.0",
+      "OData-Version": "4.0",
+      Prefer: "odata.maxpagesize=5000",
+    },
+  });
+  if (!res.ok) throw new Error(`Tellen mislukt: ${await res.text()}`);
+  const data = await res.json();
+  const uit = {};
+  for (const rij of data.value || []) {
+    const soort = rij && rij[SOORT_VELD];
+    if (soort === null || soort === undefined || soort === "") continue;
+    uit[String(soort)] = (uit[String(soort)] || 0) + (Number(rij.aantal) || 0);
+  }
+  return uit;
+}
+
 module.exports = async function (context, req) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   if (!resource) {
@@ -63,6 +91,15 @@ module.exports = async function (context, req) {
     const token = await haalDynamicsToken();
     const opties = await haalOpties(resource, token);
     const instellingen = await haalInstellingen().catch(() => ({}));
+    // Tellers zijn een extraatje: nooit de hele lijst laten vallen als de aggregatie faalt.
+    let openAantallen = {};
+    let aantallenFout = "";
+    try {
+      openAantallen = await haalOpenAantallen(resource, token);
+    } catch (e) {
+      aantallenFout = String((e && e.message) || e).slice(0, 300);
+      context.log && context.log.warn && context.log.warn("Taaksoort-aantallen niet gelukt:", aantallenFout);
+    }
     context.res = {
       headers: { "Content-Type": "application/json" },
       body: {
@@ -70,6 +107,8 @@ module.exports = async function (context, req) {
         veld: SOORT_VELD,
         opties,
         config: instellingen.taaksoorten || {},
+        openAantallen,
+        aantallenFout,
       },
     };
   } catch (err) {
