@@ -113,24 +113,31 @@ async function haalSubmap() {
 }
 
 /**
- * Vertaalt de invulgegevens van het scherm naar catalogusvelden van het notulendossier. Alleen
- * velden die in de catalogus van deze soort bestaan worden gezet — werkDossierBij negeert de rest
- * toch, maar zo blijft het hier ook leesbaar wat er wél wordt weggeschreven.
+ * Bouwt de velden voor het notulendossier. Basis is wat het opstel-scherm meestuurt: de velden uit de
+ * veldencatalogus van de soort Notulen, zoals in Beheer → Dossiers ingedeeld (`dossierVelden`) — dus
+ * ook zelf aangemaakte velden. Alleen sleutels die écht in de catalogus staan gaan mee; lookups slaan
+ * we over (die koppelen aan een Dynamics-record en lopen via het dossier zelf).
+ *
+ * Daar bovenop zet dit endpoint wat het scherm apart beheert: de vergaderdatum als "Datum actie" en
+ * de aandeel-percentages uit de aandeelhoudersrijen (cr283_aandeelhouders1..5).
  *
  * De NAMEN van de aandeelhouders gaan hier bewust NIET in: cr283_aandeelhouder1..5 zijn lookups naar
  * relaties, en een aandeelhouder in de notulen hoeft geen relatie in Dynamics te zijn. De namen
  * staan in het stuk zelf en in notulen-opgesteld.json (zie _gedeeld/notulenStore.js).
  */
-function bouwDossierVelden({ velden, aandeelhouders, datum }) {
-  const v = velden || {};
+function bouwDossierVelden({ soort, dossierVelden, aandeelhouders, datum }) {
   const uit = {};
-  if (veiligeStr(v.directeur)) uit.directeur = veiligeStr(v.directeur);
+  const catalogus = Array.isArray(soort && soort.catalogus) ? soort.catalogus : [];
+  if (dossierVelden && typeof dossierVelden === "object") {
+    for (const [key, waarde] of Object.entries(dossierVelden)) {
+      if (!key || key.startsWith("__")) continue;
+      const def = catalogus.find((v) => v.key === key);
+      if (!def || def.type === "lookup") continue;
+      if (waarde === undefined || waarde === null || waarde === "") continue;
+      uit[key] = waarde;
+    }
+  }
   if (datum) uit.datumactie = datum;
-  const bedrag = getal(v.bedrag);
-  if (bedrag !== null) uit.bedrag = bedrag;
-  const percentage = getal(v.percentage);
-  if (percentage !== null) uit.percentage = percentage;
-  if (veiligeStr(v.toelichting)) { uit.toelichting = veiligeStr(v.toelichting); uit.extratoelichting = true; }
   // Aandeel-percentages: cr283_aandeelhouders1..5 (de catalogus kent er vijf).
   (Array.isArray(aandeelhouders) ? aandeelhouders : []).slice(0, 5).forEach((r, i) => {
     const pct = getal(r && r.percentage);
@@ -201,7 +208,7 @@ module.exports = async function (context, req) {
     const token = await haalDynamicsToken();
 
     // 1. Dossier: bestaand bijwerken (opnieuw opslaan) of een nieuw notulendossier aanmaken.
-    const dossierVelden = bouwDossierVelden({ velden: body.velden, aandeelhouders: body.aandeelhouders, datum });
+    const dossierVelden = bouwDossierVelden({ soort, dossierVelden: body.dossierVelden, aandeelhouders: body.aandeelhouders, datum });
     let dossierId = veiligeStr(body.dossierId);
     if (dossierId) {
       await werkDossierBij(resource, token, soort, dossierId, { velden: dossierVelden });
@@ -234,6 +241,7 @@ module.exports = async function (context, req) {
       await bewaar({
         dossierId, accountId, klantnaam, modelNaam, datum,
         velden: body.velden || {},
+        dossierVelden: body.dossierVelden || {},
         aandeelhouders: Array.isArray(body.aandeelhouders) ? body.aandeelhouders : [],
         tekst: veiligeStr(body.tekst),
         pdfUrl: sharepoint.url || "",

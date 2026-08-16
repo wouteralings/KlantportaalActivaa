@@ -98,6 +98,9 @@ async function bewaar(record) {
     modelNaam: record.modelNaam || bestaand.modelNaam || "",
     datum: record.datum || bestaand.datum || "",
     velden: record.velden || bestaand.velden || {},
+    // De dossiervelden (catalogussleutel → waarde) zoals in het opstel-scherm ingevuld — nodig om
+    // een stuk te kunnen heropenen met alles er nog in, ook zelf aangemaakte velden.
+    dossierVelden: record.dossierVelden || bestaand.dossierVelden || {},
     aandeelhouders: Array.isArray(record.aandeelhouders) ? record.aandeelhouders : (bestaand.aandeelhouders || []),
     tekst: record.tekst != null ? String(record.tekst) : (bestaand.tekst || ""),
     pdfUrl: record.pdfUrl || bestaand.pdfUrl || "",

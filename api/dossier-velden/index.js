@@ -107,5 +107,25 @@ module.exports = async function (context, req) {
   // kiezen (zie het Review-blok in DossierIndelingBeheer.jsx). Zelfde lijst als het dossierdetail.
   const sjablonen = await haalSjablonenVoor(soort.key);
 
-  context.res = { headers: { "Content-Type": "application/json" }, body: { soort: soort.key, catalogus, picklistOpties, standaardIndeling: standaardIndelingVoor(soort), statusOpties: soort.statusOpties || [], sjablonen } };
+  // De ACTUELE indeling (de secties/volgorde/verborgen/voorwaarden zoals in Beheer → Dossiers
+  // ingesteld, met de standaardindeling als terugval) — zodat een scherm dat velden toont zonder een
+  // bestaand dossier (zie "Notulen opstellen") dezelfde rubrieken en dezelfde "alleen tonen als"-
+  // regels aanhoudt als het dossierdetail. Dezelfde samenstelling als haalIndeling() in
+  // api/medewerker-dossier; die blijft daar leidend voor het dossier zelf.
+  const standaard = standaardIndelingVoor(soort);
+  let indeling = standaard;
+  try {
+    const { dossierIndeling } = await haalInstellingen();
+    const eigen = dossierIndeling && dossierIndeling[soortKey];
+    indeling = {
+      secties: eigen && Array.isArray(eigen.secties) && eigen.secties.length ? eigen.secties : standaard.secties,
+      verborgen: eigen && Array.isArray(eigen.verborgen) ? eigen.verborgen : standaard.verborgen,
+      voorwaarden: eigen && eigen.voorwaarden && typeof eigen.voorwaarden === "object" ? eigen.voorwaarden : standaard.voorwaarden,
+      alleenLezen: eigen && Array.isArray(eigen.alleenLezen) ? eigen.alleenLezen : standaard.alleenLezen,
+    };
+  } catch {
+    // Best-effort: zonder leesbare instellingen de standaardindeling.
+  }
+
+  context.res = { headers: { "Content-Type": "application/json" }, body: { soort: soort.key, catalogus, picklistOpties, standaardIndeling: standaard, indeling, statusOpties: soort.statusOpties || [], sjablonen } };
 };

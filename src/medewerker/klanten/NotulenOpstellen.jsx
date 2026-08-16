@@ -6,6 +6,8 @@ import {
 import { ontleedDocument, heeftEigenKop, blokkenNaarHtml, AFDRUK_CSS } from "../documentOpmaak";
 import { NOTULEN_SJABLONEN } from "../../beheer/notulenSjablonen";
 import { useMijnNaam } from "../MijnFilter";
+import { VeldInvoer, maakZichtbaarheid } from "../dossierVeldInvoer";
+import { normaliseerSleutel, vulSjabloonIn, bouwMergeWaarden } from "../dossierMerge";
 
 /**
  * Notulen opstellen — medewerkersportaal → Klantoverzicht → Notulen → "Notulen opstellen".
@@ -33,18 +35,6 @@ const KLEUR = {
 };
 
 function veiligeStr(v) { return String(v == null ? "" : v).trim(); }
-function normaliseerSleutel(s) { return String(s == null ? "" : s).toLowerCase().replace(/[^a-z0-9]/g, ""); }
-
-/** {{sleutel|LABEL}} → waarde, of een zichtbare invulplek [LABEL] als er nog niets is ingevuld. */
-function vulSjabloonIn(tekst, waarden) {
-  return String(tekst || "").replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*(?:\|\s*([^}]*?)\s*)?\}\}/g, (_, sleutel, label) => {
-    const key = normaliseerSleutel(sleutel);
-    const waarde = Object.prototype.hasOwnProperty.call(waarden, key) ? String(waarden[key] == null ? "" : waarden[key]).trim() : "";
-    if (waarde) return waarde;
-    const plek = (label && label.trim()) || String(sleutel).replace(/[_.-]+/g, " ").toUpperCase();
-    return `[${plek}]`;
-  });
-}
 
 function langeDatum(iso) {
   if (!iso) return "";
@@ -57,13 +47,7 @@ function vandaagISO() {
   const p = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
-/** "25000" → "25.000"; laat tekst die geen getal is ongemoeid (bijv. "25.000,50" of leeg). */
-function bedragTekst(v) {
-  const s = veiligeStr(v);
-  if (!s) return "";
-  const n = Number(s.replace(/\./g, "").replace(",", "."));
-  return Number.isFinite(n) ? n.toLocaleString("nl-NL", { maximumFractionDigits: 2 }) : s;
-}
+/** Percentage netjes tonen ("50" → "50", "12.5" → "12,5"); geen getal = ongemoeid laten. */
 function percentageTekst(v) {
   const s = veiligeStr(v);
   if (!s) return "";
@@ -104,15 +88,20 @@ export default function NotulenOpstellen({ onTerug }) {
   const [sjabloonId, setSjabloonId] = useState("");
   const [sjabloonZoek, setSjabloonZoek] = useState("");
 
-  // Invulgegevens van de vergadering.
+  // Invulgegevens die het scherm zelf beheert (geen kolom in Dynamics, of hier bewust anders):
+  // vestigingsplaats en notulist bestaan niet als dossierveld, de vergaderdatum is de periode van het
+  // dossier, en de aandeelhouders vullen we met naam + aandeel in (Dynamics heeft alleen percentages).
   const [vestigingsplaats, setVestigingsplaats] = useState("");
   const [datumactie, setDatumactie] = useState(vandaagISO());
-  const [directeur, setDirecteur] = useState("");
   const [notulist, setNotulist] = useState("");
-  const [bedrag, setBedrag] = useState("");
-  const [percentage, setPercentage] = useState("");
-  const [toelichting, setToelichting] = useState("");
   const [aandeelhouders, setAandeelhouders] = useState([{ naam: "", percentage: "100" }]);
+
+  // De dossiervelden van de soort Notulen (Beheer → Dossiers): catalogus, keuzelijst-opties en de
+  // indeling (rubrieken, volgorde, verborgen velden, "alleen tonen als"-regels).
+  const [catalogus, setCatalogus] = useState([]);
+  const [picklistOpties, setPicklistOpties] = useState({});
+  const [indeling, setIndeling] = useState({ secties: [], verborgen: [], voorwaarden: {}, alleenLezen: [] });
+  const [veldenState, setVeldenState] = useState({}); // catalogussleutel → waarde
 
   // Vrije tekst: het gekozen model, zelf bij te schaven vóór afdrukken. Leeg = het model volgen.
   const [eigenTekst, setEigenTekst] = useState("");
@@ -129,12 +118,30 @@ export default function NotulenOpstellen({ onTerug }) {
   const levend = useRef(true);
   useEffect(() => () => { levend.current = false; }, []);
 
-  // Modellen: uit Beheer → Dossiers (soort notulen); leeg = de vijf standaardmodellen uit de code.
+  // Dossiervelden + modellen van de soort Notulen, uit Beheer → Dossiers. Zonder ingestelde modellen
+  // vallen we terug op de vijf standaardmodellen uit de code.
   useEffect(() => {
     fetch("/api/dossier-velden?soort=notulen")
       .then((r) => (r.ok ? r.json() : Promise.reject(r)))
       .then((d) => {
         if (!levend.current) return;
+        const cat = Array.isArray(d.catalogus) ? d.catalogus : [];
+        setCatalogus(cat);
+        setPicklistOpties(d.picklistOpties || {});
+        const ind = d.indeling || d.standaardIndeling || {};
+        setIndeling({
+          secties: Array.isArray(ind.secties) ? ind.secties : [],
+          verborgen: Array.isArray(ind.verborgen) ? ind.verborgen : [],
+          voorwaarden: ind.voorwaarden || {},
+          alleenLezen: Array.isArray(ind.alleenLezen) ? ind.alleenLezen : [],
+        });
+        // Beginwaarden: ja/nee op "Nee", de rest leeg — zelfde uitgangspunt als een nieuw dossier.
+        const start = {};
+        for (const v of cat) {
+          if (!v || !v.key || String(v.key).startsWith("__")) continue;
+          start[v.key] = v.type === "boolean" ? false : null;
+        }
+        setVeldenState(start);
         const uitBeheer = Array.isArray(d.sjablonen) ? d.sjablonen.filter((s) => s && veiligeStr(s.tekst)) : [];
         if (uitBeheer.length) { setSjablonen(uitBeheer); setSjabloonBron("beheer"); }
         else { setSjablonen(standaardSjablonen()); setSjabloonBron("standaard"); }
@@ -173,7 +180,7 @@ export default function NotulenOpstellen({ onTerug }) {
     const plaats = veiligeStr(klant.adres && klant.adres.plaats) || veiligeStr(klant.contact && klant.contact.adres && klant.contact.adres.plaats);
     const contactNaam = veiligeStr(klant.contact && klant.contact.naam);
     setVestigingsplaats(plaats);
-    setDirecteur(contactNaam);
+    zetVeld("directeur", contactNaam);
     setAandeelhouders([{ naam: contactNaam, percentage: "100" }]);
     setMelding(null);
     // Een andere cliënt = een ander stuk: de koppeling met het vorige notulendossier loslaten.
@@ -195,28 +202,55 @@ export default function NotulenOpstellen({ onTerug }) {
 
   useEffect(() => { if (mijnNaam && !notulist) setNotulist(mijnNaam); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [mijnNaam]);
 
+  /** Eén dossierveld zetten (catalogussleutel → waarde). */
+  function zetVeld(key, waarde) { setVeldenState((h) => ({ ...h, [key]: waarde })); }
+
+  // Welke velden dit scherm zélf afhandelt en dus niet nog een tweede keer als dossierveld toont:
+  // de vergaderdatum (staat als "Datum vergadering" bij Vergadering) en de aandeel-percentages
+  // (komen uit de aandeelhoudersrijen, mét naam). Lookup-velden slaan we over: die koppelen aan een
+  // Dynamics-record en horen bij het dossier zelf, niet bij het opstellen van het stuk.
+  const EIGEN_BEHEER = new Set(["datumactie", "aandeelhouders1", "aandeelhouders2", "aandeelhouders3", "aandeelhouders4", "aandeelhouders5"]);
+  const toonbaar = (key) => {
+    if (!key || String(key).startsWith("__") || EIGEN_BEHEER.has(key)) return false;
+    const def = catalogus.find((v) => v.key === key);
+    return !!def && def.type !== "lookup";
+  };
+
+  // Rubrieken/volgorde/verborgen/"alleen tonen als" precies zoals in Beheer → Dossiers ingesteld.
+  const zichtbareSecties = useMemo(() => {
+    const { zichtbareSecties: filter } = maakZichtbaarheid({ verborgen: indeling.verborgen, voorwaarden: indeling.voorwaarden, veldenState });
+    return filter(indeling.secties).map((s) => ({
+      ...s,
+      velden: s.velden.filter(toonbaar),
+      subsecties: (s.subsecties || []).map((sub) => ({ ...sub, velden: sub.velden.filter(toonbaar) })).filter((sub) => sub.velden.length),
+    })).filter((s) => s.velden.length || (s.subsecties || []).length);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [indeling, veldenState, catalogus]);
+
   const mergeWaarden = useMemo(() => {
-    const m = {};
+    // Eerst de dossiervelden (zelfde weergave als in het dossiervoorbeeld: keuzelijst-labels, ja/nee,
+    // nette datums en getallen), daarna wat dit scherm zelf beheert.
+    const m = bouwMergeWaarden({
+      dossier: {
+        klantnaam: klant ? veiligeStr(klant.klantnaam) : "",
+        groepsnaam: klant ? veiligeStr(klant.groepsnaam) : "",
+        accountant: klant ? (veiligeStr(klant.accountant) || veiligeStr(klant.accountantPersoon && klant.accountantPersoon.naam)) : "",
+        assistent: klant ? veiligeStr(klant.assistent && klant.assistent.naam) : "",
+        manager: klant ? (veiligeStr(klant.manager && klant.manager.naam) || veiligeStr(klant.relatiebeheerder)) : "",
+      },
+      periodeTekst: langeDatum(datumactie),
+      catalogus, veldenState, picklistOpties, lookupNamen: {},
+    });
     const zet = (k, v) => { m[normaliseerSleutel(k)] = v == null ? "" : String(v); };
-    zet("klantnaam", klant ? veiligeStr(klant.klantnaam) : "");
-    zet("groepsnaam", klant ? veiligeStr(klant.groepsnaam) : "");
-    zet("accountant", klant ? (veiligeStr(klant.accountant) || veiligeStr(klant.accountantPersoon && klant.accountantPersoon.naam)) : "");
-    zet("manager", klant ? (veiligeStr(klant.manager && klant.manager.naam) || veiligeStr(klant.relatiebeheerder)) : "");
     zet("vestigingsplaats", vestigingsplaats);
     zet("plaats", vestigingsplaats);
     zet("datumactie", langeDatum(datumactie));
     zet("datum", langeDatum(datumactie) || langeDatum(vandaagISO()));
-    zet("periode", langeDatum(datumactie));
-    zet("directeur", directeur);
-    zet("voorzitter", directeur);
     zet("notulist", notulist);
+    zet("voorzitter", veiligeStr(veldenState.directeur)); // in de modellen heet de voorzitter "directeur"
     zet("aandeelhouders", aandeelhoudersTekst(aandeelhouders));
-    zet("bedrag", bedragTekst(bedrag));
-    zet("percentage", percentageTekst(percentage));
-    zet("toelichting", toelichting);
-    zet("extratoelichting", toelichting ? "Ja" : "Nee");
     return m;
-  }, [klant, vestigingsplaats, datumactie, directeur, notulist, aandeelhouders, bedrag, percentage, toelichting]);
+  }, [klant, vestigingsplaats, datumactie, notulist, aandeelhouders, catalogus, veldenState, picklistOpties]);
 
   const ruweTekst = eigenTekst || (sjabloon ? sjabloon.tekst : "");
   const ingevuld = vulSjabloonIn(ruweTekst, mergeWaarden);
@@ -229,6 +263,43 @@ export default function NotulenOpstellen({ onTerug }) {
     return t + (Number.isFinite(n) ? n : 0);
   }, 0);
   const aandeelIngevuld = aandeelhouders.some((r) => veiligeStr(r.percentage));
+
+  /**
+   * Eén dossierveld tekenen. Standaard met hetzelfde besturingselement als in het dossier zelf
+   * (VeldInvoer — zo werkt een veld dat je in Beheer instelt hier precies hetzelfde), behalve de
+   * voorzitter: die krijgt de naam-zoeker, zodat je 'm net als de aandeelhouders kunt opzoeken.
+   */
+  function renderDossierVeld(key) {
+    const veldDef = catalogus.find((v) => v.key === key);
+    if (!veldDef) return null;
+    if (key === "directeur") {
+      return (
+        <div key={key} style={{ display: "flex", flexDirection: "column" }}>
+          <div style={veldStijlen.label}>{veldDef.label}</div>
+          <NaamZoeker
+            waarde={veiligeStr(veldenState[key])}
+            opWaarde={(v) => zetVeld(key, v)}
+            placeholder="zoek of typ een naam…"
+            bronnen={["contact", "klant"]}
+            klanten={klanten}
+            medewerkers={medewerkers}
+            invoerStijl={veldStijlen.veld}
+          />
+        </div>
+      );
+    }
+    return (
+      <VeldInvoer
+        key={key}
+        veldDef={veldDef}
+        waarde={veldenState[key]}
+        onChange={(w) => zetVeld(key, w)}
+        picklistOpties={picklistOpties}
+        alleenLezen={(indeling.alleenLezen || []).includes(key)}
+        stijlen={veldStijlen}
+      />
+    );
+  }
 
   function zetAandeelhouder(i, veld, waarde) {
     setAandeelhouders((rijen) => rijen.map((r, j) => (j === i ? { ...r, [veld]: waarde } : r)));
@@ -288,7 +359,11 @@ export default function NotulenOpstellen({ onTerug }) {
           dossierId: dossierId || undefined,
           modelNaam: veiligeStr(sjabloon && sjabloon.naam),
           datum: datumactie,
-          velden: { vestigingsplaats, directeur, notulist, bedrag, percentage, toelichting },
+          // De dossiervelden (catalogussleutel → waarde) gaan naar het notulendossier in Dynamics…
+          dossierVelden: veldenState,
+          // …en dit zijn de gegevens die het scherm zelf beheert; die worden bewaard zodat je het
+          // stuk later kunt heropenen (vooral de aandeelhoudersnamen — die passen niet in Dynamics).
+          velden: { vestigingsplaats, notulist },
           aandeelhouders,
           // De blokken zoals ze rechts in het voorbeeld staan — de PDF gebruikt exact dezelfde.
           blokken,
@@ -330,11 +405,17 @@ export default function NotulenOpstellen({ onTerug }) {
     setEigenTekst(veiligeStr(r.tekst) && (!model || veiligeStr(r.tekst) !== veiligeStr(model.tekst)) ? String(r.tekst) : "");
     setDatumactie(veiligeStr(r.datum) || vandaagISO());
     setVestigingsplaats(veiligeStr(v.vestigingsplaats));
-    setDirecteur(veiligeStr(v.directeur));
     setNotulist(veiligeStr(v.notulist));
-    setBedrag(veiligeStr(v.bedrag));
-    setPercentage(veiligeStr(v.percentage));
-    setToelichting(veiligeStr(v.toelichting));
+    // De dossiervelden terugzetten. Oudere records (van vóór de dossiervelden in dit scherm) hadden
+    // directeur/bedrag/percentage/toelichting los in "velden" staan — die nemen we netjes over.
+    setVeldenState((h) => ({
+      ...h,
+      ...(r.dossierVelden && typeof r.dossierVelden === "object" ? r.dossierVelden : {}),
+      ...(veiligeStr(v.directeur) ? { directeur: veiligeStr(v.directeur) } : {}),
+      ...(veiligeStr(v.bedrag) ? { bedrag: Number(String(v.bedrag).replace(",", ".")) || null } : {}),
+      ...(veiligeStr(v.percentage) ? { percentage: Number(String(v.percentage).replace(",", ".")) || null } : {}),
+      ...(veiligeStr(v.toelichting) ? { toelichting: veiligeStr(v.toelichting) } : {}),
+    }));
     setAandeelhouders(Array.isArray(r.aandeelhouders) && r.aandeelhouders.length ? r.aandeelhouders : [{ naam: "", percentage: "100" }]);
     setMelding({ type: "ok", tekst: "Eerder opgestelde notulen teruggehaald — opslaan werkt hetzelfde dossier bij." });
   }
@@ -350,6 +431,9 @@ export default function NotulenOpstellen({ onTerug }) {
 
   const label = { display: "block", fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 5 };
   const input = { width: "100%", boxSizing: "border-box", padding: "8px 10px", fontSize: 13, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, outline: "none", color: KLEUR.tekst, background: "#fff" };
+  // Stijlen voor de dossiervelden — zelfde vorm als in het dossierdetail ({ label, veld }), zodat
+  // VeldInvoer hier hetzelfde oogt als daar.
+  const veldStijlen = { label: { fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }, veld: input };
   const knop = (kleur, aan = true) => ({ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 13px", borderRadius: 8, border: `1px solid ${aan ? kleur : KLEUR.rand}`, background: aan ? kleur : "#F2F3F0", color: aan ? "#fff" : KLEUR.mutedTekst, fontSize: 12.5, fontWeight: 600, cursor: aan ? "pointer" : "not-allowed" });
   const knopLicht = { display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 13px", borderRadius: 8, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.blauw, fontSize: 12.5, fontWeight: 600, cursor: "pointer" };
 
@@ -449,13 +533,6 @@ export default function NotulenOpstellen({ onTerug }) {
                 <input type="date" value={datumactie} onChange={(e) => setDatumactie(e.target.value)} style={input} />
               </div>
               <div style={{ flex: "1 1 180px", display: "flex", flexDirection: "column" }}>
-                <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>Voorzitter (directeur)</div>
-                <NaamZoeker
-                  waarde={directeur} opWaarde={setDirecteur} placeholder="zoek of typ een naam…"
-                  bronnen={["contact", "klant"]} klanten={klanten} medewerkers={medewerkers} invoerStijl={input}
-                />
-              </div>
-              <div style={{ flex: "1 1 180px", display: "flex", flexDirection: "column" }}>
                 <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>Notulist</div>
                 <NaamZoeker
                   waarde={notulist} opWaarde={setNotulist} placeholder="zoek of typ een naam…"
@@ -468,7 +545,7 @@ export default function NotulenOpstellen({ onTerug }) {
           {/* Aandeelhouders */}
           <div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 5, flexWrap: "wrap" }}>
-              <span style={{ ...label, marginBottom: 0 }}>Aandeelhouders</span>
+              <span style={{ ...label, marginBottom: 0 }}>Aandeelhouders in het stuk</span>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <button onClick={verdeelGelijk} style={{ ...knopLicht, padding: "5px 9px", fontSize: 11.5 }} title="Verdeel 100% gelijk over alle rijen"><Users size={13} /> Gelijk verdelen</button>
                 <button onClick={voegAandeelhouderToe} style={{ ...knopLicht, padding: "5px 9px", fontSize: 11.5 }}><Plus size={13} /> Aandeelhouder</button>
@@ -509,28 +586,25 @@ export default function NotulenOpstellen({ onTerug }) {
             </div>
           </div>
 
-          {/* Besluitgegevens */}
-          <div>
-            <span style={label}>Besluit</span>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-              <div style={{ flex: "1 1 160px" }}>
-                <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>Bedrag (€)</div>
-                <input value={bedrag} onChange={(e) => setBedrag(e.target.value)} inputMode="decimal" style={input} placeholder="bijv. 25000" />
+          {/* Dossiervelden — precies de velden, rubrieken, volgorde en "alleen tonen als"-regels die
+              in Beheer → Dossiers → Notulen zijn ingesteld. Wat je hier invult komt zowel in het stuk
+              ({{sleutel}}) als, bij opslaan, in het notulendossier terecht. */}
+          {zichtbareSecties.map((sectie) => (
+            <div key={sectie.sleutel || sectie.titel}>
+              <span style={label}>{sectie.titel || "Gegevens"}</span>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 }}>
+                {sectie.velden.map(renderDossierVeld)}
               </div>
-              <div style={{ flex: "1 1 160px" }}>
-                <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>Percentage (%)</div>
-                <input value={percentage} onChange={(e) => setPercentage(e.target.value)} inputMode="decimal" style={input} placeholder="bijv. 50" />
-              </div>
+              {(sectie.subsecties || []).map((sub) => (
+                <div key={sub.sleutel || sub.titel} style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 6 }}>{sub.titel}</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 }}>
+                    {sub.velden.map(renderDossierVeld)}
+                  </div>
+                </div>
+              ))}
             </div>
-            <div style={{ marginTop: 12 }}>
-              <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>Extra toelichting</div>
-              <textarea value={toelichting} onChange={(e) => setToelichting(e.target.value)} rows={3} style={{ ...input, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }} placeholder="Laat je dit leeg, dan staat er [EXTRA TOELICHTING] in het stuk." />
-            </div>
-            <div style={{ marginTop: 6, fontSize: 11.5, color: KLEUR.mutedTekst }}>
-              Bedrag en percentage worden alleen gebruikt door de modellen die ze nodig hebben
-              (dividenduitkering, dividendbeleid, agiostorting).
-            </div>
-          </div>
+          ))}
 
           {/* Tekst bijschaven */}
           <div>
