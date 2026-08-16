@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload, Lightbulb, Binoculars, BookOpen, FileSignature, Printer, UserCheck } from "lucide-react";
 import { startMeekijken } from "../meekijken";
+import { luisterNaarDossierHash, wisDossierHash } from "./dossierNavigatie";
 import OffertesModule from "./OffertesModule";
 import ContractenOverzicht from "./ContractenOverzicht";
 import TakenOverzicht from "./TakenOverzicht";
@@ -1701,6 +1702,13 @@ function KlantenModule({ magContracten = false, isBeheerder = false, magPlanning
   const actief = subtabs.find((s) => s.key === sub) || subtabs[0];
   // Als de actieve sub niet meer zichtbaar is (rol verbergt 'm), spring naar de eerste zichtbare.
   useEffect(() => { if (subtabs.length && !subtabs.find((s) => s.key === sub)) setSub(subtabs[0].key); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [subRechten]);
+  // Doorklikken naar een dossier (#dossier=<soort>:<id>): spring naar de sub-tab van die soort.
+  // MedewerkerDossiers pakt de hash daarna op en opent het dossier zelf. Staat de soort niet in de
+  // zichtbare sub-tabs (rol verbergt 'm), dan doen we niets — de rol blijft leidend.
+  useEffect(() => luisterNaarDossierHash(({ soort }) => {
+    if (KLANTEN_SUBTABS.some((s) => s.key === soort) && zicht(soort)) setSub(soort);
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }), [subRechten]);
 
   return (
     <div>
@@ -2167,6 +2175,16 @@ function MedewerkerDossiers({ soort, magVerwijderenRubriek = true, magBulkVerwij
       .catch((e) => setDetailFout(e.message || "Kon het dossier niet openen."))
       .finally(() => setDetailLaden(false));
   };
+
+  // Doorklikken vanuit een ander scherm (#dossier=<soort>:<id>, zie dossierNavigatie.js) — bijv. de
+  // knop "Open dossier" op een reviewtaak. Laatste schakel in de keten: dit component opent het
+  // dossier en wist de hash, zodat een tweede klik op dezelfde taak weer werkt.
+  useEffect(() => luisterNaarDossierHash((doel) => {
+    if (doel.soort !== soort) return; // hoort bij een andere sub-tab
+    wisDossierHash();
+    openDossier(doel.id);
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }), [soort]);
 
   // Na het aanmaken van een dossier (vanuit de lijst óf vanuit een geopend dossier zelf, zie
   // DossierDetail's "Aangifte kopiëren naar volgend jaar"): bovenaan de lijst zetten en meteen
@@ -5130,6 +5148,11 @@ export default function MedewerkerPortaal() {
     if (rolTabs.includes(tab) && !zichtbareTabs.includes(tab)) setTab(zichtbareTabs[0] || (impersonatie ? "__geen__" : "klantoverzicht"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zichtbareTabs]);
+
+  // Doorklikken naar een dossier (#dossier=<soort>:<id>, zie dossierNavigatie.js) — bijv. vanuit een
+  // reviewtaak in het Taken-overzicht. Hier alleen de sprong naar de Klanten-tab; KlantenModule kiest
+  // de sub-tab en MedewerkerDossiers opent het dossier zelf en wist de hash.
+  useEffect(() => luisterNaarDossierHash(() => setTab("klantoverzicht")), []);
 
   // Tellingen bijwerken bij elke tabwissel. Op het reviews- en vragenlijsten-tabblad wordt eerst
   // "gezien" gemarkeerd (badge naar 0) en daarna worden de tellingen ververst.

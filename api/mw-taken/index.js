@@ -272,6 +272,11 @@ module.exports = async function (context, req) {
         if (!updateRes.ok) throw new Error(`Afronden reviewtaak mislukt: ${await updateRes.text()}`);
 
         await dossierReview.rondReviewAf(taakId, { uitkomst, opmerking, door: email, vervolgTaakId }).catch(() => {});
+        // Ook bij de VERVOLGTAAK een verwijzing naar het dossier vastleggen, zodat de aanvrager
+        // vanuit die taak met één klik in het dossier staat.
+        if (vervolgTaakId) {
+          await dossierReview.zetVervolgtaakVerwijzing(vervolgTaakId, review, uitkomst, opmerking, reviewerNaam).catch(() => {});
+        }
 
         // Dossier bijwerken: status + de opmerking in het review-notitieveld. Best-effort — de
         // review is al afgetekend, dat mag niet stuklopen op één dossierveld.

@@ -27,9 +27,14 @@
  * geen tweede Dynamics-accountquery nodig is.
  */
 import { useEffect, useRef, useState } from "react";
-import { Search, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Loader2, Star, User, Users, Building2, CheckCircle2, ExternalLink, Clock } from "lucide-react";
+import { Search, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Loader2, Star, User, Users, Building2, CheckCircle2, ExternalLink, Clock, FolderOpen } from "lucide-react";
 import { useMijnNaam, isKlantVanMij } from "./MijnFilter";
 import UrenSchrijvenPanel from "./UrenSchrijvenPanel";
+import { gaNaarDossier } from "./dossierNavigatie";
+
+// Labels van de dossiersoorten waar een taak aan kan hangen (reviewtaak/vervolgtaak) — voor de knop
+// "Open <soort>". Bewust hier klein gehouden i.p.v. gedeeld: dit bestand houdt zichzelf op orde.
+const DOSSIER_SOORT_LABEL = { ib: "IB-dossier", vpb: "VPB-dossier", dividend: "dividenddossier", notulen: "notulen" };
 
 const KLEUR = {
   blauw: "#1C5D8C", tekst: "#1C2321", subtekst: "#5B6259", mutedTekst: "#8A9089", rand: "#E2E4DF",
@@ -175,6 +180,9 @@ function TaakDetail({ taak, modus, appUrl, urencodes = [], magBewerken = true, o
   //    De reviewer tekent hier af met "Akkoord" of "Aanpassen na review" en geeft zijn opmerking
   //    mee; die komt in de vervolgtaak voor de aanvrager én in het review-notitieveld van het dossier.
   const openReview = taak.review && taak.review.status === "open" ? taak.review : null;
+  // Elke taak die aan een dossier hangt (de reviewtaak zelf én de vervolgtaak) kan rechtstreeks
+  // doorlinken naar dat dossier — zie src/medewerker/dossierNavigatie.js.
+  const dossierLink = taak.review && taak.review.dossierSoort && taak.review.dossierId ? taak.review : null;
   const [reviewOpmerking, setReviewOpmerking] = useState("");
   const [reviewBezig, setReviewBezig] = useState("");   // "" | "akkoord" | "aanpassen"
   const [reviewFout, setReviewFout] = useState("");
@@ -274,6 +282,15 @@ function TaakDetail({ taak, modus, appUrl, urencodes = [], magBewerken = true, o
           <div style={{ fontSize: 13, color: KLEUR.subtekst }}>{taak.klantnaam || (taak.klant && taak.klant.klantnaam) || "Geen cliënt gekoppeld"}</div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {dossierLink && (
+            <button
+              onClick={() => gaNaarDossier(dossierLink.dossierSoort, dossierLink.dossierId)}
+              title={`Open het ${DOSSIER_SOORT_LABEL[dossierLink.dossierSoort] || "dossier"}${dossierLink.jaar ? ` ${dossierLink.jaar}` : ""} van ${dossierLink.klantnaam || "deze cliënt"}`}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+            >
+              <FolderOpen size={14} /> Open {DOSSIER_SOORT_LABEL[dossierLink.dossierSoort] || "dossier"}
+            </button>
+          )}
           {dynamicsLink && (
             <a href={dynamicsLink} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "#fff", color: KLEUR.blauw, border: `1px solid ${KLEUR.blauw}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, textDecoration: "none" }}>
               <ExternalLink size={14} /> Open in Dynamics

@@ -152,7 +152,9 @@ async function haalVoorDossier(soortKey, dossierId) {
   if (!soort || !did) return [];
   const alle = await leesAlles();
   return Object.values(alle)
-    .filter((r) => r && String(r.dossierSoort || "").toLowerCase() === soort && sleutel(r.dossierId) === did)
+    // status "vervolg" is alleen een verwijzing bij de vervolgtaak (zodat je van daaruit naar het
+    // dossier kunt doorklikken) — geen eigen reviewronde, dus niet in de geschiedenis.
+    .filter((r) => r && r.status !== "vervolg" && String(r.dossierSoort || "").toLowerCase() === soort && sleutel(r.dossierId) === did)
     .sort((a, b) => String(b.aangevraagdOp || "").localeCompare(String(a.aangevraagdOp || "")));
 }
 
@@ -203,6 +205,37 @@ async function rondReviewAf(taakId, { uitkomst, opmerking, door, vervolgTaakId }
     afgerondOp: new Date().toISOString(),
     afgerondDoor: tekst(door, 200).toLowerCase(),
     vervolgTaakId: sleutel(vervolgTaakId),
+  };
+  await schrijfAlles(alle);
+  return alle[k];
+}
+
+/**
+ * Legt bij de VERVOLGTAAK een verwijzing naar hetzelfde dossier vast. Zonder dit weet het
+ * Taken-overzicht alleen bij de reviewtaak zelf om welk dossier het gaat, en zou de aanvrager vanuit
+ * "zijn" vervolgtaak niet kunnen doorklikken. Status "vervolg" onderscheidt 'm van een reviewtaak,
+ * zodat er geen tweede keer afgetekend kan worden.
+ */
+async function zetVervolgtaakVerwijzing(vervolgTaakId, review, uitkomst, opmerking, reviewerNaam) {
+  const k = sleutel(vervolgTaakId);
+  if (!k || !review) return null;
+  const alle = await leesAlles();
+  alle[k] = {
+    taakId: k,
+    status: "vervolg",
+    uitkomst: uitkomst === "aanpassen" ? "aanpassen" : "akkoord",
+    dossierSoort: review.dossierSoort || "",
+    dossierId: review.dossierId || "",
+    accountId: review.accountId || "",
+    klantnaam: review.klantnaam || "",
+    jaar: review.jaar || "",
+    aanvragerEmail: review.aanvragerEmail || "",
+    aanvragerNaam: review.aanvragerNaam || "",
+    reviewerEmail: review.reviewerEmail || "",
+    reviewerNaam: tekst(reviewerNaam, 200) || review.reviewerNaam || "",
+    opmerking: tekst(opmerking, 4000),
+    afgerondOp: new Date().toISOString(),
+    uitReviewTaakId: sleutel(review.taakId),
   };
   await schrijfAlles(alle);
   return alle[k];
@@ -265,6 +298,7 @@ async function maakTaak(resource, token, { subject, description, accountId, soor
 module.exports = {
   STANDAARD_REVIEW,
   normaliseerReviewConfig, normaliseerAlleReviewConfig, instellingenVoorSoort, vulSjabloonIn,
-  haalAlle, haalVoorTaak, haalVoorDossier, haalOpenVoorDossier, zetReview, rondReviewAf, verwijderReview,
+  haalAlle, haalVoorTaak, haalVoorDossier, haalOpenVoorDossier, zetReview, rondReviewAf,
+  zetVervolgtaakVerwijzing, verwijderReview,
   maakTaak,
 };
