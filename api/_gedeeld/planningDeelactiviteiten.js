@@ -96,6 +96,32 @@ async function haalStatusVoorPeriode(periode) {
   }
   return uit;
 }
+/**
+ * Dezelfde status, maar voor MEERDERE perioden in één keer:
+ *   { "<periode>": { "<accountId>|<activiteit>|<deelstap>": { gereed, ... } } }
+ * Gebruikt om werk dat in een eerdere maand niet is afgerond mee te nemen naar de huidige maand
+ * ("doorschuiven"), zonder per maand een aparte call te doen.
+ */
+async function haalStatusVoorPeriodes(periodes) {
+  const lijst = (Array.isArray(periodes) ? periodes : []).map((p) => String(p || "")).filter(Boolean);
+  if (!lijst.length) return {};
+  const gezocht = new Set(lijst);
+  const alle = await haalAlleStatus();
+  const uit = {};
+  for (const p of lijst) uit[p] = {};
+  for (const [k, v] of Object.entries(alle)) {
+    // key = acc|act|periode|deel
+    const delen = k.split("|");
+    if (delen.length < 4) continue;
+    const deel = delen[delen.length - 1];
+    const periode = delen[delen.length - 2];
+    if (!gezocht.has(periode)) continue;
+    const acc = delen.slice(0, delen.length - 2).join("|");
+    uit[periode][`${acc}|${deel}`] = v;
+  }
+  return uit;
+}
+
 /** Vink een deelstap (of "__hoofd__") af/uit voor (klant, activiteit, periode), met wie + datum. */
 async function zetStatus(accountId, activiteit, periode, deelstap, gereed, wie, datumIso) {
   const acc = String(accountId || "").toLowerCase();
@@ -140,5 +166,5 @@ async function zetActiviteitStatus(accountId, activiteit, periode, statusKey, wi
 
 module.exports = {
   haalAlleKlantDeelstappen, zetKlantDeelstappen,
-  haalStatusVoorPeriode, zetStatus, zetActiviteitStatus,
+  haalStatusVoorPeriode, haalStatusVoorPeriodes, zetStatus, zetActiviteitStatus,
 };

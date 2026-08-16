@@ -50,12 +50,22 @@ const datumKort = (iso) => { if (!iso) return ""; const d = new Date(iso); retur
  *                     dan vervalt de knop "Kantoorbreed" en blijft het bij Mijzelf / Mijn team.
  *   standaardScope  — welke scope staat standaard aan ("kantoor" op het Planning-scherm, "mijzelf"
  *                     wanneer dit scherm binnen "Mijn werk" wordt getoond).
+ *   periode         — { type, jaar, maand }: neem de periode van het scherm eromheen over. Is die
+ *                     meegegeven, dan verdwijnt de eigen periode-navigatie hier (anders zouden er twee
+ *                     maandkiezers boven elkaar staan die uit elkaar kunnen lopen).
  */
-export default function Deelactiviteiten({ magAlles = true, standaardScope = "kantoor" } = {}) {
+export default function Deelactiviteiten({ magAlles = true, standaardScope = "kantoor", periode: externePeriode = null } = {}) {
   const nu = new Date();
-  const [type, setType] = useState("maand"); // maand | jaar
-  const [jaar, setJaar] = useState(nu.getFullYear());
-  const [maand, setMaand] = useState(nu.getMonth() + 1);
+  const eigenPeriode = !externePeriode;
+  const [typeIntern, setTypeIntern] = useState("maand"); // maand | jaar
+  const [jaarIntern, setJaarIntern] = useState(nu.getFullYear());
+  const [maandIntern, setMaandIntern] = useState(nu.getMonth() + 1);
+  const type = externePeriode ? externePeriode.type : typeIntern;
+  const jaar = externePeriode ? externePeriode.jaar : jaarIntern;
+  const maand = externePeriode ? externePeriode.maand : maandIntern;
+  const setType = setTypeIntern;
+  const setJaar = setJaarIntern;
+  const setMaand = setMaandIntern;
   const [tab, setTab] = useState("openstaand"); // openstaand | afgewikkeld
   const [zoek, setZoek] = useState("");
   const [teamFilter, setTeamFilter] = useState("alle");
@@ -251,14 +261,18 @@ export default function Deelactiviteiten({ magAlles = true, standaardScope = "ka
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700 }}>
           <ListChecks size={17} color={KLEUR.blauw} /> Afwikkeling
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <button onClick={vorige} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, background: "#fff", cursor: "pointer", color: KLEUR.subtekst }}><ChevronLeft size={16} /></button>
-          <div style={{ fontSize: 14, fontWeight: 700, minWidth: type === "maand" ? 150 : 60, textAlign: "center" }}>{type === "maand" ? `${MAANDEN[maand - 1]} ${jaar}` : jaar}</div>
-          <button onClick={volgende} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, background: "#fff", cursor: "pointer", color: KLEUR.subtekst }}><ChevronRight size={16} /></button>
-        </div>
+        {eigenPeriode ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={vorige} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, background: "#fff", cursor: "pointer", color: KLEUR.subtekst }}><ChevronLeft size={16} /></button>
+            <div style={{ fontSize: 14, fontWeight: 700, minWidth: type === "maand" ? 150 : 60, textAlign: "center" }}>{type === "maand" ? `${MAANDEN[maand - 1]} ${jaar}` : jaar}</div>
+            <button onClick={volgende} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, background: "#fff", cursor: "pointer", color: KLEUR.subtekst }}><ChevronRight size={16} /></button>
+          </div>
+        ) : (
+          <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>{type === "maand" ? `${MAANDEN[maand - 1]} ${jaar}` : jaar}</div>
+        )}
       </div>
 
-      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", margin: "6px 0" }}>
+      <div style={{ display: eigenPeriode ? "flex" : "none", gap: 4, flexWrap: "wrap", margin: "6px 0" }}>
         {[["maand", "Per maand"], ["jaar", "Per jaar"]].map(([k, label]) => (
           <button key={k} onClick={() => setType(k)} style={{ padding: "6px 12px", borderRadius: 20, border: `1px solid ${type === k ? KLEUR.blauw : KLEUR.rand}`, background: type === k ? KLEUR.blauw : "#fff", color: type === k ? "#fff" : KLEUR.subtekst, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{label}</button>
         ))}
