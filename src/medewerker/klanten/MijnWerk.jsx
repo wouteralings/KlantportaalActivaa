@@ -85,7 +85,8 @@ function VoortgangBalk({ v, periodeLabel, wie }) {
         {tegel("Geschreven", uurTekst(v.geschreven), v.geschreven ? KLEUR.groen : KLEUR.mutedTekst, "werkelijk geboekte uren")}
         {tegel("Nog te doen", uurTekst(v.openUren), v.openUren ? KLEUR.amber : KLEUR.groen, `${v.taken - v.takenGereed} taken open`)}
         {heeftRest
-          ? tegel("Resterend beschikbaar", uurTekst(v.restBeschikbaar), krap ? KLEUR.rood : bijnaKrap ? KLEUR.amber : KLEUR.groen, `nog ${v.restWerkdagen} werkdag${v.restWerkdagen === 1 ? "" : "en"} in ${periodeLabel}`)
+          ? tegel("Resterend beschikbaar", uurTekst(v.restBeschikbaar), krap ? KLEUR.rood : bijnaKrap ? KLEUR.amber : KLEUR.groen,
+              `nog ${v.restWerkdagen} werkdag${v.restWerkdagen === 1 ? "" : "en"}${v.restVerlof ? ` − ${uurTekst(v.restVerlof)} verlof` : ""}`)
           : null}
       </div>
 
@@ -187,9 +188,8 @@ function TeamVoortgang({ rijen, periodeLabel, open, setOpen, ikLc }) {
                     <td style={{ ...cel, color: r.productiviteit == null || r.productiviteit === 1 ? KLEUR.mutedTekst : KLEUR.tekst }}>
                       {r.productiviteit == null ? "—" : `${Math.round(r.productiviteit * 100)}%`}
                     </td>
-                    <td style={{ ...cel, color: r.verlof ? KLEUR.blauw : KLEUR.mutedTekst }} title={r.verlofAangevraagd ? `Nog ${uurTekst(r.verlofAangevraagd)} aangevraagd (niet meegerekend)` : undefined}>
+                    <td style={{ ...cel, color: r.verlof ? KLEUR.blauw : KLEUR.mutedTekst }} title={r.restVerlof ? `waarvan ${uurTekst(r.restVerlof)} vanaf vandaag` : undefined}>
                       {r.verlof ? uurTekst(r.verlof) : "—"}
-                      {r.verlofAangevraagd ? <span style={{ color: KLEUR.amber }}> +{uurTekst(r.verlofAangevraagd)}</span> : null}
                     </td>
                     <td style={cel}>{r.beschikbaar == null ? "—" : uurTekst(r.beschikbaar)}</td>
                     <td style={{ ...cel, fontWeight: 600 }}>{uurTekst(r.ingepland)}</td>
@@ -431,6 +431,7 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
       verlof: mij ? rond(Number(mij.verlofGoedgekeurd) || 0) : null,
       restBeschikbaar: mij && mij.resterend ? rond(Number(mij.resterend.beschikbaar) || 0) : null,
       restWerkdagen: mij && mij.resterend ? mij.resterend.werkdagen : (capaciteit ? capaciteit.werkdagenResterend : null),
+      restVerlof: mij && mij.resterend ? rond(Number(mij.resterend.verlof) || 0) : 0,
       productiviteit: mij && mij.declarabelFactor != null ? Number(mij.declarabelFactor) : null,
       beschikbaarBruto: mij ? rond(Number(mij.beschikbaarBruto) || 0) : null,
     };
@@ -467,6 +468,7 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
       p.verlofAangevraagd = Number(m.verlofAangevraagd) || 0;
       p.productiviteit = m.declarabelFactor != null ? Number(m.declarabelFactor) : null;
       p.restBeschikbaar = m.resterend ? Number(m.resterend.beschikbaar) || 0 : null;
+      p.restVerlof = m.resterend ? Number(m.resterend.verlof) || 0 : 0;
     }
     // Werklastkant: de ingeplande hoofdtaken van deze periode, per uitvoerder.
     for (const it of alleItems) {
@@ -571,6 +573,34 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
 
   const totaalCellen = items.length;
   const gereedCellen = items.filter((i) => i.gereed).length;
+
+  // Geplande (indicatie-)uren van wat er nú in de matrix staat: per klantrij, per hoofdtaak-kolom en
+  // het totaal van alles. Volgt dus wél de filters — het is de optelsom van de zichtbare regels.
+  const rijTotalen = useMemo(() => {
+    const perKlant = {}, perTaak = {}, leegPerKlant = {};
+    const leegActiviteiten = new Set();
+    let totaal = 0, leeg = 0;
+    for (const rij of zichtbareRijen) {
+      for (const t of zichtbareTaken) {
+        const it = rij.taken[t.sleutel];
+        if (!it) continue;
+        const u = Number(it.indicatieUren) || 0;
+        perKlant[rij.acc] = (perKlant[rij.acc] || 0) + u;
+        perTaak[t.sleutel] = (perTaak[t.sleutel] || 0) + u;
+        totaal += u;
+        // Taken zonder indicatie-uren: die tellen als 0 mee en vertekenen het beeld, dus apart tellen.
+        if (it.indicatieUren == null) {
+          leeg++;
+          leegPerKlant[rij.acc] = (leegPerKlant[rij.acc] || 0) + 1;
+          leegActiviteiten.add(t.label);
+        }
+      }
+    }
+    const rond = (n) => Math.round(n * 10) / 10;
+    for (const k of Object.keys(perKlant)) perKlant[k] = rond(perKlant[k]);
+    for (const k of Object.keys(perTaak)) perTaak[k] = rond(perTaak[k]);
+    return { perKlant, perTaak, leegPerKlant, leeg, leegActiviteiten: [...leegActiviteiten], totaal: rond(totaal) };
+  }, [zichtbareRijen, zichtbareTaken]);
 
   // De aangeklikte cel (voor de aftekenen-popup) — live afgeleid, zodat de status meebeweegt met afvinken.
   const actieveRij = actieveCel ? klantRijen.find((r) => r.acc === actieveCel.acc) : null;
@@ -800,6 +830,7 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
               <tr>
                 <th style={{ ...kop, position: "sticky", left: 0, background: "#fff", zIndex: 2, minWidth: 200 }}>Klant</th>
                 {zichtbareTaken.map((t) => <th key={t.sleutel} style={{ ...kop, textAlign: "center" }}>{t.label}</th>)}
+                <th style={{ ...kop, textAlign: "right" }} title="Totaal geplande (indicatie-)uren van deze klant in deze periode">Geplande uren</th>
               </tr>
             </thead>
             <tbody>
@@ -838,13 +869,48 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
                               {it.uitvoerMaand ? MAAND_KORT[it.uitvoerMaand - 1] : "geen maand"}
                             </div>
                           )}
+                          {/* Geplande uren per taak — ontbreken ze, dan valt dat meteen op (ze tellen als 0 mee). */}
+                          <div style={{ fontSize: 10, marginTop: 3, whiteSpace: "nowrap", color: it.indicatieUren == null ? KLEUR.amber : KLEUR.mutedTekst, fontWeight: it.indicatieUren == null ? 700 : 400 }}
+                            title={it.indicatieUren == null ? "Geen indicatie-uren ingesteld — deze taak telt als 0 uur mee. Vul in bij Beheer → Planning (standaard) of in de planning-configuratie van deze klant." : "Geplande (indicatie-)uren"}>
+                            {it.indicatieUren == null ? "⚠ geen uren" : uurTekst(it.indicatieUren)}
+                          </div>
                         </td>
                       );
                     })}
+                    <td style={{ ...cel, textAlign: "right", fontWeight: 700, whiteSpace: "nowrap" }} title={`${rij.klantnaam}: totaal geplande uren in deze periode`}>
+                      {rijTotalen.perKlant[rij.acc] ? uurTekst(rijTotalen.perKlant[rij.acc]) : <span style={{ color: KLEUR.rand, fontWeight: 400 }}>—</span>}
+                      {rijTotalen.leegPerKlant[rij.acc] ? (
+                        <div title={`${rijTotalen.leegPerKlant[rij.acc]} ${rijTotalen.leegPerKlant[rij.acc] === 1 ? "taak heeft" : "taken hebben"} geen indicatie-uren`} style={{ fontSize: 10, fontWeight: 700, color: KLEUR.amber }}>
+                          ⚠ {rijTotalen.leegPerKlant[rij.acc]} zonder uren
+                        </div>
+                      ) : null}
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
+            {/* Totaalregel: per hoofdtaak de som van alle klanten, en rechts het totaal van alles. */}
+            <tfoot>
+              <tr style={{ background: "#FBFCFB" }}>
+                <td style={{ ...cel, position: "sticky", left: 0, background: "#FBFCFB", zIndex: 1, fontSize: 12, fontWeight: 700, borderTop: `2px solid ${KLEUR.rand}` }}>
+                  Totaal <span style={{ fontWeight: 400, color: KLEUR.mutedTekst }}>· {zichtbareRijen.length} {zichtbareRijen.length === 1 ? "klant" : "klanten"}</span>
+                </td>
+                {zichtbareTaken.map((t) => (
+                  <td key={t.sleutel} style={{ ...cel, textAlign: "center", fontSize: 12, fontWeight: 700, borderTop: `2px solid ${KLEUR.rand}`, whiteSpace: "nowrap" }}>
+                    {rijTotalen.perTaak[t.sleutel] ? uurTekst(rijTotalen.perTaak[t.sleutel]) : <span style={{ color: KLEUR.rand, fontWeight: 400 }}>—</span>}
+                  </td>
+                ))}
+                <td style={{ ...cel, textAlign: "right", fontSize: 13, fontWeight: 700, color: KLEUR.blauw, borderTop: `2px solid ${KLEUR.rand}`, whiteSpace: "nowrap" }}>
+                  {uurTekst(rijTotalen.totaal)}
+                  {rijTotalen.leeg > 0 && (
+                    <div title={`Nog geen indicatie-uren bij: ${rijTotalen.leegActiviteiten.join(", ")}. Vul ze in bij Beheer → Planning (standaard per activiteit) of per klant in de planning-configuratie.`}
+                      style={{ fontSize: 10, fontWeight: 700, color: KLEUR.amber }}>
+                      ⚠ {rijTotalen.leeg} zonder uren
+                    </div>
+                  )}
+                </td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       )}

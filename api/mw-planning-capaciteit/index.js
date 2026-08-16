@@ -221,6 +221,8 @@ module.exports = metPlanningRecht(async function (context, req) {
       const factor = factoren[i];
       const roosterUren = rond(werkdagen * normPerDag * factor);
       const roosterResterend = rond(werkdagenResterend * normPerDag * factor);
+      // Goedgekeurd verlof dat in het RESTERENDE deel van de periode valt (naar rato van de
+      // werkdagen). Alleen goedgekeurd — een nog niet goedgekeurde aanvraag telt bewust niet mee.
       const verlofResterend = rond(goedgekeurd
         .filter((a) => String(a.medewerkerEmail || "").toLowerCase() === e && overlaptMaand(a))
         .reduce((som, a) => som + verlofUrenInVenster(a, restVanaf, laatste), 0));
