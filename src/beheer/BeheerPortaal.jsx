@@ -15,7 +15,7 @@ import BrievenAfzenderInstellingen from "./BrievenAfzenderInstellingen";
 import GastaccountsOverzicht from "./GastaccountsOverzicht";
 import RollenBeheer from "./RollenBeheer";
 import ImpersonatieBanner from "../ImpersonatieBanner";
-import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Search, ArrowUp, ArrowDown, HelpCircle, ChevronDown, Plus, Pencil, Check, X, Clock } from "lucide-react";
+import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Search, ArrowUp, ArrowDown, HelpCircle, ChevronUp, ChevronDown, Plus, Pencil, Check, X, Clock } from "lucide-react";
 
 const KLEUR = {
   blauw: "#1C5D8C",
