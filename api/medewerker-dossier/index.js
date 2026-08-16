@@ -395,7 +395,12 @@ module.exports = async function (context, req) {
         const ikzelf = await haalSystemuser(resource, token, email).catch(() => null);
         // Herzieningstaak — bij de manager van het dossier, met de gekozen datum als deadline en de
         // dossierkoppeling erin zodat je er vanuit de taak meteen bij kunt.
-        const taakId = await dossierVoorlopig.maakTaak(resource, token, {
+        // Faalt het aanmaken van de taak (ongeldige taaksoort, ontbrekend klantveld, …), dan is dat
+        // geen onverwachte serverfout maar een configuratieprobleem — dus een leesbare 409 in plaats
+        // van een kale 500, mét wat Dynamics erover zegt.
+        let taakId;
+        try {
+          taakId = await dossierVoorlopig.maakTaak(resource, token, {
           subject: dossierVoorlopig.vulSjabloonIn(cfg.taakOnderwerp, {
             klant: huidigDossier.klantnaam || "", periode, jaar: huidigDossier.jaar || "", soort: soort.label,
           }),
@@ -415,7 +420,16 @@ module.exports = async function (context, req) {
           rubriekWaarde: cfg.taakRubriek,
           eigenaarId: huidigDossier.managerId || (ikzelf && ikzelf.id) || "",
           deadline: herzienDatum.toISOString(),
-        });
+          });
+        } catch (e) {
+          context.log.error("Herzieningstaak aanmaken mislukt:", e);
+          context.res = {
+            status: 409,
+            headers: { "Content-Type": "application/json" },
+            body: { error: "De herzieningstaak kon niet worden aangemaakt; er is nog niets vastgelegd. Controleer de taaksoort en rubriek bij Beheer → Dossiers → Voorlopige aangifte.", detail: String((e && e.message) || e).slice(0, 500) },
+          };
+          return;
+        }
 
         await dossierVoorlopig.zetVoorlopig({
           dossierSoort: soort.key, dossierId: id,

@@ -1008,7 +1008,7 @@ function BulkVragenlijst({ accountIds, onKlaar, onKlaarEnVervers }) {
         body: JSON.stringify({ actie: "bulk-uitzetten", accountIds, lijstId, jaar, deadline, modus }),
       });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(`${d.error || `HTTP ${r.status}`}${d.detail ? ` (${d.detail})` : ""}`);
       setRes(d); setStatus("klaar");
     } catch (e) { setFout(e.message || "Versturen mislukt."); setStatus("fout"); }
   };
@@ -1936,7 +1936,7 @@ function NieuwDossierModal({ soort, soortLabel, periodeLabel, dossiers, vasteBro
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(`${d.error || `HTTP ${r.status}`}${d.detail ? ` (${d.detail})` : ""}`);
       onAangemaakt(d.dossier);
     } catch (e) {
       setFout(e.message || "Aanmaken van het dossier is mislukt.");
@@ -2057,6 +2057,9 @@ function MedewerkerDossiers({ soort, magVerwijderenRubriek = true, magBulkVerwij
   const { mijnNaam, geladen: naamGeladen } = useMijnNaam();
   const [scope, setScope] = useState("mijn"); // "mijn" | "alle"
   const [statusOpties, setStatusOpties] = useState([]);
+  // IB/VPB: "onderhanden" (dossiers waar nog aan gewerkt wordt) vs. "verzonden" (op inactief gezet
+  // nadat de aangifte de deur uit was). Andere soorten kennen deze splitsing niet.
+  const [fase, setFase] = useState("onderhanden"); // onderhanden | verzonden | alle
   const [detailId, setDetailId] = useState(null); // id van het geopende dossier, of null
   const [detail, setDetail] = useState(null); // volledige detailrespons ({ dossier, catalogus, secties, picklistOpties })
   const [detailLaden, setDetailLaden] = useState(false);
@@ -2321,7 +2324,16 @@ function MedewerkerDossiers({ soort, magVerwijderenRubriek = true, magBulkVerwij
   const term = zoek.trim().toLowerCase();
   const mijnLc = mijnNaam.trim().toLowerCase();
   const isDossierVanMij = (d) => !!mijnLc && [d.accountant, d.assistent].some((v) => String(v || "").trim().toLowerCase() === mijnLc);
+  // Bij IB en VPB splitsen we de lijst in twee stapels: dossiers waar nog aan gewerkt wordt
+  // (statecode 0 = actief) en dossiers die de deur uit zijn en daarna op inactief zijn gezet. Bij de
+  // andere soorten blijft alles bij elkaar staan.
+  const heeftFasen = soort === "ib" || soort === "vpb";
+  const inFase = (d) => (!heeftFasen || fase === "alle" ? true : (fase === "verzonden" ? d.actief === false : d.actief !== false));
+  const aantalOnderhanden = heeftFasen ? dossiers.filter((d) => d.actief !== false).length : 0;
+  const aantalVerzonden = heeftFasen ? dossiers.filter((d) => d.actief === false).length : 0;
+
   const gefilterd = dossiers.filter((d) => {
+    if (!inFase(d)) return false;
     if (scope === "mijn" && mijnNaam && !isDossierVanMij(d)) return false;
     for (const [key, val] of Object.entries(kolomFilters)) {
       if (!val) continue;
@@ -2446,6 +2458,34 @@ function MedewerkerDossiers({ soort, magVerwijderenRubriek = true, magBulkVerwij
     <div>
       {fout && (
         <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 12 }}>Er ging iets mis bij het ophalen van de dossiers.</div>
+      )}
+      {/* IB/VPB: twee stapels — waar nog aan gewerkt wordt, en wat de deur uit is. Een dossier komt
+          op "Verzonden aangiften" te staan zodra het in Dynamics op inactief gaat (dat gebeurt o.a.
+          automatisch aan het eind van de taakketen, zie Beheer → Dossiers → "Na versturen"). */}
+      {heeftFasen && (
+        <div style={{ display: "flex", gap: 4, marginBottom: 12, flexWrap: "wrap" }}>
+          {[
+            ["onderhanden", "Onderhanden", aantalOnderhanden, "Dossiers waar nog aan gewerkt wordt"],
+            ["verzonden", "Verzonden aangiften", aantalVerzonden, "Dossiers die op inactief staan — de aangifte is de deur uit; alleen-lezen"],
+            ["alle", "Alle", dossiers.length, "Beide stapels bij elkaar"],
+          ].map(([k, label, aantal, uitleg]) => (
+            <button
+              key={k}
+              onClick={() => { setFase(k); setToonAantal(25); }}
+              title={uitleg}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 14px", borderRadius: 20,
+                border: `1px solid ${fase === k ? KLEUR.blauw : KLEUR.rand}`,
+                background: fase === k ? KLEUR.blauw : "#fff",
+                color: fase === k ? "#fff" : KLEUR.subtekst,
+                fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+              }}
+            >
+              {label}
+              <span style={{ fontSize: 11, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: fase === k ? "rgba(255,255,255,0.22)" : "#F0F1ED", color: fase === k ? "#fff" : KLEUR.mutedTekst }}>{aantal}</span>
+            </button>
+          ))}
+        </div>
       )}
       <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
         <ScopeToggle scope={scope} setScope={setScope} />
@@ -3066,7 +3106,7 @@ function DossierBijlageKaart({ dossier, disabled, extraEmails, soortWaarde, toon
         body: JSON.stringify({ soort: dossier.soort, id: dossier.id, sectie, bestandsnaam: file.name, contentType: file.type || "application/octet-stream", bestandBase64 }),
       });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(`${d.error || `HTTP ${r.status}`}${d.detail ? ` (${d.detail})` : ""}`);
       laad();
     } catch (e) { setUploadFout(e.message || "Uploaden is mislukt."); }
     finally { setBezig(false); }
@@ -3111,7 +3151,7 @@ function DossierBijlageKaart({ dossier, disabled, extraEmails, soortWaarde, toon
         body: JSON.stringify({ soort: dossier.soort, id: dossier.id, sectie, actie: "versturen", bestandNaam: mailBijlage, ontvanger: mailNaar, cc: mailCc, onderwerp: mailOnderwerp, tekst: mailTekst, soortWaarde: soortWaarde != null ? String(soortWaarde) : "" }),
       });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(`${d.error || `HTTP ${r.status}`}${d.detail ? ` (${d.detail})` : ""}`);
       setVerstuurMelding(`Verstuurd naar ${mailNaar}${mailCc.trim() ? ` (cc: ${mailCc.trim()})` : ""}${mailBijlage ? ` met bijlage “${mailBijlage}”` : " (zonder bijlage)"}.`);
     } catch (e) { setVerstuurFout(e.message || "Versturen is mislukt."); }
     finally { setVerstuurBezig(false); }
@@ -3272,7 +3312,7 @@ function AangifteVersturenKaart({ dossier, disabled, voorlopig }) {
     try {
       const r = await fetch(`/api/medewerker-aangifte-ontvanger?soort=${encodeURIComponent(dossier.soort)}&id=${encodeURIComponent(dossier.id)}&doelgroep=${doelgroep}`);
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(`${d.error || `HTTP ${r.status}`}${d.detail ? ` (${d.detail})` : ""}`);
       if (!d.klaar) { setModal(null); setMeldingen((h) => ({ ...h, [doelgroep]: d.reden || "Versturen is nu niet mogelijk." })); return; }
       setModal({
         doelgroep, bestand, laden: false,
@@ -3308,7 +3348,7 @@ function AangifteVersturenKaart({ dossier, disabled, voorlopig }) {
         }),
       });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(`${d.error || `HTTP ${r.status}`}${d.detail ? ` (${d.detail})` : ""}`);
       setVersturenStatus("klaar");
       setResultaten((h) => ({ ...h, [modal.doelgroep]: { ...d, naam: modal.ontvanger?.naam || "" } }));
       setModal(null);
@@ -3618,7 +3658,7 @@ function ReviewAanvragenModal({ dossier, soortLabel, onSluit, onKlaar }) {
         }),
       });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(`${d.error || `HTTP ${r.status}`}${d.detail ? ` (${d.detail})` : ""}`);
       onKlaar(d);
     } catch (e) {
       setFout(e.message || "Kon de review niet uitzetten.");
@@ -3765,7 +3805,7 @@ function VoorlopigeAangifteModal({ dossier, soortLabel, voorlopig, onSluit, onKl
         body: JSON.stringify({ soort: dossier.soort, id: dossier.id, actie: "voorlopige-aangifte", reden, toelichting: toelichting.trim(), herzienOp }),
       });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(`${d.error || `HTTP ${r.status}`}${d.detail ? ` (${d.detail})` : ""}`);
       onKlaar(d);
     } catch (e) {
       setFout(e.message || "Kon de voorlopige aangifte niet vastleggen.");
@@ -3983,7 +4023,7 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
         body: JSON.stringify({ soort: dossier.soort, id: dossier.id, actie: "verwijderen" }),
       });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(`${d.error || `HTTP ${r.status}`}${d.detail ? ` (${d.detail})` : ""}`);
       onDossierVerwijderd(dossier.id);
     } catch (e) {
       setVerwijderFout(e.message || "Verwijderen mislukt.");
