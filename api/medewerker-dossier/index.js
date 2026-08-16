@@ -358,10 +358,26 @@ module.exports = async function (context, req) {
           context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Een toelichting is verplicht — leg kort vast waarom deze aangifte voorlopig is." } };
           return;
         }
-        // De herzieningsdatum ligt VAST op de jaarlijkse datum uit Beheer (standaard 1 december) —
-        // bewust niet per dossier te kiezen, zodat alle herzieningen op hetzelfde moment bij de
-        // cliënten worden uitgevraagd. Server bepaalt 'm, niet het scherm.
-        const herzienDatum = dossierVoorlopig.volgendeHerzieningsdatum(cfg);
+        // De herzieningsdatum staat standaard op de jaarlijkse datum uit Beheer (standaard 1
+        // december), zodat alle herzieningen op hetzelfde moment bij de cliënten worden uitgevraagd.
+        // Wijkt een dossier af, dan mag de medewerker er een eigen datum voor in de plaats zetten —
+        // die komt als deadline op de taak te staan en is daarna ook in de taak zelf nog te wijzigen.
+        const standaardDatum = dossierVoorlopig.volgendeHerzieningsdatum(cfg);
+        const eigenDatumRuw = String((req.body && req.body.herzienOp) || "").trim();
+        let herzienDatum = standaardDatum;
+        if (eigenDatumRuw) {
+          const d = new Date(eigenDatumRuw);
+          if (isNaN(d.getTime())) {
+            context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "De herzieningsdatum is geen geldige datum." } };
+            return;
+          }
+          const vandaag = new Date(); vandaag.setHours(0, 0, 0, 0);
+          if (d < vandaag) {
+            context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "De herzieningsdatum ligt in het verleden. Kies een datum vanaf vandaag." } };
+            return;
+          }
+          herzienDatum = d;
+        }
 
         const huidigDossier = await haalEenDossier(resource, token, soort, id);
         if (!huidigDossier) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Dossier niet gevonden." } }; return; }
@@ -375,12 +391,12 @@ module.exports = async function (context, req) {
           return;
         }
 
-        const periode = dossierReview.periodeTekst(huidigDossier);
+        const periode = dossierVoorlopig.periodeTekst(huidigDossier);
         const ikzelf = await haalSystemuser(resource, token, email).catch(() => null);
         // Herzieningstaak — bij de manager van het dossier, met de gekozen datum als deadline en de
         // dossierkoppeling erin zodat je er vanuit de taak meteen bij kunt.
-        const taakId = await dossierReview.maakTaak(resource, token, {
-          subject: dossierReview.vulSjabloonIn(cfg.taakOnderwerp, {
+        const taakId = await dossierVoorlopig.maakTaak(resource, token, {
+          subject: dossierVoorlopig.vulSjabloonIn(cfg.taakOnderwerp, {
             klant: huidigDossier.klantnaam || "", periode, jaar: huidigDossier.jaar || "", soort: soort.label,
           }),
           // De taak is een UITVRAAG BIJ DE CLIËNT: is er iets gewijzigd waardoor de aangifte herzien
@@ -391,7 +407,9 @@ module.exports = async function (context, req) {
             `\nReden dat deze voorlopig is: ${reden.label}`,
             `Toelichting van uw accountant: ${toelichting}`,
             `\nIs er inmiddels iets gewijzigd waardoor de aangifte herzien moet worden? Laat het ons via deze taak weten. Is er niets veranderd, dan kunt u de taak afronden.`,
-          ].join("\n") + dossierTaakketen.maakRef(soort.key, id, "voorlopig"),
+          ].join("\n") + (typeof dossierTaakketen.maakRef === "function"
+            ? dossierTaakketen.maakRef(soort.key, id, "voorlopig")
+            : `\n\n[dossier-ref: ${soort.key}:${id}|voorlopig]`),
           accountId: huidigDossier.accountId,
           soortWaarde: cfg.taakSoort,
           rubriekWaarde: cfg.taakRubriek,

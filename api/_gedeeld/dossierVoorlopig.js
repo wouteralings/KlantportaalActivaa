@@ -231,8 +231,72 @@ async function naHerzieningstaakAfgerond({ context, omschrijving, door }) {
   }
 }
 
+// ── Taak aanmaken ───────────────────────────────────────────────────────────
+// Bewust een eigen kopie i.p.v. lenen uit dossierReview.js: deze module moet op zichzelf kunnen
+// draaien. Leende hij die functie, dan zou een deploy waarin dossierReview.js een oudere versie is
+// hier een "is not a function"-fout opleveren — precies de 500 die we anders niet zien aankomen.
+const TAAK_SOORT_VELD = process.env.DYNAMICS_TAAK_SOORT_VELD || "";
+const TAAK_KLANT_VELD = process.env.DYNAMICS_TAAK_KLANT_VELD || "sk_client";
+const TAAK_RUBRIEK_VELD = process.env.DYNAMICS_TAAK_RUBRIEK_VELD || "cr283_rubriek";
+
+/** Vult {klant}/{periode}/{jaar}/{soort} in een onderwerp-sjabloon in. */
+function vulSjabloonIn(sjabloon, velden) {
+  let uit = String(sjabloon || "").trim();
+  for (const [k, v] of Object.entries(velden || {})) uit = uit.replaceAll(`{${k}}`, v == null ? "" : String(v));
+  return uit.replace(/\s{2,}/g, " ").replace(/\s+—\s*$/, "").trim();
+}
+
+/** Leesbare periode van een dossier: jaar, boekjaar ("2025–2026") of datum (notulen). */
+function periodeTekst(dossier) {
+  if (!dossier) return "";
+  if (dossier.jaar !== null && dossier.jaar !== undefined && dossier.jaar !== "") return String(dossier.jaar);
+  const jaarVan = (x) => { const d = x ? new Date(x) : null; return d && !isNaN(d.getTime()) ? d.getFullYear() : null; };
+  const van = jaarVan(dossier.begindatum);
+  const tot = jaarVan(dossier.einddatum);
+  if (van && tot) return van === tot ? String(van) : `${van}–${tot}`;
+  const datum = dossier.begindatum || dossier.einddatum || "";
+  if (!datum) return "";
+  const d = new Date(datum);
+  return isNaN(d.getTime()) ? "" : d.toLocaleDateString("nl-NL");
+}
+
+/** Maakt één taak aan in Dynamics en geeft het activityid terug. Gooit door bij een fout. */
+async function maakTaak(resource, token, { subject, description, accountId, soortWaarde, rubriekWaarde, eigenaarId, deadline }) {
+  const body = {
+    subject: tekst(subject, 400) || "Voorlopige aangifte herzien",
+    description: String(description || "").slice(0, 100000),
+  };
+  if (accountId) body[`${TAAK_KLANT_VELD}@odata.bind`] = `/accounts(${accountId})`;
+  if (TAAK_SOORT_VELD && soortWaarde !== null && soortWaarde !== undefined && soortWaarde !== "") {
+    const n = Number(soortWaarde);
+    if (Number.isFinite(n)) body[TAAK_SOORT_VELD] = n;
+  }
+  if (TAAK_RUBRIEK_VELD && rubriekWaarde !== null && rubriekWaarde !== undefined && rubriekWaarde !== "") {
+    const n = Number(rubriekWaarde);
+    if (Number.isFinite(n)) body[TAAK_RUBRIEK_VELD] = n;
+  }
+  if (eigenaarId) body["ownerid@odata.bind"] = `/systemusers(${eigenaarId})`;
+  if (deadline) body.scheduledend = deadline;
+
+  const res = await fetch(`${resource}/api/data/v9.2/tasks`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "OData-MaxVersion": "4.0",
+      "OData-Version": "4.0",
+      Prefer: "return=representation",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Aanmaken herzieningstaak mislukt (${res.status}): ${await res.text()}`);
+  return (await res.json().catch(() => ({}))).activityid || "";
+}
+
 module.exports = {
   STANDAARD_VOORLOPIG, STANDAARD_REDENEN,
+  vulSjabloonIn, periodeTekst, maakTaak,
   normaliseerVoorlopigConfig, normaliseerAlleVoorlopigConfig, instellingenVoorSoort, volgendeHerzieningsdatum,
   haalAlle, haalVoorDossier, zetVoorlopig, markeerHerzien, wisVoorlopig, naHerzieningstaakAfgerond,
   // Doorgeven zodat aanroepers één module hoeven te kennen.

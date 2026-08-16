@@ -317,6 +317,29 @@ module.exports = async function (context, req) {
         return;
       }
 
+      // Deadline (scheduledend) van een taak verzetten — o.a. om de herzieningsdatum van een
+      // voorlopige aangifte later alsnog te verschuiven. Leeg = deadline weghalen.
+      if (actie === "deadline") {
+        const ruw = String((req.body && req.body.deadline) || "").trim();
+        let waarde = null;
+        if (ruw) {
+          const d = new Date(ruw);
+          if (isNaN(d.getTime())) {
+            context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Dat is geen geldige datum." } };
+            return;
+          }
+          waarde = d.toISOString();
+        }
+        const res = await fetch(`${resource}/api/data/v9.2/tasks(${taakId})`, {
+          method: "PATCH",
+          headers: DYNAMICS_HEADERS(token),
+          body: JSON.stringify({ scheduledend: waarde }),
+        });
+        if (!res.ok) throw new Error(`Deadline aanpassen mislukt: ${await res.text()}`);
+        context.res = { status: 200, headers: { "Content-Type": "application/json" }, body: { ok: true, deadline: waarde } };
+        return;
+      }
+
       if (actie !== "afronden") {
         context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Onbekende actie." } };
         return;

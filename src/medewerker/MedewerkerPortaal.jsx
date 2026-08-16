@@ -3719,12 +3719,16 @@ function VoorlopigeAangifteModal({ dossier, soortLabel, voorlopig, onSluit, onKl
     if (d < vandaag) d = maak(nu.getFullYear() + 1);
     return d;
   })();
+  const standaardIso = `${herzienDatum.getFullYear()}-${String(herzienDatum.getMonth() + 1).padStart(2, "0")}-${String(herzienDatum.getDate()).padStart(2, "0")}`;
   const [reden, setReden] = useState("");
   const [toelichting, setToelichting] = useState("");
+  const [herzienOp, setHerzienOp] = useState(standaardIso);
+  const [datumOpen, setDatumOpen] = useState(false); // pas openklappen als je wilt afwijken
   const [bezig, setBezig] = useState(false);
   const [fout, setFout] = useState("");
 
-  const compleet = reden && toelichting.trim().length >= 3;
+  const vandaagIso = new Date().toISOString().slice(0, 10);
+  const compleet = reden && toelichting.trim().length >= 3 && herzienOp && herzienOp >= vandaagIso;
 
   const versturen = async () => {
     if (!compleet || bezig) return;
@@ -3733,7 +3737,7 @@ function VoorlopigeAangifteModal({ dossier, soortLabel, voorlopig, onSluit, onKl
       const r = await fetch("/api/medewerker-dossier", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ soort: dossier.soort, id: dossier.id, actie: "voorlopige-aangifte", reden, toelichting: toelichting.trim() }),
+        body: JSON.stringify({ soort: dossier.soort, id: dossier.id, actie: "voorlopige-aangifte", reden, toelichting: toelichting.trim(), herzienOp }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
@@ -3784,13 +3788,34 @@ function VoorlopigeAangifteModal({ dossier, soortLabel, voorlopig, onSluit, onKl
           />
 
           <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 5 }}>Herziening uitvragen op</label>
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, border: `1px solid ${KLEUR.rand}`, background: "#F4F5F2", borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 700 }}>
-            <Clock size={14} color="#A9660C" /> {herzienDatum.toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" })}
-          </div>
+          {datumOpen ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <input
+                type="date"
+                value={herzienOp}
+                min={vandaagIso}
+                onChange={(e) => setHerzienOp(e.target.value)}
+                style={{ boxSizing: "border-box", border: `1px solid ${herzienOp >= vandaagIso ? KLEUR.rand : "#E0C9A0"}`, borderRadius: 8, padding: "8px 10px", fontSize: 13 }}
+              />
+              <button onClick={() => { setHerzienOp(standaardIso); setDatumOpen(false); }} style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                Terug naar de vaste datum
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 8, border: `1px solid ${KLEUR.rand}`, background: "#F4F5F2", borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 700 }}>
+                <Clock size={14} color="#A9660C" /> {herzienDatum.toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" })}
+              </div>
+              <button onClick={() => setDatumOpen(true)} style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                Andere datum kiezen
+              </button>
+            </div>
+          )}
           <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 6 }}>
-            Vaste jaarlijkse datum (in te stellen bij Beheer → Dossiers). Op die dag staat er een taak klaar
+            Standaard de vaste jaarlijkse datum uit Beheer → Dossiers. Op die dag staat er een taak klaar
             bij <strong>{dossier.klantnaam || "de cliënt"}</strong> met de vraag of er iets is gewijzigd waardoor
-            de aangifte herzien moet worden. Zodra die taak is afgerond, vervalt de voorlopig-markering vanzelf.
+            de aangifte herzien moet worden. De datum is later ook nog in de taak zelf te verzetten. Zodra die
+            taak is afgerond, vervalt de voorlopig-markering vanzelf.
           </div>
           {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginTop: 10 }}>{fout}</div>}
         </div>

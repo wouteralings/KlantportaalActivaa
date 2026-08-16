@@ -124,7 +124,7 @@ function AfwikkelingBadge({ waarde }) {
 }
 
 // ── Detailweergave van één taak ──────────────────────────────────────────────
-function TaakDetail({ taak, modus, appUrl, urencodes = [], magBewerken = true, onTerug, onAfgehandeld, onTijd, onUrencode, onGeboekt }) {
+function TaakDetail({ taak, modus, appUrl, urencodes = [], magBewerken = true, onTerug, onAfgehandeld, onTijd, onUrencode, onGeboekt, onDeadline }) {
   const [bezig, setBezig] = useState(false);
   const [fout, setFout] = useState("");
   const [afgerond, setAfgerond] = useState(false); // net afgehandeld → uren schrijven tonen
@@ -212,6 +212,30 @@ function TaakDetail({ taak, modus, appUrl, urencodes = [], magBewerken = true, o
       setReviewFout(e.message || "Aftekenen mislukt.");
     } finally {
       setReviewBezig("");
+    }
+  };
+
+  // Deadline verzetten — bijv. de herzieningsdatum van een voorlopige aangifte een jaar opschuiven.
+  const [deadlineInput, setDeadlineInput] = useState(taak.deadline ? String(taak.deadline).slice(0, 10) : "");
+  const [deadlineStatus, setDeadlineStatus] = useState("");
+  const [deadlineBezig, setDeadlineBezig] = useState(false);
+
+  const bewaarDeadline = async () => {
+    if (!magBewerken || deadlineBezig) return;
+    setDeadlineBezig(true); setDeadlineStatus("");
+    try {
+      const r = await fetch("/api/mw-taken", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: taak.id, actie: "deadline", deadline: deadlineInput }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      setDeadlineStatus("gelukt");
+      if (onDeadline) onDeadline(taak.id, d.deadline || null);
+    } catch (e) {
+      setDeadlineStatus(e.message || "Opslaan mislukt.");
+    } finally {
+      setDeadlineBezig(false);
     }
   };
 
@@ -422,7 +446,30 @@ function TaakDetail({ taak, modus, appUrl, urencodes = [], magBewerken = true, o
 
         {modus === "open" && magBewerken && (
           <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${KLEUR.rand}` }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 6 }}>Indicatie-uren (planning &amp; bezetting)</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 6 }}>Deadline</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <input
+                type="date"
+                value={deadlineInput}
+                onChange={(e) => { setDeadlineInput(e.target.value); setDeadlineStatus(""); }}
+                style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 13, background: "#fff" }}
+              />
+              <button onClick={bewaarDeadline} disabled={deadlineBezig} style={{ padding: "7px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: deadlineBezig ? "default" : "pointer", opacity: deadlineBezig ? 0.7 : 1 }}>
+                {deadlineBezig ? "Bezig…" : "Opslaan"}
+              </button>
+              {deadlineInput && (
+                <button onClick={() => { setDeadlineInput(""); setDeadlineStatus(""); }} style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Wissen</button>
+              )}
+              {deadlineStatus === "gelukt" && <span style={{ fontSize: 12, color: KLEUR.groen, fontWeight: 600 }}>Opgeslagen</span>}
+              {deadlineStatus && deadlineStatus !== "gelukt" && <span style={{ fontSize: 12, color: KLEUR.rood }}>{deadlineStatus}</span>}
+            </div>
+            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 6 }}>
+              {openReview || (taak.dossier && taak.dossier.fase === "voorlopig")
+                ? "Bij een voorlopige aangifte is dit de datum waarop de herziening bij de cliënt wordt uitgevraagd — hier te verzetten."
+                : "De datum waarop deze taak af moet zijn. Leeg laten kan ook."}
+            </div>
+
+            <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", margin: "14px 0 6px" }}>Indicatie-uren (planning &amp; bezetting)</div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <input
                 type="number" min="0" step="0.25" value={urenInput}
@@ -648,6 +695,7 @@ function TakenTabel({ modus, magBewerken = true }) {
             const vorig = h[key] || h[key.toLowerCase()] || { uren: 0, aantal: 0 };
             return { ...h, [key]: { uren: Math.round((vorig.uren + Number(aantal || 0)) * 100) / 100, aantal: vorig.aantal + 1 } };
           })}
+          onDeadline={(id, deadline) => setTaken((h) => (h || []).map((x) => (x.id === id ? { ...x, deadline } : x)))}
         />
       );
     }
