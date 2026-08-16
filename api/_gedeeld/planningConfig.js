@@ -129,6 +129,21 @@ async function haalAlle() {
   return result.recordset.map(naarBuiten);
 }
 
+/**
+ * Hoe vaak komt elke activiteit voor in de per-klant configuratie? Inclusief regels die op inactief
+ * staan — ook die verwijzen naar de activiteit en zouden "onbekend" worden als je hem weggooit.
+ * Geeft { "<activiteit-sleutel>": aantal } terug.
+ */
+async function telGebruikPerActiviteit() {
+  const pool = await haalPool();
+  const result = await pool.request().query(
+    "SELECT activiteit, COUNT(*) AS aantal FROM dbo.planning_config_klanten GROUP BY activiteit"
+  );
+  const uit = {};
+  for (const r of result.recordset) uit[String(r.activiteit || "")] = Number(r.aantal) || 0;
+  return uit;
+}
+
 async function haalRegel(id) {
   if (!id) return null;
   const pool = await haalPool();
@@ -225,5 +240,5 @@ async function verwijderRegel(id) {
 }
 
 module.exports = {
-  haalVoorKlant, haalAlle, haalRegel, maakRegel, wijzigRegel, verwijderRegel, GELDIGE_FREQUENTIES,
+  haalVoorKlant, haalAlle, haalRegel, maakRegel, wijzigRegel, verwijderRegel, telGebruikPerActiviteit, GELDIGE_FREQUENTIES,
 };

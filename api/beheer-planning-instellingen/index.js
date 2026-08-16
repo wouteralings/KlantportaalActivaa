@@ -21,10 +21,17 @@ const planningKlanten = require("../_gedeeld/planningKlanten");
  * precies laten zien wáár een activiteit nog hangt, in plaats van alleen "3× in gebruik".
  */
 async function haalGebruikDetail(setjes) {
-  const [config, los] = await Promise.all([
-    planningConfig.telGebruikPerActiviteit().catch(() => ({})),
-    planningKlanten.telGebruikPerActiviteit().catch(() => ({})),
-  ]);
+  // Bewust extra defensief: valt één van deze modules weg of is de SQL-tabel er nog niet, dan telt die
+  // bron als 0 en blijft het beheerscherm gewoon laden (verwijderen wordt dan alleen strenger, want de
+  // PUT controleert het nóg een keer met dezelfde functie).
+  const tel = async (mod) => {
+    try {
+      if (!mod || typeof mod.telGebruikPerActiviteit !== "function") return {};
+      const r = await mod.telGebruikPerActiviteit();
+      return r && typeof r === "object" ? r : {};
+    } catch { return {}; }
+  };
+  const [config, los] = await Promise.all([tel(planningConfig), tel(planningKlanten)]);
   const uit = {};
   const zorg = (k) => (uit[k] = uit[k] || { config: 0, los: 0, setjes: [] });
   for (const [k, n] of Object.entries(config || {})) if (k) zorg(k).config += Number(n) || 0;
@@ -60,7 +67,7 @@ module.exports = async function (context, req) {
   try {
     if (req.method === "GET") {
       const { activiteiten, statussen, uitgeslotenMedewerkers, setjes } = await haalInstellingen();
-      const gebruikDetail = await haalGebruikDetail(setjes);
+      const gebruikDetail = await haalGebruikDetail(setjes).catch(() => ({}));
       context.res = { headers: { "Content-Type": "application/json" }, body: { activiteiten, statussen, uitgeslotenMedewerkers, setjes, gebruik: totalen(gebruikDetail), gebruikDetail } };
       return;
     }
@@ -80,7 +87,7 @@ module.exports = async function (context, req) {
       const nieuweSleutelsNorm = new Set([...nieuweSleutels].map((k) => maakSleutel(k)));
       const verwijderd = (huidig.activiteiten || []).filter((a) => !nieuweSleutelsNorm.has(a.sleutel));
       if (verwijderd.length) {
-        const detail = await haalGebruikDetail(setjes !== undefined ? setjes : huidig.setjes);
+        const detail = await haalGebruikDetail(setjes !== undefined ? setjes : huidig.setjes).catch(() => ({}));
         const inGebruik = verwijderd.filter((a) => ((detail[a.sleutel] && ((detail[a.sleutel].config || 0) + (detail[a.sleutel].los || 0) + (detail[a.sleutel].setjes || []).length)) || 0) > 0);
         if (inGebruik.length) {
           const namen = inGebruik.map((a) => `“${a.label}” — ${gebruikTekst(detail[a.sleutel])}`).join("; ");
@@ -93,7 +100,7 @@ module.exports = async function (context, req) {
         }
       }
       const opgeslagen = await zetInstellingen({ activiteiten, statussen, uitgeslotenMedewerkers, setjes });
-      const detailNa = await haalGebruikDetail(opgeslagen.setjes);
+      const detailNa = await haalGebruikDetail(opgeslagen.setjes).catch(() => ({}));
       context.res = { headers: { "Content-Type": "application/json" }, body: { ...opgeslagen, gebruik: totalen(detailNa), gebruikDetail: detailNa } };
       return;
     }
@@ -104,6 +111,9 @@ module.exports = async function (context, req) {
       return;
     }
     context.log && context.log.error && context.log.error(err);
-    context.res = { status: 500, headers: { "Content-Type": "application/json" }, body: { error: "Onverwachte fout bij de planning-instellingen.", detail: String(err.message || err) } };
+    // Detail + eerste stack-regel meesturen: het beheerscherm toont die, zodat een 500 meteen te
+    // herleiden is zonder in de Azure-logs te hoeven duiken.
+    const waar = String((err && err.stack) || "").split("\n").find((r) => r.includes("/api/") || r.includes("\\api\\")) || "";
+    context.res = { status: 500, headers: { "Content-Type": "application/json" }, body: { error: "Onverwachte fout bij de planning-instellingen.", detail: `${err && err.name ? err.name + ": " : ""}${String((err && err.message) || err)}${waar ? ` — ${waar.trim()}` : ""}` } };
   }
 };

@@ -103,9 +103,14 @@ export default function PlanningInstellingenBeheer() {
 
   useEffect(() => {
     fetch("/api/beheer-planning-instellingen")
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then(async (r) => {
+        if (r.ok) return r.json();
+        // Geef de serverfout door i.p.v. een kale "kon niet laden" — scheelt zoeken in de console.
+        const d = await r.json().catch(() => ({}));
+        throw new Error(`${d.error || "Kon de planning-instellingen niet laden."}${d.detail ? ` (${d.detail})` : ""} [HTTP ${r.status}]`);
+      })
       .then((d) => { setActiviteiten(d.activiteiten || []); setStatussen(d.statussen || []); setUitgesloten(d.uitgeslotenMedewerkers || []); setSetjes(d.setjes || []); setGebruik(d.gebruik || {}); setGebruikDetail(d.gebruikDetail || {}); })
-      .catch(() => { setActiviteiten([]); setStatussen([]); setFout("Kon de planning-instellingen niet laden."); });
+      .catch((e) => { setActiviteiten([]); setStatussen([]); setFout(e.message || "Kon de planning-instellingen niet laden."); });
     fetch("/api/mw-planning-medewerkers")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setMedewerkers(d.medewerkers || []))

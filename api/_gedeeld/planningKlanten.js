@@ -98,6 +98,17 @@ async function haalVoorKlant(klantAccountId) {
   return result.recordset.map(naarBuiten);
 }
 
+/** Idem voor de losse planningsregels: { "<activiteit-sleutel>": aantal }. */
+async function telGebruikPerActiviteit() {
+  const pool = await haalPool();
+  const result = await pool.request().query(
+    "SELECT activiteit, COUNT(*) AS aantal FROM dbo.planning_klanten GROUP BY activiteit"
+  );
+  const uit = {};
+  for (const r of result.recordset) uit[String(r.activiteit || "")] = Number(r.aantal) || 0;
+  return uit;
+}
+
 async function haalRegel(id) {
   if (!id) return null;
   const pool = await haalPool();
@@ -186,5 +197,5 @@ async function verwijderRegel(id) {
 }
 
 module.exports = {
-  haalAlleVoorOverzicht, haalVoorKlant, haalRegel, maakRegel, wijzigRegel, verwijderRegel,
+  haalAlleVoorOverzicht, haalVoorKlant, haalRegel, maakRegel, wijzigRegel, verwijderRegel, telGebruikPerActiviteit,
 };
