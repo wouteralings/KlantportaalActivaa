@@ -30,6 +30,7 @@
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const { SOORTEN, haalEenDossier, haalNavigatieNaam, werkDossierBij } = require("../_gedeeld/dossiers");
 const dossierTaakketen = require("../_gedeeld/dossierTaakketen");
+const dossierVoorlopig = require("../_gedeeld/dossierVoorlopig");
 const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/sharepointUpload");
 const { haalAppGraphToken } = require("../_gedeeld/graphApp");
 const { haalGraphToken } = require("../_gedeeld/mail");
@@ -176,10 +177,18 @@ module.exports = async function (context, req) {
     // Instelbare waarden uit Beheer → Dossiers (pad, taak-onderwerp, taak-soort) — met terugval op de
     // oude, hardcoded standaarden zodat het ook werkt vóórdat er iets is ingesteld.
     const instellingen = await haalInstellingen().catch(() => ({}));
+    // Staat dit dossier als VOORLOPIGE aangifte gemarkeerd (Beheer → Dossiers → Voorlopige aangifte)?
+    // Dan loopt hetzelfde proces, maar met "voorlopig" in het taak-onderwerp en de eigen voorlopige
+    // dossierstatussen. De vlag reist mee in de dossierkoppeling, zodat ook de vervolgstappen na het
+    // akkoord van de cliënt weten dat het om een voorlopige aangifte gaat.
+    const voorlopigNu = await dossierVoorlopig.haalVoorDossier(soort.key, dossierId).catch(() => null);
+    const isVoorlopig = !!(voorlopigNu && voorlopigNu.status === "open");
     const mapSegmenten = bepaalMapSegmenten(instellingen.aangiftePadTemplate, { klant: naam, jaar: dossier.jaar });
-    const taakOnderwerp =
+    const taakOnderwerp = dossierTaakketen.vulVoorlopigIn(
       vulSjabloonIn(instellingen.aangifteTaakOnderwerpTemplate || STANDAARD_TAAK_ONDERWERP, { klant: naam, jaar: dossier.jaar }) ||
-      vulSjabloonIn(STANDAARD_TAAK_ONDERWERP, { klant: naam, jaar: dossier.jaar });
+        vulSjabloonIn(STANDAARD_TAAK_ONDERWERP, { klant: naam, jaar: dossier.jaar }),
+      isVoorlopig,
+    );
     const soortInstelling = Number(instellingen.aangifteTaakSoort);
     const taakSoortWaarde = Number.isFinite(soortInstelling) && soortInstelling > 0 ? soortInstelling : SOORT_WAARDE_IN_AFWACHTING;
     const rubriekInstelling = Number(instellingen.aangifteTaakRubriek);
@@ -208,7 +217,7 @@ module.exports = async function (context, req) {
     // zetten en het dossier op inactief (alleen-lezen) — zie STATUS_AANGIFTE_VERZONDEN_NAAR_BELASTINGDIENST
     // aldaar. Wordt bij het tonen aan de cliënt (GET /api/taken) er weer uitgefilterd, zie
     // VERBERG_DOSSIER_REF in api/taken/index.js — de cliënt ziet dit stukje dus nooit.
-    const dossierRef = dossierTaakketen.maakRef(soort.key, dossierId, "akkoord");
+    const dossierRef = dossierTaakketen.maakRef(soort.key, dossierId, "akkoord", isVoorlopig);
     const taakBody = {
       subject: taakOnderwerp,
       description: `Aangifte inkomstenbelasting${dossier.jaar ? ` ${dossier.jaar}` : ""} van ${naam} is via het klantportaal verstuurd naar ${ontvangerEmail} op ${new Date().toLocaleString("nl-NL", { timeZone: "Europe/Amsterdam" })} door ${email || "onbekend"}.${dossierRef}`,
@@ -268,10 +277,13 @@ module.exports = async function (context, req) {
     // vertrouwde waarde "Aangifte verzonden naar client" aan. ──
     try {
       const keten = await dossierTaakketen.instellingenVoorSoort(soort.key).catch(() => ({}));
-      const nieuweStatus = keten.statusVersturen !== null && keten.statusVersturen !== undefined
-        ? keten.statusVersturen
-        : STATUS_AANGIFTE_VERZONDEN_NAAR_CLIENT;
-      await werkDossierBij(resource, token, soort, dossierId, { status: nieuweStatus });
+      const st = dossierTaakketen.statussenVoor(keten, isVoorlopig);
+      // Bij een voorlopige aangifte alleen de status zetten als die ook echt is ingesteld — anders
+      // zouden we 'm op "definitief verzonden naar client" zetten, en dat klopt dan niet.
+      const nieuweStatus = st.versturen !== null && st.versturen !== undefined
+        ? st.versturen
+        : (isVoorlopig ? null : STATUS_AANGIFTE_VERZONDEN_NAAR_CLIENT);
+      if (nieuweStatus !== null) await werkDossierBij(resource, token, soort, dossierId, { status: nieuweStatus });
     } catch (e) {
       context.log.error("medewerker-aangifte-versturen: status bijwerken mislukt (upload/taak/mail zijn al verwerkt):", e);
     }

@@ -371,6 +371,13 @@
       ]
     },
     {
+      "route": "/api/medewerker-notulen-opslaan",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
       "route": "/api/medewerker-aangifte-ontvanger",
       "allowedRoles": [
         "beheerder",

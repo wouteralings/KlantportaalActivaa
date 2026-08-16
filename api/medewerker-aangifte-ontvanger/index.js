@@ -22,6 +22,8 @@
 const { haalDynamicsToken, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const { SOORTEN, haalEenDossier } = require("../_gedeeld/dossiers");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
+const dossierVoorlopig = require("../_gedeeld/dossierVoorlopig");
+const dossierTaakketen = require("../_gedeeld/dossierTaakketen");
 
 const SHAREPOINT_VELD = process.env.DYNAMICS_KLANT_SHAREPOINT_VELD || "cr283_sharepoint";
 
@@ -42,6 +44,18 @@ function vulSjabloonIn(sjabloon, { klant, jaar, soortWoord }) {
 // (Beheer → Dossiers) — geen bestandsnaam-opmaak nodig, dus een eigen (simpelere) functie.
 function vulMailSjabloonIn(sjabloon, { klant, jaar }) {
   return String(sjabloon || "").replaceAll("{klant}", klant || "cliënt").replaceAll("{jaar}", jaar != null ? String(jaar) : "");
+}
+
+/**
+ * Bestandsnaam van een VOORLOPIGE aangifte: "Voorlopig — " ervoor, of de plaatshouder {voorlopig}
+ * als die in het sjabloon staat. De ".pdf" moet natuurlijk achteraan blijven staan, dus dat doen we
+ * hier apart in plaats van met de generieke vulVoorlopigIn.
+ */
+function voorlopigeBestandsnaam(naam, voorlopig) {
+  const s = String(naam || "");
+  if (s.includes("{voorlopig}")) return s.replaceAll("{voorlopig}", voorlopig ? "voorlopige " : "").replace(/\s{2,}/g, " ");
+  if (!voorlopig) return s;
+  return `Voorlopig - ${s}`;
 }
 
 module.exports = async function (context, req) {
@@ -96,9 +110,19 @@ module.exports = async function (context, req) {
     else if (!email) reden = "Voor deze klant is geen e-mailadres bekend bij de hoofdcontactpersoon in Dynamics.";
 
     const instellingen = await haalInstellingen().catch(() => ({}));
-    const bestandsnaamStandaard = vulSjabloonIn(instellingen[aangKey("aangifteBestandsnaamTemplate", soortKey)], { klant: naam, jaar: dossier.jaar, soortWoord });
-    const mailOnderwerpStandaard = vulMailSjabloonIn(instellingen[aangKey("aangifteMailOnderwerpTemplate", soortKey)], { klant: naam, jaar: dossier.jaar });
-    const mailTekstStandaard = vulMailSjabloonIn(instellingen[aangKey("aangifteMailTekstTemplate", soortKey)], { klant: naam, jaar: dossier.jaar });
+    // Staat dit dossier als VOORLOPIGE aangifte gemarkeerd? Dan draait hetzelfde verstuurproces,
+    // maar met "voorlopig" in de bestandsnaam, het mailonderwerp en de mailtekst. Zet de
+    // plaatshouder {voorlopig} in je sjablonen om zelf te bepalen wáár dat woord komt; zonder die
+    // plaatshouder zetten we er "Voorlopig — " voor.
+    const voorlopigNu = await dossierVoorlopig.haalVoorDossier(soortKey, dossierId).catch(() => null);
+    const isVoorlopig = !!(voorlopigNu && voorlopigNu.status === "open");
+    const vv = (s) => dossierTaakketen.vulVoorlopigIn(s, isVoorlopig);
+    const bestandsnaamStandaard = voorlopigeBestandsnaam(
+      vulSjabloonIn(instellingen[aangKey("aangifteBestandsnaamTemplate", soortKey)], { klant: naam, jaar: dossier.jaar, soortWoord }),
+      isVoorlopig,
+    );
+    const mailOnderwerpStandaard = vv(vulMailSjabloonIn(instellingen[aangKey("aangifteMailOnderwerpTemplate", soortKey)], { klant: naam, jaar: dossier.jaar }));
+    const mailTekstStandaard = vv(vulMailSjabloonIn(instellingen[aangKey("aangifteMailTekstTemplate", soortKey)], { klant: naam, jaar: dossier.jaar }));
 
     context.res = {
       headers: { "Content-Type": "application/json" },
@@ -111,6 +135,9 @@ module.exports = async function (context, req) {
         klantnaamCliënt: dossier.klantnaam || "",
         klaar: heeftSharepoint && !!email,
         reden,
+        // Zodat het scherm er "voorlopige aangifte" van kan maken (kop, uitleg en verstuurknop).
+        voorlopig: isVoorlopig,
+        voorlopigReden: isVoorlopig ? (voorlopigNu.redenLabel || "") : "",
       },
     };
   } catch (err) {

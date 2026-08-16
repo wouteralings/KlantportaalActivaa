@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Search, X, Printer, Copy, CheckCircle2, AlertTriangle, ArrowLeft, Plus, Trash2, Users, RotateCcw,
+  Save, Loader2, FileText,
 } from "lucide-react";
 import { ontleedDocument, heeftEigenKop, blokkenNaarHtml, AFDRUK_CSS } from "../documentOpmaak";
 import { NOTULEN_SJABLONEN } from "../../beheer/notulenSjablonen";
@@ -117,6 +118,13 @@ export default function NotulenOpstellen({ onTerug }) {
   const [eigenTekst, setEigenTekst] = useState("");
   const [tekstOpen, setTekstOpen] = useState(false);
 
+  // Vastleggen: het notulendossier waar dit stuk bij hoort. Leeg = nog niet opgeslagen; na de eerste
+  // keer opslaan werkt "Opslaan" hetzelfde dossier bij in plaats van er een tweede naast te zetten.
+  const [dossierId, setDossierId] = useState("");
+  const [opslaanBezig, setOpslaanBezig] = useState(false);
+  const [pdfUrl, setPdfUrl] = useState("");
+  const [eerdere, setEerdere] = useState([]); // eerder opgestelde notulen van deze cliënt
+
   const [melding, setMelding] = useState(null);
   const levend = useRef(true);
   useEffect(() => () => { levend.current = false; }, []);
@@ -168,12 +176,24 @@ export default function NotulenOpstellen({ onTerug }) {
     setDirecteur(contactNaam);
     setAandeelhouders([{ naam: contactNaam, percentage: "100" }]);
     setMelding(null);
+    // Een andere cliënt = een ander stuk: de koppeling met het vorige notulendossier loslaten.
+    setDossierId(""); setPdfUrl("");
+  }, [klant]);
+
+  // Eerder opgestelde notulen van deze cliënt (om te heropenen en bij te werken). Best-effort.
+  useEffect(() => {
+    setEerdere([]);
+    const acc = klant && klant.accountId;
+    if (!acc) return;
+    let bezig = true;
+    fetch(`/api/medewerker-notulen-opslaan?accountId=${encodeURIComponent(acc)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((d) => { if (bezig && levend.current) setEerdere(Array.isArray(d.notulen) ? d.notulen : []); })
+      .catch(() => { if (bezig && levend.current) setEerdere([]); });
+    return () => { bezig = false; };
   }, [klant]);
 
   useEffect(() => { if (mijnNaam && !notulist) setNotulist(mijnNaam); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [mijnNaam]);
-
-  // Ander model gekozen → eventuele eigen tekstaanpassing loslaten (die hoorde bij het vorige model).
-  useEffect(() => { setEigenTekst(""); }, [sjabloonId]);
 
   const mergeWaarden = useMemo(() => {
     const m = {};
@@ -250,6 +270,75 @@ export default function NotulenOpstellen({ onTerug }) {
     setTimeout(() => { try { w.print(); } catch { /* afdruk best-effort */ } }, 300);
   }
 
+  /**
+   * Vastleggen: het stuk als PDF in de SharePoint-map van de cliënt, de gegevens in een
+   * notulendossier in Dynamics, en de invulgegevens (waaronder de aandeelhoudersnamen) zodat je het
+   * later kunt heropenen. Tweede keer opslaan werkt hetzelfde dossier bij.
+   */
+  async function opslaan() {
+    if (!klant || leeg) return;
+    setOpslaanBezig(true); setMelding(null);
+    try {
+      const res = await fetch("/api/medewerker-notulen-opslaan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accountId: klant.accountId,
+          klantnaam: veiligeStr(klant.klantnaam),
+          dossierId: dossierId || undefined,
+          modelNaam: veiligeStr(sjabloon && sjabloon.naam),
+          datum: datumactie,
+          velden: { vestigingsplaats, directeur, notulist, bedrag, percentage, toelichting },
+          aandeelhouders,
+          // De blokken zoals ze rechts in het voorbeeld staan — de PDF gebruikt exact dezelfde.
+          blokken,
+          tekst: ruweTekst,
+          bestandsnaamBasis: bestandsnaam,
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || `Opslaan mislukt (${res.status}).`);
+      if (!levend.current) return;
+      setDossierId(d.dossierId || "");
+      setPdfUrl(d.pdfUrl || "");
+      const nieuw = !dossierId;
+      setMelding(
+        d.sharepoint && d.sharepoint.gedaan
+          ? { type: "ok", tekst: `De notulen staan in het dossier${nieuw ? " (nieuw notulendossier aangemaakt)" : ""} en in de SharePoint-map van ${veiligeStr(klant.klantnaam)}.` }
+          : { type: "fout", tekst: `Het notulendossier is ${nieuw ? "aangemaakt" : "bijgewerkt"}, maar het stuk kon niet in SharePoint worden gezet: ${(d.sharepoint && d.sharepoint.reden) || "onbekende reden"}` },
+      );
+      // Lijstje met eerdere notulen verversen, zodat het nieuwe stuk er meteen bij staat.
+      fetch(`/api/medewerker-notulen-opslaan?accountId=${encodeURIComponent(klant.accountId)}`)
+        .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+        .then((x) => { if (levend.current) setEerdere(Array.isArray(x.notulen) ? x.notulen : []); })
+        .catch(() => {});
+    } catch (e) {
+      if (levend.current) setMelding({ type: "fout", tekst: String((e && e.message) || e) });
+    } finally {
+      if (levend.current) setOpslaanBezig(false);
+    }
+  }
+
+  /** Een eerder opgesteld stuk terughalen in het scherm (om bij te werken en opnieuw op te slaan). */
+  function heropen(r) {
+    if (!r) return;
+    const v = r.velden || {};
+    setDossierId(r.dossierId || "");
+    setPdfUrl(r.pdfUrl || "");
+    const model = lijst.find((s) => veiligeStr(s.naam) === veiligeStr(r.modelNaam));
+    if (model) setSjabloonId(model.id);
+    setEigenTekst(veiligeStr(r.tekst) && (!model || veiligeStr(r.tekst) !== veiligeStr(model.tekst)) ? String(r.tekst) : "");
+    setDatumactie(veiligeStr(r.datum) || vandaagISO());
+    setVestigingsplaats(veiligeStr(v.vestigingsplaats));
+    setDirecteur(veiligeStr(v.directeur));
+    setNotulist(veiligeStr(v.notulist));
+    setBedrag(veiligeStr(v.bedrag));
+    setPercentage(veiligeStr(v.percentage));
+    setToelichting(veiligeStr(v.toelichting));
+    setAandeelhouders(Array.isArray(r.aandeelhouders) && r.aandeelhouders.length ? r.aandeelhouders : [{ naam: "", percentage: "100" }]);
+    setMelding({ type: "ok", tekst: "Eerder opgestelde notulen teruggehaald — opslaan werkt hetzelfde dossier bij." });
+  }
+
   async function kopieerTekst() {
     try {
       await navigator.clipboard.writeText(ingevuld);
@@ -320,7 +409,7 @@ export default function NotulenOpstellen({ onTerug }) {
             {sjabloon ? (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "9px 12px", background: KLEUR.lichtblauw }}>
                 <span style={{ fontSize: 13.5, fontWeight: 700, color: KLEUR.tekst, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{veiligeStr(sjabloon.naam)}</span>
-                <button onClick={() => { setSjabloonId(""); setSjabloonZoek(""); }} style={{ ...knopLicht, padding: "6px 10px" }}><X size={14} /> Wijzig</button>
+                <button onClick={() => { setSjabloonId(""); setSjabloonZoek(""); setEigenTekst(""); }} style={{ ...knopLicht, padding: "6px 10px" }}><X size={14} /> Wijzig</button>
               </div>
             ) : (
               <>
@@ -332,7 +421,7 @@ export default function NotulenOpstellen({ onTerug }) {
                   {gefilterdeSjablonen.length === 0 ? (
                     <div style={{ padding: "10px 12px", fontSize: 12.5, color: KLEUR.mutedTekst }}>{sjablonen === null ? "Modellen laden…" : "Geen modellen gevonden."}</div>
                   ) : gefilterdeSjablonen.map((s) => (
-                    <button key={s.id} onClick={() => { setSjabloonId(s.id); setSjabloonZoek(""); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", border: "none", borderBottom: `1px solid ${KLEUR.rand}`, background: "#fff", cursor: "pointer" }}>
+                    <button key={s.id} onClick={() => { setSjabloonId(s.id); setSjabloonZoek(""); setEigenTekst(""); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", border: "none", borderBottom: `1px solid ${KLEUR.rand}`, background: "#fff", cursor: "pointer" }}>
                       <span style={{ fontSize: 13, fontWeight: 600, color: KLEUR.tekst }}>{veiligeStr(s.naam)}</span>
                     </button>
                   ))}
@@ -476,11 +565,52 @@ export default function NotulenOpstellen({ onTerug }) {
           {/* Acties */}
           <div style={{ borderTop: `1px solid ${KLEUR.rand}`, paddingTop: 14 }}>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button style={knop(KLEUR.groen, !!klant && !leeg && !opslaanBezig)} disabled={!klant || leeg || opslaanBezig} onClick={opslaan}>
+                {opslaanBezig ? <Loader2 size={15} className="spin" /> : <Save size={15} />} {opslaanBezig ? "Opslaan…" : (dossierId ? "Opnieuw opslaan" : "Opslaan in dossier")}
+              </button>
               <button style={knop(KLEUR.blauw, !leeg)} disabled={leeg} onClick={afdrukken}><Printer size={15} /> Afdrukken / PDF</button>
               <button style={{ ...knopLicht, opacity: leeg ? 0.5 : 1, cursor: leeg ? "not-allowed" : "pointer" }} disabled={leeg} onClick={kopieerTekst}><Copy size={15} /> Tekst kopiëren</button>
             </div>
+            <div style={{ marginTop: 8, fontSize: 11.5, color: KLEUR.mutedTekst }}>
+              Opslaan zet het stuk als PDF in de SharePoint-map van de cliënt (submap “Notulen”) en legt
+              de gegevens vast in een notulendossier — datum, bedrag, percentage, de aandelen en de link
+              naar het stuk. Daarna vind je het terug in het Notulen-overzicht.
+            </div>
+            {pdfUrl && (
+              <div style={{ marginTop: 8 }}>
+                <a href={pdfUrl} target="_blank" rel="noopener noreferrer" style={{ ...knopLicht, textDecoration: "none", padding: "6px 10px" }}>
+                  <FileText size={14} /> Bekijk het opgeslagen stuk in SharePoint
+                </a>
+              </div>
+            )}
             {melding && <div style={{ marginTop: 12 }}><Banner type={melding.type} tekst={melding.tekst} /></div>}
           </div>
+
+          {/* Eerder opgestelde notulen van deze cliënt — terug te halen en bij te werken */}
+          {klant && eerdere.length > 0 && (
+            <div style={{ borderTop: `1px solid ${KLEUR.rand}`, paddingTop: 14 }}>
+              <span style={label}>Eerder opgesteld — {veiligeStr(klant.klantnaam)} ({eerdere.length})</span>
+              <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, overflow: "hidden", maxHeight: 240, overflowY: "auto" }}>
+                {eerdere.map((r) => (
+                  <div key={r.dossierId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "9px 12px", borderBottom: `1px solid ${KLEUR.rand}`, background: r.dossierId === dossierId ? KLEUR.lichtblauw : "#fff" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: KLEUR.tekst, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{veiligeStr(r.modelNaam) || "Notulen"}</div>
+                      <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>
+                        {langeDatum(r.datum) || "geen datum"}
+                        {veiligeStr(r.opgesteldDoor) ? `  ·  ${veiligeStr(r.opgesteldDoor)}` : ""}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                      {veiligeStr(r.pdfUrl) && (
+                        <a href={r.pdfUrl} target="_blank" rel="noopener noreferrer" style={{ ...knopLicht, padding: "6px 10px", textDecoration: "none" }}><FileText size={13} /> Bekijk</a>
+                      )}
+                      <button onClick={() => heropen(r)} style={{ ...knopLicht, padding: "6px 10px" }}>Bewerken</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── Rechterkolom: live voorbeeld ── */}
@@ -504,6 +634,8 @@ export default function NotulenOpstellen({ onTerug }) {
           </div>
         </div>
       </div>
+
+      <style>{`@keyframes notulenspin{to{transform:rotate(360deg)}} .spin{animation:notulenspin 1s linear infinite}`}</style>
     </div>
   );
 }

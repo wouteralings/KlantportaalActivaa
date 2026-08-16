@@ -1795,7 +1795,7 @@ function NotulenTab({ magVerwijderenRubriek, magBulkVerwijderen }) {
           <BookOpen size={15} /> Notulen opstellen
         </button>
       </div>
-      <MedewerkerDossiers soort="notulen" magVerwijderenRubriek={magVerwijderenRubriek} magBulkVerwijderen={magBulkVerwijderen} />
+      <MedewerkerDossiers soort="notulen" magVerwijderenRubriek={magVerwijderenRubriek} magBulkVerwijderen={magBulkVerwijderen} verbergNieuw />
     </>
   );
 }
@@ -2067,7 +2067,9 @@ function NieuwDossierModal({ soort, soortLabel, periodeLabel, dossiers, vasteBro
   );
 }
 
-function MedewerkerDossiers({ soort, magVerwijderenRubriek = true, magBulkVerwijderen = false }) {
+// verbergNieuw — voor Notulen: daar loopt aanmaken via "Notulen opstellen" (het stuk maken én het
+// dossier vastleggen in één keer), dus de losse groene "+ Nieuwe notulen" hoort daar niet meer bij.
+function MedewerkerDossiers({ soort, magVerwijderenRubriek = true, magBulkVerwijderen = false, verbergNieuw = false }) {
   const [dossiers, setDossiers] = useState(null); // null = laden
   const [fout, setFout] = useState(false);
   const [zoek, setZoek] = useState("");
@@ -2579,7 +2581,7 @@ function MedewerkerDossiers({ soort, magVerwijderenRubriek = true, magBulkVerwij
             Filters wissen
           </button>
         )}
-        {(soort === "ib" || soort === "vpb" || soort === "dividend" || soort === "notulen") && (
+        {(soort === "ib" || soort === "vpb" || soort === "dividend" || (soort === "notulen" && !verbergNieuw)) && (
           <button
             onClick={() => setNieuwOpen(true)}
             style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "#2E7D46", color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
