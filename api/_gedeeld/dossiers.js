@@ -605,7 +605,7 @@ async function bestaatDossierAl(resource, token, soort, accountId, jaar) {
  * Geeft het nieuwe Dynamics-id terug (uit de OData-EntityId-responseheader). Gooit bij een fout.
  */
 async function maakDossier(resource, token, soort, opties) {
-  const { accountId, jaar, begindatum, fiscaalPartnerAccountId, kopieerVanDossier, velden } = opties || {};
+  const { accountId, jaar, begindatum, einddatum, fiscaalPartnerAccountId, kopieerVanDossier, velden } = opties || {};
   if (!accountId) throw new Error("Geef een cliënt (accountId) mee om een dossier aan te maken.");
   const entitySet = await haalEntitySetNaam(resource, soort.entiteit, token);
   // @odata.bind vereist de NAVIGATIE-eigenschapsnaam van de cliënt-lookup (niet per se de logische
@@ -619,6 +619,11 @@ async function maakDossier(resource, token, soort, opties) {
   // Datum-periode (bijv. Notulen: cr283_datum) — alleen als de soort zo'n veld heeft en er een datum meekomt.
   if (soort.optioneel.begindatum && begindatum) {
     body[soort.optioneel.begindatum] = String(begindatum);
+  }
+  // Einddatum hoort bij een boekjaar-periode (VPB): bij het kopiëren naar een volgend jaar schuift
+  // het hele boekjaar mee, dus begin- én einddatum.
+  if (soort.optioneel.einddatum && einddatum) {
+    body[soort.optioneel.einddatum] = String(einddatum);
   }
   const partnerId = fiscaalPartnerAccountId || (kopieerVanDossier ? kopieerVanDossier.fiscaalPartnerAccountId : null);
   if (soort.optioneel.fiscaalpartner && partnerId) {

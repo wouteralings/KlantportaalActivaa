@@ -29,6 +29,21 @@ const { logGebeurtenis } = require("../_gedeeld/klantlog");
 // cr283_inkomstenbelasting — verplicht veld, waarden door Wouter bevestigd (05-08-2026, Power Apps).
 const GEZINSSITUATIE = { getrouwd: 601280000, samenwonend: 601280001, alleenstaand: 601280002 };
 
+/**
+ * Schuift een ISO-datum een aantal JAREN op, met dezelfde dag en maand. 29 februari in een niet-
+ * schrikkeljaar valt terug op 28 februari. Leeg/ongeldig geeft null — dan laten we het veld gewoon leeg.
+ */
+function schuifJaren(iso, jaren) {
+  if (!iso || !Number.isInteger(jaren)) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  const jaar = d.getUTCFullYear() + jaren;
+  const maand = d.getUTCMonth();
+  const laatste = new Date(Date.UTC(jaar, maand + 1, 0)).getUTCDate();
+  const dag = Math.min(d.getUTCDate(), laatste);
+  return `${jaar}-${String(maand + 1).padStart(2, "0")}-${String(dag).padStart(2, "0")}`;
+}
+
 /** Zelf aangemaakte extra velden (Beheer → Dossiers, "Nieuw veld aanmaken") van deze soort — nodig
  * zodat zo'n veld ook echt meegekopieerd/meegeselecteerd kan worden, precies als bij het gewone
  * ophalen/bewerken van een dossier (zie haalIndeling() in medewerker-dossier/index.js). */
@@ -126,10 +141,24 @@ module.exports = async function (context, req) {
           : GEZINSSITUATIE.getrouwd;
     }
 
+    // Boekjaar meeschuiven bij kopiëren — VPB heeft naast een jaar ook een begin- en einddatum.
+    // Zonder dit zou het gekopieerde dossier het boekjaar van de bron houden. Het aantal jaren komt
+    // uit het verschil tussen doeljaar en bronjaar, zodat ook "twee jaar verder" klopt. Een
+    // expliciet meegegeven begindatum (bijv. bij Notulen) wint altijd.
+    let begindatumUit = begindatumSchoon;
+    let einddatumUit = null;
+    if (kopieerVanDossier && soort.optioneel.begindatum && !begindatumSchoon) {
+      const bronJaar = Number(kopieerVanDossier.jaar);
+      const stap = heeftJaar && Number.isInteger(bronJaar) ? jaarGetal - bronJaar : 1;
+      begindatumUit = schuifJaren(kopieerVanDossier.begindatum, stap);
+      einddatumUit = soort.optioneel.einddatum ? schuifJaren(kopieerVanDossier.einddatum, stap) : null;
+    }
+
     const nieuwId = await maakDossier(resource, token, soortEffectief, {
       accountId,
       jaar: heeftJaar ? jaarGetal : undefined,
-      begindatum: begindatumSchoon,
+      begindatum: begindatumUit,
+      einddatum: einddatumUit,
       fiscaalPartnerAccountId: fiscaalPartnerAccountId || null,
       kopieerVanDossier,
       velden,

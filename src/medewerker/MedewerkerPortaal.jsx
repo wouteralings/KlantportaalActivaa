@@ -1835,6 +1835,28 @@ const DOSSIER_KOLOMMEN_STANDAARD_VERBORGEN = ["groepsnaam"]; // wel kiesbaar, ni
  *  - "nieuw": lege aangifte voor een zelf te kiezen cliënt, met optioneel een fiscaal partner.
  * Alleen bereikbaar als `vasteBron` niet gezet is.
  */
+/* Het nieuwe boekjaar van een gekopieerd VPB-dossier, als leesbare tekst. Het boekjaar (begin- en
+   einddatum) schuift evenveel jaren op als het verschil tussen het gekozen en het oude jaar — de
+   server rekent hetzelfde uit (zie schuifJaren in api/medewerker-dossier-aanmaken). */
+function nieuwBoekjaarTekst(bron, nieuwJaar) {
+  const bronJaar = Number(bron && bron.jaar);
+  const doel = Number(nieuwJaar);
+  const stap = Number.isInteger(bronJaar) && Number.isInteger(doel) ? doel - bronJaar : 1;
+  const schuif = (iso) => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    const jaar = d.getUTCFullYear() + stap;
+    const maand = d.getUTCMonth();
+    const laatste = new Date(Date.UTC(jaar, maand + 1, 0)).getUTCDate();
+    return new Date(Date.UTC(jaar, maand, Math.min(d.getUTCDate(), laatste))).toLocaleDateString("nl-NL");
+  };
+  const van = schuif(bron && bron.begindatum);
+  const tot = schuif(bron && bron.einddatum);
+  if (!van) return "";
+  return tot ? `${van} t/m ${tot}` : van;
+}
+
 function NieuwDossierModal({ soort, soortLabel, periodeLabel, dossiers, vasteBron, onKlaar, onAangemaakt }) {
   const [modus, setModus] = useState("kopieren");
   const [bron, setBron] = useState(vasteBron || null);
@@ -1966,6 +1988,9 @@ function NieuwDossierModal({ soort, soortLabel, periodeLabel, dossiers, vasteBro
             )}
             <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: -4 }}>
               Alle ingevulde gegevens worden overgenomen{isFiscaal ? ", behalve review-/reactienotities en opmerkingen" : ""}. Je kunt daarna alles nog aanpassen.
+              {soort === "vpb" && bron && bron.begindatum && (
+                <> Het boekjaar schuift mee: <strong>{nieuwBoekjaarTekst(bron, jaar)}</strong>.</>
+              )}
             </div>
           </>
         ) : (
@@ -4147,8 +4172,12 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
               <Eye size={14} /> Voorbeeld
             </button>
           )}
-          {(dossier.soort === "ib" || dossier.soort === "dividend" || dossier.soort === "notulen") && onDossierAangemaakt && (
-            <button onClick={() => setKopieOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#fff", border: `1px solid ${KLEUR.rand}`, color: KLEUR.tekst, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: "6px 12px", borderRadius: 7 }}>
+          {(dossier.soort === "ib" || dossier.soort === "vpb" || dossier.soort === "dividend" || dossier.soort === "notulen") && onDossierAangemaakt && (
+            <button
+              onClick={() => setKopieOpen(true)}
+              title={dossier.soort === "vpb" ? "Neem dit dossier volledig over naar het volgende boekjaar — het boekjaar (begin- en einddatum) schuift automatisch een jaar op" : undefined}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#fff", border: `1px solid ${KLEUR.rand}`, color: KLEUR.tekst, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: "6px 12px", borderRadius: 7 }}
+            >
               <Copy size={14} /> {dossier.soort === "notulen" ? "Kopiëren naar nieuw dossier" : dossier.soort === "ib" ? "Aangifte kopiëren naar volgend jaar" : "Kopiëren naar volgend jaar"}
             </button>
           )}
