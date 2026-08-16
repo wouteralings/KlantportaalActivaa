@@ -13,6 +13,10 @@
  *
  *   GET ?soort=ib → { soort: "ib", catalogus: [{ key, veld?, type, label, sectie? }, ...] }
  *
+ * Voor notulen/dividend komen ook de voorbeeld-sjablonen mee (dossierSjablonen[soort]) — nodig voor
+ * het scherm "Notulen opstellen" in het medewerkersportaal, dat een stuk opmaakt zónder dat er al
+ * een dossier is (en dus niet via /api/medewerker-dossier aan de sjablonen kan komen).
+ *
  * Route beveiligd via staticwebapp.config.json (rol 'medewerker'/'beheerder').
  */
 const { haalRollenUitPrincipal, haalDynamicsToken } = require("../_gedeeld/identiteit");
@@ -29,6 +33,31 @@ function standaardIndelingVoor(soort) {
   if (soort.key === "dividend") return standaardIndelingDividend();
   if (soort.key === "notulen") return standaardIndelingNotulen();
   return standaardIndelingOverig(soort);
+}
+
+/** De voorbeeld-sjablonen van een soort uit de instellingen (dossierSjablonen[soort]) — dezelfde
+ *  vorm en dezelfde terugwaartse compatibiliteit als haalSjabloonVoor() in api/medewerker-dossier.
+ *  Best-effort: onleesbare of ontbrekende instellingen leveren een lege lijst, nooit een fout. */
+async function haalSjablonenVoor(soortKey) {
+  if (soortKey !== "notulen" && soortKey !== "dividend") return [];
+  try {
+    const { dossierSjablonen } = await haalInstellingen();
+    const eigen = dossierSjablonen && dossierSjablonen[soortKey];
+    if (eigen && Array.isArray(eigen.sjablonen)) {
+      return eigen.sjablonen
+        .filter((s) => s && (s.naam != null || s.tekst != null))
+        .map((s, i) => ({ id: s.id || `s${i}`, naam: String(s.naam || "Naamloos sjabloon"), tekst: String(s.tekst || "") }));
+    }
+    // Oude vorm { standaard, perSoort } → dezelfde sjablonenlijst.
+    const sjablonen = [];
+    if (eigen && typeof eigen.standaard === "string" && eigen.standaard.trim()) sjablonen.push({ id: "standaard", naam: "Standaard", tekst: eigen.standaard });
+    if (eigen && eigen.perSoort && typeof eigen.perSoort === "object") {
+      for (const [k, v] of Object.entries(eigen.perSoort)) if (v && String(v).trim()) sjablonen.push({ id: `soort_${k}`, naam: `Soort ${k}`, tekst: String(v) });
+    }
+    return sjablonen;
+  } catch {
+    return [];
+  }
 }
 
 module.exports = async function (context, req) {
@@ -76,5 +105,7 @@ module.exports = async function (context, req) {
 
   // statusOpties erbij: Beheer → Dossiers gebruikt die om per review-uitkomst de dossierstatus te
   // kiezen (zie het Review-blok in DossierIndelingBeheer.jsx). Zelfde lijst als het dossierdetail.
-  context.res = { headers: { "Content-Type": "application/json" }, body: { soort: soort.key, catalogus, picklistOpties, standaardIndeling: standaardIndelingVoor(soort), statusOpties: soort.statusOpties || [] } };
+  const sjablonen = await haalSjablonenVoor(soort.key);
+
+  context.res = { headers: { "Content-Type": "application/json" }, body: { soort: soort.key, catalogus, picklistOpties, standaardIndeling: standaardIndelingVoor(soort), statusOpties: soort.statusOpties || [], sjablonen } };
 };

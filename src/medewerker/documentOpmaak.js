@@ -8,7 +8,9 @@
  *   ### Kopje          → klein kopje ("Besluit:", "Sluiting:")
  *   ---                → horizontale scheidingslijn
  *   - punt             → opsomming met bolletje
- *   a) punt            → opsomming met de letter/nummer die je zelf typt (blijft staan)
+ *   a) punt            → opsomming met de letter/nummer die je zelf typt (blijft staan). Letters
+ *                        alleen in kleine letters (a) / a.), cijfers en Romeinse cijfers (1. / I.);
+ *                        "J. de Vries" is dus een naam, geen opsommingspunt.
  *   > tekst            → ingesprongen blok (het besluit onder een genummerd punt)
  *   [handtekening] Voorzitter | Notulist   → twee ondertekenregels naast elkaar
  *   [midden] tekst     → één regel gecentreerd
@@ -47,6 +49,16 @@ export function ontleedDocument(tekst) {
     if ((m = /^##\s+(.*)$/.exec(kaal))) { sluitAlinea(); blokken.push({ type: "kop", tekst: m[1] }); continue; }
     if ((m = /^#\s+(.*)$/.exec(kaal))) { sluitAlinea(); blokken.push({ type: "titel", tekst: m[1] }); continue; }
     if ((m = /^\[midden\]\s*(.*)$/i.exec(kaal))) { sluitAlinea(); blokken.push({ type: "midden", tekst: m[1] }); continue; }
+    // [ondertekening] Voorzitter | {{directeur}}  → één ondertekenblok: "[Handtekening]", een
+    // stippellijn, de naam en daaronder de functie. Meerdere regels = meerdere blokken onder elkaar,
+    // precies zoals in de Word-modellen.
+    if ((m = /^\[ondertekening\]\s*(.*)$/i.exec(kaal))) {
+      sluitAlinea();
+      const delen = m[1].split("|").map((s) => s.trim());
+      blokken.push({ type: "ondertekening", functie: delen[0] || "", naam: delen[1] || "" });
+      continue;
+    }
+    // Oudere vorm: twee namen naast elkaar. Blijft werken voor bestaande sjablonen.
     if ((m = /^\[handtekening\]\s*(.*)$/i.exec(kaal))) {
       sluitAlinea();
       const namen = m[1].split("|").map((s) => s.trim()).filter(Boolean);
@@ -55,8 +67,13 @@ export function ontleedDocument(tekst) {
     }
     if ((m = /^>\s?(.*)$/.exec(r))) { sluitAlinea(); blokken.push({ type: "inspring", tekst: m[1] }); continue; }
     if ((m = /^-\s+(.*)$/.exec(kaal))) { sluitAlinea(); blokken.push({ type: "punt", merk: "•", tekst: m[1] }); continue; }
-    // "a) tekst", "1. tekst", "I. tekst" — het merkteken dat je zelf typt blijft staan.
-    if ((m = /^([a-zA-Z]\)|[0-9]+\.|[IVX]+\.)\s+(.*)$/.exec(kaal))) {
+    // "a) tekst", "a. tekst", "1. tekst", "I. tekst" — het merkteken dat je zelf typt blijft staan.
+    // Letters bewust ALLEEN in kleine letters: een regel als "J. de Vries — 50%" of "M. Jansen treedt
+    // op als voorzitter" is een naam met een voorletter, geen opsommingspunt. Zou een hoofdletter ook
+    // meetellen, dan zou elke aandeelhouder met een voorletter als bolletje in de notulen komen.
+    // Hoofdletters blijven wél toegestaan als Romeins cijfer (I., II., IV.) — zo blijft "I. Dividend-
+    // uitkering" in de notulenmodellen gewoon een genummerd punt.
+    if ((m = /^([a-z]\)|[a-z]\.|[0-9]+\.|[IVX]{1,4}\.)\s+(.*)$/.exec(kaal))) {
       sluitAlinea();
       blokken.push({ type: "punt", merk: m[1], tekst: m[2] });
       continue;
@@ -102,6 +119,15 @@ export function blokkenNaarHtml(blokken, esc) {
       case "lijn": uit.push(`<hr>`); break;
       case "punt": uit.push(`<div class="punt"><span class="merk">${esc(b.merk)}</span><span>${esc(b.tekst)}</span></div>`); break;
       case "inspring": uit.push(`<p class="inspring">${esc(b.tekst)}</p>`); break;
+      case "ondertekening":
+        uit.push(
+          `<div class="onderteken"><div class="ondertekenlabel">[Handtekening]</div>` +
+          `<div class="stippel">…………………………………………….</div>` +
+          (b.naam ? `<div class="ondertekennaam">${esc(b.naam)}</div>` : "") +
+          (b.functie ? `<div class="ondertekenfunctie">${esc(b.functie)}</div>` : "") +
+          `</div>`,
+        );
+        break;
       case "handtekening":
         uit.push(
           `<div class="hand">${b.namen
@@ -129,6 +155,11 @@ p.inspring { margin: 0 0 9px 22px }
 hr { border: none; border-top: 1px solid #1C2321; margin: 14px 0 }
 .punt { display: flex; gap: 8px; margin: 0 0 5px 10px }
 .punt .merk { flex: 0 0 auto; min-width: 18px }
+.onderteken { margin-top: 34px; page-break-inside: avoid }
+.ondertekenlabel { color: #8A9089; font-size: 9.5pt; margin-bottom: 18px }
+.stippel { letter-spacing: 0.5px }
+.ondertekennaam { margin-top: 2px }
+.ondertekenfunctie { font-size: 10pt }
 .hand { display: flex; gap: 40px; margin-top: 46px; page-break-inside: avoid }
 .handkolom { flex: 1 1 0; min-width: 0 }
 .lijntje { border-bottom: 1px solid #1C2321; height: 34px }

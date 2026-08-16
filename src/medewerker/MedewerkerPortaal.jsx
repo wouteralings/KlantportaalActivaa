@@ -18,6 +18,7 @@ import MijnWerk from "./klanten/MijnWerk";
 import PlanningConfigPerKlant from "./klanten/PlanningConfigPerKlant";
 import BrievenOverzicht from "./klanten/BrievenOverzicht";
 import BrievenLogboek from "./klanten/BrievenLogboek";
+import NotulenOpstellen from "./klanten/NotulenOpstellen";
 import ImpersonatieBanner from "../ImpersonatieBanner";
 
 /**
@@ -1765,10 +1766,37 @@ function KlantenModule({ magContracten = false, isBeheerder = false, magPlanning
         {sub === "contactpersonen" && <ContactpersonenOverzicht magBulkVerwijderen={subRechten ? subRechten.bulk("contactpersonen") : isBeheerder} magSubVerwijderen={subRechten ? subRechten.verwijderen("contactpersonen") : true} />}
         {sub === "brieven" && <BrievenTab />}
         {sub === "contracten" && (magContracten || isBeheerder) && <ContractenOverzicht />}
-        {(sub === "ib" || sub === "vpb" || sub === "dividend" || sub === "notulen") && <MedewerkerDossiers soort={sub} magVerwijderenRubriek={subRechten ? subRechten.verwijderen(sub) : true} magBulkVerwijderen={subRechten ? subRechten.bulk(sub) : isBeheerder} />}
+        {sub === "notulen" && <NotulenTab magVerwijderenRubriek={subRechten ? subRechten.verwijderen("notulen") : true} magBulkVerwijderen={subRechten ? subRechten.bulk("notulen") : isBeheerder} />}
+        {(sub === "ib" || sub === "vpb" || sub === "dividend") && <MedewerkerDossiers soort={sub} magVerwijderenRubriek={subRechten ? subRechten.verwijderen(sub) : true} magBulkVerwijderen={subRechten ? subRechten.bulk(sub) : isBeheerder} />}
         {sub === "lonen" && <NogInTeRichten titel={actief.label} watKomtEr={actief.watKomtEr} />}
       </div>
     </div>
+  );
+}
+
+/**
+ * Notulen-sub-tab: standaard het dossieroverzicht, met daarboven de knop "Notulen opstellen" die
+ * naar het opstel-scherm gaat (klant + model kiezen, aandeelhouders invullen, live voorbeeld) —
+ * zelfde patroon als het brievenscherm. Komt er ondertussen een doorklik naar een notulendossier
+ * binnen (#dossier=notulen:<id>), dan springen we terug naar het overzicht zodat dat dossier
+ * gewoon opent.
+ */
+function NotulenTab({ magVerwijderenRubriek, magBulkVerwijderen }) {
+  const [view, setView] = useState("overzicht");
+  useEffect(() => luisterNaarDossierHash(({ soort }) => { if (soort === "notulen") setView("overzicht"); }), []);
+  if (view === "opstellen") return <NotulenOpstellen onTerug={() => setView("overzicht")} />;
+  return (
+    <>
+      <div style={{ maxWidth: 1600, margin: "0 auto", padding: "0 24px 12px", display: "flex", justifyContent: "flex-end" }}>
+        <button
+          onClick={() => setView("opstellen")}
+          style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 13px", borderRadius: 8, border: `1px solid ${KLEUR.blauw}`, background: KLEUR.blauw, color: "#fff", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+        >
+          <BookOpen size={15} /> Notulen opstellen
+        </button>
+      </div>
+      <MedewerkerDossiers soort="notulen" magVerwijderenRubriek={magVerwijderenRubriek} magBulkVerwijderen={magBulkVerwijderen} />
+    </>
   );
 }
 
@@ -3473,11 +3501,22 @@ function AangifteVersturenKaart({ dossier, disabled, voorlopig }) {
 /** Zelfde sleutel-normalisatie als de Brieven-merge (vulIn): kleine letters, alleen a-z0-9. */
 function normaliseerSleutel(s) { return String(s == null ? "" : s).toLowerCase().replace(/[^a-z0-9]/g, ""); }
 
-/** Vervangt {{sleutel}} door de bijbehorende (al genormaliseerde) waarde; onbekend → leeg. */
+/**
+ * Vervangt {{sleutel}} door de bijbehorende waarde. Is er geen waarde (veld leeg, of het veld bestaat
+ * niet bij deze soort), dan komt er een zichtbare INVULPLEK te staan — [NAAM], [BEDRAG] — in plaats
+ * van niets. Zo oogt een voorbeeld nooit als een leeg vel en zie je meteen wat er nog ingevuld moet
+ * worden, net als in de Word-modellen.
+ *
+ * Met {{sleutel|EIGEN LABEL}} bepaal je zelf wat er in die invulplek komt; laat je dat weg, dan wordt
+ * het de sleutel in hoofdletters.
+ */
 function vulSjabloonIn(tekst, waarden) {
-  return String(tekst || "").replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_, sleutel) => {
+  return String(tekst || "").replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*(?:\|\s*([^}]*?)\s*)?\}\}/g, (_, sleutel, label) => {
     const key = normaliseerSleutel(sleutel);
-    return Object.prototype.hasOwnProperty.call(waarden, key) ? waarden[key] : "";
+    const waarde = Object.prototype.hasOwnProperty.call(waarden, key) ? String(waarden[key] == null ? "" : waarden[key]).trim() : "";
+    if (waarde) return waarde;
+    const plek = (label && label.trim()) || String(sleutel).replace(/[_.-]+/g, " ").toUpperCase();
+    return `[${plek}]`;
   });
 }
 
@@ -3575,6 +3614,15 @@ function DossierVoorbeeldModal({ dossier, soortLabel, periodeTekst, catalogus, v
         );
       case "inspring":
         return <div key={i} style={{ margin: "0 0 9px 22px" }}>{b.tekst}</div>;
+      case "ondertekening":
+        return (
+          <div key={i} style={{ marginTop: 34 }}>
+            <div style={{ color: KLEUR.mutedTekst, fontSize: 11, marginBottom: 18 }}>[Handtekening]</div>
+            <div style={{ letterSpacing: 0.5 }}>…………………………………………….</div>
+            {b.naam ? <div style={{ marginTop: 2 }}>{b.naam}</div> : null}
+            {b.functie ? <div style={{ fontSize: 12 }}>{b.functie}</div> : null}
+          </div>
+        );
       case "handtekening":
         return (
           <div key={i} style={{ display: "flex", gap: 40, marginTop: 46 }}>
