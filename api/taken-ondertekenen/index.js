@@ -4,6 +4,7 @@ const { haalGebruikersToken, wisselVoorGraphToken } = require("../_gedeeld/graph
 const { voegHandtekeningToe, bewaarPdfBlob } = require("../_gedeeld/handtekeningen");
 const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/sharepointUpload");
 const { maakVervolgtaak } = require("../_gedeeld/vervolgtaak");
+const dossierTaakketen = require("../_gedeeld/dossierTaakketen");
 const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
 
 // Submap onder de SharePoint-basismap (cr283_sharepoint) van de klant waarin het ondertekenings-
@@ -233,6 +234,16 @@ module.exports = async function (context, req) {
         klantnaam: account.klantnaam,
       });
     }
+
+    // Hoort deze taak bij een DOSSIER (de onzichtbare [dossier-ref:]-markering die
+    // medewerker-aangifte-versturen erin zet)? Dan de dossier-taakketen doorlopen: interne
+    // vervolgtaak + dossierstatus, zoals ingesteld bij Beheer → Dossiers → "Na akkoord van de
+    // cliënt". Best-effort — de ondertekening zelf is hierboven al verwerkt.
+    await dossierTaakketen.naAkkoordVanClient({
+      context, resource, token,
+      taak: { description: taak.description, accountId, subject: taak.subject },
+      klantnaam: account.klantnaam,
+    });
 
     context.res = {
       status: 200,

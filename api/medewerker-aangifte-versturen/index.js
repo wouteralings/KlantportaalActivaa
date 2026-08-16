@@ -29,6 +29,7 @@
  */
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const { SOORTEN, haalEenDossier, haalNavigatieNaam, werkDossierBij } = require("../_gedeeld/dossiers");
+const dossierTaakketen = require("../_gedeeld/dossierTaakketen");
 const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/sharepointUpload");
 const { haalAppGraphToken } = require("../_gedeeld/graphApp");
 const { haalGraphToken } = require("../_gedeeld/mail");
@@ -207,7 +208,7 @@ module.exports = async function (context, req) {
     // zetten en het dossier op inactief (alleen-lezen) — zie STATUS_AANGIFTE_VERZONDEN_NAAR_BELASTINGDIENST
     // aldaar. Wordt bij het tonen aan de cliënt (GET /api/taken) er weer uitgefilterd, zie
     // VERBERG_DOSSIER_REF in api/taken/index.js — de cliënt ziet dit stukje dus nooit.
-    const dossierRef = `\n\n[dossier-ref: ib:${dossierId}]`;
+    const dossierRef = dossierTaakketen.maakRef(soort.key, dossierId, "akkoord");
     const taakBody = {
       subject: taakOnderwerp,
       description: `Aangifte inkomstenbelasting${dossier.jaar ? ` ${dossier.jaar}` : ""} van ${naam} is via het klantportaal verstuurd naar ${ontvangerEmail} op ${new Date().toLocaleString("nl-NL", { timeZone: "Europe/Amsterdam" })} door ${email || "onbekend"}.${dossierRef}`,
@@ -260,11 +261,17 @@ module.exports = async function (context, req) {
       context.log.error("medewerker-aangifte-versturen: mail versturen mislukt (upload/taak zijn al aangemaakt):", e);
     }
 
-    // ── 4. Dossierstatus bijwerken naar "Aangifte verzonden naar client" (best-effort — net als
-    // de mail hierboven mag een fout hier de al geslaagde upload/taak niet ongedaan maken; de
-    // medewerker kan de status zo nodig ook gewoon handmatig terugzetten in het dossier). ──
+    // ── 4. Dossierstatus bijwerken (best-effort — net als de mail hierboven mag een fout hier de al
+    // geslaagde upload/taak niet ongedaan maken; de medewerker kan de status zo nodig ook gewoon
+    // handmatig terugzetten in het dossier). Welke status dat wordt stel je in bij Beheer → Dossiers
+    // → "Na versturen" (dossierAkkoord.<soort>.statusVersturen); staat daar niets, dan houden we de
+    // vertrouwde waarde "Aangifte verzonden naar client" aan. ──
     try {
-      await werkDossierBij(resource, token, soort, dossierId, { status: STATUS_AANGIFTE_VERZONDEN_NAAR_CLIENT });
+      const keten = await dossierTaakketen.instellingenVoorSoort(soort.key).catch(() => ({}));
+      const nieuweStatus = keten.statusVersturen !== null && keten.statusVersturen !== undefined
+        ? keten.statusVersturen
+        : STATUS_AANGIFTE_VERZONDEN_NAAR_CLIENT;
+      await werkDossierBij(resource, token, soort, dossierId, { status: nieuweStatus });
     } catch (e) {
       context.log.error("medewerker-aangifte-versturen: status bijwerken mislukt (upload/taak/mail zijn al verwerkt):", e);
     }

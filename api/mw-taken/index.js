@@ -31,6 +31,7 @@ const takenTijd = require("../_gedeeld/takenTijd");
 const takenUrencode = require("../_gedeeld/takenUrencode");
 const urencodesStore = require("../_gedeeld/urencodesStore");
 const dossierReview = require("../_gedeeld/dossierReview");
+const dossierTaakketen = require("../_gedeeld/dossierTaakketen");
 const { SOORTEN, werkDossierBij } = require("../_gedeeld/dossiers");
 
 // Verbergt de interne "[dossier-ref: ...]"-koppeling die sommige flows in de omschrijving
@@ -77,8 +78,18 @@ async function haalTaken(resource, token, statecode, automatischeSet, mijnId, st
     // Is dit een REVIEWTAAK op een dossier? Dan kan de eigenaar 'm hier aftekenen met akkoord of
     // "aanpassen na review" (zie de PATCH-acties hieronder). `review` is null voor gewone taken.
     const reviewInfo = id != null ? (reviews || {})[String(id).toLowerCase()] : null;
+    // Waar hoort deze taak bij? Een reviewtaak weet dat uit de review-opslag; taken uit de
+    // "aangifte versturen"-keten dragen de [dossier-ref:]-markering in hun omschrijving. Beide
+    // leveren dezelfde `dossier`-verwijzing op, zodat het scherm er één knop op kan zetten.
+    const ketenRef = dossierTaakketen.leesRef(rij.description);
+    const dossierVerwijzing = reviewInfo && reviewInfo.dossierSoort && reviewInfo.dossierId
+      ? { soort: reviewInfo.dossierSoort, id: reviewInfo.dossierId, fase: "review", klantnaam: reviewInfo.klantnaam || "", periode: reviewInfo.periode || reviewInfo.jaar || "" }
+      : ketenRef
+        ? { soort: ketenRef.soort, id: ketenRef.id, fase: ketenRef.fase, klantnaam: rij[`${KLANT_VALUE}${FV}`] || "", periode: "" }
+        : null;
     return {
       id,
+      dossier: dossierVerwijzing,
       review: reviewInfo
         ? {
             status: reviewInfo.status || "open",
@@ -328,7 +339,14 @@ module.exports = async function (context, req) {
       });
       if (!updateRes.ok) throw new Error(`Afronden taak mislukt: ${await updateRes.text()}`);
 
-      context.res = { status: 200, headers: { "Content-Type": "application/json" }, body: { ok: true } };
+      // Was dit de interne VERVOLGTAAK van een dossier (de [dossier-ref: …|vervolg]-markering)? Dan
+      // de laatste stap van de dossier-taakketen: dossierstatus bijwerken en het dossier eventueel
+      // op inactief zetten — allemaal in te stellen bij Beheer → Dossiers. Best-effort.
+      const ketenUit = await dossierTaakketen.naVervolgtaakAfgerond({
+        context, resource, token, omschrijving: huidigeOmschrijving,
+      });
+
+      context.res = { status: 200, headers: { "Content-Type": "application/json" }, body: { ok: true, dossier: ketenUit.gedaan ? ketenUit : null } };
       return;
     }
 

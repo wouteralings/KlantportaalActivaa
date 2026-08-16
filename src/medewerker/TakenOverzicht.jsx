@@ -180,9 +180,14 @@ function TaakDetail({ taak, modus, appUrl, urencodes = [], magBewerken = true, o
   //    De reviewer tekent hier af met "Akkoord" of "Aanpassen na review" en geeft zijn opmerking
   //    mee; die komt in de vervolgtaak voor de aanvrager én in het review-notitieveld van het dossier.
   const openReview = taak.review && taak.review.status === "open" ? taak.review : null;
-  // Elke taak die aan een dossier hangt (de reviewtaak zelf én de vervolgtaak) kan rechtstreeks
-  // doorlinken naar dat dossier — zie src/medewerker/dossierNavigatie.js.
-  const dossierLink = taak.review && taak.review.dossierSoort && taak.review.dossierId ? taak.review : null;
+  // Elke taak die aan een dossier hangt kan rechtstreeks doorlinken naar dat dossier — zie
+  // src/medewerker/dossierNavigatie.js. `taak.dossier` dekt zowel de reviewtaken als de taken uit
+  // de "aangifte versturen"-keten; `taak.review` is de oudere vorm (nog even als terugval).
+  const dossierLink = taak.dossier && taak.dossier.soort && taak.dossier.id
+    ? { dossierSoort: taak.dossier.soort, dossierId: taak.dossier.id, klantnaam: taak.dossier.klantnaam || taak.klantnaam || "", jaar: taak.dossier.periode || "" }
+    : taak.review && taak.review.dossierSoort && taak.review.dossierId
+      ? { dossierSoort: taak.review.dossierSoort, dossierId: taak.review.dossierId, klantnaam: taak.review.klantnaam || "", jaar: taak.review.jaar || "" }
+      : null;
   const [reviewOpmerking, setReviewOpmerking] = useState("");
   const [reviewBezig, setReviewBezig] = useState("");   // "" | "akkoord" | "aanpassen"
   const [reviewFout, setReviewFout] = useState("");

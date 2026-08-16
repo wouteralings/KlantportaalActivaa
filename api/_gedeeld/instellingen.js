@@ -50,7 +50,7 @@ async function haalInstellingen() {
   const blobClient = containerClient.getBlockBlobClient(BLOB_NAAM);
 
   const bestaat = await blobClient.exists();
-  if (!bestaat) return { medewerkersGroepId: "", medewerkersGroepNaam: "", googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "", reviewWebhookUrl: "", facturatiemodulePrijs: 5, urenmodulePrijs: 2.5, rapportagesmodulePrijs: 7.5, bezittingenmodulePrijs: 5, rittenmodulePrijs: 1.5, contractenmodulePrijs: 2.5, contractenSharepointOpslag: false, contractenSharepointMap: "Contracten", contractenReminderAfzender: "", contractenReminderOnderwerp: "", contractenReminderTekst: "", klantoverzicht: { extraKolommen: [], standaardVerborgen: [] }, dossierIndeling: { ib: standaardIndelingIB() }, aangifteBestandsnaamTemplate: "Aangifte inkomstenbelasting {jaar} - {klant}.pdf", aangifteMailOnderwerpTemplate: STANDAARD_AANGIFTE_MAIL_ONDERWERP, aangifteMailTekstTemplate: STANDAARD_AANGIFTE_MAIL_TEKST, aangiftePadTemplate: STANDAARD_AANGIFTE_PAD, aangifteTaakOnderwerpTemplate: STANDAARD_AANGIFTE_TAAK_ONDERWERP, aangifteTaakSoort: STANDAARD_AANGIFTE_TAAK_SOORT, dossierExtraKolommen: { ib: [], vpb: [] }, contactpersonenExtraKolommen: [], uitvraagTabellen: [], dossierReview: {} };
+  if (!bestaat) return { medewerkersGroepId: "", medewerkersGroepNaam: "", googleReviewUrl: "", teamsChatUrl: "", whatsappUrl: "", copilotEmbedUrl: "", logoUrl: "", faviconUrl: "", wijzigingFormNawUrl: "", wijzigingFormContactUrl: "", taaksoorten: {}, taakAfwijzingWebhookUrl: "", reviewWebhookUrl: "", facturatiemodulePrijs: 5, urenmodulePrijs: 2.5, rapportagesmodulePrijs: 7.5, bezittingenmodulePrijs: 5, rittenmodulePrijs: 1.5, contractenmodulePrijs: 2.5, contractenSharepointOpslag: false, contractenSharepointMap: "Contracten", contractenReminderAfzender: "", contractenReminderOnderwerp: "", contractenReminderTekst: "", klantoverzicht: { extraKolommen: [], standaardVerborgen: [] }, dossierIndeling: { ib: standaardIndelingIB() }, aangifteBestandsnaamTemplate: "Aangifte inkomstenbelasting {jaar} - {klant}.pdf", aangifteMailOnderwerpTemplate: STANDAARD_AANGIFTE_MAIL_ONDERWERP, aangifteMailTekstTemplate: STANDAARD_AANGIFTE_MAIL_TEKST, aangiftePadTemplate: STANDAARD_AANGIFTE_PAD, aangifteTaakOnderwerpTemplate: STANDAARD_AANGIFTE_TAAK_ONDERWERP, aangifteTaakSoort: STANDAARD_AANGIFTE_TAAK_SOORT, dossierExtraKolommen: { ib: [], vpb: [] }, contactpersonenExtraKolommen: [], uitvraagTabellen: [], dossierReview: {}, dossierAkkoord: {} };
 
   const downloadResponse = await blobClient.download();
   const tekst = await streamNaarTekst(downloadResponse.readableStreamBody);
@@ -161,6 +161,12 @@ async function haalInstellingen() {
     // akkoordTaakOnderwerp, statusAkkoord, aanpassenTaakSoort, aanpassenTaakOnderwerp,
     // statusAanpassen }. Instelbaar via Beheer → Dossiers; zie api/_gedeeld/dossierReview.js.
     dossierReview: {},
+    // Dossier-taakketen ná "versturen naar de cliënt", per dossiersoort: welke dossierstatus bij het
+    // versturen hoort, welke interne vervolgtaak + status er ontstaat zodra de cliënt akkoord geeft,
+    // en welke status (en of het dossier op inactief gaat) zodra die vervolgtaak is afgerond. Vorm
+    // per soort: { statusVersturen, akkoordTaakSoort, akkoordTaakOnderwerp, akkoordTaakRubriek,
+    // statusAkkoord, statusVervolgKlaar, inactiefNaVervolg }. Zie api/_gedeeld/dossierTaakketen.js.
+    dossierAkkoord: {},
     ...JSON.parse(tekst),
   };
 }

@@ -32,6 +32,7 @@ const { haalAppGraphToken } = require("../_gedeeld/graphApp");
 const { haalInstellingen, resolveBijlageConfig } = require("../_gedeeld/instellingen");
 const { logGebeurtenis, haalLog } = require("../_gedeeld/klantlog");
 const { verstuurMailMetBijlage } = require("../_gedeeld/mail");
+const dossierTaakketen = require("../_gedeeld/dossierTaakketen");
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 const SHAREPOINT_VELD = process.env.DYNAMICS_KLANT_SHAREPOINT_VELD || "cr283_sharepoint";
@@ -376,7 +377,11 @@ module.exports = async function (context, req) {
             const klantNav = await haalNavigatieNaam(resource, "task", TAAK_KLANT_VELD, token);
             const taakBody = {
               subject: taakOnderwerp,
-              description: `${soortWoordTaak}${dossier.jaar ? ` ${dossier.jaar}` : ""} van ${dossier.klantnaam || basis.naam} is via het klantportaal gemaild naar ${naar}${bestandNaam ? ` (bijlage: ${bestandNaam})` : ""} door ${email || "onbekend"}.`,
+              // De onzichtbare dossierkoppeling erbij (zie api/_gedeeld/dossierTaakketen.js): zodra de
+              // cliënt deze taak accordeert of ondertekent volgt daar de in Beheer → Dossiers ingestelde
+              // vervolgtaak + dossierstatus uit. Wordt overal weggefilterd vóór hij in beeld komt.
+              description: `${soortWoordTaak}${dossier.jaar ? ` ${dossier.jaar}` : ""} van ${dossier.klantnaam || basis.naam} is via het klantportaal gemaild naar ${naar}${bestandNaam ? ` (bijlage: ${bestandNaam})` : ""} door ${email || "onbekend"}.`
+                + dossierTaakketen.maakRef(soortInst, dossier.id, "akkoord"),
               [`${klantNav}@odata.bind`]: `/accounts(${accountId})`,
             };
             const soortRaw = taakCfg.soort;

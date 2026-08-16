@@ -33,6 +33,15 @@ const REVIEW_STATUS_DEFAULTS = {
 };
 const standaardReviewVoor = (soort) => ({ ...STANDAARD_REVIEW_CFG, ...(REVIEW_STATUS_DEFAULTS[soort] || {}) });
 
+// Dossier-taakketen ná "versturen naar de cliënt" — moet gelijk lopen met STANDAARD_KETEN in
+// api/_gedeeld/dossierTaakketen.js. Alles leeg = die stap gebeurt niet.
+const STANDAARD_KETEN_CFG = {
+  statusVersturen: "",
+  akkoordTaakSoort: "", akkoordTaakOnderwerp: "Versturen naar Belastingdienst: {soort} {periode} — {klant}",
+  akkoordTaakRubriek: "", statusAkkoord: "",
+  statusVervolgKlaar: "", inactiefNaVervolg: false,
+};
+
 // Types die via "Nieuw veld aanmaken" in Dynamics aangemaakt kunnen worden — zelfde vijf typen
 // als de rest van de catalogus ondersteunt (zie VeldInvoer in MedewerkerPortaal.jsx). Keuzelijst
 // (picklist) zit hier bewust nog niet bij: dat vraagt ook eigen opties/optionset-beheer, een
@@ -285,6 +294,10 @@ function SoortIndelingPaneel({ soort, onderaan }) {
   const [alleReviewCfg, setAlleReviewCfg] = useState({});    // de andere soorten, ongemoeid terugschrijven
   const [statusOpties, setStatusOpties] = useState([]);      // [{ waarde, label }] van deze soort
   const [reviewStatus, setReviewStatus] = useState("rust");  // rust | bezig | opgeslagen | fout
+  // ── Dossier-taakketen ná versturen (instellingen-sleutel `dossierAkkoord`) ──
+  const [ketenCfg, setKetenCfg] = useState(null);        // null = nog niet geladen
+  const [alleKetenCfg, setAlleKetenCfg] = useState({});  // andere soorten ongemoeid terugschrijven
+  const [ketenStatus, setKetenStatus] = useState("rust");
   // Heeft deze dossiersoort een veld "reviewnotitie"? Zo niet, dan komt de opmerking van de reviewer
   // alleen in de vervolgtaak — dat zeggen we er dan bij (IB en VPB hebben het veld, dividend/notulen niet).
   const heeftReviewNotitieVeld = (catalogus || []).some((v) => v && v.key === "reviewnotitie");
@@ -375,6 +388,9 @@ function SoortIndelingPaneel({ soort, onderaan }) {
         const alleReview = (instellingenData && instellingenData.dossierReview) || {};
         setAlleReviewCfg(alleReview);
         setReviewCfg({ ...standaardReviewVoor(soort), ...(alleReview[soort] || {}) });
+        const alleKeten = (instellingenData && instellingenData.dossierAkkoord) || {};
+        setAlleKetenCfg(alleKeten);
+        setKetenCfg({ ...STANDAARD_KETEN_CFG, ...(alleKeten[soort] || {}) });
       })
       .catch(() => { setCatalogus([]); setSecties([]); setFout("Kon de dossierindeling niet laden."); });
   }, []);
@@ -525,6 +541,33 @@ function SoortIndelingPaneel({ soort, onderaan }) {
       setReviewStatus("opgeslagen");
     } catch {
       setReviewStatus("fout");
+    }
+  };
+
+  /** De taakketen-instellingen van DEZE soort opslaan; de andere soorten blijven onaangeroerd. */
+  const bewaarKetenInstellingen = async () => {
+    setKetenStatus("bezig");
+    try {
+      const getal = (v) => (v === "" || v === null || v === undefined ? null : (Number.isFinite(Number(v)) ? Number(v) : null));
+      const schoon = {
+        statusVersturen: getal(ketenCfg.statusVersturen),
+        akkoordTaakSoort: getal(ketenCfg.akkoordTaakSoort),
+        akkoordTaakOnderwerp: String(ketenCfg.akkoordTaakOnderwerp || "").trim(),
+        akkoordTaakRubriek: getal(ketenCfg.akkoordTaakRubriek),
+        statusAkkoord: getal(ketenCfg.statusAkkoord),
+        statusVervolgKlaar: getal(ketenCfg.statusVervolgKlaar),
+        inactiefNaVervolg: !!ketenCfg.inactiefNaVervolg,
+      };
+      const r = await fetch("/api/beheer-instellingen", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dossierAkkoord: { ...alleKetenCfg, [soort]: schoon } }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      setAlleKetenCfg((h) => ({ ...h, [soort]: schoon }));
+      setKetenStatus("opgeslagen");
+    } catch {
+      setKetenStatus("fout");
     }
   };
 
@@ -1030,6 +1073,135 @@ function SoortIndelingPaneel({ soort, onderaan }) {
         </div>
       </div>
       </>
+      )}
+
+      {/* ── Na versturen: vervolgtaak en dossierstatussen ──────────────────────────────────────
+          Het vervolg op het blok "Opslag & taak" hierboven. Zodra de cliënt akkoord geeft of
+          ondertekent op de taak die daar wordt aangemaakt, kan er een interne vervolgtaak ontstaan
+          (bijv. "versturen naar Belastingdienst") en beweegt de dossierstatus mee. Rondt een
+          medewerker die vervolgtaak af, dan volgt de laatste status en gaat het dossier eventueel
+          op inactief. Zie api/_gedeeld/dossierTaakketen.js. */}
+      {ketenCfg && (
+        <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 16, marginBottom: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Na versturen — vervolgtaak &amp; dossierstatus ({soortLabelKort})</div>
+          <div style={{ fontSize: 12.5, color: KLEUR.subtekst, lineHeight: 1.6, marginBottom: 14 }}>
+            Het vervolg op "Opslag &amp; taak" hierboven. De taak die daar bij de cliënt terechtkomt is
+            onzichtbaar aan dit dossier gekoppeld; zodra de cliënt <strong>akkoord</strong> geeft of
+            ondertekent, maken we (als je hieronder een taaksoort kiest) een <strong>interne
+            vervolgtaak</strong> aan en zetten we de dossierstatus. Wordt die vervolgtaak in het
+            Taken-overzicht afgerond, dan volgt de laatste status en gaat het dossier eventueel op
+            inactief. Elk veld dat je leeg laat betekent: die stap slaan we over. In het onderwerp kun
+            je <code>{"{klant}"}</code>, <code>{"{periode}"}</code> en <code>{"{soort}"}</code> gebruiken.
+          </div>
+
+          <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 12, marginBottom: 10 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 8 }}>1. Bij het versturen naar de cliënt</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Dossierstatus</div>
+            <select
+              value={ketenCfg.statusVersturen === null || ketenCfg.statusVersturen === undefined ? "" : String(ketenCfg.statusVersturen)}
+              onChange={(e) => { setKetenCfg((h) => ({ ...h, statusVersturen: e.target.value })); setKetenStatus("rust"); }}
+              style={{ ...invoerStijl, width: "100%", maxWidth: 380, background: "#fff" }}
+            >
+              <option value="">— standaard van het systeem —</option>
+              {statusOpties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
+            </select>
+          </div>
+
+          <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 12, marginBottom: 10 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 8 }}>2. Zodra de cliënt akkoord geeft of ondertekent</div>
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(180px, 1fr) minmax(180px, 1fr)", gap: 10, marginBottom: 8 }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Soort van de interne vervolgtaak</div>
+                <select
+                  value={ketenCfg.akkoordTaakSoort === null || ketenCfg.akkoordTaakSoort === undefined ? "" : String(ketenCfg.akkoordTaakSoort)}
+                  onChange={(e) => { setKetenCfg((h) => ({ ...h, akkoordTaakSoort: e.target.value })); setKetenStatus("rust"); }}
+                  style={{ ...invoerStijl, width: "100%", background: "#fff" }}
+                >
+                  <option value="">— geen vervolgtaak —</option>
+                  {taakSoortOpties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Dossierstatus na akkoord</div>
+                <select
+                  value={ketenCfg.statusAkkoord === null || ketenCfg.statusAkkoord === undefined ? "" : String(ketenCfg.statusAkkoord)}
+                  onChange={(e) => { setKetenCfg((h) => ({ ...h, statusAkkoord: e.target.value })); setKetenStatus("rust"); }}
+                  style={{ ...invoerStijl, width: "100%", background: "#fff" }}
+                >
+                  <option value="">— status niet wijzigen —</option>
+                  {statusOpties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Onderwerp van de vervolgtaak</div>
+            <input
+              value={ketenCfg.akkoordTaakOnderwerp || ""}
+              onChange={(e) => { setKetenCfg((h) => ({ ...h, akkoordTaakOnderwerp: e.target.value })); setKetenStatus("rust"); }}
+              style={{ ...invoerStijl, width: "100%", background: "#fff", marginBottom: 8 }}
+            />
+            <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Rubriek op de vervolgtaak (optioneel)</div>
+            {taakRubriekOpties.length > 0 ? (
+              <select
+                value={ketenCfg.akkoordTaakRubriek === null || ketenCfg.akkoordTaakRubriek === undefined ? "" : String(ketenCfg.akkoordTaakRubriek)}
+                onChange={(e) => { setKetenCfg((h) => ({ ...h, akkoordTaakRubriek: e.target.value })); setKetenStatus("rust"); }}
+                style={{ ...invoerStijl, width: "100%", maxWidth: 300, background: "#fff" }}
+              >
+                <option value="">— geen rubriek —</option>
+                {taakRubriekOpties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
+              </select>
+            ) : (
+              <input
+                value={ketenCfg.akkoordTaakRubriek === null || ketenCfg.akkoordTaakRubriek === undefined ? "" : String(ketenCfg.akkoordTaakRubriek)}
+                onChange={(e) => { setKetenCfg((h) => ({ ...h, akkoordTaakRubriek: e.target.value })); setKetenStatus("rust"); }}
+                placeholder="optiesetwaarde (nummer), of leeg"
+                style={{ ...invoerStijl, width: "100%", maxWidth: 300, background: "#fff" }}
+              />
+            )}
+            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 6 }}>
+              De vervolgtaak komt bij de <strong>manager van het dossier</strong> terecht (of anders bij de
+              relatiebeheerder van de cliënt).
+            </div>
+          </div>
+
+          <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 12, marginBottom: 12, opacity: ketenCfg.akkoordTaakSoort === "" || ketenCfg.akkoordTaakSoort === null ? 0.55 : 1 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 8 }}>3. Zodra die vervolgtaak is afgerond</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Dossierstatus</div>
+            <select
+              value={ketenCfg.statusVervolgKlaar === null || ketenCfg.statusVervolgKlaar === undefined ? "" : String(ketenCfg.statusVervolgKlaar)}
+              onChange={(e) => { setKetenCfg((h) => ({ ...h, statusVervolgKlaar: e.target.value })); setKetenStatus("rust"); }}
+              disabled={ketenCfg.akkoordTaakSoort === "" || ketenCfg.akkoordTaakSoort === null}
+              style={{ ...invoerStijl, width: "100%", maxWidth: 380, background: "#fff", marginBottom: 8 }}
+            >
+              <option value="">— status niet wijzigen —</option>
+              {statusOpties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
+            </select>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 600, color: ketenCfg.inactiefNaVervolg ? KLEUR.blauw : KLEUR.subtekst, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={!!ketenCfg.inactiefNaVervolg}
+                onChange={(e) => { setKetenCfg((h) => ({ ...h, inactiefNaVervolg: e.target.checked })); setKetenStatus("rust"); }}
+                disabled={ketenCfg.akkoordTaakSoort === "" || ketenCfg.akkoordTaakSoort === null}
+              />
+              Dossier daarna op <strong>inactief</strong> zetten
+            </label>
+            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 6 }}>
+              Een inactief dossier is alleen-lezen: het blijft gewoon zichtbaar en doorzoekbaar, maar
+              niemand kan er nog iets in wijzigen. Terugzetten kan altijd in Dynamics.
+            </div>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button
+              onClick={bewaarKetenInstellingen}
+              disabled={ketenStatus === "bezig"}
+              style={{ padding: "7px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: ketenStatus === "bezig" ? "default" : "pointer" }}
+            >
+              {ketenStatus === "bezig" ? "Opslaan…" : "Opslaan"}
+            </button>
+            {ketenStatus === "opgeslagen" && <span style={{ fontSize: 11.5, color: KLEUR.groen }}>Opgeslagen</span>}
+            {ketenStatus === "fout" && <span style={{ fontSize: 11.5, color: KLEUR.rood }}>Opslaan mislukt</span>}
+          </div>
+        </div>
       )}
 
       {/* ── Review: het dossier bij een collega neerleggen ─────────────────────────────────────

@@ -3,6 +3,7 @@ const { haalInstellingen } = require("../_gedeeld/instellingen");
 const { voegAkkoordToe, haalAkkoordenVoorEmail } = require("../_gedeeld/taakakkoorden");
 const { webhookMetId } = require("../_gedeeld/webhook");
 const { maakVervolgtaak } = require("../_gedeeld/vervolgtaak");
+const dossierTaakketen = require("../_gedeeld/dossierTaakketen");
 
 // Verbergt de onzichtbare "[dossier-ref: ...]"-koppeling die api/medewerker-aangifte-versturen in
 // de omschrijving verstopt (zie daar) — puur voor intern gebruik door api/taken-ondertekenen, nooit
@@ -286,6 +287,14 @@ module.exports = async function (context, req) {
             klantnaam: account.klantnaam,
           });
         }
+        // Hoort deze taak bij een DOSSIER (de onzichtbare [dossier-ref:]-markering)? Dan de
+        // dossier-taakketen doorlopen: interne vervolgtaak + dossierstatus, zoals ingesteld bij
+        // Beheer → Dossiers → "Na akkoord van de cliënt". Best-effort; het akkoord staat al vast.
+        await dossierTaakketen.naAkkoordVanClient({
+          context, resource, token,
+          taak: { description: taak.description, accountId: taak.accountId, subject: taak.subject },
+          klantnaam: account.klantnaam,
+        });
       }
 
       // Bij "niet akkoord": mail via de Power Automate-webhook (best-effort; blokkeert niet).
