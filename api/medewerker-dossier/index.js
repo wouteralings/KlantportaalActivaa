@@ -322,15 +322,15 @@ module.exports = async function (context, req) {
           context.res = { status: 409, headers: { "Content-Type": "application/json" }, body: { error: "Er is nog geen taaksoort gekoppeld aan de reviewtaak. Stel die in bij Beheer → Dossiers → Review." } };
           return;
         }
+        // De reviewer komt óf als systemuser-id binnen (de manager van het dossier — die staat al als
+        // Dynamics-lookup op het dossier, dus geen omweg via e-mail nodig), óf als e-mailadres (een
+        // zelf opgezochte collega uit de medewerkerslijst).
+        const reviewerSystemuserId = String((req.body && req.body.reviewerSystemuserId) || "").trim();
         const reviewerEmail = String((req.body && req.body.reviewerEmail) || "").trim().toLowerCase();
         const reviewerNaam = String((req.body && req.body.reviewerNaam) || "").trim();
         const toelichting = String((req.body && req.body.toelichting) || "").trim();
-        if (!reviewerEmail) {
-          context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Kies een reviewer met een bekend e-mailadres." } };
-          return;
-        }
-        if (reviewerEmail === String(email || "").toLowerCase()) {
-          context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Je kunt de review niet bij jezelf neerleggen." } };
+        if (!reviewerSystemuserId && !reviewerEmail) {
+          context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Kies een reviewer." } };
           return;
         }
         const huidigDossier = await haalEenDossier(resource, token, soort, id);
@@ -344,12 +344,31 @@ module.exports = async function (context, req) {
         }
 
         // Reviewer → systemuser (eigenaar van de taak). Zonder match kan de taak nergens heen.
-        const reviewerUser = await haalSystemuser(resource, token, reviewerEmail).catch(() => null);
+        const reviewerUser = reviewerSystemuserId
+          ? await dossierReview.haalSystemuserOpId(resource, token, reviewerSystemuserId).catch(() => null)
+          : await haalSystemuser(resource, token, reviewerEmail).catch(() => null);
         if (!reviewerUser || !reviewerUser.id) {
-          context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: `Geen actieve Dynamics-gebruiker gevonden voor ${reviewerEmail}. Controleer het e-mailadres bij Beheer → Uren → Tarieven.` } };
+          context.res = {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+            body: {
+              error: reviewerSystemuserId
+                ? `De gekozen reviewer${reviewerNaam ? ` (${reviewerNaam})` : ""} is geen actieve Dynamics-gebruiker (meer). Kies iemand anders.`
+                : `Geen actieve Dynamics-gebruiker gevonden voor ${reviewerEmail}. Controleer het e-mailadres bij Beheer → Uren → Tarieven.`,
+            },
+          };
           return;
         }
         const aanvrager = await haalSystemuser(resource, token, email).catch(() => null);
+        // Niet bij jezelf neerleggen — nu op systemuser-id, want de manager komt zonder e-mail binnen.
+        const eigenEmail = String(email || "").toLowerCase();
+        const zelfGekozen = (aanvrager && aanvrager.id && String(reviewerUser.id).toLowerCase() === String(aanvrager.id).toLowerCase())
+          || (!!reviewerUser.email && reviewerUser.email === eigenEmail)
+          || (!!reviewerEmail && reviewerEmail === eigenEmail);
+        if (zelfGekozen) {
+          context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Je kunt de review niet bij jezelf neerleggen. Kies een collega." } };
+          return;
+        }
 
         const sjabloonVelden = {
           klant: huidigDossier.klantnaam || "",
@@ -382,7 +401,7 @@ module.exports = async function (context, req) {
           jaar: huidigDossier.jaar,
           aanvragerEmail: email,
           aanvragerNaam: (aanvrager && aanvrager.naam) || "",
-          reviewerEmail,
+          reviewerEmail: reviewerUser.email || reviewerEmail,
           reviewerNaam: reviewerUser.naam || reviewerNaam,
           toelichting,
         });
@@ -412,7 +431,7 @@ module.exports = async function (context, req) {
         const dossierNa = await haalEenDossier(resource, token, soortVan(soort.key), id).catch(() => null);
         context.res = {
           headers: { "Content-Type": "application/json" },
-          body: { ok: true, taakId, reviewer: { naam: reviewerUser.naam || reviewerNaam, email: reviewerEmail }, dossier: dossierNa },
+          body: { ok: true, taakId, reviewer: { naam: reviewerUser.naam || reviewerNaam, email: reviewerUser.email || reviewerEmail }, dossier: dossierNa },
         };
         return;
       }

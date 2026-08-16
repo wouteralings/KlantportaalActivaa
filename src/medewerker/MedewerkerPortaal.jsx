@@ -3522,19 +3522,28 @@ function DossierVoorbeeldModal({ dossier, soortLabel, periodeTekst, catalogus, v
    opmerking mee. De vervolgtaak komt daarna bij de AANVRAGER terecht, met die opmerking erin.
    Welke taaksoort en welke dossierstatus daarbij horen staat in Beheer → Dossiers → Review. */
 function ReviewAanvragenModal({ dossier, soortLabel, onSluit, onKlaar }) {
-  const [medewerkers, setMedewerkers] = useState(null); // null = laden
+  // De manager van het dossier is de standaard-reviewer: dat is de Dynamics-lookup cr283_manager, dus
+  // we hebben zijn systemuser-id al en hoeven niet via het e-mailadres te zoeken. Wie een ander wil,
+  // klapt de zoeklijst open ("Iemand anders kiezen").
+  const manager = dossier.managerId && dossier.manager
+    ? { naam: dossier.manager, systemuserId: dossier.managerId, email: "", bron: "manager" }
+    : null;
+  const [medewerkers, setMedewerkers] = useState(null); // null = nog niet geladen
   const [zoek, setZoek] = useState("");
-  const [gekozen, setGekozen] = useState(null); // { naam, email }
+  const [gekozen, setGekozen] = useState(manager);      // { naam, email?, systemuserId?, bron? }
+  const [zoekenOpen, setZoekenOpen] = useState(!manager); // zonder manager meteen de lijst tonen
   const [toelichting, setToelichting] = useState("");
   const [bezig, setBezig] = useState(false);
   const [fout, setFout] = useState("");
 
+  // Lijst pas ophalen wanneer iemand écht gaat zoeken — met een manager als standaard is dat vaak niet nodig.
   useEffect(() => {
+    if (!zoekenOpen || medewerkers !== null) return;
     fetch("/api/mw-planning-medewerkers")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("lijst"))))
       .then((d) => setMedewerkers((d.medewerkers || []).filter((m) => m && m.email)))
       .catch(() => setMedewerkers([]));
-  }, []);
+  }, [zoekenOpen, medewerkers]);
 
   const treffers = (medewerkers || []).filter((m) => {
     const t = zoek.trim().toLowerCase();
@@ -3551,7 +3560,9 @@ function ReviewAanvragenModal({ dossier, soortLabel, onSluit, onKlaar }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           soort: dossier.soort, id: dossier.id, actie: "review-aanvragen",
-          reviewerEmail: gekozen.email, reviewerNaam: gekozen.naam, toelichting: toelichting.trim(),
+          reviewerSystemuserId: gekozen.systemuserId || "",
+          reviewerEmail: gekozen.email || "",
+          reviewerNaam: gekozen.naam, toelichting: toelichting.trim(),
         }),
       });
       const d = await r.json().catch(() => ({}));
@@ -3582,15 +3593,19 @@ function ReviewAanvragenModal({ dossier, soortLabel, onSluit, onKlaar }) {
           </div>
 
           <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 5 }}>Reviewer</label>
-          {gekozen ? (
+          {gekozen && !zoekenOpen && (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, border: `1px solid ${KLEUR.blauw}`, background: KLEUR.lichtblauw, borderRadius: 8, padding: "9px 12px", marginBottom: 14 }}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 700 }}>{gekozen.naam}</div>
-                <div style={{ fontSize: 11.5, color: KLEUR.subtekst }}>{gekozen.email}</div>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>
+                  {gekozen.naam}
+                  {gekozen.bron === "manager" && <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.blauw, background: "#fff", border: `1px solid ${KLEUR.blauw}`, borderRadius: 999, padding: "1px 7px", marginLeft: 7 }}>manager</span>}
+                </div>
+                <div style={{ fontSize: 11.5, color: KLEUR.subtekst }}>{gekozen.email || (gekozen.bron === "manager" ? "Manager van dit dossier" : "")}</div>
               </div>
-              <button onClick={() => { setGekozen(null); setZoek(""); }} style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Wijzigen</button>
+              <button onClick={() => { setZoekenOpen(true); setZoek(""); }} style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>Iemand anders kiezen</button>
             </div>
-          ) : (
+          )}
+          {zoekenOpen && (
             <>
               <input
                 value={zoek}
@@ -3599,7 +3614,7 @@ function ReviewAanvragenModal({ dossier, soortLabel, onSluit, onKlaar }) {
                 placeholder="Zoek een collega…"
                 style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 13, marginBottom: 8 }}
               />
-              <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, maxHeight: 190, overflowY: "auto", marginBottom: 14 }}>
+              <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, maxHeight: 190, overflowY: "auto", marginBottom: 8 }}>
                 {medewerkers === null ? (
                   <div style={{ padding: "10px 12px", fontSize: 12.5, color: KLEUR.mutedTekst }}>Medewerkers laden…</div>
                 ) : treffers.length === 0 ? (
@@ -3611,7 +3626,7 @@ function ReviewAanvragenModal({ dossier, soortLabel, onSluit, onKlaar }) {
                 ) : treffers.map((m, i) => (
                   <button
                     key={m.email}
-                    onClick={() => setGekozen(m)}
+                    onClick={() => { setGekozen({ naam: m.naam, email: m.email, systemuserId: "", bron: "gekozen" }); setZoekenOpen(false); }}
                     style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", background: "#fff", border: "none", borderTop: i === 0 ? "none" : `1px solid ${KLEUR.rand}`, cursor: "pointer" }}
                     onMouseEnter={(e) => (e.currentTarget.style.background = KLEUR.lichtblauw)}
                     onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
@@ -3621,6 +3636,15 @@ function ReviewAanvragenModal({ dossier, soortLabel, onSluit, onKlaar }) {
                   </button>
                 ))}
               </div>
+              {manager && (
+                <button
+                  onClick={() => { setGekozen(manager); setZoekenOpen(false); setZoek(""); }}
+                  style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0, marginBottom: 14 }}
+                >
+                  ← Terug naar de manager ({manager.naam})
+                </button>
+              )}
+              {!manager && <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 14 }}>Dit dossier heeft geen manager, dus kies zelf een reviewer.</div>}
             </>
           )}
 
@@ -3635,7 +3659,8 @@ function ReviewAanvragenModal({ dossier, soortLabel, onSluit, onKlaar }) {
           {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginTop: 10 }}>{fout}</div>}
         </div>
 
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "12px 20px", borderTop: `1px solid ${KLEUR.rand}` }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, padding: "12px 20px", borderTop: `1px solid ${KLEUR.rand}` }}>
+          {gekozen && <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginRight: "auto" }}>Gaat naar <strong style={{ color: KLEUR.subtekst }}>{gekozen.naam}</strong></span>}
           <button onClick={onSluit} style={{ padding: "8px 14px", background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, color: KLEUR.subtekst, cursor: "pointer" }}>Annuleren</button>
           <button
             onClick={versturen}

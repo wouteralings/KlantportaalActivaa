@@ -265,6 +265,28 @@ const HEADERS = (token) => ({
 });
 
 /**
+ * Eén systemuser op GUID — de tegenhanger van haalSystemuser(email) uit takenGedeeld.js. Gebruikt
+ * wanneer de reviewer rechtstreeks uit een Dynamics-lookup komt (de manager van het dossier), zodat
+ * we niet de omweg via het e-mailadres hoeven te lopen. Geeft null bij een onbekende of
+ * uitgeschakelde gebruiker — dan mag de taak daar niet heen.
+ */
+async function haalSystemuserOpId(resource, token, systemuserId) {
+  const id = String(systemuserId || "").trim();
+  if (!resource || !/^[0-9a-fA-F-]{36}$/.test(id)) return null;
+  try {
+    const res = await fetch(`${resource}/api/data/v9.2/systemusers(${id})?$select=systemuserid,fullname,internalemailaddress,isdisabled`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "OData-MaxVersion": "4.0", "OData-Version": "4.0" },
+    });
+    if (!res.ok) return null;
+    const u = await res.json();
+    if (!u || !u.systemuserid || u.isdisabled === true) return null;
+    return { id: u.systemuserid, naam: u.fullname || "", email: String(u.internalemailaddress || "").toLowerCase() };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Maakt één taak aan in Dynamics en geeft het activityid terug. Gooit door bij een fout — anders
  * zou een medewerker denken dat de review is uitgezet terwijl er niets bij de reviewer terechtkomt.
  */
@@ -300,5 +322,5 @@ module.exports = {
   normaliseerReviewConfig, normaliseerAlleReviewConfig, instellingenVoorSoort, vulSjabloonIn,
   haalAlle, haalVoorTaak, haalVoorDossier, haalOpenVoorDossier, zetReview, rondReviewAf,
   zetVervolgtaakVerwijzing, verwijderReview,
-  maakTaak,
+  maakTaak, haalSystemuserOpId,
 };
