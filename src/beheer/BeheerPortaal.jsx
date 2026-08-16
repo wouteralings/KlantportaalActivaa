@@ -158,9 +158,32 @@ function ModuleToggle({ label, aan, bezig, uitgeschakeld, titel, onClick }) {
 }
 
 /** Filtert taaksoorten op de zoekterm — op één plek, zodat de lijst en de teller niet uiteenlopen. */
-function filterTaaksoorten(opties, zoek) {
+/**
+ * Filtert de taaksoorten op zoektekst en (optioneel) op rubriek, en zet ze daarna in de door de
+ * beheerder gekozen volgorde (cfg.volgorde, zie de pijltjes in het raster). Soorten zonder eigen
+ * volgordenummer blijven achteraan staan in de volgorde die Dynamics teruggeeft — zo verspringt er
+ * niets zodra er in Dynamics een nieuwe soort bijkomt.
+ */
+function filterTaaksoorten(opties, zoek, config, rubriekFilter) {
   const q = (zoek || "").trim().toLowerCase();
-  return (opties || []).filter((o) => (o.label || "").toLowerCase().includes(q));
+  const cfgVan = (o) => (config || {})[String(o.waarde)] || {};
+  const gefilterd = (opties || [])
+    .filter((o) => (o.label || "").toLowerCase().includes(q))
+    .filter((o) => {
+      if (!rubriekFilter) return true;
+      const r = cfgVan(o).rubriek;
+      if (rubriekFilter === "__geen__") return r === undefined || r === null || r === "";
+      return String(r ?? "") === String(rubriekFilter);
+    });
+  return gefilterd
+    .map((o, i) => ({ o, i, v: cfgVan(o).volgorde }))
+    .sort((a, b) => {
+      const av = Number.isFinite(Number(a.v)) && a.v !== "" && a.v !== null ? Number(a.v) : Infinity;
+      const bv = Number.isFinite(Number(b.v)) && b.v !== "" && b.v !== null ? Number(b.v) : Infinity;
+      if (av !== bv) return av - bv;
+      return a.i - b.i;
+    })
+    .map((x) => x.o);
 }
 
 // Vervangt (of maakt) de favicon in de browsertab door de opgegeven URL.
@@ -357,6 +380,8 @@ export default function BeheerPortaal() {
   const [taaksoortenOpslaanStatus, setTaaksoortenOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [taaksoortenSectieOpen, setTaaksoortenSectieOpen] = useState(true);
   const [taaksoortenZoek, setTaaksoortenZoek] = useState("");
+  // Filter op rubriek: "" = alles, "__geen__" = soorten zonder rubriek, anders de optiesetwaarde.
+  const [taaksoortRubriekFilter, setTaaksoortRubriekFilter] = useState("");
   const [nieuweSoortLabel, setNieuweSoortLabel] = useState("");
   const [soortToevoegenStatus, setSoortToevoegenStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [soortToevoegenFout, setSoortToevoegenFout] = useState("");
@@ -1317,6 +1342,31 @@ export default function BeheerPortaal() {
     });
     setTaaksoortenOpslaanStatus("idle");
   }, []);
+
+  /**
+   * Verplaatst een taaksoort een plek omhoog (-1) of omlaag (+1) in de eigen volgorde. We schrijven
+   * de volgorde van de HELE lijst opnieuw weg (0,1,2,…) i.p.v. alleen de twee geruilde rijen: dan
+   * hebben ook soorten die nog nooit verplaatst zijn een vast nummer en kan er later niets meer
+   * verspringen. Alleen mogelijk zonder actief zoek-/rubriekfilter — anders zou je iets verschuiven
+   * ten opzichte van rijen die je niet ziet.
+   */
+  const verplaatsTaaksoort = useCallback((waarde, richting) => {
+    setTaaksoortenConfig((huidig) => {
+      const lijst = filterTaaksoorten(taaksoortenOpties, "", huidig, "");
+      const i = lijst.findIndex((o) => String(o.waarde) === String(waarde));
+      const doel = i + richting;
+      if (i < 0 || doel < 0 || doel >= lijst.length) return huidig;
+      const nieuw = [...lijst];
+      [nieuw[i], nieuw[doel]] = [nieuw[doel], nieuw[i]];
+      const uit = { ...huidig };
+      nieuw.forEach((o, idx) => {
+        const key = String(o.waarde);
+        uit[key] = { ...(uit[key] || {}), volgorde: idx, label: (uit[key] || {}).label ?? o.label };
+      });
+      return uit;
+    });
+    setTaaksoortenOpslaanStatus("idle");
+  }, [taaksoortenOpties]);
 
   /**
    * Hernoemt een taaksoort: past het LABEL van de optie in de Dynamics-optieset aan. De onderliggende
@@ -3096,7 +3146,10 @@ export default function BeheerPortaal() {
             hun soort en er wordt niets in Dynamics verwijderd. Onder de naam kun je een korte{" "}
             <strong>toelichting</strong> kwijt (waar is deze soort voor bedoeld?) — die is alleen hier
             zichtbaar, niet voor de cliënt. De kolom <strong>Open</strong> toont hoeveel taken van die
-            soort kantoorbreed nog openstaan, zodat je ziet welke soorten écht in gebruik zijn.
+            soort kantoorbreed nog openstaan, zodat je ziet welke soorten écht in gebruik zijn. Met{" "}
+            <strong>Rubriek</strong> deel je de soorten in (bijv. Inkomstenbelasting, Loon) en kun je de
+            lijst daarop filteren; met de <strong>pijltjes</strong> links bepaal je zelf de volgorde
+            waarin ze overal verschijnen.
           </div>
           {taaksoortOpenFout && (
             <div style={{ fontSize: 12, color: KLEUR.amber, background: KLEUR.amberBg, border: `1px solid ${KLEUR.amberRand}`, borderRadius: 8, padding: "8px 10px", marginBottom: 12 }}>
@@ -3118,16 +3171,42 @@ export default function BeheerPortaal() {
             </div>
           ) : (
             <>
-              <div style={{ position: "relative", marginBottom: 12 }}>
-                <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
-                <input
-                  type="text"
-                  value={taaksoortenZoek}
-                  onChange={(e) => setTaaksoortenZoek(e.target.value)}
-                  placeholder="Zoek een taaksoort…"
-                  style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px 8px 32px", fontSize: 13 }}
-                />
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+                <div style={{ position: "relative", flex: "1 1 240px", minWidth: 200 }}>
+                  <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+                  <input
+                    type="text"
+                    value={taaksoortenZoek}
+                    onChange={(e) => setTaaksoortenZoek(e.target.value)}
+                    placeholder="Zoek een taaksoort…"
+                    style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px 8px 32px", fontSize: 13 }}
+                  />
+                </div>
+                <select
+                  value={taaksoortRubriekFilter}
+                  onChange={(e) => setTaaksoortRubriekFilter(e.target.value)}
+                  title="Toon alleen de taaksoorten van één rubriek"
+                  style={{ border: `1px solid ${taaksoortRubriekFilter ? KLEUR.blauw : KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", fontSize: 13, background: "#fff", color: taaksoortRubriekFilter ? KLEUR.blauw : KLEUR.tekst, fontWeight: taaksoortRubriekFilter ? 600 : 400, minWidth: 180 }}
+                >
+                  <option value="">Alle rubrieken</option>
+                  <option value="__geen__">— zonder rubriek —</option>
+                  {taakRubriekOpties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
+                </select>
+                {(taaksoortenZoek || taaksoortRubriekFilter) && (
+                  <button
+                    onClick={() => { setTaaksoortenZoek(""); setTaaksoortRubriekFilter(""); }}
+                    style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: "8px 4px", whiteSpace: "nowrap" }}
+                  >
+                    Filters wissen
+                  </button>
+                )}
               </div>
+              {(taaksoortenZoek || taaksoortRubriekFilter) && (
+                <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginBottom: 10 }}>
+                  Er staat een filter aan, dus de volgorde-pijltjes zijn uitgeschakeld — je zou anders
+                  schuiven ten opzichte van rijen die je nu niet ziet. Wis de filters om de volgorde aan te passen.
+                </div>
+              )}
 
               {/* Nieuwe taaksoort toevoegen aan de Dynamics-optieset */}
               <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 14 }}>
@@ -3149,23 +3228,44 @@ export default function BeheerPortaal() {
                 {soortToevoegenStatus === "gelukt" && <span style={{ fontSize: 12, color: KLEUR.groen }}>Toegevoegd.</span>}
                 {soortToevoegenStatus === "fout" && <span style={{ fontSize: 12, color: KLEUR.rood }}>{soortToevoegenFout || "Toevoegen mislukt."}</span>}
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto auto auto auto auto", gap: "0 18px", alignItems: "center" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "48px 1fr auto auto auto auto auto auto auto auto auto", gap: "0 18px", alignItems: "center" }}>
+                <div style={{ paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}` }}></div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}` }}>Soort</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }} title={taaksoortOpenFout ? `Aantal openstaande taken kon niet worden geteld: ${taaksoortOpenFout}` : "Aantal nog niet afgeronde taken van deze soort, kantoorbreed. Zo zie je welke soorten écht in gebruik zijn."}>Open{taaksoortOpenFout ? " ⚠" : ""}</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }} title="Standaard-tijd per taak van deze soort, voor de planning/bezetting. Per losse taak overschrijfbaar in het Taken-overzicht.">Std. uren</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }} title="Urencode waarop de uren van taken van deze soort geschreven worden. Staat voorgevuld bij 'Uren schrijven' vanuit een taak; per losse taak overschrijfbaar in het Taken-overzicht.">Urencode</div>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }} title="Rubriek (cr283_rubriek) waar deze taaksoort onder valt — voor het filter hierboven en als indeling in de keuzelijsten.">Rubriek</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Zichtbaar</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Mag goedkeuren</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Vereist handtekening</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Vervolgtaak backoffice</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }} title="Bevroren soorten verdwijnen uit alle keuzelijsten (klantportaal, doorzetten, dossier-taken). Bestaande taken houden hun soort; er wordt niets in Dynamics verwijderd.">Bevroren</div>
-                {filterTaaksoorten(taaksoortenOpties, taaksoortenZoek)
+                {filterTaaksoorten(taaksoortenOpties, taaksoortenZoek, taaksoortenConfig, taaksoortRubriekFilter)
                   .slice(0, taaksoortToonAantal)
-                  .map((optie) => {
+                  .map((optie, rijIndex, zichtbareLijst) => {
                   const cfg = taaksoortenConfig[String(optie.waarde)] || {};
                   const rijRand = cfg.vervolgtaakBackoffice ? "none" : `1px solid ${KLEUR.rand}`;
+                  // Volgorde schuiven kan alleen op de volledige, ongefilterde lijst — zie de uitleg
+                  // boven het raster.
+                  const magSchuiven = !taaksoortenZoek && !taaksoortRubriekFilter;
                   return (
                     <React.Fragment key={optie.waarde}>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, padding: "10px 0", borderBottom: rijRand }}>
+                        {[["op", -1, ChevronUp], ["neer", 1, ChevronDown]].map(([naam, richting, Icoon]) => {
+                          const uit = !magSchuiven || (richting === -1 ? rijIndex === 0 : rijIndex === zichtbareLijst.length - 1);
+                          return (
+                            <button
+                              key={naam}
+                              onClick={() => verplaatsTaaksoort(optie.waarde, richting)}
+                              disabled={uit}
+                              title={magSchuiven ? (richting === -1 ? "Een plek omhoog" : "Een plek omlaag") : "Wis eerst de filters om de volgorde aan te passen"}
+                              style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 22, height: 16, border: "none", background: "none", padding: 0, cursor: uit ? "default" : "pointer", color: uit ? KLEUR.rand : KLEUR.mutedTekst }}
+                            >
+                              <Icoon size={14} />
+                            </button>
+                          );
+                        })}
+                      </div>
                       <div style={{ fontSize: 13, padding: "10px 0", borderBottom: rijRand, display: "flex", flexDirection: "column", gap: 3, color: cfg.bevroren ? KLEUR.mutedTekst : KLEUR.tekst }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <input
@@ -3235,6 +3335,28 @@ export default function BeheerPortaal() {
                           {cfg.standaardUrencode && !urencodes.some((c) => c.naam === cfg.standaardUrencode) && <option value={cfg.standaardUrencode}>{cfg.standaardUrencode}</option>}
                           {urencodes.map((c) => <option key={c.id || c.naam} value={c.naam}>{c.naam}</option>)}
                         </select>
+                      </div>
+                      {/* Rubriek waar deze soort onder valt — bepaalt het filter hierboven. */}
+                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: rijRand }}>
+                        {taakRubriekOpties.length > 0 ? (
+                          <select
+                            value={cfg.rubriek ?? ""}
+                            onChange={(e) => wijzigTaaksoort(optie.waarde, "rubriek", e.target.value, optie.label)}
+                            title="Rubriek (cr283_rubriek) waar deze taaksoort onder valt"
+                            style={{ minWidth: 140, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "5px 6px", fontSize: 12.5, background: "#fff", cursor: "pointer" }}
+                          >
+                            <option value="">— geen —</option>
+                            {taakRubriekOpties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
+                          </select>
+                        ) : (
+                          <input
+                            value={cfg.rubriek ?? ""}
+                            onChange={(e) => wijzigTaaksoort(optie.waarde, "rubriek", e.target.value, optie.label)}
+                            placeholder="—"
+                            title="De rubrieken-lijst kon niet worden opgehaald — vul de optiesetwaarde (nummer) rechtstreeks in, of laat leeg."
+                            style={{ width: 90, textAlign: "center", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "5px 6px", fontSize: 12.5, background: "#fff" }}
+                          />
+                        )}
                       </div>
                       <div style={{ textAlign: "center", padding: "10px 0", borderBottom: rijRand }}>
                         <input
@@ -3346,7 +3468,7 @@ export default function BeheerPortaal() {
                   );
                 })}
               </div>
-              <AantalKiezer aantal={taaksoortToonAantal} setAantal={setTaaksoortToonAantal} totaal={filterTaaksoorten(taaksoortenOpties, taaksoortenZoek).length} />
+              <AantalKiezer aantal={taaksoortToonAantal} setAantal={setTaaksoortToonAantal} totaal={filterTaaksoorten(taaksoortenOpties, taaksoortenZoek, taaksoortenConfig, taaksoortRubriekFilter).length} />
 
               <div style={{ marginTop: 18 }}>
                 <button

@@ -89,8 +89,22 @@ module.exports = async function (context, req) {
 
   try {
     const token = await haalDynamicsToken();
-    const opties = await haalOpties(resource, token);
+    const optiesRuw = await haalOpties(resource, token);
     const instellingen = await haalInstellingen().catch(() => ({}));
+    // In de door Beheer gekozen volgorde (taaksoorten.<waarde>.volgorde, gezet met de pijltjes in
+    // Beheer → Taken). Soorten zonder eigen nummer blijven achteraan, in de volgorde die Dynamics
+    // teruggeeft — zo verspringt er niets zodra er in Dynamics een nieuwe soort bijkomt. Hier
+    // sorteren en niet alleen in het scherm, zodat élke keuzelijst die dit endpoint gebruikt
+    // dezelfde volgorde aanhoudt.
+    const cfgAlle = (instellingen && instellingen.taaksoorten) || {};
+    const opties = optiesRuw
+      .map((o, i) => ({ o, i, v: (cfgAlle[String(o.waarde)] || {}).volgorde }))
+      .sort((a, b) => {
+        const av = a.v === null || a.v === undefined || a.v === "" || !Number.isFinite(Number(a.v)) ? Infinity : Number(a.v);
+        const bv = b.v === null || b.v === undefined || b.v === "" || !Number.isFinite(Number(b.v)) ? Infinity : Number(b.v);
+        return av !== bv ? av - bv : a.i - b.i;
+      })
+      .map((x) => x.o);
     // Tellers zijn een extraatje: nooit de hele lijst laten vallen als de aggregatie faalt.
     let openAantallen = {};
     let aantallenFout = "";
