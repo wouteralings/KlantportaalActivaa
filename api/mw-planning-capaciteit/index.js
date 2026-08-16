@@ -250,14 +250,20 @@ module.exports = metPlanningRecht(async function (context, req) {
         declarabelDoel: t.declarabel_doel != null ? Number(t.declarabel_doel) : null,
         verlofGoedgekeurd: rond(goedPerEmail[e] || 0),
         verlofAangevraagd: rond(aangePerEmail[e] || 0),
-        // Bruto beschikbaar in de hele periode = rooster − goedgekeurd verlof (declarabel-doel wordt
-        // hier bewust NIET toegepast; dat is een aparte keuze van het scherm dat het gebruikt).
-        beschikbaar: rond(Math.max(0, roosterUren - (goedPerEmail[e] || 0))),
+        // Productiviteit: het declarabel-doel% van deze medewerker als factor (1 = niet ingesteld).
+        declarabelFactor: Math.round(doelFactor * 1000) / 1000,
+        // BRUTO beschikbaar = rooster − goedgekeurd verlof (alle uren, ook indirecte tijd).
+        // NETTO beschikbaar = daarvan het productieve deel: × het declarabel-doel. Dít is het getal
+        // waar je planwerk (indicatie-uren op klanten) tegenaan legt — de rest van de week gaat op
+        // aan indirecte/kantoortijd. Verlof gaat er dus vóór de productiviteitscorrectie af.
+        beschikbaarBruto: rond(Math.max(0, roosterUren - (goedPerEmail[e] || 0))),
+        beschikbaar: rond(Math.max(0, roosterUren - (goedPerEmail[e] || 0)) * doelFactor),
         resterend: {
           werkdagen: werkdagenResterend,
           roosterUren: roosterResterend,
           verlof: verlofResterend,
-          beschikbaar: rond(Math.max(0, roosterResterend - verlofResterend)),
+          beschikbaarBruto: rond(Math.max(0, roosterResterend - verlofResterend)),
+          beschikbaar: rond(Math.max(0, roosterResterend - verlofResterend) * doelFactor),
         },
         maanden,
       };

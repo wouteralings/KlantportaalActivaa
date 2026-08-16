@@ -76,8 +76,10 @@ function VoortgangBalk({ v, periodeLabel, wie }) {
     <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: "12px 14px", background: "#FBFCFB", marginBottom: 12 }}>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "stretch" }}>
         {v.beschikbaar != null
-          ? tegel("Beschikbaar", uurTekst(v.beschikbaar), KLEUR.tekst, `rooster ${uurTekst(v.roosterUren)}${v.verlof ? ` − verlof ${uurTekst(v.verlof)}` : ""}`)
+          ? tegel("Beschikbaar", uurTekst(v.beschikbaar), KLEUR.tekst,
+              `rooster ${uurTekst(v.roosterUren)}${v.verlof ? ` − verlof ${uurTekst(v.verlof)}` : ""}${v.productiviteit != null && v.productiviteit !== 1 ? ` × ${Math.round(v.productiviteit * 100)}%` : ""}`)
           : tegel("Beschikbaar", "—", KLEUR.mutedTekst, "geen rooster/tarief bekend")}
+        {v.verlof ? tegel("Verlof", uurTekst(v.verlof), KLEUR.blauw, "goedgekeurd in deze periode") : null}
         {tegel("Ingepland", uurTekst(v.ingepland), KLEUR.blauw, `${v.taken} ${v.taken === 1 ? "taak" : "taken"} in ${periodeLabel}`)}
         {tegel("Gereed", uurTekst(v.gereedUren), KLEUR.groen, `${v.takenGereed}/${v.taken} taken afgetekend`)}
         {tegel("Geschreven", uurTekst(v.geschreven), v.geschreven ? KLEUR.groen : KLEUR.mutedTekst, "werkelijk geboekte uren")}
@@ -111,9 +113,114 @@ function VoortgangBalk({ v, periodeLabel, wie }) {
           {v.zonderIndicatie} {v.zonderIndicatie === 1 ? "taak heeft" : "taken hebben"} geen indicatie-uren — die tellen als 0 mee. Stel ze in bij Beheer → Planning of in de planning-configuratie van de klant.
         </div>
       )}
+      {v.productiviteit === 1 && v.gevonden && (
+        <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 6 }}>
+          Er is nog geen productiviteit (declarabel-doel %) ingesteld, dus er wordt met 100% van de roosteruren gerekend — Beheer → Uren → Tarieven.
+        </div>
+      )}
       {!v.gevonden && (
         <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 6 }}>
           Geen rooster/uurtarief gevonden voor {wie}, dus de beschikbare uren kunnen niet worden berekend (Beheer → Uren → Tarieven).
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Eén overzicht met de voortgang van ALLE medewerkers die je mag zien: beschikbare (productieve)
+ * uren, goedgekeurd verlof, wat er is ingepland, wat er al gereed/geschreven is en of het nog te doen
+ * werk nog in de resterende uren past. Gesorteerd op krapte, dus wie achterloopt staat bovenaan.
+ */
+function TeamVoortgang({ rijen, periodeLabel, open, setOpen, ikLc }) {
+  const kop = { textAlign: "right", fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", padding: "6px 8px", borderBottom: `1px solid ${KLEUR.rand}`, whiteSpace: "nowrap" };
+  const cel = { fontSize: 12, padding: "7px 8px", borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "right", whiteSpace: "nowrap" };
+  const achterlopers = rijen.filter((r) => r.ruimte != null && r.ruimte < 0).length;
+  return (
+    <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, marginBottom: 12, overflow: "hidden" }}>
+      <button
+        onClick={() => setOpen(!open)}
+        style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "10px 14px", background: "#FBFCFB", border: "none", borderBottom: open ? `1px solid ${KLEUR.rand}` : "none", cursor: "pointer" }}
+      >
+        <Users size={15} color={KLEUR.blauw} />
+        <span style={{ fontSize: 13, fontWeight: 700, color: KLEUR.tekst }}>Voortgang per medewerker</span>
+        <span style={{ fontSize: 12, color: KLEUR.mutedTekst }}>· {periodeLabel} · {rijen.length} {rijen.length === 1 ? "medewerker" : "medewerkers"}</span>
+        {achterlopers > 0 && (
+          <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.rood, background: KLEUR.roodBg, border: `1px solid ${KLEUR.roodRand}`, borderRadius: 999, padding: "1px 8px" }}>
+            {achterlopers} loopt achter
+          </span>
+        )}
+        <span style={{ flex: 1 }} />
+        <ChevronDown size={16} color={KLEUR.mutedTekst} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+      </button>
+
+      {open && (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 940 }}>
+            <thead>
+              <tr>
+                <th style={{ ...kop, textAlign: "left" }}>Medewerker</th>
+                <th style={kop} title="Productiviteit: het declarabel-doel % uit Beheer → Uren → Tarieven">Prod.</th>
+                <th style={kop} title="Goedgekeurd verlof in deze periode (gaat van de beschikbare uren af)">Verlof</th>
+                <th style={kop} title="Roosteruren − goedgekeurd verlof, maal de productiviteit">Beschikbaar</th>
+                <th style={kop} title="Som van de indicatie-uren van alle aan deze persoon toegewezen hoofdtaken">Ingepland</th>
+                <th style={kop}>Gereed</th>
+                <th style={kop} title="Werkelijk geschreven uren op deze planningstaken">Geschreven</th>
+                <th style={kop}>Nog te doen</th>
+                <th style={kop} title="Uren die er vanaf vandaag nog in deze periode zitten">Resterend</th>
+                <th style={{ ...kop, textAlign: "left", minWidth: 150 }} title="Ingepland werk t.o.v. de beschikbare productieve uren">Bezetting</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rijen.map((r) => {
+                const krap = r.ruimte != null && r.ruimte < 0;
+                const bijna = !krap && r.ruimte != null && r.restBeschikbaar > 0 && r.openUren / r.restBeschikbaar > 0.85;
+                const bezKleur = r.bezetting == null ? KLEUR.mutedTekst : r.bezetting > 100 ? KLEUR.rood : r.bezetting >= 85 ? KLEUR.amber : KLEUR.groen;
+                return (
+                  <tr key={r.lc} style={{ background: r.lc === ikLc ? KLEUR.lichtblauw : "transparent" }}>
+                    <td style={{ ...cel, textAlign: "left", fontWeight: 600 }}>
+                      {r.naam}
+                      {krap && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: KLEUR.rood, background: KLEUR.roodBg, border: `1px solid ${KLEUR.roodRand}`, borderRadius: 999, padding: "1px 7px" }}>loopt achter</span>}
+                      {bijna && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: KLEUR.amber, background: KLEUR.amberBg, border: `1px solid ${KLEUR.amberRand}`, borderRadius: 999, padding: "1px 7px" }}>krap</span>}
+                      {!r.inCapaciteit && <span title="Geen rooster/uurtarief gevonden — Beheer → Uren → Tarieven" style={{ marginLeft: 6, fontSize: 10, color: KLEUR.mutedTekst }}>geen rooster</span>}
+                    </td>
+                    <td style={{ ...cel, color: r.productiviteit == null || r.productiviteit === 1 ? KLEUR.mutedTekst : KLEUR.tekst }}>
+                      {r.productiviteit == null ? "—" : `${Math.round(r.productiviteit * 100)}%`}
+                    </td>
+                    <td style={{ ...cel, color: r.verlof ? KLEUR.blauw : KLEUR.mutedTekst }} title={r.verlofAangevraagd ? `Nog ${uurTekst(r.verlofAangevraagd)} aangevraagd (niet meegerekend)` : undefined}>
+                      {r.verlof ? uurTekst(r.verlof) : "—"}
+                      {r.verlofAangevraagd ? <span style={{ color: KLEUR.amber }}> +{uurTekst(r.verlofAangevraagd)}</span> : null}
+                    </td>
+                    <td style={cel}>{r.beschikbaar == null ? "—" : uurTekst(r.beschikbaar)}</td>
+                    <td style={{ ...cel, fontWeight: 600 }}>{uurTekst(r.ingepland)}</td>
+                    <td style={{ ...cel, color: KLEUR.groen }}>{uurTekst(r.gereedUren)}<span style={{ color: KLEUR.mutedTekst, fontWeight: 400 }}> · {r.takenGereed}/{r.taken}</span></td>
+                    <td style={{ ...cel, color: r.geschreven ? KLEUR.groen : KLEUR.mutedTekst }}>{r.geschreven ? uurTekst(r.geschreven) : "—"}</td>
+                    <td style={{ ...cel, color: r.openUren ? KLEUR.amber : KLEUR.groen }}>{uurTekst(r.openUren)}</td>
+                    <td style={{ ...cel, color: krap ? KLEUR.rood : KLEUR.tekst }}>{r.restBeschikbaar == null ? "—" : uurTekst(r.restBeschikbaar)}</td>
+                    <td style={{ ...cel, textAlign: "left" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                        <div style={{ position: "relative", flex: 1, minWidth: 80, height: 8, borderRadius: 999, background: "#EDEFEA", overflow: "hidden" }}>
+                          <div style={{ width: `${Math.min(100, r.bezetting || 0)}%`, height: "100%", background: bezKleur }} />
+                          {r.ingepland > 0 && r.pctGereed != null && (
+                            <div title={`${r.pctGereed}% van het ingeplande werk is afgetekend`} style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${Math.min(100, Math.round((r.bezetting || 0) * (r.pctGereed / 100)))}%`, background: KLEUR.groen }} />
+                          )}
+                        </div>
+                        <span style={{ fontSize: 11.5, fontWeight: 700, color: bezKleur, minWidth: 38, textAlign: "right" }}>{r.bezetting == null ? "—" : `${r.bezetting}%`}</span>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {rijen.length === 0 && (
+                <tr><td colSpan={10} style={{ ...cel, textAlign: "center", color: KLEUR.mutedTekst, padding: 18 }}>Geen medewerkers om te tonen.</td></tr>
+              )}
+            </tbody>
+          </table>
+          <div style={{ fontSize: 11, color: KLEUR.mutedTekst, padding: "8px 12px", lineHeight: 1.5 }}>
+            <strong>Beschikbaar</strong> = (rooster − goedgekeurd verlof) × productiviteit (het declarabel-doel % per medewerker).
+            De donkergroene balk is het deel dat al is afgetekend. <strong>Loopt achter</strong> = er staat meer werk open dan er
+            vanaf vandaag nog aan productieve uren in {periodeLabel} zit. Gesorteerd op krapte.
+          </div>
         </div>
       )}
     </div>
@@ -152,6 +259,7 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
   const [activiteiten, setActiviteiten] = useState([]);
   const [urenPerBron, setUrenPerBron] = useState({}); // "acc|act|periode" → { uren, aantal } geschreven uren
   const [capaciteit, setCapaciteit] = useState(null); // { werkdagen, werkdagenResterend, medewerkers: [...] }
+  const [teamOpen, setTeamOpen] = useState(false);    // overzicht "voortgang per medewerker" open?
   const [urenSchrijvenOpen, setUrenSchrijvenOpen] = useState(false); // uren schrijven zónder alles af te vinken
   const [statussen, setStatussen] = useState([]);      // { sleutel, label, kleur } — beheer-statussen
   const [klantenMap, setKlantenMap] = useState({});
@@ -171,6 +279,7 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
   const [actieveCel, setActieveCel] = useState(null);  // { acc, actSleutel } of null
 
   const periode = type === "maand" ? `${jaar}-${pad(maand)}` : `${jaar}`;
+  const periodeLabel = type === "maand" ? `${MAANDEN[maand - 1]} ${jaar}` : String(jaar);
   const activiteitById = useMemo(() => Object.fromEntries(activiteiten.map((a) => [a.sleutel, a])), [activiteiten]);
   const activiteitOrder = useMemo(() => Object.fromEntries(activiteiten.map((a, i) => [a.sleutel, i])), [activiteiten]);
   const statusInfo = useMemo(() => Object.fromEntries((statussen || []).map((s) => [s.sleutel, s])), [statussen]);
@@ -220,12 +329,11 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
   };
   const stFor = (acc, actSleutel, deelSleutel) => status[`${acc}|${actSleutel}|${deelSleutel}`] || null;
 
-  // Alleen de aan mij toegewezen hoofdactiviteiten in deze periode → per (klant × hoofdtaak) één item.
-  // `basisItems` is de VOLLEDIGE werkvoorraad van deze persoon in deze periode: nog zonder de
-  // klantgroep-/status-verfijning, zodat de voortgangsbalk (werklast vs. capaciteit) niet meebeweegt
-  // met een filter — je wilt dan nog steeds zien hoeveel werk er in totaal ligt.
-  const basisItems = useMemo(() => {
-    if (!config || !bekekenLc) return [];
+  // Alle hoofdactiviteiten in deze periode, van IEDEREEN → per (klant × hoofdtaak) één item, met de
+  // uitvoerder (`wieLc`) erbij. Hieruit komen zowel de eigen matrix (filteren op de bekeken persoon)
+  // als het overzicht "voortgang per medewerker".
+  const alleItems = useMemo(() => {
+    if (!config) return [];
     const seen = new Set();
     const rijen = [];
     for (const r of config) {
@@ -244,7 +352,6 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
       const acc = String(r.klantAccountId || "").toLowerCase();
       const klant = klantenMap[acc] || null;
       const wie = (r.toegewezenAan || "").trim() || teamPersoon(klant, act.rol);
-      if (String(wie || "").trim().toLowerCase() !== bekekenLc) continue;
       const dubbelKey = `${acc}|${act.sleutel}`;
       if (seen.has(dubbelKey)) continue;
       seen.add(dubbelKey);
@@ -256,6 +363,7 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
       rijen.push({
         key: dubbelKey, acc, accountId: klant?.accountId || r.klantAccountId || "", actSleutel: act.sleutel, act, eff, done, total, gereed, uitvoerMaand: r.uitvoerMaand,
         statusKey,
+        wie: String(wie || "").trim(), wieLc: String(wie || "").trim().toLowerCase(),
         // Urencode + indicatie-uren voor het gekoppelde urenschrijven: per klant ingesteld
         // (planning-configuratie), anders de standaard van de activiteit (Beheer → Planning).
         urencode: (r.urencode || "").trim() || act.standaardUrencode || "",
@@ -264,7 +372,14 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
       });
     }
     return rijen;
-  }, [config, activiteitById, klantenMap, klantDeelstappen, status, type, maand, bekekenLc]);
+  }, [config, activiteitById, klantenMap, klantDeelstappen, status, type, maand, jaar]);
+
+  // De werkvoorraad van de bekeken persoon (zonder de klantgroep-/statusverfijning, zodat de
+  // voortgangscijfers niet meebewegen met een filter).
+  const basisItems = useMemo(
+    () => (bekekenLc ? alleItems.filter((it) => it.wieLc === bekekenLc) : []),
+    [alleItems, bekekenLc]
+  );
 
   // De getoonde items: de werkvoorraad met de maand-, klantgroep- en statusverfijning erop.
   const items = useMemo(() => basisItems.filter((it) => {
@@ -316,8 +431,76 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
       verlof: mij ? rond(Number(mij.verlofGoedgekeurd) || 0) : null,
       restBeschikbaar: mij && mij.resterend ? rond(Number(mij.resterend.beschikbaar) || 0) : null,
       restWerkdagen: mij && mij.resterend ? mij.resterend.werkdagen : (capaciteit ? capaciteit.werkdagenResterend : null),
+      productiviteit: mij && mij.declarabelFactor != null ? Number(mij.declarabelFactor) : null,
+      beschikbaarBruto: mij ? rond(Number(mij.beschikbaarBruto) || 0) : null,
     };
   }, [basisItems, urenPerBron, periode, capaciteit, bekekenLc]);
+
+  /**
+   * Hetzelfde plaatje, maar dan in één overzicht voor ALLE medewerkers die je mag zien (leidinggevende:
+   * je eigen team; beheerder met scope=alle: iedereen). Zo zie je in één oogopslag wie er achterloopt.
+   * Gesorteerd op krapte: wie het minste ruimte overhoudt (nog te doen versus resterend beschikbaar)
+   * staat bovenaan.
+   */
+  const teamVoortgang = useMemo(() => {
+    const perPersoon = new Map();
+    const zorg = (naam) => {
+      const lc = String(naam || "").trim().toLowerCase();
+      if (!perPersoon.has(lc)) {
+        perPersoon.set(lc, {
+          lc, naam: String(naam || "").trim() || "— niet toegewezen —",
+          taken: 0, takenGereed: 0, ingepland: 0, gereedUren: 0, openUren: 0, geschreven: 0,
+          beschikbaar: null, beschikbaarBruto: null, roosterUren: null, verlof: null, verlofAangevraagd: null,
+          productiviteit: null, restBeschikbaar: null, inCapaciteit: false,
+        });
+      }
+      return perPersoon.get(lc);
+    };
+    // Capaciteitskant: iedereen die je mag zien komt in de lijst, ook zonder ingepland werk.
+    for (const m of (capaciteit && capaciteit.medewerkers) || []) {
+      const p = zorg(m.naam);
+      p.inCapaciteit = true;
+      p.beschikbaar = Number(m.beschikbaar) || 0;
+      p.beschikbaarBruto = Number(m.beschikbaarBruto) || 0;
+      p.roosterUren = Number(m.roosterUren) || 0;
+      p.verlof = Number(m.verlofGoedgekeurd) || 0;
+      p.verlofAangevraagd = Number(m.verlofAangevraagd) || 0;
+      p.productiviteit = m.declarabelFactor != null ? Number(m.declarabelFactor) : null;
+      p.restBeschikbaar = m.resterend ? Number(m.resterend.beschikbaar) || 0 : null;
+    }
+    // Werklastkant: de ingeplande hoofdtaken van deze periode, per uitvoerder.
+    for (const it of alleItems) {
+      const p = zorg(it.wie);
+      const u = Number(it.indicatieUren) || 0;
+      p.taken++;
+      p.ingepland += u;
+      if (it.gereed) { p.takenGereed++; p.gereedUren += u; } else p.openUren += u;
+      p.geschreven += (urenPerBron[`${it.acc}|${it.actSleutel}|${periode}`] || {}).uren || 0;
+    }
+    const rond = (n) => Math.round(n * 10) / 10;
+    const rijen = [...perPersoon.values()]
+      // Scope: alleen wie de capaciteits-API teruggeeft (je eigen team, of iedereen als beheerder).
+      // Een beheerder ziet daarnaast ook wie wél werk heeft maar géén uurtarief/rooster — anders zou
+      // die persoon stilletjes uit het overzicht vallen. "Niet toegewezen" werk valt sowieso af.
+      .filter((p) => p.lc && (p.inCapaciteit || (isBeheerder && p.taken > 0)))
+      .map((p) => ({
+        ...p,
+        ingepland: rond(p.ingepland), gereedUren: rond(p.gereedUren), openUren: rond(p.openUren), geschreven: rond(p.geschreven),
+        beschikbaar: p.beschikbaar == null ? null : rond(p.beschikbaar),
+        pctGereed: p.ingepland > 0 ? Math.round((p.gereedUren / p.ingepland) * 100) : null,
+        // Bezetting = ingepland werk t.o.v. de productieve uren in de periode.
+        bezetting: p.beschikbaar ? Math.round((p.ingepland / p.beschikbaar) * 100) : null,
+        // Ruimte = wat er ná het nog te doen werk nog aan productieve uren overblijft in de periode.
+        ruimte: p.restBeschikbaar == null ? null : rond(p.restBeschikbaar - p.openUren),
+      }));
+    rijen.sort((a, b) => {
+      if (a.ruimte == null && b.ruimte == null) return String(a.naam).localeCompare(String(b.naam), "nl");
+      if (a.ruimte == null) return 1;
+      if (b.ruimte == null) return -1;
+      return a.ruimte - b.ruimte; // krapste (meest achterlopend) bovenaan
+    });
+    return rijen;
+  }, [alleItems, urenPerBron, periode, capaciteit, isBeheerder]);
 
   // Kolommen: de hoofdtaken die in mijn werk voorkomen (op definitie-volgorde).
   const alleTaken = useMemo(() => {
@@ -580,8 +763,19 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
       {!laden && basisItems.length > 0 && (
         <VoortgangBalk
           v={voortgang}
-          periodeLabel={type === "maand" ? `${MAANDEN[maand - 1]} ${jaar}` : String(jaar)}
+          periodeLabel={periodeLabel}
           wie={isBeheerder && bekeken ? bekekenNaam : "jou"}
+        />
+      )}
+
+      {/* Eén overzicht met iedereen die je mag zien — wie loopt achter? */}
+      {!laden && teamVoortgang.length > 1 && (
+        <TeamVoortgang
+          rijen={teamVoortgang}
+          periodeLabel={periodeLabel}
+          open={teamOpen}
+          setOpen={setTeamOpen}
+          ikLc={String(mijnNaam || "").trim().toLowerCase()}
         />
       )}
 
