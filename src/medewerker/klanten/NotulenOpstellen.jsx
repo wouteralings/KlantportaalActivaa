@@ -102,6 +102,7 @@ export default function NotulenOpstellen({ onTerug }) {
   const [picklistOpties, setPicklistOpties] = useState({});
   const [indeling, setIndeling] = useState({ secties: [], verborgen: [], voorwaarden: {}, alleenLezen: [] });
   const [veldenState, setVeldenState] = useState({}); // catalogussleutel → waarde
+  const [allesTonen, setAllesTonen] = useState(false); // "alleen tonen als"-regels tijdelijk negeren
 
   // Het besluit (punt I) van dit ene stuk: begint bij het besluit van het gekozen model en is hier
   // vrij aan te passen. Kop en staart komen uit Beheer en gelden voor álle notulen.
@@ -222,15 +223,49 @@ export default function NotulenOpstellen({ onTerug }) {
   };
 
   // Rubrieken/volgorde/verborgen/"alleen tonen als" precies zoals in Beheer → Dossiers ingesteld.
+  // Met "alles tonen" aan laten we de "alleen tonen als"-regels even los — handig als je een veld mist
+  // omdat het aan een ander veld hangt dat je (nog) niet hebt ingevuld.
   const zichtbareSecties = useMemo(() => {
-    const { zichtbareSecties: filter } = maakZichtbaarheid({ verborgen: indeling.verborgen, voorwaarden: indeling.voorwaarden, veldenState });
+    const { zichtbareSecties: filter } = maakZichtbaarheid({
+      verborgen: indeling.verborgen,
+      voorwaarden: allesTonen ? {} : indeling.voorwaarden,
+      veldenState,
+    });
     return filter(indeling.secties).map((s) => ({
       ...s,
       velden: s.velden.filter(toonbaar),
       subsecties: (s.subsecties || []).map((sub) => ({ ...sub, velden: sub.velden.filter(toonbaar) })).filter((sub) => sub.velden.length),
     })).filter((s) => s.velden.length || (s.subsecties || []).length);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [indeling, veldenState, catalogus]);
+  }, [indeling, veldenState, catalogus, allesTonen]);
+
+  // Velden uit de catalogus die in Beheer in géén enkele rubriek staan — die zouden hier anders
+  // onzichtbaar blijven. We tonen ze onderaan onder "Overige velden", zodat je nooit een veld mist
+  // doordat het (nog) niet is ingedeeld.
+  const overigeVelden = useMemo(() => {
+    const inSecties = new Set();
+    for (const s of indeling.secties || []) {
+      for (const k of s.velden || []) inSecties.add(k);
+      for (const sub of s.subsecties || []) for (const k of sub.velden || []) inSecties.add(k);
+    }
+    return catalogus
+      .map((v) => v && v.key)
+      .filter((k) => toonbaar(k) && !inSecties.has(k) && !(indeling.verborgen || []).includes(k));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [indeling, catalogus]);
+
+  // Hoeveel velden nu wegvallen door een "alleen tonen als"-regel (dus niet door "verborgen").
+  const aantalVoorwaardelijkVerborgen = useMemo(() => {
+    if (allesTonen) return 0;
+    const { magTonen } = maakZichtbaarheid({ verborgen: indeling.verborgen, voorwaarden: indeling.voorwaarden, veldenState });
+    let n = 0;
+    for (const s of indeling.secties || []) {
+      const keys = [...(s.velden || []), ...(s.subsecties || []).flatMap((sub) => sub.velden || [])];
+      for (const k of keys) if (toonbaar(k) && !(indeling.verborgen || []).includes(k) && !magTonen(k)) n += 1;
+    }
+    return n;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [indeling, veldenState, catalogus, allesTonen]);
 
   const mergeWaarden = useMemo(() => {
     // Eerst de dossiervelden (zelfde weergave als in het dossiervoorbeeld: keuzelijst-labels, ja/nee,
@@ -624,6 +659,34 @@ export default function NotulenOpstellen({ onTerug }) {
               ))}
             </div>
           ))}
+
+          {/* Velden die in Beheer nog in geen enkele rubriek staan — anders zou je ze hier missen. */}
+          {overigeVelden.length > 0 && (
+            <div>
+              <span style={label}>Overige velden</span>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 }}>
+                {overigeVelden.map(renderDossierVeld)}
+              </div>
+              <div style={{ marginTop: 6, fontSize: 11.5, color: KLEUR.mutedTekst }}>
+                Deze velden staan in Beheer → Dossiers → Notulen nog niet in een rubriek. Zet je ze daar in
+                een rubriek, dan verschijnen ze hierboven op de plek die je kiest.
+              </div>
+            </div>
+          )}
+
+          {/* Velden die wegvallen door een "alleen tonen als"-regel: laten weten dát ze er zijn. */}
+          {(aantalVoorwaardelijkVerborgen > 0 || allesTonen) && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", fontSize: 11.5, color: KLEUR.mutedTekst, border: `1px dashed ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px" }}>
+              <span>
+                {allesTonen
+                  ? "Alle velden staan nu aan, ook die normaal pas verschijnen als een ander veld is ingevuld."
+                  : `${aantalVoorwaardelijkVerborgen} ${aantalVoorwaardelijkVerborgen === 1 ? "veld verschijnt" : "velden verschijnen"} pas als een ander veld is ingevuld (zo staat het in Beheer ingesteld).`}
+              </span>
+              <button onClick={() => setAllesTonen((a) => !a)} style={{ ...knopLicht, padding: "5px 9px", fontSize: 11.5 }}>
+                {allesTonen ? "Volg de instellingen" : "Toon ze toch"}
+              </button>
+            </div>
+          )}
 
           {/* Besluit — het enige stuk tekst dat per notulen verschilt */}
           <div>
