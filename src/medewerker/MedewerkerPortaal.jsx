@@ -1775,28 +1775,23 @@ function KlantenModule({ magContracten = false, isBeheerder = false, magPlanning
 }
 
 /**
- * Notulen-sub-tab: standaard het dossieroverzicht, met daarboven de knop "Notulen opstellen" die
- * naar het opstel-scherm gaat (klant + model kiezen, aandeelhouders invullen, live voorbeeld) —
- * zelfde patroon als het brievenscherm. Komt er ondertussen een doorklik naar een notulendossier
- * binnen (#dossier=notulen:<id>), dan springen we terug naar het overzicht zodat dat dossier
- * gewoon opent.
+ * Notulen-sub-tab: het dossieroverzicht, waarbij de groene "+ Nieuwe notulen" (zelfde knop en plek
+ * als op de andere overzichten, en als "+ Nieuwe brief" in het brievenlogboek) naar het opstel-scherm
+ * gaat in plaats van naar de aanmaak-popup — daar maak je het stuk én ontstaat het dossier bij het
+ * opslaan. Komt er ondertussen een doorklik naar een notulendossier binnen (#dossier=notulen:<id>),
+ * dan springen we terug naar het overzicht zodat dat dossier gewoon opent.
  */
 function NotulenTab({ magVerwijderenRubriek, magBulkVerwijderen }) {
   const [view, setView] = useState("overzicht");
   useEffect(() => luisterNaarDossierHash(({ soort }) => { if (soort === "notulen") setView("overzicht"); }), []);
   if (view === "opstellen") return <NotulenOpstellen onTerug={() => setView("overzicht")} />;
   return (
-    <>
-      <div style={{ maxWidth: 1600, margin: "0 auto", padding: "0 24px 12px", display: "flex", justifyContent: "flex-end" }}>
-        <button
-          onClick={() => setView("opstellen")}
-          style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 13px", borderRadius: 8, border: `1px solid ${KLEUR.blauw}`, background: KLEUR.blauw, color: "#fff", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
-        >
-          <BookOpen size={15} /> Notulen opstellen
-        </button>
-      </div>
-      <MedewerkerDossiers soort="notulen" magVerwijderenRubriek={magVerwijderenRubriek} magBulkVerwijderen={magBulkVerwijderen} verbergNieuw />
-    </>
+    <MedewerkerDossiers
+      soort="notulen"
+      magVerwijderenRubriek={magVerwijderenRubriek}
+      magBulkVerwijderen={magBulkVerwijderen}
+      onNieuw={() => setView("opstellen")}
+    />
   );
 }
 
@@ -2067,9 +2062,10 @@ function NieuwDossierModal({ soort, soortLabel, periodeLabel, dossiers, vasteBro
   );
 }
 
-// verbergNieuw — voor Notulen: daar loopt aanmaken via "Notulen opstellen" (het stuk maken én het
-// dossier vastleggen in één keer), dus de losse groene "+ Nieuwe notulen" hoort daar niet meer bij.
-function MedewerkerDossiers({ soort, magVerwijderenRubriek = true, magBulkVerwijderen = false, verbergNieuw = false }) {
+// onNieuw — eigen afhandeling van de groene "+ Nieuwe …"-knop. Notulen gebruikt dit: daar loopt
+// aanmaken via het opstel-scherm (het stuk maken én het dossier vastleggen in één keer) in plaats van
+// via de aanmaak-popup. Knop en plek blijven precies gelijk aan de andere overzichten.
+function MedewerkerDossiers({ soort, magVerwijderenRubriek = true, magBulkVerwijderen = false, onNieuw = null }) {
   const [dossiers, setDossiers] = useState(null); // null = laden
   const [fout, setFout] = useState(false);
   const [zoek, setZoek] = useState("");
@@ -2581,9 +2577,9 @@ function MedewerkerDossiers({ soort, magVerwijderenRubriek = true, magBulkVerwij
             Filters wissen
           </button>
         )}
-        {(soort === "ib" || soort === "vpb" || soort === "dividend" || (soort === "notulen" && !verbergNieuw)) && (
+        {(soort === "ib" || soort === "vpb" || soort === "dividend" || soort === "notulen") && (
           <button
-            onClick={() => setNieuwOpen(true)}
+            onClick={() => (onNieuw ? onNieuw() : setNieuwOpen(true))}
             style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "#2E7D46", color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
           >
             <Plus size={14} /> {soort === "notulen" ? "Nieuwe notulen" : `Nieuwe ${soortLabelText}`}
