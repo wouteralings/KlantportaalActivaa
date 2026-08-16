@@ -5108,7 +5108,7 @@ export default function MedewerkerPortaal() {
       {tab === "klantoverzicht" && <KlantenModule magContracten={magContracten} isBeheerder={isBeheerder} magPlanning={magPlanning} subRechten={subRechtenVoor("klantoverzicht")} />}
       {tab === "taken" && <TakenOverzicht magBewerken={magBewerkenRubriek("taken")} />}
       {tab === "postboek" && <PostboekModule isBeheerder={isBeheerder} magBewerken={magBewerkenRubriek("postboek")} magVerwijderen={magVerwijderenToegekend("postboek")} onWijziging={laadTellingen} />}
-      {tab === "mijnwerk" && <MijnWerk isBeheerder={isBeheerder} magAftekenen={magBewerkenRubriek("mijnwerk")} />}
+      {tab === "mijnwerk" && <MijnWerk isBeheerder={isBeheerder} magPlanning={magPlanning} magAftekenen={magBewerkenRubriek("mijnwerk")} subRechten={subRechtenVoor("mijnwerk")} />}
       {tab === "planning" && (magPlanning || isBeheerder) && <PlanningModule subRechten={subRechtenVoor("planning")} />}
       {tab === "vragenlijsten" && <Vragenlijsten />}
       {tab === "uren" && <Urenregistratie isBeheerder={isBeheerder} magBewerken={magBewerkenRubriek("uren")} magVerwijderen={magVerwijderenRubriek("uren")} subRechten={subRechtenVoor("uren")} />}

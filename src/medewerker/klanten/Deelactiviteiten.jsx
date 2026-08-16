@@ -44,7 +44,14 @@ function valtInMaand(r, maand1) {
 }
 const datumKort = (iso) => { if (!iso) return ""; const d = new Date(iso); return isNaN(d.getTime()) ? "" : d.toLocaleDateString("nl-NL"); };
 
-export default function Deelactiviteiten() {
+/**
+ * Props:
+ *   magAlles        — mag deze gebruiker kantoorbreed kijken (beheerder of Planning-recht)? Zo niet,
+ *                     dan vervalt de knop "Kantoorbreed" en blijft het bij Mijzelf / Mijn team.
+ *   standaardScope  — welke scope staat standaard aan ("kantoor" op het Planning-scherm, "mijzelf"
+ *                     wanneer dit scherm binnen "Mijn werk" wordt getoond).
+ */
+export default function Deelactiviteiten({ magAlles = true, standaardScope = "kantoor" } = {}) {
   const nu = new Date();
   const [type, setType] = useState("maand"); // maand | jaar
   const [jaar, setJaar] = useState(nu.getFullYear());
@@ -63,7 +70,7 @@ export default function Deelactiviteiten() {
   const [fout, setFout] = useState("");
   const [openCel, setOpenCel] = useState(null);       // { acc, actSleutel } → aftekenpopup
   const { mijnNaam } = useMijnNaam();
-  const [scope, setScope] = useState("kantoor"); // mijzelf | team | kantoor — welke uitvoerders tonen
+  const [scope, setScope] = useState(magAlles ? standaardScope : (standaardScope === "kantoor" ? "mijzelf" : standaardScope)); // mijzelf | team | kantoor
   const [teamNamen, setTeamNamen] = useState(() => new Set()); // "mijn team" (uit de capaciteits-scope)
   const [toon, setToon] = useState(25); // paginagrootte
 
@@ -85,8 +92,9 @@ export default function Deelactiviteiten() {
       .catch(() => { setStatus({}); setKlantDeelstappen({}); });
   }, [periode]);
 
-  // "Mijn team" = de medewerkers uit de capaciteits-scope (jouw leidinggevende-team + jezelf) — voor de
-  // scope-knop. Alleen zichtbaar op dit Planning-scherm (planning-recht), dus deze fetch mag hier.
+  // "Mijn team" = de medewerkers uit de capaciteits-scope: iedereen die jou in Beheer → Uren
+  // ("Tarieven & deadline per medewerker") als leidinggevende heeft, plus jezelf. Die API scoopt daar
+  // zelf op, dus dit werkt ook voor een leidinggevende zonder het granulaire Planning-recht.
   useEffect(() => {
     const q = type === "maand" ? `maand=${jaar}-${pad(maand)}` : `jaar=${jaar}`;
     fetch(`/api/mw-planning-capaciteit?${q}`)
@@ -258,7 +266,7 @@ export default function Deelactiviteiten() {
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", margin: "8px 0 12px" }}>
         <div style={{ display: "inline-flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${KLEUR.rand}` }}>
-          {[["mijzelf", "Mijzelf", User], ["team", "Mijn team", Users], ["kantoor", "Kantoorbreed", Building2]].map(([val, label, Icon], i) => (
+          {[["mijzelf", "Mijzelf", User], ["team", "Mijn team", Users], ...(magAlles ? [["kantoor", "Kantoorbreed", Building2]] : [])].map(([val, label, Icon], i) => (
             <button key={val} onClick={() => setScope(val)} title={val === "team" ? "Werk van jouw team (leidinggevende-scope)" : val === "mijzelf" ? "Alleen aan jou toegewezen werk" : "Iedereen (kantoorbreed)"} style={{
               display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer",
               border: "none", borderLeft: i ? `1px solid ${KLEUR.rand}` : "none",

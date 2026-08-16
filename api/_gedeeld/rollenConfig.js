@@ -107,8 +107,13 @@ const MEDEWERKER_SUBTABS = [
   { key: "planning.maand", parent: "planning", label: "Maand" },
   { key: "planning.jaar", parent: "planning", label: "Jaar" },
   { key: "planning.deel", parent: "planning", label: "Deelactiviteiten" },
+  { key: "planning.vergelijking", parent: "planning", label: "Gepland vs geschreven" },
   { key: "planning.config", parent: "planning", label: "Config per klant" },
   { key: "planning.overzicht", parent: "planning", label: "Overzicht" },
+  // "Mijn werk" heeft twee weergaven: het eigen overzicht (matrix + voortgang/capaciteit) en de
+  // Afwikkeling (deelstappen aftekenen voor jezelf of je team).
+  { key: "mijnwerk.overzicht", parent: "mijnwerk", label: "Mijn overzicht" },
+  { key: "mijnwerk.afwikkeling", parent: "mijnwerk", label: "Afwikkeling" },
 ];
 
 const MEDEWERKER_TAB_KEYS = new Set(MEDEWERKER_TABS.map((t) => t.key));

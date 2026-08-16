@@ -19,11 +19,15 @@
  * `resterend` = het deel van de periode vanaf vandaag (nul als de periode al voorbij is), zodat een
  * scherm "nog te doen werk" tegen "nog beschikbare uren" kan zetten.
  *
- * Scoping als bij mw-uren-bezetting: standaard alleen wie de ingelogde medewerker als leidinggevende
- * heeft; een beheerder kan met ?scope=alle iedereen zien.
+ * Toegang & SCOPE:
+ *   - LEZEN mag elke ingelogde medewerker (magPlanningLezen) — "Mijn werk" toont hiermee de eigen
+ *     voortgang, en een LEIDINGGEVENDE die van zijn team. De scope hieronder is de echte grens.
+ *   - Standaard krijg je jezelf + iedereen die jou in Beheer → Uren ("Tarieven & deadline per
+ *     medewerker") als leidinggevende heeft staan.
+ *   - Kantoorbreed (?scope=alle) is voor de beheerder of iemand met het granulaire Planning-recht.
  */
 const { haalDynamicsToken, haalEmailUitPrincipal, haalNaamUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
-const { metPlanningRecht } = require("../_gedeeld/planningRecht");
+const { magPlanningLezen, magPlanningGebruiken } = require("../_gedeeld/planningRecht");
 const uren = require("../_gedeeld/urenDataverse");
 const verlof = require("../_gedeeld/verlofDataverse");
 const { haalUitgeslotenMedewerkers } = require("../_gedeeld/planningInstellingen");
@@ -111,7 +115,7 @@ async function mijnNaam(req, email) {
   return naam;
 }
 
-module.exports = metPlanningRecht(async function (context, req) {
+const verwerk = async function (context, req) {
   try {
     if (req.method !== "GET") {
       context.res = { status: 405, headers: { "Content-Type": "application/json" }, body: { error: "Methode niet ondersteund." } };
@@ -119,7 +123,10 @@ module.exports = metPlanningRecht(async function (context, req) {
     }
     const email = haalEmailUitPrincipal(req);
     const isBeheerder = haalRollenUitPrincipal(req).includes("beheerder");
-    const alle = (req.query && req.query.scope) === "alle" && isBeheerder;
+    // Kantoorbreed (?scope=alle) mag een beheerder én iemand met het granulaire Planning-recht — dat
+    // is de planner. Een leidinggevende zónder dat recht houdt zijn eigen team (de filter hieronder).
+    const magAlles = isBeheerder || (await magPlanningGebruiken(req).catch(() => false));
+    const alle = (req.query && req.query.scope) === "alle" && magAlles;
     const naam = await mijnNaam(req, email);
 
     // Periode: standaard één maand (YYYY-MM), of — voor de jaarplanning-bezetting — een heel jaar
@@ -280,4 +287,12 @@ module.exports = metPlanningRecht(async function (context, req) {
     context.log && context.log.error && context.log.error(err);
     context.res = { status: 500, headers: { "Content-Type": "application/json" }, body: { error: "Kon de capaciteit niet berekenen.", detail: String(err.message || err) } };
   }
-});
+};
+
+module.exports = async function (context, req) {
+  if (!magPlanningLezen(req)) {
+    context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Geen toegang tot de planning." } };
+    return;
+  }
+  return verwerk(context, req);
+};

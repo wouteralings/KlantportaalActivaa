@@ -10,10 +10,11 @@
  * Data + opslaan via /api/mw-planning-deelactiviteiten (zelfde als het Afwikkeling-scherm).
  */
 import { useState, useEffect, useMemo, useRef } from "react";
-import { ClipboardCheck, ChevronLeft, ChevronRight, ChevronDown, CheckSquare, Square, CheckCircle2, Loader2, Search, X, Users, Building2 } from "lucide-react";
+import { ClipboardCheck, ListChecks, ChevronLeft, ChevronRight, ChevronDown, CheckSquare, Square, CheckCircle2, Loader2, Search, X, Users, Building2 } from "lucide-react";
 import { useMijnNaam } from "../MijnFilter";
 import UrenSchrijvenPanel from "../UrenSchrijvenPanel";
 import { werkRegels, MAANDEN, MAAND_KORT } from "./planningWerk";
+import Deelactiviteiten from "./Deelactiviteiten";
 
 const KLEUR = {
   blauw: "#1C5D8C", tekst: "#1C2321", subtekst: "#5B6259", mutedTekst: "#8A9089", rand: "#E2E4DF",
@@ -119,7 +120,7 @@ function VoortgangBalk({ v, periodeLabel, wie }) {
  * uren, goedgekeurd verlof, wat er is ingepland, wat er al gereed/geschreven is en of het nog te doen
  * werk nog in de resterende uren past. Gesorteerd op krapte, dus wie achterloopt staat bovenaan.
  */
-function TeamVoortgang({ rijen, periodeLabel, open, setOpen, ikLc }) {
+function TeamVoortgang({ rijen, periodeLabel, open, setOpen, ikLc, alles = false }) {
   const kop = { textAlign: "right", fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", padding: "6px 8px", borderBottom: `1px solid ${KLEUR.rand}`, whiteSpace: "nowrap" };
   const cel = { fontSize: 12, padding: "7px 8px", borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "right", whiteSpace: "nowrap" };
   const achterlopers = rijen.filter((r) => r.ruimte != null && r.ruimte < 0).length;
@@ -131,7 +132,7 @@ function TeamVoortgang({ rijen, periodeLabel, open, setOpen, ikLc }) {
       >
         <Users size={15} color={KLEUR.blauw} />
         <span style={{ fontSize: 13, fontWeight: 700, color: KLEUR.tekst }}>Voortgang per medewerker</span>
-        <span style={{ fontSize: 12, color: KLEUR.mutedTekst }}>· {periodeLabel} · {rijen.length} {rijen.length === 1 ? "medewerker" : "medewerkers"}</span>
+        <span style={{ fontSize: 12, color: KLEUR.mutedTekst }} title={alles ? "Kantoorbreed — je bent beheerder of hebt het Planning-recht" : "Jouw team: de medewerkers die jou in Beheer → Uren (Tarieven & deadline per medewerker) als leidinggevende hebben"}>· {periodeLabel} · {rijen.length} {rijen.length === 1 ? "medewerker" : "medewerkers"}{alles ? "" : " (mijn team)"}</span>
         {achterlopers > 0 && (
           <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.rood, background: KLEUR.roodBg, border: `1px solid ${KLEUR.roodRand}`, borderRadius: 999, padding: "1px 8px" }}>
             {achterlopers} loopt achter
@@ -229,7 +230,12 @@ function celStatus(item) {
   return { kind: "open", label: item.total ? `0/${item.total}` : "Open", bg: KLEUR.roodBg, kleur: KLEUR.rood, rand: KLEUR.roodRand };
 }
 
-export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = {}) {
+export default function MijnWerk({ isBeheerder = false, magPlanning = false, magAftekenen = true, subRechten = null } = {}) {
+  // Kantoorbreed meekijken is voor de beheerder en de planner (het granulaire Planning-recht). Een
+  // LEIDINGGEVENDE ziet zijn eigen team — dat volgt uit de capaciteits-API, die scoopt op de
+  // leidinggevende uit Beheer → Uren → "Tarieven & deadline per medewerker". De server bewaakt
+  // dezelfde grens; dit is alleen de weergave.
+  const magAlles = isBeheerder || magPlanning;
   const nu = new Date();
   const { mijnNaam, geladen: naamGeladen } = useMijnNaam();
   // Beheerders mogen ook het werk van een ANDERE medewerker bekijken/aftekenen ("" = mijzelf).
@@ -256,6 +262,7 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
   const [urenPerBron, setUrenPerBron] = useState({}); // "acc|act|periode" → { uren, aantal } geschreven uren
   const [capaciteit, setCapaciteit] = useState(null); // { werkdagen, werkdagenResterend, medewerkers: [...] }
   const [teamOpen, setTeamOpen] = useState(false);    // overzicht "voortgang per medewerker" open?
+  const [weergave, setWeergave] = useState("overzicht"); // overzicht (matrix + voortgang) | afwikkeling
   const [urenSchrijvenOpen, setUrenSchrijvenOpen] = useState(false); // uren schrijven zónder alles af te vinken
   const [statussen, setStatussen] = useState([]);      // { sleutel, label, kleur } — beheer-statussen
   const [klantenMap, setKlantenMap] = useState({});
@@ -290,7 +297,7 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
       .filter((n) => n && n.toLowerCase() !== mij)
       .sort((a, b) => String(a).localeCompare(String(b), "nl"));
   }, [capaciteit, mijnNaam]);
-  const magAndersBekijken = isBeheerder || teamNamen.length > 0;
+  const magAndersBekijken = magAlles || teamNamen.length > 0;
   const bekekenNaam = magAndersBekijken && bekeken ? bekeken : (mijnNaam || "");
   const bekekenLc = String(bekekenNaam).trim().toLowerCase();
   // Klantgroep-verfijning actief? (Niet beheerder-gated: geldt voor iedereen.)
@@ -303,17 +310,17 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
     fetch("/api/mw-uren-bron?soort=planning").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => setUrenPerBron(d.perBron || {})).catch(() => setUrenPerBron({}));
     fetch("/api/beheer-klanten?alle=1").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => { const b = {}; (d.klanten || []).forEach((k) => { b[String(k.accountId || "").toLowerCase()] = k; }); setKlantenMap(b); }).catch(() => setKlantenMap({}));
     // Alleen beheerders: de medewerkerslijst voor de "werk van"-keuze.
-    if (isBeheerder) {
+    if (magAlles) {
       fetch("/api/mw-planning-medewerkers").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => setMedewerkerLijst((d.medewerkers || []).map((m) => m.naam).filter(Boolean).sort((a, b) => String(a).localeCompare(String(b), "nl")))).catch(() => setMedewerkerLijst([]));
     }
-  }, [isBeheerder]);
+  }, [magAlles]);
 
   // Beschikbare capaciteit in de gekozen periode (rooster − goedgekeurd verlof), plus wat daarvan
   // resteert vanaf vandaag. Een beheerder kan het werk van iemand anders bekijken en heeft daarvoor
   // scope=alle nodig; een gewone medewerker krijgt sowieso zichzelf terug.
   useEffect(() => {
     const vraag = type === "maand" ? `maand=${jaar}-${pad(maand)}` : `jaar=${jaar}`;
-    fetch(`/api/mw-planning-capaciteit?${vraag}${isBeheerder ? "&scope=alle" : ""}`)
+    fetch(`/api/mw-planning-capaciteit?${vraag}${magAlles ? "&scope=alle" : ""}`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setCapaciteit(d || null))
       .catch(() => setCapaciteit(null));
@@ -323,7 +330,7 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => { setGeschrevenRijen(d.rijen || []); setGeschrevenFout(false); })
       .catch(() => { setGeschrevenRijen([]); setGeschrevenFout(true); });
-  }, [type, jaar, maand, isBeheerder]);
+  }, [type, jaar, maand, magAlles]);
 
   useEffect(() => {
     setActieveCel(null);
@@ -513,7 +520,7 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
       // Scope: alleen wie de capaciteits-API teruggeeft (je eigen team, of iedereen als beheerder).
       // Een beheerder ziet daarnaast ook wie wél werk heeft maar géén uurtarief/rooster — anders zou
       // die persoon stilletjes uit het overzicht vallen. "Niet toegewezen" werk valt sowieso af.
-      .filter((p) => p.lc && (p.inCapaciteit || (isBeheerder && p.taken > 0)))
+      .filter((p) => p.lc && (p.inCapaciteit || (magAlles && p.taken > 0)))
       .map((p) => ({
         ...p,
         ingepland: rond(p.ingepland), gereedUren: rond(p.gereedUren), openUren: rond(p.openUren), geschreven: rond(p.geschreven),
@@ -534,7 +541,7 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
       return a.ruimte - b.ruimte; // krapste (meest achterlopend) bovenaan
     });
     return rijen;
-  }, [alleItems, geschrevenPerPersoon, capaciteit, isBeheerder]);
+  }, [alleItems, geschrevenPerPersoon, capaciteit, magAlles]);
 
   // Kolommen: de hoofdtaken die in mijn werk voorkomen (op definitie-volgorde).
   const alleTaken = useMemo(() => {
@@ -565,9 +572,9 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
   const werkVanFilter = werkVanZoek.trim().toLowerCase();
   // Beheerder: alle medewerkers. Leidinggevende: zijn eigen team (uit de capaciteitslijst).
   const werkVanMedewerkers = useMemo(() => {
-    const bron = isBeheerder && medewerkerLijst.length ? medewerkerLijst : teamNamen;
+    const bron = magAlles && medewerkerLijst.length ? medewerkerLijst : teamNamen;
     return bron.filter((n) => n.toLowerCase() !== String(mijnNaam || "").toLowerCase() && (!werkVanFilter || n.toLowerCase().includes(werkVanFilter)));
-  }, [isBeheerder, medewerkerLijst, teamNamen, mijnNaam, werkVanFilter]);
+  }, [magAlles, medewerkerLijst, teamNamen, mijnNaam, werkVanFilter]);
   const werkVanGroepen = useMemo(
     () => alleKlantgroepen.filter((g) => !werkVanFilter || g.toLowerCase().includes(werkVanFilter)),
     [alleKlantgroepen, werkVanFilter]
@@ -706,11 +713,47 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
   const kop = { textAlign: "left", fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", padding: "8px 10px", borderBottom: `1px solid ${KLEUR.rand}`, whiteSpace: "nowrap" };
   const cel = { padding: "6px 8px", borderBottom: `1px solid ${KLEUR.rand}`, verticalAlign: "middle" };
 
+  // Welke weergaven mag deze rol zien? (Beheer → Rollen & rechten → subpagina's van "Mijn werk".)
+  const zichtWeergave = subRechten ? subRechten.zien : () => true;
+  const zichtbareWeergaven = [["overzicht", "Mijn overzicht", ClipboardCheck], ["afwikkeling", "Afwikkeling", ListChecks]]
+    .filter(([k]) => zichtWeergave(k));
+  // Twee weergaven binnen "Mijn werk": het eigen overzicht (matrix + voortgang) en de Afwikkeling —
+  // hetzelfde deelstappen-scherm als onder Planning, maar dan met de scope Mijzelf / Mijn team, zodat
+  // ook een leidinggevende zónder Planning-recht het werk van zijn mensen kan aftekenen en volgen.
+  const weergaveKnoppen = (
+    <div style={{ display: zichtbareWeergaven.length > 1 ? "flex" : "none", gap: 4, marginBottom: 12, flexWrap: "wrap" }}>
+      {zichtbareWeergaven.map(([k, label, Icon]) => {
+        const aan = actieveWeergave === k;
+        return (
+          <button key={k} onClick={() => setWeergave(k)} style={{
+            display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 20, border: "none",
+            background: aan ? KLEUR.blauw : "transparent", color: aan ? "#fff" : KLEUR.blauw, fontSize: 13, fontWeight: 600, cursor: "pointer",
+          }}><Icon size={14} /> {label}</button>
+        );
+      })}
+    </div>
+  );
+
+  const actieveWeergave = zichtbareWeergaven.some(([k]) => k === weergave) ? weergave : (zichtbareWeergaven[0] || [])[0];
+  if (!actieveWeergave) {
+    return <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Deze subpagina is voor jouw rol niet zichtbaar.</div>;
+  }
+  if (actieveWeergave === "afwikkeling") {
+    return (
+      <div>
+        {weergaveKnoppen}
+        <Deelactiviteiten magAlles={magAlles} standaardScope="mijzelf" />
+      </div>
+    );
+  }
+
   return (
+    <div>
+    {weergaveKnoppen}
     <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700 }}>
-          <ClipboardCheck size={17} color={KLEUR.blauw} /> {magAndersBekijken && bekeken ? "Werk van" : "Mijn werk"}{bekekenNaam ? <span style={{ fontSize: 12.5, fontWeight: 500, color: KLEUR.mutedTekst }}>· {bekekenNaam}</span> : null}{groepActief ? <span style={{ fontSize: 12.5, fontWeight: 500, color: KLEUR.mutedTekst }}> · {bekekenGroep}</span> : null}{magAndersBekijken && bekeken ? <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 20, padding: "2px 8px", marginLeft: 6 }}>{isBeheerder ? "als beheerder" : "als leidinggevende"}</span> : null}{!magAftekenen ? <span title="Je rol staat 'Mijn werk' op alleen-lezen; aftekenen is uitgeschakeld." style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.amber, background: KLEUR.amberBg, border: `1px solid ${KLEUR.amberRand}`, borderRadius: 20, padding: "2px 8px", marginLeft: 6 }}>alleen-lezen</span> : null}
+          <ClipboardCheck size={17} color={KLEUR.blauw} /> {magAndersBekijken && bekeken ? "Werk van" : "Mijn werk"}{bekekenNaam ? <span style={{ fontSize: 12.5, fontWeight: 500, color: KLEUR.mutedTekst }}>· {bekekenNaam}</span> : null}{groepActief ? <span style={{ fontSize: 12.5, fontWeight: 500, color: KLEUR.mutedTekst }}> · {bekekenGroep}</span> : null}{magAndersBekijken && bekeken ? <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 20, padding: "2px 8px", marginLeft: 6 }}>{magAlles ? (isBeheerder ? "als beheerder" : "als planner") : "als leidinggevende"}</span> : null}{!magAftekenen ? <span title="Je rol staat 'Mijn werk' op alleen-lezen; aftekenen is uitgeschakeld." style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.amber, background: KLEUR.amberBg, border: `1px solid ${KLEUR.amberRand}`, borderRadius: 20, padding: "2px 8px", marginLeft: 6 }}>alleen-lezen</span> : null}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button onClick={vorige} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, background: "#fff", cursor: "pointer", color: KLEUR.subtekst }}><ChevronLeft size={16} /></button>
@@ -768,7 +811,7 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
                       <button onClick={() => kiesWerkVan("medewerker", "")} style={{ ...werkVanRij, fontWeight: !bekeken ? 700 : 400 }}>
                         Mijzelf{mijnNaam ? ` (${mijnNaam})` : ""}
                       </button>
-                      {werkVanMedewerkers.length > 0 && <div style={werkVanKopje}>{isBeheerder ? "Medewerkers" : "Mijn team"}</div>}
+                      {werkVanMedewerkers.length > 0 && <div style={werkVanKopje}>{magAlles ? "Medewerkers" : "Mijn team"}</div>}
                       {werkVanMedewerkers.map((n) => (
                         <button key={`mw-${n}`} onClick={() => kiesWerkVan("medewerker", n)} style={{ ...werkVanRij, fontWeight: bekeken === n ? 700 : 400, color: bekeken === n ? KLEUR.blauw : KLEUR.tekst }}>{n}</button>
                       ))}
@@ -848,6 +891,7 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
           periodeLabel={periodeLabel}
           open={teamOpen}
           setOpen={setTeamOpen}
+          alles={magAlles}
           ikLc={String(mijnNaam || "").trim().toLowerCase()}
         />
       )}
@@ -1079,6 +1123,7 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }

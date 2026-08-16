@@ -12,13 +12,40 @@
  * Alle statussen tellen mee (concept t/m gefactureerd) — het gaat om wat er is besteed, niet om wat
  * er al is goedgekeurd. Kantoorbreed: een planner wil juist over alle medewerkers heen kunnen kijken.
  *
- * Toegang: elke ingelogde MEDEWERKER (magPlanningLezen), niet alleen wie het granulaire Planning-recht
- * heeft — "Mijn werk" is voor iedereen en zet daar de geschreven uren naast de geplande. Zelfde keuze
- * als bij mw-planning-config (GET) en mw-planning-overzicht. Klanten worden geweerd door de rol-check
- * en de SWA-route-regel.
+ * Toegang & SCOPE — je krijgt alleen de uren te zien die je mag zien:
+ *   - beheerder of het granulaire Planning-recht → kantoorbreed (alles);
+ *   - LEIDINGGEVENDE → zijn eigen uren plus die van de medewerkers waarvoor hij in
+ *     Beheer → Uren → "Tarieven & deadline per medewerker" als leidinggevende staat;
+ *   - overige medewerkers → alleen hun eigen uren.
+ * De filtering gebeurt hier op de server: de route-regel in staticwebapp.config.json houdt alleen
+ * klanten tegen, dus een verborgen scherm is geen grens.
  */
-const { magPlanningLezen } = require("../_gedeeld/planningRecht");
+const { haalEmailUitPrincipal } = require("../_gedeeld/identiteit");
+const { magPlanningLezen, magPlanningGebruiken } = require("../_gedeeld/planningRecht");
 const uren = require("../_gedeeld/urenDataverse");
+
+/**
+ * De e-mailadressen die deze aanvrager mag zien: zichzelf + zijn team. "Zijn team" = iedereen die in
+ * de urentarieven deze persoon als leidinggevende heeft. De naam waarop we matchen komt uit de
+ * urentarief-rij van de aanvrager zelf, dus uit exact dezelfde lijst als waar de leidinggevende-namen
+ * zijn gekozen — zo kan er geen schrijfwijze-verschil tussen twee bronnen ontstaan.
+ */
+function zichtbareEmails(tarieven, mijnEmail) {
+  const mij = String(mijnEmail || "").trim().toLowerCase();
+  const zichtbaar = new Set(mij ? [mij] : []);
+  const mijnRij = tarieven.find((t) => String(t.medewerker_email || "").trim().toLowerCase() === mij);
+  const mijnNaam = String((mijnRij && mijnRij.medewerker_naam) || "").trim().toLowerCase();
+  for (const t of tarieven) {
+    const leiding = String(t.leidinggevende || "").trim().toLowerCase();
+    if (!leiding) continue;
+    // Meestal staat hier de naam; een e-mailadres accepteren we ook, voor de zekerheid.
+    if ((mijnNaam && leiding === mijnNaam) || (mij && leiding === mij)) {
+      const e = String(t.medewerker_email || "").trim().toLowerCase();
+      if (e) zichtbaar.add(e);
+    }
+  }
+  return zichtbaar;
+}
 
 const pad = (n) => String(n).padStart(2, "0");
 
@@ -47,8 +74,17 @@ const verwerk = async function (context, req) {
       periode = `${j}-${pad(m)}`;
     }
 
-    const rijen = await uren.geschrevenPerKlant({ vanaf, tot });
-    context.res = { headers: { "Content-Type": "application/json" }, body: { periode, vanaf, tot, rijen } };
+    const alles = await magPlanningGebruiken(req).catch(() => false);
+    const alleRijen = await uren.geschrevenPerKlant({ vanaf, tot });
+    let rijen = alleRijen;
+    let scope = "alles";
+    if (!alles) {
+      const tarieven = await uren.lijstTarieven().catch(() => []);
+      const mag = zichtbareEmails(tarieven, haalEmailUitPrincipal(req));
+      rijen = alleRijen.filter((r) => mag.has(String(r.email || "").trim().toLowerCase()));
+      scope = mag.size > 1 ? "team" : "eigen";
+    }
+    context.res = { headers: { "Content-Type": "application/json" }, body: { periode, vanaf, tot, scope, rijen } };
   } catch (err) {
     if (err.message === "MISSING_CONFIG") {
       context.res = { status: 501, headers: { "Content-Type": "application/json" }, body: { error: "De Dynamics-koppeling is nog niet geconfigureerd." } };
