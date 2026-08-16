@@ -59,11 +59,16 @@ const STANDAARD_ACTIVITEITEN = [
   { sleutel: "rapport-2400", label: "Rapport 2400", type: "jaar", rol: "accountant", actief: true },
 ];
 
+// `voortgang` koppelt een status aan de stand die uit de DEELSTAPPEN volgt: open (niets afgevinkt),
+// bezig (deels) of gereed (alles af). Is er voor een stand een status gekoppeld, dan gebruikt "Mijn
+// werk" die naam en kleur i.p.v. het vaste Open/Bezig/Gereed — zo bepaal je in Beheer hoe het heet.
+// Leeg = een status die alleen handmatig te kiezen is (bijv. "Wacht op klant").
+const VOORTGANG_KEUZES = ["", "open", "bezig", "gereed"];
 const STANDAARD_STATUSSEN = [
-  { sleutel: "te-doen", label: "Te doen", kleur: "#8A9089", actief: true },
-  { sleutel: "bezig", label: "Bezig", kleur: "#A9660C", actief: true },
-  { sleutel: "wacht-op-klant", label: "Wacht op klant", kleur: "#1C5D8C", actief: true },
-  { sleutel: "gereed", label: "Gereed", kleur: "#2E7D46", actief: true },
+  { sleutel: "te-doen", label: "Te doen", kleur: "#8A9089", voortgang: "open", actief: true },
+  { sleutel: "bezig", label: "Bezig", kleur: "#A9660C", voortgang: "bezig", actief: true },
+  { sleutel: "wacht-op-klant", label: "Wacht op klant", kleur: "#1C5D8C", voortgang: "", actief: true },
+  { sleutel: "gereed", label: "Gereed", kleur: "#2E7D46", voortgang: "gereed", actief: true },
 ];
 
 async function haalContainerClient() {
@@ -202,7 +207,8 @@ function normaliseerStatussen(lijst) {
     let sleutel = maakSleutel((t && t.sleutel) || label);
     if (!sleutel || gezien.has(sleutel)) continue;
     gezien.add(sleutel);
-    uit.push({ sleutel, label, kleur: geldigeKleur(t && t.kleur), actief: t && t.actief === false ? false : true });
+    const voortgang = VOORTGANG_KEUZES.includes(t && t.voortgang) ? t.voortgang : "";
+    uit.push({ sleutel, label, kleur: geldigeKleur(t && t.kleur), voortgang, actief: t && t.actief === false ? false : true });
   }
   return uit;
 }
@@ -218,9 +224,13 @@ async function haalInstellingen() {
     const data = JSON.parse(await streamNaarTekst((await blobClient.download()).readableStreamBody));
     const activiteiten = normaliseerActiviteiten(data && data.activiteiten);
     const statussen = normaliseerStatussen(data && data.statussen);
+    // versie ≥ 2 is door het beheerscherm geschreven: dan is een LEGE lijst een bewuste keuze (alles
+    // verwijderd) en mag hij niet stiekem terugvallen op de startlijst. Alleen oudere/kapotte blobs
+    // krijgen de seed nog terug.
+    const bewust = Number(data && data.versie) >= 2;
     return {
-      activiteiten: activiteiten.length ? activiteiten : STANDAARD_ACTIVITEITEN,
-      statussen: statussen.length ? statussen : STANDAARD_STATUSSEN,
+      activiteiten: (activiteiten.length || bewust) ? activiteiten : STANDAARD_ACTIVITEITEN,
+      statussen: (statussen.length || bewust) ? statussen : STANDAARD_STATUSSEN,
       uitgeslotenMedewerkers: normaliseerUitgesloten(data && data.uitgeslotenMedewerkers),
       setjes: normaliseerSetjes(data && data.setjes),
     };
@@ -269,6 +279,7 @@ async function zetInstellingen({ activiteiten, statussen, uitgeslotenMedewerkers
   if (setjes === undefined) { try { setjesSchoon = (await haalInstellingen()).setjes || []; } catch { setjesSchoon = []; } }
   else setjesSchoon = normaliseerSetjes(setjes);
   const schoon = {
+    versie: 2, // zie haalInstellingen: markeert dat deze lijsten bewust zijn opgeslagen (lege lijst = leeg)
     activiteiten: normaliseerActiviteiten(activiteiten),
     statussen: normaliseerStatussen(statussen),
     uitgeslotenMedewerkers: normaliseerUitgesloten(uitgeslotenMedewerkers),
@@ -306,5 +317,5 @@ async function haalDeelstappenSjabloon(activiteitSleutel) {
 
 module.exports = {
   haalInstellingen, haalActieveActiviteiten, haalActieveStatussen, haalSetjes, haalUitgeslotenMedewerkers, zetInstellingen,
-  magActiviteit, magStatus, maakSleutel, haalDeelstappenSjabloon, GELDIGE_ROLLEN, STANDAARD_ACTIVITEITEN, STANDAARD_STATUSSEN,
+  magActiviteit, magStatus, maakSleutel, haalDeelstappenSjabloon, GELDIGE_ROLLEN, VOORTGANG_KEUZES, STANDAARD_ACTIVITEITEN, STANDAARD_STATUSSEN,
 };

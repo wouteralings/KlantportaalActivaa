@@ -67,8 +67,8 @@ function AantalKiezer({ aantal, setAantal, totaal }) {
 }
 
 // Grid-kolommen zodat de koppen exact boven de invoervelden uitlijnen.
-const GRID_ACT = "52px minmax(140px, 1fr) 76px 128px 66px 140px 88px"; // pijltjes | Activiteit | Periode | Functie | Std.uren | Urencode | Status
-const GRID_STAT = "52px minmax(180px, 1fr) 52px 96px";       // pijltjes | Status | Kleur | (actief)
+const GRID_ACT = "52px minmax(140px, 1fr) 76px 128px 66px 140px 88px 74px"; // pijltjes | Activiteit | Periode | Functie | Std.uren | Urencode | Status | in gebruik + verwijderen
+const GRID_STAT = "52px minmax(180px, 1fr) 150px 52px 96px"; // pijltjes | Status | Betekent | Kleur | (actief)
 const kopStijl = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" };
 
 export default function PlanningInstellingenBeheer() {
@@ -89,6 +89,12 @@ export default function PlanningInstellingenBeheer() {
   const [uitgesloten, setUitgesloten] = useState([]); // [{ email, naam, reden }]
   const [medewerkers, setMedewerkers] = useState([]); // [{ naam, email }]
   const [urencodes, setUrencodes] = useState([]);     // actieve urencodes (Beheer → Uren)
+  // Hoe vaak elke activiteit in gebruik is (per-klant configuratie + losse regels + setjes). Alleen een
+  // activiteit die nergens wordt gebruikt kun je écht verwijderen; de rest zet je op inactief.
+  const [gebruik, setGebruik] = useState({});
+  // Uitsplitsing per activiteit: { <sleutel>: { config, los, setjes: ["naam"] } } — zodat je bij een
+  // activiteit die je niet mag verwijderen meteen ziet wáár hij nog hangt.
+  const [gebruikDetail, setGebruikDetail] = useState({});
   const [nwUitEmail, setNwUitEmail] = useState("");
   const [nwUitReden, setNwUitReden] = useState("");
   const [setjes, setSetjes] = useState([]); // [{ sleutel, naam, items:[{activiteit,frequentie,uitvoerMaand,indicatieUren}] }]
@@ -98,7 +104,7 @@ export default function PlanningInstellingenBeheer() {
   useEffect(() => {
     fetch("/api/beheer-planning-instellingen")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { setActiviteiten(d.activiteiten || []); setStatussen(d.statussen || []); setUitgesloten(d.uitgeslotenMedewerkers || []); setSetjes(d.setjes || []); })
+      .then((d) => { setActiviteiten(d.activiteiten || []); setStatussen(d.statussen || []); setUitgesloten(d.uitgeslotenMedewerkers || []); setSetjes(d.setjes || []); setGebruik(d.gebruik || {}); setGebruikDetail(d.gebruikDetail || {}); })
       .catch(() => { setActiviteiten([]); setStatussen([]); setFout("Kon de planning-instellingen niet laden."); });
     fetch("/api/mw-planning-medewerkers")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
@@ -124,6 +130,8 @@ export default function PlanningInstellingenBeheer() {
       setStatussen(d.statussen || nieuweStatussen);
       setUitgesloten(d.uitgeslotenMedewerkers || nieuweUitgesloten);
       setSetjes(d.setjes || nieuweSetjes);
+      if (d.gebruik) setGebruik(d.gebruik);
+      if (d.gebruikDetail) setGebruikDetail(d.gebruikDetail);
       setStatus("opgeslagen");
     } catch (e) {
       setFout(e.message || "Opslaan mislukt."); setStatus("fout");
@@ -153,6 +161,22 @@ export default function PlanningInstellingenBeheer() {
   const wijzigActiviteitType = (sleutel, type) => opslaan((activiteiten || []).map((a) => (a.sleutel === sleutel ? { ...a, type } : a)), statussen || []);
   const wijzigActiviteitRol = (sleutel, rol) => opslaan((activiteiten || []).map((a) => (a.sleutel === sleutel ? { ...a, rol } : a)), statussen || []);
   const zetActiviteitActief = (sleutel, actief) => opslaan((activiteiten || []).map((a) => (a.sleutel === sleutel ? { ...a, actief } : a)), statussen || []);
+  // Waar hangt deze activiteit nog? Leeg = nergens (en dus verwijderbaar).
+  const gebruikUitleg = (sleutel) => {
+    const d = gebruikDetail[sleutel] || {};
+    const delen = [];
+    if (d.config) delen.push(`${d.config}× in de planning-configuratie van klanten`);
+    if (d.los) delen.push(`${d.los}× in losse planningsregels`);
+    if ((d.setjes || []).length) delen.push(`in ${(d.setjes || []).length === 1 ? "setje" : "de setjes"} ${(d.setjes || []).join(", ")}`);
+    return delen.join("\n");
+  };
+  // Verwijderen kan alleen zolang de activiteit nergens wordt gebruikt; de server controleert dat ook.
+  const verwijderActiviteit = (a) => {
+    const n = gebruik[a.sleutel] || 0;
+    if (n > 0) return;
+    if (!window.confirm(`Activiteit "${a.label}" definitief verwijderen?\n\nDat kan omdat hij nog nergens in gebruik is. Wil je 'm alleen uit de keuzelijsten halen, gebruik dan "inactief".`)) return;
+    opslaan((activiteiten || []).filter((x) => x.sleutel !== a.sleutel), statussen || []);
+  };
   const verplaatsActiviteit = (i, richting) => {
     const doel = i + richting;
     if (!activiteiten || doel < 0 || doel >= activiteiten.length) return;
@@ -170,6 +194,13 @@ export default function PlanningInstellingenBeheer() {
   };
   const wijzigStatusLabel = (sleutel, label) => setStatussen((h) => (h || []).map((s) => (s.sleutel === sleutel ? { ...s, label } : s)));
   const wijzigStatusKleur = (sleutel, kleur) => opslaan(activiteiten || [], (statussen || []).map((s) => (s.sleutel === sleutel ? { ...s, kleur } : s)));
+  // "Betekent": koppelt de status aan de stand die uit de deelstappen volgt. Mijn werk gebruikt dan
+  // deze naam en kleur i.p.v. het vaste Open/Bezig/Gereed. Per stand hoort er maar één status te zijn;
+  // kiest iemand dezelfde stand nog een keer, dan laten we 'm bij de nieuwe staan.
+  const wijzigStatusVoortgang = (sleutel, voortgang) => opslaan(
+    activiteiten || [],
+    (statussen || []).map((s) => (s.sleutel === sleutel ? { ...s, voortgang } : (voortgang && s.voortgang === voortgang ? { ...s, voortgang: "" } : s)))
+  );
   const zetStatusActief = (sleutel, actief) => opslaan(activiteiten || [], (statussen || []).map((s) => (s.sleutel === sleutel ? { ...s, actief } : s)));
   const verplaatsStatus = (i, richting) => {
     const doel = i + richting;
@@ -233,7 +264,9 @@ export default function PlanningInstellingenBeheer() {
         Beheer hier de <strong>activiteiten</strong> (maand- en jaaractiviteiten) en de <strong>statussen</strong> die
         medewerkers kunnen kiezen bij een planningsregel. Een item uitzetten verwijdert het niet —
         bestaande regels met dat item blijven geldig; alleen de keuzelijst bij een nieuwe regel toont
-        het dan niet meer. De pijltjes bepalen de volgorde in de keuzelijst.
+        het dan niet meer. Een activiteit die nog <strong>nergens in gebruik</strong> is kun je met het
+        prullenbakje ook echt verwijderen; zodra hij ergens gebruikt wordt, is dat niet meer mogelijk.
+        De pijltjes bepalen de volgorde in de keuzelijst.
       </div>
 
       {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood }}>{fout}</div>}
@@ -250,7 +283,7 @@ export default function PlanningInstellingenBeheer() {
               <CalendarClock size={16} color={KLEUR.blauw} /> Activiteiten <span style={{ fontSize: 12, fontWeight: 600, color: KLEUR.mutedTekst }}>({activiteiten.length})</span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: GRID_ACT, gap: 8, alignItems: "center", padding: "0 10px 6px", ...kopStijl }}>
-              <span></span><span>Activiteit</span><span>Periode</span><span>Functie</span><span>Std. uren</span><span title="Urencode waarop de uren van deze activiteit standaard geschreven worden (per klant overschrijfbaar)">Urencode</span><span>Status</span>
+              <span></span><span>Activiteit</span><span>Periode</span><span>Functie</span><span>Std. uren</span><span title="Urencode waarop de uren van deze activiteit standaard geschreven worden (per klant overschrijfbaar)">Urencode</span><span>Status</span><span style={{ textAlign: "right" }} title="Hoe vaak de activiteit ergens gebruikt wordt; alleen een ongebruikte activiteit kun je verwijderen">In gebruik</span>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 6 }}>
               {activiteiten.slice(0, activiteitAantal).map((a, i) => {
@@ -276,6 +309,29 @@ export default function PlanningInstellingenBeheer() {
                       {urencodes.map((c) => <option key={c.id || c.naam} value={c.naam}>{c.naam}</option>)}
                     </select>
                     {ACTIEF_KNOP(a.actief, () => zetActiviteitActief(a.sleutel, !a.actief))}
+                    {(() => {
+                      const n = gebruik[a.sleutel] || 0;
+                      return (
+                        <div style={{ display: "flex", alignItems: "center", gap: 4, justifyContent: "flex-end" }}>
+                          {n > 0 && (
+                            <span
+                              title={`Deze activiteit is ${n}× in gebruik:\n${gebruikUitleg(a.sleutel)}`}
+                              style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, background: "#F4F5F2", border: `1px solid ${KLEUR.rand}`, borderRadius: 20, padding: "1px 6px", whiteSpace: "nowrap", cursor: "help" }}
+                            >{n}×</span>
+                          )}
+                          <button
+                            onClick={() => verwijderActiviteit(a)}
+                            disabled={n > 0}
+                            title={n > 0
+                              ? `Kan niet worden verwijderd — deze activiteit is nog ${n}× in gebruik:\n${gebruikUitleg(a.sleutel)}\n\nHaal 'm daar eerst weg, of zet 'm op inactief om 'm alleen uit de keuzelijsten te halen.`
+                              : "Definitief verwijderen — kan, want deze activiteit is nog nergens in gebruik"}
+                            style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 26, height: 26, flexShrink: 0, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: n > 0 ? KLEUR.rand : KLEUR.rood, cursor: n > 0 ? "not-allowed" : "pointer" }}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </div>
                   <div style={{ padding: "0 10px 8px 62px" }}>
                     <button onClick={() => toggleDeel(a.sleutel)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: KLEUR.blauw, fontSize: 12, fontWeight: 600 }}>
@@ -330,7 +386,7 @@ export default function PlanningInstellingenBeheer() {
               <Tag size={16} color={KLEUR.blauw} /> Statussen <span style={{ fontSize: 12, fontWeight: 600, color: KLEUR.mutedTekst }}>({statussen.length})</span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: GRID_STAT, gap: 8, alignItems: "center", padding: "0 10px 6px", ...kopStijl }}>
-              <span></span><span>Status</span><span>Kleur</span><span></span>
+              <span></span><span>Status</span><span title="Koppel deze status aan de stand die uit de deelstappen volgt. Mijn werk toont dan deze naam en kleur i.p.v. het vaste Open/Bezig/Gereed.">Betekent</span><span>Kleur</span><span></span>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 6 }}>
               {statussen.slice(0, statusAantal).map((s, i) => (
@@ -340,6 +396,17 @@ export default function PlanningInstellingenBeheer() {
                     <span style={{ fontSize: 11, fontWeight: 600, color: s.kleur, background: `${s.kleur}1A`, padding: "3px 9px", borderRadius: 20, whiteSpace: "nowrap", flexShrink: 0 }}>{s.label || "—"}</span>
                     <input value={s.label} onChange={(e) => wijzigStatusLabel(s.sleutel, e.target.value)} onBlur={() => opslaan(activiteiten, statussen)} style={{ ...invoerStijl, flex: 1, minWidth: 0 }} />
                   </div>
+                  <select
+                    value={s.voortgang || ""}
+                    onChange={(e) => wijzigStatusVoortgang(s.sleutel, e.target.value)}
+                    title="Wat betekent deze status? Koppel 'm aan de stand uit de deelstappen (niets afgevinkt = te doen, deels = bezig, alles = gereed). Mijn werk gebruikt dan deze naam en kleur. Laat leeg voor een status die je alleen handmatig kiest, zoals 'Wacht op klant'."
+                    style={{ ...invoerStijl, minWidth: 0 }}
+                  >
+                    <option value="">— alleen handmatig —</option>
+                    <option value="open">Te doen (niets af)</option>
+                    <option value="bezig">Bezig (deels af)</option>
+                    <option value="gereed">Gereed (alles af)</option>
+                  </select>
                   <input type="color" value={s.kleur} onChange={(e) => wijzigStatusKleur(s.sleutel, e.target.value)} title="Kleur" style={{ width: 40, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", cursor: "pointer", padding: 2 }} />
                   {ACTIEF_KNOP(s.actief, () => zetStatusActief(s.sleutel, !s.actief))}
                 </div>
