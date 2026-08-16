@@ -720,6 +720,7 @@ export default function MijnWerk({ isBeheerder = false, magPlanning = false, mag
   // Twee weergaven binnen "Mijn werk": het eigen overzicht (matrix + voortgang) en de Afwikkeling —
   // hetzelfde deelstappen-scherm als onder Planning, maar dan met de scope Mijzelf / Mijn team, zodat
   // ook een leidinggevende zónder Planning-recht het werk van zijn mensen kan aftekenen en volgen.
+  const actieveWeergave = zichtbareWeergaven.some(([k]) => k === weergave) ? weergave : (zichtbareWeergaven[0] || [])[0];
   const weergaveKnoppen = (
     <div style={{ display: zichtbareWeergaven.length > 1 ? "flex" : "none", gap: 4, marginBottom: 12, flexWrap: "wrap" }}>
       {zichtbareWeergaven.map(([k, label, Icon]) => {
@@ -734,7 +735,6 @@ export default function MijnWerk({ isBeheerder = false, magPlanning = false, mag
     </div>
   );
 
-  const actieveWeergave = zichtbareWeergaven.some(([k]) => k === weergave) ? weergave : (zichtbareWeergaven[0] || [])[0];
   if (!actieveWeergave) {
     return <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Deze subpagina is voor jouw rol niet zichtbaar.</div>;
   }

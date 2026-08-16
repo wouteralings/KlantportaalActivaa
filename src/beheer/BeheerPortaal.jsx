@@ -339,6 +339,10 @@ export default function BeheerPortaal() {
   const [taaksoortenFout, setTaaksoortenFout] = useState("");
   // Urencodes (Beheer → Uren): keuzelijst voor de standaard-urencode per taaksoort.
   const [urencodes, setUrencodes] = useState([]);
+  // Hernoemen van een taaksoort (label in de Dynamics-optieset): per optieset-waarde de tekst die in
+  // het invoerveld staat en de status van het opslaan.
+  const [soortNaam, setSoortNaam] = useState({});
+  const [soortNaamStatus, setSoortNaamStatus] = useState({});
   const [taaksoortenOpslaanStatus, setTaaksoortenOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [taaksoortenSectieOpen, setTaaksoortenSectieOpen] = useState(true);
   const [taaksoortenZoek, setTaaksoortenZoek] = useState("");
@@ -1299,6 +1303,39 @@ export default function BeheerPortaal() {
       return { ...huidig, [key]: nieuw };
     });
     setTaaksoortenOpslaanStatus("idle");
+  }, []);
+
+  /**
+   * Hernoemt een taaksoort: past het LABEL van de optie in de Dynamics-optieset aan. De onderliggende
+   * optieset-waarde blijft gelijk, dus bestaande taken houden hun soort en alles wat op die soort is
+   * ingesteld (std. uren, urencode, zichtbaarheid, vervolgtaak) blijft staan.
+   */
+  const hernoemTaaksoort = useCallback(async (waarde, nieuweNaam, huidigeNaam) => {
+    const naam = String(nieuweNaam || "").trim();
+    const key = String(waarde);
+    if (!naam || naam === String(huidigeNaam || "").trim()) {
+      setSoortNaam((h) => { const n = { ...h }; delete n[key]; return n; });
+      return;
+    }
+    setSoortNaamStatus((h) => ({ ...h, [key]: "bezig" }));
+    try {
+      const res = await fetch("/api/beheer-taaksoort-toevoegen", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ waarde, label: naam }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || ("HTTP " + res.status));
+      setTaaksoortenOpties((h) => (h || []).map((o) => (String(o.waarde) === key ? { ...o, label: naam } : o)));
+      // Het label staat ook in onze eigen instellingen (voor schermen die de soort tonen zonder Dynamics
+      // te bevragen) — meteen bijwerken, anders blijft daar de oude naam staan.
+      setTaaksoortenConfig((h) => ({ ...h, [key]: { ...(h[key] || {}), label: naam } }));
+      setTaaksoortenOpslaanStatus("idle");
+      setSoortNaam((h) => { const n = { ...h }; delete n[key]; return n; });
+      setSoortNaamStatus((h) => ({ ...h, [key]: "gelukt" }));
+      setTimeout(() => setSoortNaamStatus((h) => { const n = { ...h }; delete n[key]; return n; }), 2500);
+    } catch (e) {
+      setSoortNaamStatus((h) => ({ ...h, [key]: e.message || "Hernoemen mislukt." }));
+    }
   }, []);
 
   const slaTaaksoortenOp = useCallback(async () => {
@@ -3108,7 +3145,23 @@ export default function BeheerPortaal() {
                   return (
                     <React.Fragment key={optie.waarde}>
                       <div style={{ fontSize: 13, padding: "10px 0", borderBottom: rijRand, display: "flex", alignItems: "center", gap: 8, color: cfg.bevroren ? KLEUR.mutedTekst : KLEUR.tekst }}>
-                        <span>{optie.label}</span>
+                        <input
+                          value={soortNaam[String(optie.waarde)] ?? optie.label}
+                          onChange={(e) => setSoortNaam((h) => ({ ...h, [String(optie.waarde)]: e.target.value }))}
+                          onBlur={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "transparent"; hernoemTaaksoort(optie.waarde, e.target.value, optie.label); }}
+                          onFocus={(e) => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.borderColor = KLEUR.rand; }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") e.currentTarget.blur();
+                            if (e.key === "Escape") { setSoortNaam((h) => { const n = { ...h }; delete n[String(optie.waarde)]; return n; }); e.currentTarget.blur(); }
+                          }}
+                          title="Naam van deze taaksoort — wordt ook in Dynamics aangepast. De soort zelf blijft dezelfde, dus bestaande taken en instellingen blijven behouden."
+                          style={{ flex: "1 1 auto", minWidth: 0, maxWidth: 320, border: "1px solid transparent", borderRadius: 6, padding: "5px 7px", fontSize: 13, background: "transparent", color: "inherit" }}
+                        />
+                        {soortNaamStatus[String(optie.waarde)] === "bezig" && <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>opslaan…</span>}
+                        {soortNaamStatus[String(optie.waarde)] === "gelukt" && <span style={{ fontSize: 11, color: KLEUR.groen, fontWeight: 600 }}>hernoemd</span>}
+                        {soortNaamStatus[String(optie.waarde)] && !["bezig", "gelukt"].includes(soortNaamStatus[String(optie.waarde)]) && (
+                          <span title={soortNaamStatus[String(optie.waarde)]} style={{ fontSize: 11, color: KLEUR.rood, fontWeight: 600 }}>niet hernoemd</span>
+                        )}
                         {cfg.bevroren && <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.rood, background: `${KLEUR.rood}14`, borderRadius: 999, padding: "1px 8px" }}>bevroren</span>}
                       </div>
                       <div style={{ textAlign: "center", padding: "10px 0", borderBottom: rijRand }}>
