@@ -2170,7 +2170,11 @@ function MedewerkerDossiers({ soort, magVerwijderenRubriek = true, magBulkVerwij
     setDetailFout("");
     setDetailLaden(true);
     fetch(`/api/medewerker-dossier?soort=${encodeURIComponent(soort)}&id=${encodeURIComponent(id)}`)
-      .then((r) => (r.ok ? r.json() : r.json().then((d) => Promise.reject(new Error((d && d.error) || `HTTP ${r.status}`)))))
+      // Serverdetail meenemen in de melding: bij een 500 staat de oorzaak dan meteen op het scherm
+      // in plaats van alleen "Kon het dossier niet verwerken.".
+      .then((r) => (r.ok ? r.json() : r.json().catch(() => ({})).then((d) => Promise.reject(new Error(
+        `${(d && d.error) || `HTTP ${r.status}`}${d && d.detail ? ` (${d.detail})` : ""}`,
+      )))))
       .then((d) => setDetail(d))
       .catch((e) => setDetailFout(e.message || "Kon het dossier niet openen."))
       .finally(() => setDetailLaden(false));
@@ -3204,8 +3208,13 @@ function DossierBijlageKaart({ dossier, disabled, extraEmails, soortWaarde, toon
   );
 }
 
-function AangifteVersturenKaart({ dossier, disabled }) {
+function AangifteVersturenKaart({ dossier, disabled, voorlopig }) {
   const soortWoord = dossier.soort === "vpb" ? "vennootschapsbelasting" : "inkomstenbelasting";
+  // Staat het dossier als voorlopige aangifte gemarkeerd, dan is dit exact hetzelfde proces — alleen
+  // met "voorlopig" in de kop, de bestandsnaam, de mail en het taak-onderwerp (dat laatste doet de
+  // server). De registratie komt uit /api/medewerker-dossier; de ontvanger-route bevestigt 'm nog eens.
+  const isVoorlopig = !!(voorlopig && voorlopig.huidig && voorlopig.huidig.status === "open");
+  const voorlopigReden = isVoorlopig ? (voorlopig.huidig.redenLabel || "") : "";
   const heeftPartner = dossier.soort === "ib"; // alleen IB kent een fiscaal partner
   const [modal, setModal] = useState(null); // { doelgroep, bestand, laden, ontvanger, bestandsnaam, mailOnderwerp, mailTekst }
   // Per doelgroep (client/partner) een eigen melding/resultaat bijhouden — anders verdwijnt de
@@ -3287,10 +3296,19 @@ function AangifteVersturenKaart({ dossier, disabled }) {
 
   return (
     <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
-      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Aangifte versturen</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+        <div style={{ fontSize: 15, fontWeight: 700 }}>{isVoorlopig ? "Voorlopige aangifte versturen" : "Aangifte versturen"}</div>
+        {isVoorlopig && (
+          <span style={{ fontSize: 10.5, fontWeight: 700, color: "#A9660C", background: "#FDF4E3", border: "1px solid #EBD9B4", borderRadius: 999, padding: "2px 9px" }}>voorlopig</span>
+        )}
+      </div>
       <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 14, maxWidth: 640 }}>
-        Sleep de aangifte {soortWoord} (PDF) hierheen — de ontvanger krijgt een mail en een
+        Sleep de {isVoorlopig ? "voorlopige " : ""}aangifte {soortWoord} (PDF) hierheen — de ontvanger krijgt een mail en een
         taak "In afwachting reactie client" in het portaal, en kan het document daar inzien.
+        {isVoorlopig && (
+          <> Dit dossier staat als <strong>voorlopige aangifte</strong> gemarkeerd{voorlopigReden ? ` (${voorlopigReden})` : ""}, dus
+          bestandsnaam, mail en taak krijgen automatisch "voorlopig" mee en het dossier volgt de voorlopige statussen.</>
+        )}
       </div>
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
         <AangifteDropzone label={`Cliënt — ${dossier.klantnaam || "—"}`} doelgroep="client" disabled={disabled} onGekozen={gekozen} />
@@ -3688,20 +3706,25 @@ function ReviewAanvragenModal({ dossier, soortLabel, onSluit, onKlaar }) {
    verplichte toelichting en een verplichte herzieningsdatum. Van die datum wordt meteen een taak
    gemaakt bij de manager van het dossier — zo blijft er niets stil hangen. */
 function VoorlopigeAangifteModal({ dossier, soortLabel, voorlopig, onSluit, onKlaar }) {
-  const maanden = voorlopig.standaardTermijnMaanden || 6;
-  const standaardDatum = (() => {
-    const d = new Date();
-    d.setMonth(d.getMonth() + maanden);
-    return d.toISOString().slice(0, 10);
+  // De herzieningsdatum ligt vast op de jaarlijkse datum uit Beheer (standaard 1 december): dit jaar
+  // als die nog voor ons ligt, anders volgend jaar. Alleen ter informatie hier — de server bepaalt
+  // 'm, zodat alle herzieningen echt op hetzelfde moment bij de cliënten worden uitgevraagd.
+  const herzienDatum = (() => {
+    const dag = voorlopig.herzienDag || 1;
+    const maand = voorlopig.herzienMaand || 12;
+    const nu = new Date();
+    const vandaag = new Date(nu.getFullYear(), nu.getMonth(), nu.getDate());
+    const maak = (jaar) => new Date(jaar, maand - 1, Math.min(dag, new Date(jaar, maand, 0).getDate()));
+    let d = maak(nu.getFullYear());
+    if (d < vandaag) d = maak(nu.getFullYear() + 1);
+    return d;
   })();
   const [reden, setReden] = useState("");
   const [toelichting, setToelichting] = useState("");
-  const [herzienOp, setHerzienOp] = useState(standaardDatum);
   const [bezig, setBezig] = useState(false);
   const [fout, setFout] = useState("");
 
-  const vandaag = new Date().toISOString().slice(0, 10);
-  const compleet = reden && toelichting.trim().length >= 3 && herzienOp && herzienOp >= vandaag;
+  const compleet = reden && toelichting.trim().length >= 3;
 
   const versturen = async () => {
     if (!compleet || bezig) return;
@@ -3710,7 +3733,7 @@ function VoorlopigeAangifteModal({ dossier, soortLabel, voorlopig, onSluit, onKl
       const r = await fetch("/api/medewerker-dossier", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ soort: dossier.soort, id: dossier.id, actie: "voorlopige-aangifte", reden, toelichting: toelichting.trim(), herzienOp }),
+        body: JSON.stringify({ soort: dossier.soort, id: dossier.id, actie: "voorlopige-aangifte", reden, toelichting: toelichting.trim() }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
@@ -3735,8 +3758,9 @@ function VoorlopigeAangifteModal({ dossier, soortLabel, voorlopig, onSluit, onKl
         <div style={{ padding: "14px 20px", overflowY: "auto" }}>
           <div style={{ fontSize: 12.5, color: KLEUR.subtekst, lineHeight: 1.6, marginBottom: 14 }}>
             {soortLabel}{dossier.jaar ? ` ${dossier.jaar}` : ""} — <strong>{dossier.klantnaam || "cliënt onbekend"}</strong>.
-            Je legt vast dat deze aangifte bewust nog niet definitief is. Alle drie de velden zijn verplicht:
-            zonder reden en toelichting weet niemand later waaróm, en zonder herzieningsdatum blijft het dossier stil hangen.
+            Je legt vast dat deze aangifte bewust nog niet definitief is. Reden en toelichting zijn verplicht —
+            zonder die twee weet niemand later waaróm. De herziening wordt automatisch bij de cliënt uitgevraagd
+            op de vaste jaarlijkse datum.
           </div>
 
           <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 5 }}>Reden</label>
@@ -3759,17 +3783,14 @@ function VoorlopigeAangifteModal({ dossier, soortLabel, voorlopig, onSluit, onKl
             style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${toelichting.trim().length >= 3 ? KLEUR.rand : "#E0C9A0"}`, borderRadius: 8, padding: "8px 10px", fontSize: 13, resize: "vertical", fontFamily: "inherit", marginBottom: 14 }}
           />
 
-          <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 5 }}>Herzien op</label>
-          <input
-            type="date"
-            value={herzienOp}
-            min={vandaag}
-            onChange={(e) => setHerzienOp(e.target.value)}
-            style={{ width: "100%", maxWidth: 220, boxSizing: "border-box", border: `1px solid ${herzienOp && herzienOp >= vandaag ? KLEUR.rand : "#E0C9A0"}`, borderRadius: 8, padding: "8px 10px", fontSize: 13 }}
-          />
+          <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 5 }}>Herziening uitvragen op</label>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, border: `1px solid ${KLEUR.rand}`, background: "#F4F5F2", borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 700 }}>
+            <Clock size={14} color="#A9660C" /> {herzienDatum.toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" })}
+          </div>
           <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 6 }}>
-            Op deze datum staat er een taak klaar bij {dossier.manager ? <strong>{dossier.manager}</strong> : "de manager van dit dossier"} om
-            de aangifte te herzien. Zodra die taak is afgerond, vervalt de voorlopig-markering vanzelf.
+            Vaste jaarlijkse datum (in te stellen bij Beheer → Dossiers). Op die dag staat er een taak klaar
+            bij <strong>{dossier.klantnaam || "de cliënt"}</strong> met de vraag of er iets is gewijzigd waardoor
+            de aangifte herzien moet worden. Zodra die taak is afgerond, vervalt de voorlopig-markering vanzelf.
           </div>
           {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginTop: 10 }}>{fout}</div>}
         </div>
@@ -3779,7 +3800,7 @@ function VoorlopigeAangifteModal({ dossier, soortLabel, voorlopig, onSluit, onKl
           <button
             onClick={versturen}
             disabled={!compleet || bezig}
-            title={compleet ? "" : "Vul een reden, een toelichting en een herzieningsdatum in de toekomst in"}
+            title={compleet ? "" : "Kies een reden en vul een toelichting in"}
             style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", background: !compleet || bezig ? "#D3C3A5" : "#A9660C", color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: !compleet || bezig ? "default" : "pointer" }}
           >
             <Clock size={14} /> {bezig ? "Vastleggen…" : "Vastleggen & inplannen"}
@@ -3894,7 +3915,8 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
         body: JSON.stringify(body),
       });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      // Serverdetail meenemen: bij een 500 zie je zo meteen wáár het misging.
+      if (!r.ok) throw new Error(`${d.error || `HTTP ${r.status}`}${d.detail ? ` (${d.detail})` : ""}`);
       setOpslaan("gelukt");
       if (d.dossier) onOpgeslagen(d.dossier);
     } catch (e) { setFout(e.message || "Opslaan mislukt."); setOpslaan("fout"); }
@@ -4256,7 +4278,7 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
         </div>
       )}
 
-      {(dossier.soort === "ib" || dossier.soort === "vpb") && <AangifteVersturenKaart dossier={dossier} disabled={!bewerkbaar} />}
+      {(dossier.soort === "ib" || dossier.soort === "vpb") && <AangifteVersturenKaart dossier={dossier} disabled={!bewerkbaar} voorlopig={voorlopigInfo} />}
 
       {uitvragen.length > 0 && uitvragen.map((u) => {
         const opengeklapt = uitvraagOpen[u.id] ?? (u.status !== "afgerond");

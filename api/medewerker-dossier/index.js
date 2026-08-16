@@ -57,9 +57,17 @@ const { logGebeurtenis } = require("../_gedeeld/klantlog");
 const { magVerwijderIb, magVerwijderVpb } = require("../_gedeeld/wijzigrechten");
 const { magSubBulkVerwijderen } = require("../_gedeeld/rollenConfig");
 const { haalSystemuser } = require("../_gedeeld/takenGedeeld");
-const dossierReview = require("../_gedeeld/dossierReview");
-const dossierVoorlopig = require("../_gedeeld/dossierVoorlopig");
-const dossierTaakketen = require("../_gedeeld/dossierTaakketen");
+// Deze drie zijn "extra's" bovenop het dossier zelf (review, voorlopige aangifte, taakketen). Bewust
+// defensief inladen: ontbreekt er één na een deploy waarin niet alle bestanden zijn meegegaan, dan
+// mag dat nooit het hele dossierscherm platleggen — de betreffende knop verdwijnt dan gewoon.
+function optioneel(pad) {
+  try { return require(pad); } catch { return null; }
+}
+const dossierReview = optioneel("../_gedeeld/dossierReview") || {};
+const dossierVoorlopig = optioneel("../_gedeeld/dossierVoorlopig") || {};
+const dossierTaakketen = optioneel("../_gedeeld/dossierTaakketen") || {};
+const heeftReview = typeof dossierReview.instellingenVoorSoort === "function";
+const heeftVoorlopig = typeof dossierVoorlopig.instellingenVoorSoort === "function";
 
 /** Haalt de (door Beheer → Dossiers ingestelde) indeling van een soort op — secties (met
  * eventuele subrubrieken), verborgen velden, tonen-alleen-als-voorwaarden, alleen-lezen velden,
@@ -232,10 +240,10 @@ module.exports = async function (context, req) {
         haalPrimairContactVoorDossier(resource, token, dossier.accountId),
         haalSjabloonVoor(soort.key),
         haalBijlageVoor(soort.key),
-        dossierReview.instellingenVoorSoort(soort.key).catch(() => ({ aan: false })),
-        dossierReview.haalVoorDossier(soort.key, id).catch(() => []),
-        dossierVoorlopig.instellingenVoorSoort(soort.key).catch(() => ({ aan: false, redenen: [] })),
-        dossierVoorlopig.haalVoorDossier(soort.key, id).catch(() => null),
+        heeftReview ? dossierReview.instellingenVoorSoort(soort.key).catch(() => ({ aan: false })) : { aan: false },
+        heeftReview ? dossierReview.haalVoorDossier(soort.key, id).catch(() => []) : [],
+        heeftVoorlopig ? dossierVoorlopig.instellingenVoorSoort(soort.key).catch(() => ({ aan: false, redenen: [] })) : { aan: false, redenen: [] },
+        heeftVoorlopig ? dossierVoorlopig.haalVoorDossier(soort.key, id).catch(() => null) : null,
       ]);
       // `review` vertelt het scherm of de knop "Review aanvragen" mag verschijnen (aan + een
       // gekoppelde taaksoort), of er al een review loopt, en wat de vorige rondes opleverden.
@@ -326,6 +334,10 @@ module.exports = async function (context, req) {
       //    Bewust drie verplichte velden: zonder reden/toelichting weet niemand later waaróm het
       //    voorlopig was, en zonder herzieningstaak blijft het dossier stil hangen.
       if (actie === "voorlopige-aangifte") {
+        if (!heeftVoorlopig) {
+          context.res = { status: 501, headers: { "Content-Type": "application/json" }, body: { error: "De module voor voorlopige aangiftes is nog niet uitgerold (api/_gedeeld/dossierVoorlopig.js ontbreekt op de server)." } };
+          return;
+        }
         const cfg = await dossierVoorlopig.instellingenVoorSoort(soort.key);
         if (!cfg.aan) {
           context.res = { status: 409, headers: { "Content-Type": "application/json" }, body: { error: `"Voorlopige aangifte" staat voor ${soort.label.toLowerCase()}-dossiers nog uit. Zet 'm aan bij Beheer → Dossiers → Voorlopige aangifte.` } };
@@ -337,7 +349,6 @@ module.exports = async function (context, req) {
         }
         const redenSleutel = String((req.body && req.body.reden) || "").trim();
         const toelichting = String((req.body && req.body.toelichting) || "").trim();
-        const herzienOp = String((req.body && req.body.herzienOp) || "").trim();
         const reden = (cfg.redenen || []).find((r) => r.sleutel === redenSleutel && r.actief !== false);
         if (!reden) {
           context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Kies een geldige reden voor de voorlopige aangifte." } };
@@ -347,16 +358,10 @@ module.exports = async function (context, req) {
           context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Een toelichting is verplicht — leg kort vast waarom deze aangifte voorlopig is." } };
           return;
         }
-        const herzienDatum = herzienOp ? new Date(herzienOp) : null;
-        if (!herzienDatum || isNaN(herzienDatum.getTime())) {
-          context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef een herzieningsdatum op — daar wordt de verplichte follow-uptaak op ingepland." } };
-          return;
-        }
-        const vandaag = new Date(); vandaag.setHours(0, 0, 0, 0);
-        if (herzienDatum < vandaag) {
-          context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "De herzieningsdatum ligt in het verleden. Kies een datum in de toekomst." } };
-          return;
-        }
+        // De herzieningsdatum ligt VAST op de jaarlijkse datum uit Beheer (standaard 1 december) —
+        // bewust niet per dossier te kiezen, zodat alle herzieningen op hetzelfde moment bij de
+        // cliënten worden uitgevraagd. Server bepaalt 'm, niet het scherm.
+        const herzienDatum = dossierVoorlopig.volgendeHerzieningsdatum(cfg);
 
         const huidigDossier = await haalEenDossier(resource, token, soort, id);
         if (!huidigDossier) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Dossier niet gevonden." } }; return; }
@@ -378,11 +383,14 @@ module.exports = async function (context, req) {
           subject: dossierReview.vulSjabloonIn(cfg.taakOnderwerp, {
             klant: huidigDossier.klantnaam || "", periode, jaar: huidigDossier.jaar || "", soort: soort.label,
           }),
+          // De taak is een UITVRAAG BIJ DE CLIËNT: is er iets gewijzigd waardoor de aangifte herzien
+          // moet worden? De cliënt ziet 'm in het portaal (mits de taaksoort daar op "zichtbaar"
+          // staat, zie Beheer → Taken); de omschrijving is dus in de je-vorm geschreven.
           description: [
-            `Deze ${soort.label.toLowerCase()} is als VOORLOPIGE aangifte verstuurd door ${(ikzelf && ikzelf.naam) || email || "een collega"}.`,
-            `\nReden: ${reden.label}`,
-            `Toelichting: ${toelichting}`,
-            `\nHerzie de aangifte en rond deze taak daarna af; het dossier wordt dan automatisch bijgewerkt.`,
+            `Voor u is een voorlopige ${soort.label.toLowerCase()}${periode ? ` over ${periode}` : ""} ingediend.`,
+            `\nReden dat deze voorlopig is: ${reden.label}`,
+            `Toelichting van uw accountant: ${toelichting}`,
+            `\nIs er inmiddels iets gewijzigd waardoor de aangifte herzien moet worden? Laat het ons via deze taak weten. Is er niets veranderd, dan kunt u de taak afronden.`,
           ].join("\n") + dossierTaakketen.maakRef(soort.key, id, "voorlopig"),
           accountId: huidigDossier.accountId,
           soortWaarde: cfg.taakSoort,
@@ -428,6 +436,10 @@ module.exports = async function (context, req) {
       //    "gereed voor review" en legt vast wie de aanvrager was — die krijgt na het aftekenen de
       //    vervolgtaak terug (zie api/mw-taken, acties review-akkoord / review-aanpassen).
       if (actie === "review-aanvragen") {
+        if (!heeftReview) {
+          context.res = { status: 501, headers: { "Content-Type": "application/json" }, body: { error: "De reviewmodule is nog niet uitgerold (api/_gedeeld/dossierReview.js ontbreekt op de server)." } };
+          return;
+        }
         const cfg = await dossierReview.instellingenVoorSoort(soort.key);
         if (!cfg.aan) {
           context.res = { status: 409, headers: { "Content-Type": "application/json" }, body: { error: `Review staat voor ${soort.label.toLowerCase()}-dossiers nog uit. Zet 'm aan bij Beheer → Dossiers → Review.` } };
@@ -603,6 +615,16 @@ module.exports = async function (context, req) {
   } catch (err) {
     if (err.message === "MISSING_CONFIG") { context.res = { status: 501, headers: { "Content-Type": "application/json" }, body: { error: "Dynamics-koppeling is nog niet volledig geconfigureerd." } }; return; }
     context.log.error(err);
-    context.res = { status: 500, headers: { "Content-Type": "application/json" }, body: { error: "Kon het dossier niet verwerken.", detail: String(err.message || err) } };
+    // Detail + de eerste regel uit de stack die naar api/ wijst: zo is een 500 meteen te herleiden
+    // zonder in de Azure-logs te hoeven duiken (het scherm toont deze tekst).
+    const waar = String((err && err.stack) || "").split("\n").find((r) => r.includes("/api/") || r.includes("\\api\\")) || "";
+    context.res = {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+      body: {
+        error: "Kon het dossier niet verwerken.",
+        detail: `${err && err.name ? err.name + ": " : ""}${String((err && err.message) || err)}${waar ? ` — ${waar.trim()}` : ""}`,
+      },
+    };
   }
 };

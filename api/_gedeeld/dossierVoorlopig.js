@@ -72,9 +72,13 @@ const STANDAARD_VOORLOPIG = {
   redenen: STANDAARD_REDENEN,
   status: null,          // dossierstatus bij het markeren als voorlopig
   taakSoort: null,       // soort van de herzieningstaak (verplicht om de knop te laten werken)
-  taakOnderwerp: "Voorlopige aangifte herzien: {soort} {periode} — {klant}",
+  taakOnderwerp: "Moet de voorlopige aangifte {soort} {periode} herzien worden?",
   taakRubriek: null,
-  standaardTermijnMaanden: 6, // voorstel voor de herzieningsdatum in het scherm
+  // De herziening wordt niet per dossier ingepland maar op een VASTE JAARLIJKSE DATUM uitgevraagd bij
+  // de cliënt — standaard 1 december. Zit die datum dit jaar nog voor ons, dan is het dit jaar;
+  // anders die van volgend jaar. Zo vallen alle herzieningen op hetzelfde moment samen.
+  herzienDag: 1,
+  herzienMaand: 12,
 };
 
 function getalOfNull(v) {
@@ -101,7 +105,8 @@ function normaliseerRedenen(lijst) {
 function normaliseerVoorlopigConfig(ruw) {
   const r = ruw && typeof ruw === "object" ? ruw : {};
   const redenen = normaliseerRedenen(r.redenen);
-  const maanden = getalOfNull(r.standaardTermijnMaanden);
+  const dag = getalOfNull(r.herzienDag);
+  const maand = getalOfNull(r.herzienMaand);
   return {
     aan: r.aan === true,
     // Een bewust lege lijst blijft leeg; alleen een ontbrekende lijst krijgt de startset.
@@ -110,8 +115,31 @@ function normaliseerVoorlopigConfig(ruw) {
     taakSoort: getalOfNull(r.taakSoort),
     taakOnderwerp: tekst(r.taakOnderwerp, 300) || STANDAARD_VOORLOPIG.taakOnderwerp,
     taakRubriek: getalOfNull(r.taakRubriek),
-    standaardTermijnMaanden: maanden !== null && maanden > 0 && maanden <= 60 ? Math.round(maanden) : 6,
+    herzienDag: dag !== null && dag >= 1 && dag <= 31 ? Math.round(dag) : 1,
+    herzienMaand: maand !== null && maand >= 1 && maand <= 12 ? Math.round(maand) : 12,
   };
+}
+
+/**
+ * De eerstvolgende vaste herzieningsdatum: dag/maand uit Beheer, dit jaar als die datum nog niet
+ * geweest is, anders volgend jaar. Een dag die in die maand niet bestaat (bijv. 31 februari) valt
+ * terug op de laatste dag van de maand.
+ *
+ * @param {{herzienDag:number, herzienMaand:number}} cfg
+ * @param {Date} [vanaf] referentiemoment (standaard nu) — als parameter voor de testbaarheid
+ */
+function volgendeHerzieningsdatum(cfg, vanaf) {
+  const nu = vanaf ? new Date(vanaf) : new Date();
+  const dag = cfg && cfg.herzienDag >= 1 && cfg.herzienDag <= 31 ? cfg.herzienDag : 1;
+  const maand = cfg && cfg.herzienMaand >= 1 && cfg.herzienMaand <= 12 ? cfg.herzienMaand : 12;
+  const vandaag = new Date(nu.getFullYear(), nu.getMonth(), nu.getDate());
+  const maak = (jaar) => {
+    const laatste = new Date(jaar, maand, 0).getDate(); // dag 0 van de volgende maand = laatste dag
+    return new Date(jaar, maand - 1, Math.min(dag, laatste));
+  };
+  let d = maak(nu.getFullYear());
+  if (d < vandaag) d = maak(nu.getFullYear() + 1);
+  return d;
 }
 
 function normaliseerAlleVoorlopigConfig(ruw) {
@@ -205,7 +233,7 @@ async function naHerzieningstaakAfgerond({ context, omschrijving, door }) {
 
 module.exports = {
   STANDAARD_VOORLOPIG, STANDAARD_REDENEN,
-  normaliseerVoorlopigConfig, normaliseerAlleVoorlopigConfig, instellingenVoorSoort,
+  normaliseerVoorlopigConfig, normaliseerAlleVoorlopigConfig, instellingenVoorSoort, volgendeHerzieningsdatum,
   haalAlle, haalVoorDossier, zetVoorlopig, markeerHerzien, wisVoorlopig, naHerzieningstaakAfgerond,
   // Doorgeven zodat aanroepers één module hoeven te kennen.
   SOORTEN, haalEenDossier, werkDossierBij,

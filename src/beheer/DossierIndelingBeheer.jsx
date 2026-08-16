@@ -40,6 +40,8 @@ const STANDAARD_KETEN_CFG = {
   akkoordTaakSoort: "", akkoordTaakOnderwerp: "Versturen naar Belastingdienst: {soort} {periode} — {klant}",
   akkoordTaakRubriek: "", statusAkkoord: "",
   statusVervolgKlaar: "", inactiefNaVervolg: false,
+  // Dezelfde keten, maar voor een VOORLOPIGE aangifte: alleen andere dossierstatussen.
+  voorlopigStatusVersturen: "", voorlopigStatusAkkoord: "", voorlopigStatusVervolgKlaar: "",
 };
 
 // Voorlopige aangifte — moet gelijk lopen met STANDAARD_VOORLOPIG in api/_gedeeld/dossierVoorlopig.js.
@@ -51,9 +53,10 @@ const STANDAARD_VOORLOPIG_CFG = {
     { sleutel: "ontbrekende-stukken", label: "Ontbrekende stukken van de cliënt", actief: true },
     { sleutel: "teruggaaf-versnellen", label: "Teruggaaf versnellen", actief: true },
   ],
-  status: "", taakSoort: "", taakOnderwerp: "Voorlopige aangifte herzien: {soort} {periode} — {klant}",
-  taakRubriek: "", standaardTermijnMaanden: 6,
+  status: "", taakSoort: "", taakOnderwerp: "Moet de voorlopige aangifte {soort} {periode} herzien worden?",
+  taakRubriek: "", herzienDag: 1, herzienMaand: 12,
 };
+const MAANDNAMEN = ["januari", "februari", "maart", "april", "mei", "juni", "juli", "augustus", "september", "oktober", "november", "december"];
 const redenSleutel = (t) => String(t || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
 
 // Types die via "Nieuw veld aanmaken" in Dynamics aangemaakt kunnen worden — zelfde vijf typen
@@ -579,6 +582,9 @@ function SoortIndelingPaneel({ soort, onderaan }) {
         statusAkkoord: getal(ketenCfg.statusAkkoord),
         statusVervolgKlaar: getal(ketenCfg.statusVervolgKlaar),
         inactiefNaVervolg: !!ketenCfg.inactiefNaVervolg,
+        voorlopigStatusVersturen: getal(ketenCfg.voorlopigStatusVersturen),
+        voorlopigStatusAkkoord: getal(ketenCfg.voorlopigStatusAkkoord),
+        voorlopigStatusVervolgKlaar: getal(ketenCfg.voorlopigStatusVervolgKlaar),
       };
       const r = await fetch("/api/beheer-instellingen", {
         method: "PUT",
@@ -607,7 +613,8 @@ function SoortIndelingPaneel({ soort, onderaan }) {
         taakSoort: getal(voorlopigCfg.taakSoort),
         taakOnderwerp: String(voorlopigCfg.taakOnderwerp || "").trim(),
         taakRubriek: getal(voorlopigCfg.taakRubriek),
-        standaardTermijnMaanden: getal(voorlopigCfg.standaardTermijnMaanden) || 6,
+        herzienDag: getal(voorlopigCfg.herzienDag) || 1,
+        herzienMaand: getal(voorlopigCfg.herzienMaand) || 12,
       };
       const r = await fetch("/api/beheer-instellingen", {
         method: "PUT",
@@ -1143,9 +1150,16 @@ function SoortIndelingPaneel({ soort, onderaan }) {
           <div style={{ fontSize: 12.5, color: KLEUR.subtekst, lineHeight: 1.6, marginBottom: 14 }}>
             De medewerker legt vast dat een aangifte bewust nog niet definitief is. Verplicht: een{" "}
             <strong>reden</strong> uit onderstaande lijst, een <strong>toelichting</strong> en een{" "}
-            <strong>herzieningsdatum</strong> — van die datum wordt een taak gemaakt bij de manager van het
-            dossier. Zodra die taak wordt afgerond vervalt de markering vanzelf. De knop verschijnt
-            alleen bij dossiers die nog niet op inactief staan.
+            <strong>toelichting</strong>. De herziening wordt daarna automatisch <strong>bij de cliënt
+            uitgevraagd</strong> op één vaste jaarlijkse datum (standaard 1 december): op die dag staat er een
+            taak in zijn portaal met de vraag of er iets is gewijzigd waardoor de aangifte herzien moet worden.
+            Ligt die datum dit jaar al achter ons, dan wordt het die van volgend jaar. Zodra de taak wordt
+            afgerond vervalt de markering vanzelf. De knop verschijnt alleen bij dossiers die nog niet op
+            inactief staan.
+          </div>
+          <div style={{ fontSize: 12, color: KLEUR.subtekst, background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px", marginBottom: 14, lineHeight: 1.6 }}>
+            Omdat de cliënt deze taak moet zien, moet de gekozen taaksoort in <strong>Beheer → Taken</strong> op{" "}
+            <strong>Zichtbaar</strong> staan (en meestal ook op "Mag goedkeuren", zodat hij kan reageren).
           </div>
 
           {/* Redenen */}
@@ -1271,15 +1285,25 @@ function SoortIndelingPaneel({ soort, onderaan }) {
                 )}
               </div>
               <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Voorgestelde termijn (maanden)</div>
-                <input
-                  type="number" min="1" max="60"
-                  value={voorlopigCfg.standaardTermijnMaanden ?? 6}
-                  onChange={(e) => { setVoorlopigCfg((h) => ({ ...h, standaardTermijnMaanden: e.target.value })); setVoorlopigStatus("rust"); }}
-                  disabled={!voorlopigCfg.aan}
-                  title="De herzieningsdatum staat in het scherm zo veel maanden vooruit voorgevuld; de medewerker kan 'm altijd aanpassen."
-                  style={{ ...invoerStijl, width: "100%", background: "#fff" }}
-                />
+                <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Jaarlijkse uitvraagdatum</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input
+                    type="number" min="1" max="31"
+                    value={voorlopigCfg.herzienDag ?? 1}
+                    onChange={(e) => { setVoorlopigCfg((h) => ({ ...h, herzienDag: e.target.value })); setVoorlopigStatus("rust"); }}
+                    disabled={!voorlopigCfg.aan}
+                    title="Dag van de maand"
+                    style={{ ...invoerStijl, width: 70, background: "#fff" }}
+                  />
+                  <select
+                    value={String(voorlopigCfg.herzienMaand ?? 12)}
+                    onChange={(e) => { setVoorlopigCfg((h) => ({ ...h, herzienMaand: e.target.value })); setVoorlopigStatus("rust"); }}
+                    disabled={!voorlopigCfg.aan}
+                    style={{ ...invoerStijl, flex: "1 1 auto", minWidth: 0, background: "#fff" }}
+                  >
+                    {MAANDNAMEN.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+                  </select>
+                </div>
               </div>
             </div>
           </div>
@@ -1418,6 +1442,39 @@ function SoortIndelingPaneel({ soort, onderaan }) {
               niemand kan er nog iets in wijzigen. Terugzetten kan altijd in Dynamics.
             </div>
           </div>
+
+          {/* Zelfde drie stappen, maar voor een voorlopige aangifte. Alleen de statussen verschillen —
+              de taken, onderwerpen en rubriek hierboven gelden voor beide varianten. */}
+          {(soort === "ib" || soort === "vpb") && (
+            <div style={{ border: "1px solid #EBD9B4", background: "#FDF9F1", borderRadius: 8, padding: 12, marginBottom: 12 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 4, color: "#A9660C" }}>Voorlopige aangifte — dezelfde keten, andere statussen</div>
+              <div style={{ fontSize: 12, color: KLEUR.subtekst, lineHeight: 1.6, marginBottom: 10 }}>
+                Staat een dossier als voorlopige aangifte gemarkeerd, dan loopt precies hetzelfde proces —
+                zelfde taken en onderwerpen, met "voorlopig" erbij — maar krijgt het dossier deze statussen.
+                Laat je ze leeg, dan blijft de status bij een voorlopige aangifte ongemoeid. Het dossier
+                gaat bij een voorlopige aangifte nooit op inactief; de herziening moet immers nog komen.
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 10 }}>
+                {[
+                  ["voorlopigStatusVersturen", "1. Bij versturen"],
+                  ["voorlopigStatusAkkoord", "2. Na akkoord cliënt"],
+                  ["voorlopigStatusVervolgKlaar", "3. Na afronden vervolgtaak"],
+                ].map(([sleutel, label]) => (
+                  <div key={sleutel}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>{label}</div>
+                    <select
+                      value={ketenCfg[sleutel] === null || ketenCfg[sleutel] === undefined ? "" : String(ketenCfg[sleutel])}
+                      onChange={(e) => { setKetenCfg((h) => ({ ...h, [sleutel]: e.target.value })); setKetenStatus("rust"); }}
+                      style={{ ...invoerStijl, width: "100%", background: "#fff" }}
+                    >
+                      <option value="">— status niet wijzigen —</option>
+                      {statusOpties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button
