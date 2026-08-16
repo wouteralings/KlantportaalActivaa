@@ -4823,6 +4823,8 @@ export default function MedewerkerPortaal() {
   // bewerkbaar (bewerkSubTabs), verwijderen (verwijderSubTabs, grant) en bulk-verwijderen (bulkVerwijderSubTabs,
   // grant). Een rubriek zonder subpagina-config erft de rechten van de hoofd-rubriek.
   const [subTabs, setSubTabs] = useState([]);
+  // Subpagina's die nieuw zijn: die erven NIET van hun rubriek en moeten per rol expliciet aan.
+  const [standaardUitSubTabs, setStandaardUitSubTabs] = useState([]);
   const [bewerkSubTabs, setBewerkSubTabs] = useState([]);
   const [verwijderSubTabs, setVerwijderSubTabs] = useState([]);
   const [bulkVerwijderSubTabs, setBulkVerwijderSubTabs] = useState([]);
@@ -4902,6 +4904,7 @@ export default function MedewerkerPortaal() {
         setVerwijderTabs(imp ? vt : (d.heeftRol && t.length ? vt : null));
         // Subpagina-rechten gelden altijd zodra ze gezet zijn (ook zonder tab-beperking); leeg = erven van de rubriek.
         setSubTabs(Array.isArray(d.subTabs) ? d.subTabs : []);
+        setStandaardUitSubTabs(Array.isArray(d.standaardUitSubTabs) ? d.standaardUitSubTabs : []);
         setBewerkSubTabs(Array.isArray(d.bewerkSubTabs) ? d.bewerkSubTabs : []);
         setVerwijderSubTabs(Array.isArray(d.verwijderSubTabs) ? d.verwijderSubTabs : []);
         setBulkVerwijderSubTabs(Array.isArray(d.bulkVerwijderSubTabs) ? d.bulkVerwijderSubTabs : []);
@@ -5009,7 +5012,10 @@ export default function MedewerkerPortaal() {
   // dan gelden de subpagina-instellingen. Anders erven de subpagina's de rechten van de hoofd-rubriek.
   const subGroepAan = (parent) => subTabs.some((k) => k.startsWith(parent + "."));
   const parentVanSub = (k) => String(k).split(".")[0];
-  const magSubZien = (k) => !subGroepAan(parentVanSub(k)) || subTabs.includes(k);
+  // Zichtbaar als de rol de subpagina expliciet heeft, of — zolang er voor die rubriek niets is
+  // ingesteld — via de rubriek zelf. Nieuwe subpagina's (standaardUitSubTabs) erven bewust niet: die
+  // blijven uit tot een beheerder ze toekent, zodat bestaande rollen niet ineens meer gaan zien.
+  const magSubZien = (k) => subTabs.includes(k) || (!subGroepAan(parentVanSub(k)) && !standaardUitSubTabs.includes(k));
   const magSubBewerken = (k) => { const p = parentVanSub(k); return subGroepAan(p) ? (isBeheerder || bewerkSubTabs.includes(k)) : magBewerkenRubriek(p); };
   const magSubVerwijderen = (k) => { const p = parentVanSub(k); return subGroepAan(p) ? (isBeheerder || verwijderSubTabs.includes(k)) : magVerwijderenRubriek(p); };
   const magSubBulk = (k) => { const p = parentVanSub(k); return subGroepAan(p) ? (isBeheerder || bulkVerwijderSubTabs.includes(k)) : isBeheerder; };

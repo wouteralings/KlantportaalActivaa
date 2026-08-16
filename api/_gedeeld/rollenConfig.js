@@ -107,19 +107,27 @@ const MEDEWERKER_SUBTABS = [
   { key: "planning.maand", parent: "planning", label: "Maand" },
   { key: "planning.jaar", parent: "planning", label: "Jaar" },
   { key: "planning.deel", parent: "planning", label: "Deelactiviteiten" },
-  { key: "planning.vergelijking", parent: "planning", label: "Gepland vs geschreven" },
+  { key: "planning.vergelijking", parent: "planning", label: "Gepland vs geschreven", standaardUit: true },
   { key: "planning.config", parent: "planning", label: "Config per klant" },
   { key: "planning.overzicht", parent: "planning", label: "Overzicht" },
   // "Mijn werk" heeft twee weergaven: het eigen overzicht (matrix + voortgang/capaciteit) en de
   // Afwikkeling (deelstappen aftekenen voor jezelf of je team).
   { key: "mijnwerk.overzicht", parent: "mijnwerk", label: "Mijn overzicht" },
-  { key: "mijnwerk.afwikkeling", parent: "mijnwerk", label: "Afwikkeling" },
+  { key: "mijnwerk.afwikkeling", parent: "mijnwerk", label: "Afwikkeling", standaardUit: true },
 ];
 
 const MEDEWERKER_TAB_KEYS = new Set(MEDEWERKER_TABS.map((t) => t.key));
 const BEHEER_TAB_KEYS = new Set(BEHEER_TABS.map((t) => t.key));
 const FUNCTIE_KEYS = new Set(FUNCTIES.map((f) => f.key));
 const MEDEWERKER_SUBTAB_KEYS = new Set(MEDEWERKER_SUBTABS.map((t) => t.key));
+/**
+ * Subpagina's die NIEUW zijn toegevoegd aan een bestaande rubriek en die je dus niet stilzwijgend aan
+ * iedereen wilt geven. Normaal erft een subpagina de rubriek zolang een rol nog géén subpagina van die
+ * rubriek heeft ingesteld ("niets ingesteld = alles zichtbaar"). Voor deze sleutels geldt dat niet: ze
+ * blijven UIT tot een beheerder ze in Beheer → Rollen & rechten expliciet aanzet. Zo verandert er niets
+ * aan de bestaande rechten van een rol wanneer er functionaliteit bijkomt.
+ */
+const STANDAARD_UIT_SUBTABS = MEDEWERKER_SUBTABS.filter((t) => t.standaardUit).map((t) => t.key);
 
 async function haalContainerClient() {
   if (cachedContainerClient) return cachedContainerClient;
@@ -338,6 +346,7 @@ async function magSubBulkVerwijderen(email, subSleutel) {
 }
 
 module.exports = {
+  STANDAARD_UIT_SUBTABS,
   haalRollenConfig, zetRollenConfig, haalRolVoorEmail,
   magRubriekVerwijderen, magSubVerwijderen, magSubBulkVerwijderen,
   magRubriekBewerken, magSubZichtbaar,

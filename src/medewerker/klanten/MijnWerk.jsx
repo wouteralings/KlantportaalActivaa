@@ -272,7 +272,6 @@ export default function MijnWerk({ isBeheerder = false, magPlanning = false, mag
   const [klantenMap, setKlantenMap] = useState({});
   const [status, setStatus] = useState({});            // { "acc|act|deel" of "acc|act|__status__": {...} }
   const [klantDeelstappen, setKlantDeelstappen] = useState({}); // { "acc|act": [ {sleutel,label} ] }
-  const [eerdereStatus, setEerdereStatus] = useState({});       // { "YYYY-MM": statusmap } — voor doorgeschoven werk
   const [bezig, setBezig] = useState("");              // key die nu wordt opgeslagen
   const [fout, setFout] = useState("");
 
@@ -339,10 +338,10 @@ export default function MijnWerk({ isBeheerder = false, magPlanning = false, mag
 
   useEffect(() => {
     setActieveCel(null);
-    fetch(`/api/mw-planning-deelactiviteiten?periode=${periode}&eerdere=1`)
+    fetch(`/api/mw-planning-deelactiviteiten?periode=${periode}`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { setStatus(d.status || {}); setKlantDeelstappen(d.klantDeelstappen || {}); setEerdereStatus(d.eerdereStatus || {}); })
-      .catch(() => { setStatus({}); setKlantDeelstappen({}); setEerdereStatus({}); });
+      .then((d) => { setStatus(d.status || {}); setKlantDeelstappen(d.klantDeelstappen || {}); })
+      .catch(() => { setStatus({}); setKlantDeelstappen({}); });
   }, [periode]);
 
   // Andere cel geopend (of gesloten) → het los geopende uren-paneel weer dichtklappen.
@@ -352,10 +351,7 @@ export default function MijnWerk({ isBeheerder = false, magPlanning = false, mag
     const ov = klantDeelstappen[`${acc}|${actSleutel}`];
     return Array.isArray(ov) && ov.length ? ov : (activiteitById[actSleutel]?.deelstappen || []);
   };
-  const stFor = (acc, actSleutel, deelSleutel, itemPeriode) => {
-    const bron = itemPeriode && itemPeriode !== periode ? (eerdereStatus[itemPeriode] || {}) : status;
-    return bron[`${acc}|${actSleutel}|${deelSleutel}`] || null;
-  };
+  const stFor = (acc, actSleutel, deelSleutel) => status[`${acc}|${actSleutel}|${deelSleutel}`] || null;
 
   // Alle hoofdactiviteiten in deze periode, van IEDEREEN → per (klant × hoofdtaak) één item, met de
   // uitvoerder (`wieLc`) erbij. Hieruit komen zowel de eigen matrix (filteren op de bekeken persoon)
@@ -381,45 +377,26 @@ export default function MijnWerk({ isBeheerder = false, magPlanning = false, mag
   );
 
   /**
-   * DOORGESCHOVEN WERK. Wat in een eerdere periode was ingepland en toen niet is afgerond, blijft
-   * gewoon werk — dus nemen we het mee naar de huidige maand, duidelijk gemarkeerd met de maand waar
-   * het vandaan komt. Zo verdwijnt een jaartaak die in juni gepland stond maar niet af kwam niet uit
-   * beeld zodra juli begint.
-   *   - maand-weergave : de maandactiviteiten van elke eerdere maand van dit jaar die daar niet
-   *                      gereed zijn (status per maand, opgehaald met &eerdere=1);
-   *   - jaar-weergave  : jaartaken met een uitvoermaand vóór de gekozen maand die nog niet gereed
-   *                      zijn (de status hangt daar aan het hele jaar).
-   * Aftekenen gebeurt in de ORIGINELE periode (it.periode), zodat de planning van die maand klopt en
-   * het item hier meteen verdwijnt.
+   * DOORGESCHOVEN WERK — alleen JAARTAKEN. Een jaartaak die in een eerdere maand gepland stond maar
+   * niet is afgerond, blijft gewoon werk: die nemen we mee naar de gekozen maand, gemarkeerd met de
+   * maand waar hij vandaan komt, zodat hij niet uit beeld verdwijnt zodra die maand voorbij is.
+   *
+   * MAANDTAKEN schuiven bewust NIET door: die horen bij hun maand en vervallen daarmee (de
+   * administratie van juni is geen openstaand werk meer in juli — dan telt gewoon juli).
+   *
+   * De status van een jaartaak hangt aan het hele JAAR, dus er is geen extra data voor nodig en
+   * aftekenen werkt hier precies zoals bij een taak van de huidige maand.
    */
   const doorgeschoven = useMemo(() => {
-    if (!config || !bekekenLc || heelJaar) return [];
+    if (!config || !bekekenLc || heelJaar || type !== "jaar") return [];
     const uit = [];
-    if (type === "jaar") {
-      for (const it of basisItems) {
-        if (!it.uitvoerMaand || Number(it.uitvoerMaand) >= maand) continue;
-        if (it.gereed) continue;
-        uit.push({ ...it, meegenomenUit: Number(it.uitvoerMaand), periode });
-      }
-      return uit;
-    }
-    for (let m = 1; m < maand; m++) {
-      const p = `${jaar}-${pad(m)}`;
-      const st = eerdereStatus[p] || {};
-      const regels = werkRegels({ config, activiteitById, klantenMap, type: "maand", jaar, maand: m });
-      for (const r of regels) {
-        if (r.wieLc !== bekekenLc) continue;
-        const eff = effDeelstappen(r.acc, r.actSleutel);
-        const total = eff.length;
-        const done = total ? eff.filter((d) => st[`${r.acc}|${r.actSleutel}|${d.sleutel}`]?.gereed).length : 0;
-        const gereed = total ? done === total : !!st[`${r.acc}|${r.actSleutel}|__hoofd__`]?.gereed;
-        if (gereed) continue;
-        const statusKey = (st[`${r.acc}|${r.actSleutel}|__status__`] || {}).statusKey || "";
-        uit.push({ ...r, eff, done, total, gereed: false, statusKey, meegenomenUit: m, periode: p, key: `${r.key}|${p}` });
-      }
+    for (const it of basisItems) {
+      if (!it.uitvoerMaand || Number(it.uitvoerMaand) >= maand) continue;
+      if (it.gereed) continue;
+      uit.push({ ...it, meegenomenUit: Number(it.uitvoerMaand), periode });
     }
     return uit;
-  }, [config, activiteitById, klantenMap, klantDeelstappen, eerdereStatus, type, jaar, maand, heelJaar, periode, bekekenLc]);
+  }, [config, basisItems, type, maand, heelJaar, periode, bekekenLc]);
 
   // De getoonde items: de werkvoorraad met de maand-, klantgroep- en statusverfijning erop.
   const items = useMemo(() => [...basisItems, ...doorgeschoven].filter((it) => {
@@ -1131,7 +1108,7 @@ export default function MijnWerk({ isBeheerder = false, magPlanning = false, mag
       )}
 
       <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 10, lineHeight: 1.5 }}>
-        Klanten in de rijen, jouw hoofdtaken in de kolommen. De kleur toont de status: <span style={{ color: KLEUR.rood, fontWeight: 700 }}>open</span>, <span style={{ color: KLEUR.amber, fontWeight: 700 }}>bezig</span> of <span style={{ color: KLEUR.groen, fontWeight: 700 }}>gereed</span>. Kies je in een cel zelf een <strong>statuslabel</strong> (bijv. "Wacht op klant"), dan komt dat label mét zijn eigen kleur in de plaats van open/bezig/gereed; de voortgang uit de deelstappen blijft als teller zichtbaar. Klik een cel om af te tekenen, je status te kiezen of gelijk je uren op de klant te schrijven. In de jaar-weergave filter je met de maand-keuze (standaard de huidige maand) op de ingeplande maand — vink <strong>Heel jaar</strong> aan om alle jaartaken in één keer te zien; jaartaken zonder ingestelde maand blijven altijd staan. Werk dat in een eerdere maand gepland stond en nog niet af is, wordt automatisch <strong>meegenomen</strong> naar deze maand en gemarkeerd met <span style={{ fontWeight: 700, color: KLEUR.amber }}>↷ uit &lt;maand&gt;</span>; teken je het hier af, dan telt dat gewoon voor de maand waarin het gepland stond.
+        Klanten in de rijen, jouw hoofdtaken in de kolommen. De kleur toont de status: <span style={{ color: KLEUR.rood, fontWeight: 700 }}>open</span>, <span style={{ color: KLEUR.amber, fontWeight: 700 }}>bezig</span> of <span style={{ color: KLEUR.groen, fontWeight: 700 }}>gereed</span>. Kies je in een cel zelf een <strong>statuslabel</strong> (bijv. "Wacht op klant"), dan komt dat label mét zijn eigen kleur in de plaats van open/bezig/gereed; de voortgang uit de deelstappen blijft als teller zichtbaar. Klik een cel om af te tekenen, je status te kiezen of gelijk je uren op de klant te schrijven. In de jaar-weergave filter je met de maand-keuze (standaard de huidige maand) op de ingeplande maand — vink <strong>Heel jaar</strong> aan om alle jaartaken in één keer te zien; jaartaken zonder ingestelde maand blijven altijd staan. Een <strong>jaartaak</strong> die in een eerdere maand gepland stond en nog niet af is, wordt automatisch <strong>meegenomen</strong> naar de gekozen maand, gemarkeerd met <span style={{ fontWeight: 700, color: KLEUR.amber }}>↷ uit &lt;maand&gt;</span>. Maandtaken schuiven niet door: die horen bij hun eigen maand.
       </div>
 
       {/* Aftekenen-popup: deelstappen + status per taak; is de taak gereed, dan gelijk uren schrijven */}
@@ -1144,7 +1121,7 @@ export default function MijnWerk({ isBeheerder = false, magPlanning = false, mag
                 <div style={{ fontSize: 12.5, color: KLEUR.subtekst }}>{actieveRij.klantnaam}{actieveRij.klantnummer ? ` · ${actieveRij.klantnummer}` : ""}</div>
                 {actiefItem.meegenomenUit ? (
                   <div style={{ marginTop: 4, display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, color: KLEUR.amber, background: KLEUR.amberBg, border: `1px solid ${KLEUR.amberRand}`, borderRadius: 999, padding: "2px 9px" }}>
-                    ↷ meegenomen uit {MAANDEN[actiefItem.meegenomenUit - 1]} — teken je 'm hier af, dan telt dat voor die maand
+                    ↷ jaartaak, stond gepland in {MAANDEN[actiefItem.meegenomenUit - 1]} en is nog niet afgerond
                   </div>
                 ) : null}
               </div>
@@ -1188,7 +1165,7 @@ export default function MijnWerk({ isBeheerder = false, magPlanning = false, mag
               )}
               <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 6 }}>Deelstappen</div>
               {(actiefItem.total === 0 ? [{ sleutel: "__hoofd__", label: `${actiefItem.act.label} afgewikkeld` }] : actiefItem.eff).map((d) => {
-                const s = stFor(actieveRij.acc, actiefItem.actSleutel, d.sleutel, actiefItem.periode);
+                const s = stFor(actieveRij.acc, actiefItem.actSleutel, d.sleutel);
                 const gereed = !!s?.gereed;
                 const key = `${actieveRij.acc}|${actiefItem.actSleutel}|${d.sleutel}`;
                 return (

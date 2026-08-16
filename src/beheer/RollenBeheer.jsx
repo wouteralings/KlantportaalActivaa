@@ -120,7 +120,13 @@ function SubPaginaRechten({ opties, parents, zichtbaar, bewerkbaar, verwijderbaa
               const magVerw = verw.has(o.key);
               return (
                 <div key={o.key} style={{ display: "grid", gridTemplateColumns: "minmax(120px,1fr) auto auto auto", gap: 10, alignItems: "center" }}>
-                  <span style={{ fontSize: 12.5, color: uit ? KLEUR.mutedTekst : KLEUR.tekst, fontWeight: uit ? 400 : 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label}</span>
+                  <span style={{ fontSize: 12.5, color: uit ? KLEUR.mutedTekst : KLEUR.tekst, fontWeight: uit ? 400 : 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {o.label}
+                    {o.standaardUit && (
+                      <span title="Nieuw toegevoegd: deze subpagina staat standaard UIT en is pas zichtbaar als je hem hier op Lezen of Bewerken zet. Zo verandert er niets aan de bestaande rechten van een rol als er functionaliteit bijkomt."
+                        style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: KLEUR.blauw, background: `${KLEUR.blauw}14`, borderRadius: 999, padding: "1px 7px" }}>standaard uit</span>
+                    )}
+                  </span>
                   <div style={{ display: "inline-flex", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, overflow: "hidden" }}>
                     {TAB_STATEN.map(([val, lab], idx) => {
                       const aan = st === val;

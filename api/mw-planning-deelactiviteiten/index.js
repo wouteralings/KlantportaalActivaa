@@ -6,13 +6,9 @@
  *
  * Beveiligd via de rol ('/*') én het granulaire Planning-recht (metPlanningRecht).
  *
- * GET  ?periode=YYYY-MM|YYYY[&eerdere=1]
+ * GET  ?periode=YYYY-MM|YYYY
  *        → { periode, status: { "<accountId>|<activiteit>|<deelstap>": { gereed, wie, datum } },
- *            klantDeelstappen: { "<accountId>|<activiteit>": [ { sleutel, label } ] },
- *            eerdereStatus: { "<periode>": { ...zelfde vorm als status } } }
- *      Met `eerdere=1` komt ook de status van de vóórliggende maanden van hetzelfde jaar mee. Daarmee
- *      kan een scherm werk dat in een eerdere maand niet is afgerond DOORSCHUIVEN naar de huidige
- *      maand, zodat het in zicht blijft. Alleen zinvol bij een maand-periode.
+ *            klantDeelstappen: { "<accountId>|<activiteit>": [ { sleutel, label } ] } }
  * PUT  { actie: "afvink",      accountId, activiteit, periode, deelstap, gereed }   (deelstap of "__hoofd__")
  * PUT  { actie: "klantstappen", accountId, activiteit, deelstappen: [ { label } ] }
  */
@@ -25,18 +21,11 @@ const verwerk = async function (context, req) {
   try {
     if (req.method === "GET") {
       const periode = (req.query && req.query.periode) || "";
-      // Eerdere maanden van hetzelfde jaar (voor het doorschuiven van niet-afgerond werk).
-      const eerdereGevraagd = String((req.query && req.query.eerdere) || "") === "1";
-      const maandMatch = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(String(periode));
-      const eerderePeriodes = eerdereGevraagd && maandMatch
-        ? Array.from({ length: Number(maandMatch[2]) - 1 }, (_, i) => `${maandMatch[1]}-${String(i + 1).padStart(2, "0")}`)
-        : [];
-      const [status, klantDeelstappen, eerdereStatus] = await Promise.all([
+      const [status, klantDeelstappen] = await Promise.all([
         deel.haalStatusVoorPeriode(periode),
         deel.haalAlleKlantDeelstappen(),
-        eerderePeriodes.length ? deel.haalStatusVoorPeriodes(eerderePeriodes) : Promise.resolve({}),
       ]);
-      context.res = { headers: { "Content-Type": "application/json" }, body: { periode, status, klantDeelstappen, eerdereStatus } };
+      context.res = { headers: { "Content-Type": "application/json" }, body: { periode, status, klantDeelstappen } };
       return;
     }
 

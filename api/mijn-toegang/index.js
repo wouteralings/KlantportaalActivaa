@@ -12,12 +12,16 @@
  * blijft op zijn echte identiteit; dit stuurt alleen de weergave.
  *
  *   GET → { heeftRol, rolNaam, medewerkerTabs:[key], beheerTabs:[key], functies:{key:bool}, beheerder,
- *           impersonatie:{ actief, rolNaam, rolSleutel } }
+ *           standaardUitSubTabs:[key], impersonatie:{ actief, rolNaam, rolSleutel } }
+ *
+ * `standaardUitSubTabs` = subpagina's die pas zichtbaar zijn als een rol ze EXPLICIET krijgt. Normaal
+ * erft een subpagina de rubriek zolang er voor die rubriek nog niets is ingesteld; nieuw toegevoegde
+ * functionaliteit willen we juist niet stilzwijgend aan bestaande rollen geven.
  *
  * Route beveiligd via staticwebapp.config.json (rol 'medewerker'/'beheerder').
  */
 const { haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
-const { haalRolVoorEmail, haalRollenConfig } = require("../_gedeeld/rollenConfig");
+const { haalRolVoorEmail, haalRollenConfig, STANDAARD_UIT_SUBTABS } = require("../_gedeeld/rollenConfig");
 const { haalImpersonatie } = require("../_gedeeld/impersonatie");
 
 const json = (status, body) => ({ status, headers: { "Content-Type": "application/json" }, body });
@@ -54,6 +58,7 @@ module.exports = async function (context, req) {
           beheerTabs: nagebootst.beheerTabs || [],
           bewerkBeheerTabs: nagebootst.bewerkBeheerTabs || [],
           functies: nagebootst.functies || {},
+          standaardUitSubTabs: STANDAARD_UIT_SUBTABS,
           beheerder: false,
           impersonatie: { actief: true, rolNaam: nagebootst.naam, rolSleutel: nagebootst.sleutel },
         });
@@ -77,6 +82,8 @@ module.exports = async function (context, req) {
     beheerTabs: rol ? (rol.beheerTabs || []) : [],
     bewerkBeheerTabs: rol ? (rol.bewerkBeheerTabs || []) : [],
     functies: rol ? (rol.functies || {}) : {},
+    // Subpagina's die nieuw zijn en dus expliciet aangezet moeten worden (zie rollenConfig).
+    standaardUitSubTabs: STANDAARD_UIT_SUBTABS,
     beheerder: echtBeheerder,
     impersonatie: { actief: false, rolNaam: "", rolSleutel: "" },
   });
