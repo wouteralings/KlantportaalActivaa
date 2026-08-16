@@ -73,6 +73,16 @@ const STANDAARD_VOORLOPIG = {
   status: null,          // dossierstatus bij het markeren als voorlopig
   taakSoort: null,       // soort van de herzieningstaak (verplicht om de knop te laten werken)
   taakOnderwerp: "Moet de voorlopige aangifte {soort} {periode} herzien worden?",
+  // De tekst die de cliënt in de taak leest. Plaatshouders: {klant} {soort} {periode} {reden}
+  // {toelichting} {datum} {medewerker}. In Beheer → Dossiers aan te passen.
+  taakTekst: [
+    "Voor u is een voorlopige {soort} over {periode} ingediend.",
+    "",
+    "Reden dat deze voorlopig is: {reden}",
+    "Toelichting van uw accountant: {toelichting}",
+    "",
+    "Is er inmiddels iets gewijzigd waardoor de aangifte herzien moet worden? Laat het ons via deze taak weten. Is er niets veranderd, dan kunt u de taak afronden.",
+  ].join("\n"),
   taakRubriek: null,
   // De herziening wordt niet per dossier ingepland maar op een VASTE JAARLIJKSE DATUM uitgevraagd bij
   // de cliënt — standaard 1 december. Zit die datum dit jaar nog voor ons, dan is het dit jaar;
@@ -114,6 +124,7 @@ function normaliseerVoorlopigConfig(ruw) {
     status: getalOfNull(r.status),
     taakSoort: getalOfNull(r.taakSoort),
     taakOnderwerp: tekst(r.taakOnderwerp, 300) || STANDAARD_VOORLOPIG.taakOnderwerp,
+    taakTekst: tekst(r.taakTekst, 4000) || STANDAARD_VOORLOPIG.taakTekst,
     taakRubriek: getalOfNull(r.taakRubriek),
     herzienDag: dag !== null && dag >= 1 && dag <= 31 ? Math.round(dag) : 1,
     herzienMaand: maand !== null && maand >= 1 && maand <= 12 ? Math.round(maand) : 12,
@@ -205,7 +216,27 @@ async function markeerHerzien(soortKey, dossierId, door) {
   return alle[key];
 }
 
-/** Haalt de markering helemaal weg (bijv. als de aangifte alsnog definitief wordt ingediend). */
+/**
+ * Trekt de voorlopig-markering in: de aangifte wordt alsnog definitief ingediend. De registratie
+ * blijft bewaard (historie — je wilt later kunnen zien dát het even voorlopig was en waarom), maar
+ * telt niet meer als lopend, dus het dossier verstuurt weer als een gewone aangifte.
+ */
+async function trekVoorlopigIn(soortKey, dossierId, door, reden) {
+  const key = dossierSleutel(soortKey, dossierId);
+  const alle = await leesAlles();
+  if (!alle[key] || alle[key].status !== "open") return null;
+  alle[key] = {
+    ...alle[key],
+    status: "ingetrokken",
+    ingetrokkenDoor: tekst(door, 200).toLowerCase(),
+    ingetrokkenOp: new Date().toISOString(),
+    ingetrokkenReden: tekst(reden, 1000),
+  };
+  await schrijfAlles(alle);
+  return alle[key];
+}
+
+/** Haalt de markering helemaal weg (bijv. bij het opruimen van een foutieve registratie). */
 async function wisVoorlopig(soortKey, dossierId) {
   const key = dossierSleutel(soortKey, dossierId);
   const alle = await leesAlles();
@@ -239,11 +270,21 @@ const TAAK_SOORT_VELD = process.env.DYNAMICS_TAAK_SOORT_VELD || "";
 const TAAK_KLANT_VELD = process.env.DYNAMICS_TAAK_KLANT_VELD || "sk_client";
 const TAAK_RUBRIEK_VELD = process.env.DYNAMICS_TAAK_RUBRIEK_VELD || "cr283_rubriek";
 
-/** Vult {klant}/{periode}/{jaar}/{soort} in een onderwerp-sjabloon in. */
+/** Vult {klant}/{periode}/{jaar}/{soort} in een ONDERWERP-sjabloon in (één regel, dubbele spaties eruit). */
 function vulSjabloonIn(sjabloon, velden) {
   let uit = String(sjabloon || "").trim();
   for (const [k, v] of Object.entries(velden || {})) uit = uit.replaceAll(`{${k}}`, v == null ? "" : String(v));
-  return uit.replace(/\s{2,}/g, " ").replace(/\s+—\s*$/, "").trim();
+  return uit.replace(/[ \t]{2,}/g, " ").replace(/\s+—\s*$/, "").trim();
+}
+
+/**
+ * Idem voor een meerregelige TEKST (de omschrijving die de cliënt leest): hier blijven lege regels
+ * en regeleindes staan — die zijn de opmaak. Alleen de plaatshouders worden ingevuld.
+ */
+function vulTekstIn(sjabloon, velden) {
+  let uit = String(sjabloon == null ? "" : sjabloon);
+  for (const [k, v] of Object.entries(velden || {})) uit = uit.replaceAll(`{${k}}`, v == null ? "" : String(v));
+  return uit.trimEnd();
 }
 
 /** Leesbare periode van een dossier: jaar, boekjaar ("2025–2026") of datum (notulen). */
@@ -261,7 +302,7 @@ function periodeTekst(dossier) {
 }
 
 /** Maakt één taak aan in Dynamics en geeft het activityid terug. Gooit door bij een fout. */
-async function maakTaak(resource, token, { subject, description, accountId, soortWaarde, rubriekWaarde, eigenaarId, deadline }) {
+async function maakTaak(resource, token, { subject, description, accountId, soortWaarde, rubriekWaarde, eigenaarId, deadline, startdatum }) {
   const body = {
     subject: tekst(subject, 400) || "Voorlopige aangifte herzien",
     description: String(description || "").slice(0, 100000),
@@ -283,6 +324,9 @@ async function maakTaak(resource, token, { subject, description, accountId, soor
   }
   if (eigenaarId) body["ownerid@odata.bind"] = `/systemusers(${eigenaarId})`;
   if (deadline) body.scheduledend = deadline;
+  // Startdatum: vóór deze dag laat het klantportaal de taak níét zien (zie api/taken). Zo staat de
+  // herzieningsuitvraag al klaar, maar verschijnt hij pas op de afgesproken dag bij de cliënt.
+  if (startdatum) body.scheduledstart = startdatum;
 
   const res = await fetch(`${resource}/api/data/v9.2/tasks`, {
     method: "POST",
@@ -300,11 +344,51 @@ async function maakTaak(resource, token, { subject, description, accountId, soor
   return (await res.json().catch(() => ({}))).activityid || "";
 }
 
+/**
+ * Ruimt de herzieningstaak op wanneer de aangifte alsnog definitief wordt ingediend. Eerst echt
+ * VERWIJDEREN — de uitvraag is niet meer aan de orde en hoeft nergens meer op te duiken, ook niet
+ * als geannuleerde regel. Mag verwijderen niet (rechten, of de taak is al in behandeling), dan
+ * valt hij terug op ANNULEREN (statecode 2) met een notitie, zodat hij in elk geval uit het zicht
+ * is. Bewust niet AFRONDEN: dat zou als "herzien" tellen. Best-effort — gooit nooit door.
+ *
+ * @returns {Promise<"verwijderd"|"geannuleerd"|"niets">}
+ */
+async function ruimTaakOp(resource, token, taakId, notitie) {
+  if (!resource || !taakId) return "niets";
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    "OData-MaxVersion": "4.0",
+    "OData-Version": "4.0",
+  };
+  try {
+    let huidig = "";
+    const lees = await fetch(`${resource}/api/data/v9.2/tasks(${taakId})?$select=description,statecode`, { headers });
+    if (lees.ok) {
+      const d = await lees.json();
+      if (d.statecode !== 0) return "niets"; // al afgerond of geannuleerd — niets meer te doen
+      huidig = d.description || "";
+    }
+    const weg = await fetch(`${resource}/api/data/v9.2/tasks(${taakId})`, { method: "DELETE", headers });
+    if (weg.ok || weg.status === 204) return "verwijderd";
+    const res = await fetch(`${resource}/api/data/v9.2/tasks(${taakId})`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ statecode: 2, statuscode: 6, description: huidig + (notitie ? `\n\n${notitie}` : "") }),
+    });
+    return res.ok ? "geannuleerd" : "niets";
+  } catch {
+    return "niets";
+  }
+}
+
 module.exports = {
   STANDAARD_VOORLOPIG, STANDAARD_REDENEN,
-  vulSjabloonIn, periodeTekst, maakTaak,
+  vulSjabloonIn, vulTekstIn, periodeTekst, maakTaak,
   normaliseerVoorlopigConfig, normaliseerAlleVoorlopigConfig, instellingenVoorSoort, volgendeHerzieningsdatum,
-  haalAlle, haalVoorDossier, zetVoorlopig, markeerHerzien, wisVoorlopig, naHerzieningstaakAfgerond,
+  haalAlle, haalVoorDossier, zetVoorlopig, markeerHerzien, trekVoorlopigIn, wisVoorlopig, naHerzieningstaakAfgerond,
+  ruimTaakOp,
   // Doorgeven zodat aanroepers één module hoeven te kennen.
   SOORTEN, haalEenDossier, werkDossierBij,
 };

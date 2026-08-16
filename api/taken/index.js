@@ -91,7 +91,7 @@ async function haalZichtbareTaken(resource, token, accounts, soortConfig) {
 
   const query =
     `${resource}/api/data/v9.2/tasks` +
-    `?$select=activityid,subject,description,scheduledend,prioritycode,_regardingobjectid_value,${KLANT_VALUE}` +
+    `?$select=activityid,subject,description,scheduledstart,scheduledend,prioritycode,_regardingobjectid_value,${KLANT_VALUE}` +
     (EXTRA_TAAK_VELDEN ? "," + EXTRA_TAAK_VELDEN : "") +
     `&$filter=(${filterPerAccount}) and statecode eq 0` +
     `&$orderby=scheduledend asc`;
@@ -115,6 +115,16 @@ async function haalZichtbareTaken(resource, token, accounts, soortConfig) {
 
     const soortWaarde = rij[SOORT_VELD];
     if (soortWaarde == null || !soortConfig.zichtbaar.has(String(soortWaarde))) continue;
+
+    // Taken met een STARTDATUM in de toekomst (Task.scheduledstart) horen nog niet thuis bij de
+    // cliënt: die zijn vooruit klaargezet en gaan pas op die dag in. Gebruikt door o.a. de
+    // herzieningsuitvraag van een voorlopige aangifte, die al bij het vastleggen wordt aangemaakt
+    // maar pas op 1 december in beeld hoort te komen. Zonder startdatum = meteen zichtbaar, zoals
+    // altijd.
+    if (rij.scheduledstart) {
+      const start = new Date(rij.scheduledstart);
+      if (!isNaN(start.getTime()) && start > new Date()) continue;
+    }
 
     groep.taken.push({
       id: rij.activityid,

@@ -405,14 +405,17 @@ module.exports = async function (context, req) {
             klant: huidigDossier.klantnaam || "", periode, jaar: huidigDossier.jaar || "", soort: soort.label,
           }),
           // De taak is een UITVRAAG BIJ DE CLIËNT: is er iets gewijzigd waardoor de aangifte herzien
-          // moet worden? De cliënt ziet 'm in het portaal (mits de taaksoort daar op "zichtbaar"
-          // staat, zie Beheer → Taken); de omschrijving is dus in de je-vorm geschreven.
-          description: [
-            `Voor u is een voorlopige ${soort.label.toLowerCase()}${periode ? ` over ${periode}` : ""} ingediend.`,
-            `\nReden dat deze voorlopig is: ${reden.label}`,
-            `Toelichting van uw accountant: ${toelichting}`,
-            `\nIs er inmiddels iets gewijzigd waardoor de aangifte herzien moet worden? Laat het ons via deze taak weten. Is er niets veranderd, dan kunt u de taak afronden.`,
-          ].join("\n") + (typeof dossierTaakketen.maakRef === "function"
+          // moet worden? De tekst is volledig in Beheer → Dossiers aan te passen (cfg.taakTekst).
+          description: dossierVoorlopig.vulTekstIn(cfg.taakTekst, {
+            klant: huidigDossier.klantnaam || "",
+            soort: soort.label.toLowerCase(),
+            periode,
+            jaar: huidigDossier.jaar || "",
+            reden: reden.label,
+            toelichting,
+            datum: herzienDatum.toLocaleDateString("nl-NL"),
+            medewerker: (ikzelf && ikzelf.naam) || "",
+          }) + (typeof dossierTaakketen.maakRef === "function"
             ? dossierTaakketen.maakRef(soort.key, id, "voorlopig")
             : `\n\n[dossier-ref: ${soort.key}:${id}|voorlopig]`),
           accountId: huidigDossier.accountId,
@@ -420,6 +423,9 @@ module.exports = async function (context, req) {
           rubriekWaarde: cfg.taakRubriek,
           eigenaarId: huidigDossier.managerId || (ikzelf && ikzelf.id) || "",
           deadline: herzienDatum.toISOString(),
+          // Vóór deze dag laat het klantportaal de taak niet zien — hij staat dus klaar, maar
+          // verschijnt pas op de afgesproken uitvraagdatum bij de cliënt (zie api/taken).
+          startdatum: herzienDatum.toISOString(),
           });
         } catch (e) {
           context.log.error("Herzieningstaak aanmaken mislukt:", e);
@@ -460,6 +466,53 @@ module.exports = async function (context, req) {
         const dossierNa = await haalEenDossier(resource, token, soort, id).catch(() => null);
         const registratie = await dossierVoorlopig.haalVoorDossier(soort.key, id).catch(() => null);
         context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, taakId, voorlopig: registratie, dossier: dossierNa } };
+        return;
+      }
+
+      // ── Voorlopig-markering intrekken: de aangifte gaat alsnog definitief de deur uit ──────
+      //    De openstaande herzieningstaak bij de cliënt wordt geannuleerd (niet afgerond — dat zou
+      //    als "herzien" tellen), en het dossier verstuurt daarna weer als een gewone aangifte.
+      if (actie === "voorlopig-intrekken") {
+        if (!heeftVoorlopig) {
+          context.res = { status: 501, headers: { "Content-Type": "application/json" }, body: { error: "De module voor voorlopige aangiftes is nog niet uitgerold." } };
+          return;
+        }
+        const lopend = await dossierVoorlopig.haalVoorDossier(soort.key, id).catch(() => null);
+        if (!lopend || lopend.status !== "open") {
+          context.res = { status: 409, headers: { "Content-Type": "application/json" }, body: { error: "Dit dossier staat niet (meer) als voorlopige aangifte gemarkeerd." } };
+          return;
+        }
+        const redenIntrekken = String((req.body && req.body.toelichting) || "").trim();
+        const ikzelfIn = await haalSystemuser(resource, token, email).catch(() => null);
+        const wie = (ikzelfIn && ikzelfIn.naam) || email || "een medewerker";
+        const stempel = new Date().toLocaleString("nl-NL", { timeZone: "Europe/Amsterdam" });
+
+        // Herzieningstaak opruimen — de uitvraag is niet meer aan de orde. Eerst echt verwijderen;
+        // lukt dat niet, dan annuleren. Best-effort: de markering intrekken is het belangrijkst.
+        let taakUit = "niets";
+        if (lopend.taakId) {
+          taakUit = await dossierVoorlopig.ruimTaakOp(
+            resource, token, lopend.taakId,
+            `[Vervallen door ${wie} op ${stempel}: de aangifte wordt alsnog definitief ingediend.${redenIntrekken ? ` ${redenIntrekken}` : ""}]`,
+          );
+        }
+
+        await dossierVoorlopig.trekVoorlopigIn(soort.key, id, email, redenIntrekken);
+
+        const dossierNa2 = await haalEenDossier(resource, token, soort, id).catch(() => null);
+        await logGebeurtenis({
+          door: email || "onbekend", actie: "dossier",
+          accountId: (dossierNa2 && dossierNa2.accountId) || lopend.accountId,
+          accountIds: [(dossierNa2 && dossierNa2.accountId) || lopend.accountId],
+          klantnaam: (dossierNa2 && dossierNa2.klantnaam) || lopend.klantnaam,
+          tekst: `Voorlopige aangifte ingetrokken bij dossier ${soort.label}${lopend.periode ? ` ${lopend.periode}` : ""} — de aangifte wordt alsnog definitief ingediend.${taakUit === "verwijderd" ? " De herzieningstaak bij de cliënt is verwijderd." : taakUit === "geannuleerd" ? " De herzieningstaak bij de cliënt is geannuleerd." : ""}`,
+        }).catch(() => {});
+
+        const registratieNa = await dossierVoorlopig.haalVoorDossier(soort.key, id).catch(() => null);
+        context.res = {
+          headers: { "Content-Type": "application/json" },
+          body: { ok: true, taakOpgeruimd: taakUit, voorlopig: registratieNa, dossier: dossierNa2 },
+        };
         return;
       }
 

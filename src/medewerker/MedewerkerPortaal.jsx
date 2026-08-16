@@ -3923,6 +3923,33 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
   const [voorlopigOpen, setVoorlopigOpen] = useState(false); // "Voorlopige aangifte"-popup
   const voorlopigInfo = voorlopig || { aan: false, redenen: [], huidig: null, standaardTermijnMaanden: 6 };
   const voorlopigNu = voorlopigInfo.huidig && voorlopigInfo.huidig.status === "open" ? voorlopigInfo.huidig : null;
+  const [intrekkenBezig, setIntrekkenBezig] = useState(false);
+  const [intrekkenFout, setIntrekkenFout] = useState("");
+
+  // "Toch definitief indienen": de voorlopig-markering vervalt en de herzieningstaak bij de cliënt
+  // wordt geannuleerd. Daarna verstuurt het dossier weer als een gewone aangifte.
+  const trekVoorlopigIn = async () => {
+    if (intrekkenBezig) return;
+    if (!window.confirm(
+      "De voorlopig-markering intrekken?\n\nDe aangifte gaat dan alsnog definitief de deur uit en de herzieningstaak bij de cliënt wordt geannuleerd. "
+      + "De reden en toelichting blijven bewaard in de historie.",
+    )) return;
+    setIntrekkenBezig(true); setIntrekkenFout("");
+    try {
+      const r = await fetch("/api/medewerker-dossier", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ soort: dossier.soort, id: dossier.id, actie: "voorlopig-intrekken" }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(`${d.error || `HTTP ${r.status}`}${d.detail ? ` (${d.detail})` : ""}`);
+      if (onVoorlopigVastgelegd) onVoorlopigVastgelegd(d);
+    } catch (e) {
+      setIntrekkenFout(e.message || "Intrekken mislukt.");
+    } finally {
+      setIntrekkenBezig(false);
+    }
+  };
   const reviewInfo = review || { aan: false, ingesteld: false, lopend: null, geschiedenis: [] };
   const lopendeReview = reviewInfo.lopend || null;
   // Laatste afgeronde review (voor het bandje "akkoord bevonden" / "aanpassen na review").
@@ -4259,14 +4286,35 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
       {voorlopigNu && (
         <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, color: "#A9660C", background: "#FDF4E3", border: "1px solid #EBD9B4", borderRadius: 8, padding: "8px 12px", marginBottom: 12 }}>
           <Clock size={15} style={{ flexShrink: 0, marginTop: 1 }} />
-          <div>
+          <div style={{ flex: "1 1 auto", minWidth: 0 }}>
             <div>
               <strong>Voorlopige aangifte</strong> — {voorlopigNu.redenLabel || "reden onbekend"}
               {voorlopigNu.herzienOp ? <> · te herzien op <strong>{new Date(voorlopigNu.herzienOp).toLocaleDateString("nl-NL")}</strong></> : null}
               {voorlopigNu.doorNaam ? <span style={{ color: KLEUR.subtekst }}> · vastgelegd door {voorlopigNu.doorNaam}</span> : null}
             </div>
             {voorlopigNu.toelichting && <div style={{ marginTop: 3, whiteSpace: "pre-wrap", color: KLEUR.tekst }}>{voorlopigNu.toelichting}</div>}
+            {magWijzigen && dossier.actief !== false && (
+              <button
+                onClick={trekVoorlopigIn}
+                disabled={intrekkenBezig}
+                title="De aangifte gaat alsnog definitief de deur uit: de markering vervalt en de herzieningstaak bij de cliënt wordt geannuleerd."
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 8, padding: "5px 11px", background: "#fff", border: "1px solid #A9660C", color: "#A9660C", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: intrekkenBezig ? "default" : "pointer" }}
+              >
+                <CheckCircle2 size={13} /> {intrekkenBezig ? "Bezig…" : "Toch definitief indienen"}
+              </button>
+            )}
+            {intrekkenFout && <div style={{ fontSize: 12, color: KLEUR.rood, marginTop: 6 }}>{intrekkenFout}</div>}
           </div>
+        </div>
+      )}
+      {!voorlopigNu && voorlopigInfo.huidig && voorlopigInfo.huidig.status === "ingetrokken" && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.subtekst, background: "#F4F5F2", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "8px 12px", marginBottom: 12 }}>
+          <Clock size={15} />
+          <span>
+            Stond eerder als voorlopige aangifte gemarkeerd ({voorlopigInfo.huidig.redenLabel || "reden onbekend"}); die markering is
+            {voorlopigInfo.huidig.ingetrokkenOp ? ` op ${new Date(voorlopigInfo.huidig.ingetrokkenOp).toLocaleDateString("nl-NL")}` : ""} ingetrokken —
+            de aangifte gaat definitief de deur uit.
+          </span>
         </div>
       )}
       {!voorlopigNu && voorlopigInfo.huidig && voorlopigInfo.huidig.status === "herzien" && (

@@ -54,6 +54,14 @@ const STANDAARD_VOORLOPIG_CFG = {
     { sleutel: "teruggaaf-versnellen", label: "Teruggaaf versnellen", actief: true },
   ],
   status: "", taakSoort: "", taakOnderwerp: "Moet de voorlopige aangifte {soort} {periode} herzien worden?",
+  taakTekst: [
+    "Voor u is een voorlopige {soort} over {periode} ingediend.",
+    "",
+    "Reden dat deze voorlopig is: {reden}",
+    "Toelichting van uw accountant: {toelichting}",
+    "",
+    "Is er inmiddels iets gewijzigd waardoor de aangifte herzien moet worden? Laat het ons via deze taak weten. Is er niets veranderd, dan kunt u de taak afronden.",
+  ].join("\n"),
   taakRubriek: "", herzienDag: 1, herzienMaand: 12,
 };
 const MAANDNAMEN = ["januari", "februari", "maart", "april", "mei", "juni", "juli", "augustus", "september", "oktober", "november", "december"];
@@ -612,6 +620,7 @@ function SoortIndelingPaneel({ soort, onderaan }) {
         status: getal(voorlopigCfg.status),
         taakSoort: getal(voorlopigCfg.taakSoort),
         taakOnderwerp: String(voorlopigCfg.taakOnderwerp || "").trim(),
+        taakTekst: String(voorlopigCfg.taakTekst || "").trim(),
         taakRubriek: getal(voorlopigCfg.taakRubriek),
         herzienDag: getal(voorlopigCfg.herzienDag) || 1,
         herzienMaand: getal(voorlopigCfg.herzienMaand) || 12,
@@ -1261,6 +1270,21 @@ function SoortIndelingPaneel({ soort, onderaan }) {
               disabled={!voorlopigCfg.aan}
               style={{ ...invoerStijl, width: "100%", background: "#fff", marginBottom: 8 }}
             />
+            <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Tekst die de cliënt leest</div>
+            <textarea
+              value={voorlopigCfg.taakTekst || ""}
+              onChange={(e) => { setVoorlopigCfg((h) => ({ ...h, taakTekst: e.target.value })); setVoorlopigStatus("rust"); }}
+              disabled={!voorlopigCfg.aan}
+              rows={8}
+              style={{ ...invoerStijl, width: "100%", background: "#fff", resize: "vertical", fontFamily: "inherit", lineHeight: 1.5 }}
+            />
+            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, margin: "4px 0 8px" }}>
+              Plaatshouders: <code>{"{klant}"}</code> <code>{"{soort}"}</code> <code>{"{periode}"}</code>{" "}
+              <code>{"{reden}"}</code> <code>{"{toelichting}"}</code> <code>{"{datum}"}</code>{" "}
+              <code>{"{medewerker}"}</code>. Lege regels en regeleindes blijven staan zoals je ze hier typt.
+              <strong> {"{reden}"}</strong> is de gekozen reden, <strong>{"{toelichting}"}</strong> wat de
+              medewerker per dossier invult en <strong>{"{datum}"}</strong> de uitvraagdatum.
+            </div>
             <div style={{ display: "grid", gridTemplateColumns: "minmax(180px, 1fr) minmax(180px, 1fr)", gap: 10 }}>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Rubriek (optioneel)</div>
