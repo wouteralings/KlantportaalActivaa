@@ -11,14 +11,18 @@
  *
  * Alle statussen tellen mee (concept t/m gefactureerd) — het gaat om wat er is besteed, niet om wat
  * er al is goedgekeurd. Kantoorbreed: een planner wil juist over alle medewerkers heen kunnen kijken.
- * Beveiligd via staticwebapp.config.json én het granulaire Planning-recht (metPlanningRecht).
+ *
+ * Toegang: elke ingelogde MEDEWERKER (magPlanningLezen), niet alleen wie het granulaire Planning-recht
+ * heeft — "Mijn werk" is voor iedereen en zet daar de geschreven uren naast de geplande. Zelfde keuze
+ * als bij mw-planning-config (GET) en mw-planning-overzicht. Klanten worden geweerd door de rol-check
+ * en de SWA-route-regel.
  */
-const { metPlanningRecht } = require("../_gedeeld/planningRecht");
+const { magPlanningLezen } = require("../_gedeeld/planningRecht");
 const uren = require("../_gedeeld/urenDataverse");
 
 const pad = (n) => String(n).padStart(2, "0");
 
-module.exports = metPlanningRecht(async function (context, req) {
+const verwerk = async function (context, req) {
   if ((req.method || "GET").toUpperCase() !== "GET") {
     context.res = { status: 405, headers: { "Content-Type": "application/json" }, body: { error: "Methode niet ondersteund." } };
     return;
@@ -53,4 +57,12 @@ module.exports = metPlanningRecht(async function (context, req) {
     context.log && context.log.error && context.log.error(err);
     context.res = { status: 500, headers: { "Content-Type": "application/json" }, body: { error: "Kon de geschreven uren niet ophalen.", detail: String(err.message || err) } };
   }
-});
+};
+
+module.exports = async function (context, req) {
+  if (!magPlanningLezen(req)) {
+    context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Geen toegang." } };
+    return;
+  }
+  return verwerk(context, req);
+};

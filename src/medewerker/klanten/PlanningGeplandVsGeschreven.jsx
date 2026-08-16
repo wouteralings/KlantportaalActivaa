@@ -25,7 +25,7 @@ const KLEUR = {
   amber: "#A9660C", amberBg: "#FFF4E5", amberRand: "#F2D9A8", lichtblauw: "#EAF2F8",
 };
 const pad = (n) => String(n).padStart(2, "0");
-const uur = (n) => `${Number(n || 0).toLocaleString("nl-NL", { maximumFractionDigits: 1 })} u`;
+const uur = (n) => `${Number(n || 0).toLocaleString("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} u`;
 const euro = (n) => `€ ${Number(n || 0).toLocaleString("nl-NL", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
 const kop = { textAlign: "right", fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", padding: "7px 9px", borderBottom: `1px solid ${KLEUR.rand}`, whiteSpace: "nowrap" };
@@ -121,7 +121,7 @@ export default function PlanningGeplandVsGeschreven() {
       else k.overig += g.uren;
     }
 
-    const rond = (n) => Math.round(n * 10) / 10;
+    const rond = (n) => Math.round(n * 100) / 100;
     const uit = [...per.values()].map((mw) => {
       const klanten = [...mw.klanten.values()].map((k) => {
         const geschrevenTotaal = k.abonnement + k.uxt + k.overig;
@@ -165,7 +165,7 @@ export default function PlanningGeplandVsGeschreven() {
       s.gepland += r.gepland; s.abonnement += r.abonnement; s.uxt += r.uxt;
       s.geschreven += r.geschreven; s.dervingUren += r.dervingUren; s.dervingBedrag += r.dervingBedrag;
     }
-    const rond = (n) => Math.round(n * 10) / 10;
+    const rond = (n) => Math.round(n * 100) / 100;
     return { ...s, gepland: rond(s.gepland), abonnement: rond(s.abonnement), uxt: rond(s.uxt), geschreven: rond(s.geschreven), dervingUren: rond(s.dervingUren) };
   }, [zichtbaar]);
 

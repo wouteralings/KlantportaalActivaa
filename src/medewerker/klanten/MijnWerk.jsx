@@ -32,7 +32,7 @@ const datumKort = (iso) => { if (!iso) return ""; const d = new Date(iso); retur
 
 // teamPersoon/valtInMaand/MAANDEN staan in planningWerk.js — gedeeld met Planning → "Gepland vs geschreven".
 
-const uurTekst = (n) => `${Number(n || 0).toLocaleString("nl-NL", { maximumFractionDigits: 1 })} u`;
+const uurTekst = (n) => `${Number(n || 0).toLocaleString("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} u`;
 
 /**
  * Voortgangsbalk boven de matrix: beschikbare uren in de periode, hoeveel er al is weggewerkt
@@ -44,7 +44,7 @@ function VoortgangBalk({ v, periodeLabel, wie }) {
   const pctGereed = v.ingepland > 0 ? Math.min(100, Math.round((v.gereedUren / v.ingepland) * 100)) : 0;
   // Past het nog? Nog te doen versus wat er vanaf vandaag nog aan uren in de periode zit.
   const heeftRest = v.restBeschikbaar != null;
-  const ruimte = heeftRest ? Math.round((v.restBeschikbaar - v.openUren) * 10) / 10 : null;
+  const ruimte = heeftRest ? Math.round((v.restBeschikbaar - v.openUren) * 100) / 100 : null;
   const krap = heeftRest && ruimte < 0;
   const bijnaKrap = heeftRest && !krap && v.restBeschikbaar > 0 && v.openUren / v.restBeschikbaar > 0.85;
   const tegel = (label, waarde, kleur, hint) => (
@@ -64,7 +64,11 @@ function VoortgangBalk({ v, periodeLabel, wie }) {
         {v.verlof ? tegel("Verlof", uurTekst(v.verlof), KLEUR.blauw, "goedgekeurd in deze periode") : null}
         {tegel("Ingepland", uurTekst(v.ingepland), KLEUR.blauw, `${v.taken} ${v.taken === 1 ? "taak" : "taken"} in ${periodeLabel}`)}
         {tegel("Gereed", uurTekst(v.gereedUren), KLEUR.groen, `${v.takenGereed}/${v.taken} taken afgetekend`)}
-        {tegel("Geschreven", uurTekst(v.geschreven), v.geschreven ? KLEUR.groen : KLEUR.mutedTekst, "werkelijk geboekte uren")}
+        {tegel("Geschreven", uurTekst(v.geschreven), v.geschreven ? KLEUR.tekst : KLEUR.mutedTekst,
+          `op cliënten${v.geschrevenUxt ? ` · ${uurTekst(v.geschrevenUxt)} UXT` : ""}`)}
+        {tegel("Verschil", v.verschil ? `${v.verschil > 0 ? "+" : "−"}${uurTekst(Math.abs(v.verschil))}` : "—",
+          v.verschil > 0 ? KLEUR.rood : v.verschil < 0 ? KLEUR.groen : KLEUR.mutedTekst,
+          v.verschil > 0 ? "meer geschreven dan gepland" : "geschreven t.o.v. gepland")}
         {tegel("Nog te doen", uurTekst(v.openUren), v.openUren ? KLEUR.amber : KLEUR.groen, `${v.taken - v.takenGereed} taken open`)}
         {heeftRest
           ? tegel("Resterend beschikbaar", uurTekst(v.restBeschikbaar), krap ? KLEUR.rood : bijnaKrap ? KLEUR.amber : KLEUR.groen,
@@ -148,7 +152,8 @@ function TeamVoortgang({ rijen, periodeLabel, open, setOpen, ikLc }) {
                 <th style={kop} title="Roosteruren − goedgekeurd verlof, maal de productiviteit">Beschikbaar</th>
                 <th style={kop} title="Som van de indicatie-uren van alle aan deze persoon toegewezen hoofdtaken">Ingepland</th>
                 <th style={kop}>Gereed</th>
-                <th style={kop} title="Werkelijk geschreven uren op deze planningstaken">Geschreven</th>
+                <th style={kop} title="Alle uren die deze medewerker in deze periode op cliënten heeft geschreven">Geschreven</th>
+                <th style={kop} title="Geschreven − gepland. Positief (rood) = er is MEER geschreven dan ingepland; UXT-uren staan er apart bij, want die worden als meerwerk gefactureerd.">Verschil</th>
                 <th style={kop}>Nog te doen</th>
                 <th style={kop} title="Uren die er vanaf vandaag nog in deze periode zitten">Resterend</th>
                 <th style={{ ...kop, textAlign: "left", minWidth: 150 }} title="Ingepland werk t.o.v. de beschikbare productieve uren">Bezetting</th>
@@ -176,7 +181,14 @@ function TeamVoortgang({ rijen, periodeLabel, open, setOpen, ikLc }) {
                     <td style={cel}>{r.beschikbaar == null ? "—" : uurTekst(r.beschikbaar)}</td>
                     <td style={{ ...cel, fontWeight: 600 }}>{uurTekst(r.ingepland)}</td>
                     <td style={{ ...cel, color: KLEUR.groen }}>{uurTekst(r.gereedUren)}<span style={{ color: KLEUR.mutedTekst, fontWeight: 400 }}> · {r.takenGereed}/{r.taken}</span></td>
-                    <td style={{ ...cel, color: r.geschreven ? KLEUR.groen : KLEUR.mutedTekst }}>{r.geschreven ? uurTekst(r.geschreven) : "—"}</td>
+                    <td style={{ ...cel, color: r.geschreven ? KLEUR.tekst : KLEUR.mutedTekst }} title={r.geschrevenUxt ? `waarvan ${uurTekst(r.geschrevenUxt)} UXT (meerwerk)` : undefined}>
+                      {r.geschreven ? uurTekst(r.geschreven) : "—"}
+                      {r.geschrevenUxt ? <div style={{ fontSize: 10, color: KLEUR.blauw }}>{uurTekst(r.geschrevenUxt)} UXT</div> : null}
+                    </td>
+                    <td style={{ ...cel, fontWeight: 700, color: r.verschil > 0 ? KLEUR.rood : r.verschil < 0 ? KLEUR.groen : KLEUR.mutedTekst }}
+                      title={r.verschil > 0 ? `Er is ${uurTekst(r.verschil)} méér geschreven dan gepland${r.geschrevenUxt ? ` (waarvan ${uurTekst(r.geschrevenUxt)} als UXT/meerwerk)` : ""}` : undefined}>
+                      {r.verschil ? `${r.verschil > 0 ? "+" : "−"}${uurTekst(Math.abs(r.verschil))}` : "—"}
+                    </td>
                     <td style={{ ...cel, color: r.openUren ? KLEUR.amber : KLEUR.groen }}>{uurTekst(r.openUren)}</td>
                     <td style={{ ...cel, color: krap ? KLEUR.rood : KLEUR.tekst }}>{r.restBeschikbaar == null ? "—" : uurTekst(r.restBeschikbaar)}</td>
                     <td style={{ ...cel, textAlign: "left" }}>
@@ -194,7 +206,7 @@ function TeamVoortgang({ rijen, periodeLabel, open, setOpen, ikLc }) {
                 );
               })}
               {rijen.length === 0 && (
-                <tr><td colSpan={10} style={{ ...cel, textAlign: "center", color: KLEUR.mutedTekst, padding: 18 }}>Geen medewerkers om te tonen.</td></tr>
+                <tr><td colSpan={11} style={{ ...cel, textAlign: "center", color: KLEUR.mutedTekst, padding: 18 }}>Geen medewerkers om te tonen.</td></tr>
               )}
             </tbody>
           </table>
@@ -238,6 +250,8 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
   const [heelJaar, setHeelJaar] = useState(false);
 
   const [config, setConfig] = useState(null);
+  const [geschrevenRijen, setGeschrevenRijen] = useState([]); // echt geschreven uren per medewerker × cliënt × soort
+  const [geschrevenFout, setGeschrevenFout] = useState(false); // konden de geschreven uren niet worden opgehaald?
   const [activiteiten, setActiviteiten] = useState([]);
   const [urenPerBron, setUrenPerBron] = useState({}); // "acc|act|periode" → { uren, aantal } geschreven uren
   const [capaciteit, setCapaciteit] = useState(null); // { werkdagen, werkdagenResterend, medewerkers: [...] }
@@ -265,8 +279,19 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
   const activiteitById = useMemo(() => Object.fromEntries(activiteiten.map((a) => [a.sleutel, a])), [activiteiten]);
   const activiteitOrder = useMemo(() => Object.fromEntries(activiteiten.map((a, i) => [a.sleutel, i])), [activiteiten]);
   const statusInfo = useMemo(() => Object.fromEntries((statussen || []).map((s) => [s.sleutel, s])), [statussen]);
-  // Wiens werk tonen we? Standaard mijzelf; een beheerder kan een andere medewerker kiezen.
-  const bekekenNaam = isBeheerder && bekeken ? bekeken : (mijnNaam || "");
+  // Wiens werk tonen we? Standaard mijzelf. Een beheerder kan iedereen kiezen; een LEIDINGGEVENDE de
+  // mensen uit zijn eigen team — dat zijn precies de medewerkers die /api/mw-planning-capaciteit
+  // teruggeeft (dat endpoint scoopt al op leidinggevende, plus jezelf). Een gewone medewerker houdt
+  // alleen zijn eigen werk en krijgt de keuze dus niet te zien.
+  const teamNamen = useMemo(() => {
+    const mij = String(mijnNaam || "").trim().toLowerCase();
+    return ((capaciteit && capaciteit.medewerkers) || [])
+      .map((m) => String(m.naam || "").trim())
+      .filter((n) => n && n.toLowerCase() !== mij)
+      .sort((a, b) => String(a).localeCompare(String(b), "nl"));
+  }, [capaciteit, mijnNaam]);
+  const magAndersBekijken = isBeheerder || teamNamen.length > 0;
+  const bekekenNaam = magAndersBekijken && bekeken ? bekeken : (mijnNaam || "");
   const bekekenLc = String(bekekenNaam).trim().toLowerCase();
   // Klantgroep-verfijning actief? (Niet beheerder-gated: geldt voor iedereen.)
   const groepActief = !!bekekenGroep;
@@ -292,6 +317,12 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setCapaciteit(d || null))
       .catch(() => setCapaciteit(null));
+    // De ECHT geschreven uren van deze periode (alle boekingen op cliënten, niet alleen wat er via de
+    // planning-knop is geboekt). Nodig om te zien of er méér is geschreven dan gepland.
+    fetch(`/api/mw-planning-geschreven?${vraag}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => { setGeschrevenRijen(d.rijen || []); setGeschrevenFout(false); })
+      .catch(() => { setGeschrevenRijen([]); setGeschrevenFout(true); });
   }, [type, jaar, maand, isBeheerder]);
 
   useEffect(() => {
@@ -355,6 +386,39 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
   }), [basisItems, type, heelJaar, maand, groepActief, bekekenGroep, statusFilter]);
 
   /**
+   * De ECHT geschreven uren, per medewerker: totaal, de splitsing standaard (abonnement) / meerwerk
+   * (UXT), en per cliënt. Dit zijn alle urenboekingen op cliënten in de periode — niet alleen wat er
+   * via de "Uren schrijven"-knop vanuit een planningstaak is geboekt. Alleen zó zie je of er méér is
+   * geschreven dan gepland.
+   */
+  const geschrevenPerPersoon = useMemo(() => {
+    // Koppelen op E-MAIL, niet op naam: een urenboeking bewaart de naam als snapshot op het moment van
+    // boeken, en die kan afwijken van de Dynamics-naam waar de planning op werkt (bijv. met/zonder
+    // titel). Via de capaciteitslijst (e-mail → naam) landt elke boeking bij de juiste persoon; is de
+    // e-mail onbekend, dan valt hij terug op de naam uit de boeking zelf.
+    const naamVanEmail = new Map(
+      ((capaciteit && capaciteit.medewerkers) || [])
+        .filter((m) => m.email)
+        .map((m) => [String(m.email).trim().toLowerCase(), String(m.naam || "").trim().toLowerCase()])
+    );
+    const map = new Map();
+    for (const g of geschrevenRijen) {
+      const email = String(g.email || "").trim().toLowerCase();
+      const lc = (email && naamVanEmail.get(email)) || String(g.naam || "").trim().toLowerCase();
+      if (!lc) continue;
+      if (!map.has(lc)) map.set(lc, { totaal: 0, abonnement: 0, uxt: 0, perKlant: {} });
+      const r = map.get(lc);
+      const u = Number(g.uren) || 0;
+      const acc = String(g.accountId || "").toLowerCase();
+      r.totaal += u;
+      if (g.soort === "abonnement") r.abonnement += u;
+      else if (g.soort === "uxt") r.uxt += u;
+      if (acc) r.perKlant[acc] = (r.perKlant[acc] || 0) + u;
+    }
+    return map;
+  }, [geschrevenRijen, capaciteit]);
+
+  /**
    * Voortgang & capaciteit van de bekeken persoon in deze periode (maand of heel jaar):
    *   - beschikbaar        : rooster − goedgekeurd verlof (uit /api/mw-planning-capaciteit)
    *   - ingepland          : som van de indicatie-uren van al zijn/haar taken in deze periode
@@ -372,13 +436,18 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
       if (it.indicatieUren == null) zonderIndicatie++;
       ingepland += u;
       if (it.gereed) { takenGereed++; gereedUren += u; } else openUren += u;
-      geschreven += (urenPerBron[`${it.acc}|${it.actSleutel}|${periode}`] || {}).uren || 0;
     }
-    const rond = (n) => Math.round(n * 10) / 10;
+    // Geschreven = ALLE uren die deze persoon in de periode op cliënten heeft geschreven (niet alleen
+    // wat er vanuit een planningstaak is geboekt) — anders zegt het verschil met de planning niets.
+    const gesch = geschrevenPerPersoon.get(bekekenLc) || { totaal: 0, abonnement: 0, uxt: 0 };
+    geschreven = gesch.totaal;
+    const rond = (n) => Math.round(n * 100) / 100;
     return {
       gevonden: !!mij,
       taken: basisItems.length, takenGereed, zonderIndicatie,
       ingepland: rond(ingepland), gereedUren: rond(gereedUren), openUren: rond(openUren), geschreven: rond(geschreven),
+      geschrevenAbonnement: rond(gesch.abonnement), geschrevenUxt: rond(gesch.uxt),
+      verschil: rond(geschreven - ingepland),
       beschikbaar: mij ? rond(Number(mij.beschikbaar) || 0) : null,
       roosterUren: mij ? rond(Number(mij.roosterUren) || 0) : null,
       verlof: mij ? rond(Number(mij.verlofGoedgekeurd) || 0) : null,
@@ -388,7 +457,7 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
       productiviteit: mij && mij.declarabelFactor != null ? Number(mij.declarabelFactor) : null,
       beschikbaarBruto: mij ? rond(Number(mij.beschikbaarBruto) || 0) : null,
     };
-  }, [basisItems, urenPerBron, periode, capaciteit, bekekenLc]);
+  }, [basisItems, geschrevenPerPersoon, capaciteit, bekekenLc]);
 
   /**
    * Hetzelfde plaatje, maar dan in één overzicht voor ALLE medewerkers die je mag zien (leidinggevende:
@@ -403,7 +472,7 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
       if (!perPersoon.has(lc)) {
         perPersoon.set(lc, {
           lc, naam: String(naam || "").trim() || "— niet toegewezen —",
-          taken: 0, takenGereed: 0, ingepland: 0, gereedUren: 0, openUren: 0, geschreven: 0,
+          taken: 0, takenGereed: 0, ingepland: 0, gereedUren: 0, openUren: 0, geschreven: 0, geschrevenUxt: 0,
           beschikbaar: null, beschikbaarBruto: null, roosterUren: null, verlof: null, verlofAangevraagd: null,
           productiviteit: null, restBeschikbaar: null, inCapaciteit: false,
         });
@@ -430,9 +499,16 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
       p.taken++;
       p.ingepland += u;
       if (it.gereed) { p.takenGereed++; p.gereedUren += u; } else p.openUren += u;
-      p.geschreven += (urenPerBron[`${it.acc}|${it.actSleutel}|${periode}`] || {}).uren || 0;
     }
-    const rond = (n) => Math.round(n * 10) / 10;
+    // Geschreven kant: alle uren die deze persoon in de periode op cliënten schreef (kantoorbreed
+    // opgehaald), zodat "meer geschreven dan gepland" echt klopt.
+    for (const [lc, g] of geschrevenPerPersoon) {
+      if (!perPersoon.has(lc)) continue; // buiten je scope — niet tonen
+      const p = perPersoon.get(lc);
+      p.geschreven = g.totaal;
+      p.geschrevenUxt = g.uxt;
+    }
+    const rond = (n) => Math.round(n * 100) / 100;
     const rijen = [...perPersoon.values()]
       // Scope: alleen wie de capaciteits-API teruggeeft (je eigen team, of iedereen als beheerder).
       // Een beheerder ziet daarnaast ook wie wél werk heeft maar géén uurtarief/rooster — anders zou
@@ -441,6 +517,9 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
       .map((p) => ({
         ...p,
         ingepland: rond(p.ingepland), gereedUren: rond(p.gereedUren), openUren: rond(p.openUren), geschreven: rond(p.geschreven),
+        geschrevenUxt: rond(p.geschrevenUxt),
+        // Verschil = geschreven − gepland. Positief = er is MEER geschreven dan ingepland.
+        verschil: rond(p.geschreven - p.ingepland),
         beschikbaar: p.beschikbaar == null ? null : rond(p.beschikbaar),
         pctGereed: p.ingepland > 0 ? Math.round((p.gereedUren / p.ingepland) * 100) : null,
         // Bezetting = ingepland werk t.o.v. de productieve uren in de periode.
@@ -455,7 +534,7 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
       return a.ruimte - b.ruimte; // krapste (meest achterlopend) bovenaan
     });
     return rijen;
-  }, [alleItems, urenPerBron, periode, capaciteit, isBeheerder]);
+  }, [alleItems, geschrevenPerPersoon, capaciteit, isBeheerder]);
 
   // Kolommen: de hoofdtaken die in mijn werk voorkomen (op definitie-volgorde).
   const alleTaken = useMemo(() => {
@@ -484,17 +563,18 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
 
   // "Werk van"-combobox: medewerkers + klantgroepen, gefilterd op wat je typt.
   const werkVanFilter = werkVanZoek.trim().toLowerCase();
-  const werkVanMedewerkers = useMemo(
-    () => medewerkerLijst.filter((n) => n.toLowerCase() !== String(mijnNaam || "").toLowerCase() && (!werkVanFilter || n.toLowerCase().includes(werkVanFilter))),
-    [medewerkerLijst, mijnNaam, werkVanFilter]
-  );
+  // Beheerder: alle medewerkers. Leidinggevende: zijn eigen team (uit de capaciteitslijst).
+  const werkVanMedewerkers = useMemo(() => {
+    const bron = isBeheerder && medewerkerLijst.length ? medewerkerLijst : teamNamen;
+    return bron.filter((n) => n.toLowerCase() !== String(mijnNaam || "").toLowerCase() && (!werkVanFilter || n.toLowerCase().includes(werkVanFilter)));
+  }, [isBeheerder, medewerkerLijst, teamNamen, mijnNaam, werkVanFilter]);
   const werkVanGroepen = useMemo(
     () => alleKlantgroepen.filter((g) => !werkVanFilter || g.toLowerCase().includes(werkVanFilter)),
     [alleKlantgroepen, werkVanFilter]
   );
   // Persoon en klantgroep zijn twee losse assen die tegelijk actief mogen zijn ("werk van Jan, binnen
-  // klantgroep X"). Het label toont beide; wie geen beheerder is, ziet alleen het groep-deel.
-  const persoonLabel = bekeken || (isBeheerder ? `Mijzelf${mijnNaam ? ` (${mijnNaam})` : ""}` : "");
+  // klantgroep X"). Het label toont beide; wie niemand anders mag bekijken, ziet alleen het groep-deel.
+  const persoonLabel = bekeken || (magAndersBekijken ? `Mijzelf${mijnNaam ? ` (${mijnNaam})` : ""}` : "");
   const werkVanLabel = [persoonLabel, bekekenGroep].filter(Boolean).join(" · ") || "Alle klantgroepen";
   const kiesWerkVan = (soort, waarde) => {
     if (soort === "medewerker") setBekeken(waarde);      // "" = mijzelf
@@ -530,9 +610,10 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
   // Geplande (indicatie-)uren van wat er nú in de matrix staat: per klantrij, per hoofdtaak-kolom en
   // het totaal van alles. Volgt dus wél de filters — het is de optelsom van de zichtbare regels.
   const rijTotalen = useMemo(() => {
-    const perKlant = {}, perTaak = {}, leegPerKlant = {};
+    const perKlant = {}, perTaak = {}, leegPerKlant = {}, geschrevenPerKlant = {};
     const leegActiviteiten = new Set();
-    let totaal = 0, leeg = 0;
+    const geschrevenVanMij = (geschrevenPerPersoon.get(bekekenLc) || {}).perKlant || {};
+    let totaal = 0, leeg = 0, totaalGeschreven = 0;
     for (const rij of zichtbareRijen) {
       for (const t of zichtbareTaken) {
         const it = rij.taken[t.sleutel];
@@ -549,11 +630,20 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
         }
       }
     }
-    const rond = (n) => Math.round(n * 10) / 10;
+    // Geschreven uren van de bekeken persoon op deze klanten (alle boekingen, niet alleen vanuit de
+    // planning) — zo zie je per klant of er meer tijd in ging dan gepland.
+    for (const rij of zichtbareRijen) {
+      const u = geschrevenVanMij[rij.acc] || 0;
+      if (!u) continue;
+      geschrevenPerKlant[rij.acc] = u;
+      totaalGeschreven += u;
+    }
+    const rond = (n) => Math.round(n * 100) / 100;
     for (const k of Object.keys(perKlant)) perKlant[k] = rond(perKlant[k]);
     for (const k of Object.keys(perTaak)) perTaak[k] = rond(perTaak[k]);
-    return { perKlant, perTaak, leegPerKlant, leeg, leegActiviteiten: [...leegActiviteiten], totaal: rond(totaal) };
-  }, [zichtbareRijen, zichtbareTaken]);
+    for (const k of Object.keys(geschrevenPerKlant)) geschrevenPerKlant[k] = rond(geschrevenPerKlant[k]);
+    return { perKlant, perTaak, leegPerKlant, leeg, leegActiviteiten: [...leegActiviteiten], geschrevenPerKlant, totaal: rond(totaal), totaalGeschreven: rond(totaalGeschreven) };
+  }, [zichtbareRijen, zichtbareTaken, geschrevenPerPersoon, bekekenLc]);
 
   // De aangeklikte cel (voor de aftekenen-popup) — live afgeleid, zodat de status meebeweegt met afvinken.
   const actieveRij = actieveCel ? klantRijen.find((r) => r.acc === actieveCel.acc) : null;
@@ -620,7 +710,7 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
     <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 20 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700 }}>
-          <ClipboardCheck size={17} color={KLEUR.blauw} /> {isBeheerder && bekeken ? "Werk van" : "Mijn werk"}{bekekenNaam ? <span style={{ fontSize: 12.5, fontWeight: 500, color: KLEUR.mutedTekst }}>· {bekekenNaam}</span> : null}{groepActief ? <span style={{ fontSize: 12.5, fontWeight: 500, color: KLEUR.mutedTekst }}> · {bekekenGroep}</span> : null}{isBeheerder && bekeken ? <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 20, padding: "2px 8px", marginLeft: 6 }}>als beheerder</span> : null}{!magAftekenen ? <span title="Je rol staat 'Mijn werk' op alleen-lezen; aftekenen is uitgeschakeld." style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.amber, background: KLEUR.amberBg, border: `1px solid ${KLEUR.amberRand}`, borderRadius: 20, padding: "2px 8px", marginLeft: 6 }}>alleen-lezen</span> : null}
+          <ClipboardCheck size={17} color={KLEUR.blauw} /> {magAndersBekijken && bekeken ? "Werk van" : "Mijn werk"}{bekekenNaam ? <span style={{ fontSize: 12.5, fontWeight: 500, color: KLEUR.mutedTekst }}>· {bekekenNaam}</span> : null}{groepActief ? <span style={{ fontSize: 12.5, fontWeight: 500, color: KLEUR.mutedTekst }}> · {bekekenGroep}</span> : null}{magAndersBekijken && bekeken ? <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 20, padding: "2px 8px", marginLeft: 6 }}>{isBeheerder ? "als beheerder" : "als leidinggevende"}</span> : null}{!magAftekenen ? <span title="Je rol staat 'Mijn werk' op alleen-lezen; aftekenen is uitgeschakeld." style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.amber, background: KLEUR.amberBg, border: `1px solid ${KLEUR.amberRand}`, borderRadius: 20, padding: "2px 8px", marginLeft: 6 }}>alleen-lezen</span> : null}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button onClick={vorige} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, background: "#fff", cursor: "pointer", color: KLEUR.subtekst }}><ChevronLeft size={16} /></button>
@@ -648,10 +738,10 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
         </div>
         {/* Zoek-en-kies: klantgroep voor iedereen, medewerker-namen alleen voor beheerders. */}
         <div ref={werkVanRef} style={{ position: "relative", fontSize: 12, color: KLEUR.subtekst, display: "inline-flex", alignItems: "center", gap: 6 }}>
-            {isBeheerder ? "Werk van" : "Klantgroep"}
+            {magAndersBekijken ? "Werk van" : "Klantgroep"}
             <button
               onClick={() => { setWerkVanOpen((o) => !o); setWerkVanZoek(""); }}
-              title={isBeheerder ? "Kies een medewerker en/of een klantgroep — typ om te zoeken" : "Beperk je werk tot één klantgroep — typ om te zoeken"}
+              title={magAndersBekijken ? "Kies een medewerker en/of een klantgroep — typ om te zoeken" : "Beperk je werk tot één klantgroep — typ om te zoeken"}
               style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 190, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "6px 8px", fontSize: 12.5, background: (bekeken || bekekenGroep) ? KLEUR.lichtblauw : "#fff", color: (bekeken || bekekenGroep) ? KLEUR.blauw : KLEUR.tekst, fontWeight: (bekeken || bekekenGroep) ? 700 : 400, cursor: "pointer", textAlign: "left" }}
             >
               {bekekenGroep ? <Building2 size={13} /> : bekeken ? <Users size={13} /> : null}
@@ -667,18 +757,18 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
                     value={werkVanZoek}
                     onChange={(e) => setWerkVanZoek(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Escape") { setWerkVanOpen(false); setWerkVanZoek(""); } }}
-                    placeholder={isBeheerder ? "Zoek medewerker of klantgroep…" : "Zoek klantgroep…"}
+                    placeholder={magAndersBekijken ? "Zoek medewerker of klantgroep…" : "Zoek klantgroep…"}
                     style={{ width: "100%", boxSizing: "border-box", padding: "6px 8px 6px 26px", fontSize: 12.5, border: `1px solid ${KLEUR.rand}`, borderRadius: 7 }}
                   />
                 </div>
                 <div style={{ maxHeight: 260, overflowY: "auto", padding: 4 }}>
                   {/* Medewerker-deel: alleen voor beheerders. Klantgroep-deel: voor iedereen. */}
-                  {isBeheerder && (
+                  {magAndersBekijken && (
                     <>
                       <button onClick={() => kiesWerkVan("medewerker", "")} style={{ ...werkVanRij, fontWeight: !bekeken ? 700 : 400 }}>
                         Mijzelf{mijnNaam ? ` (${mijnNaam})` : ""}
                       </button>
-                      {werkVanMedewerkers.length > 0 && <div style={werkVanKopje}>Medewerkers</div>}
+                      {werkVanMedewerkers.length > 0 && <div style={werkVanKopje}>{isBeheerder ? "Medewerkers" : "Mijn team"}</div>}
                       {werkVanMedewerkers.map((n) => (
                         <button key={`mw-${n}`} onClick={() => kiesWerkVan("medewerker", n)} style={{ ...werkVanRij, fontWeight: bekeken === n ? 700 : 400, color: bekeken === n ? KLEUR.blauw : KLEUR.tekst }}>{n}</button>
                       ))}
@@ -689,7 +779,7 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
                   {werkVanGroepen.map((g) => (
                     <button key={`gr-${g}`} onClick={() => kiesWerkVan("klantgroep", g)} style={{ ...werkVanRij, fontWeight: bekekenGroep === g ? 700 : 400, color: bekekenGroep === g ? KLEUR.blauw : KLEUR.tekst }}>{g}</button>
                   ))}
-                  {werkVanGroepen.length === 0 && (isBeheerder ? werkVanMedewerkers.length === 0 : true) && (
+                  {werkVanGroepen.length === 0 && (magAndersBekijken ? werkVanMedewerkers.length === 0 : true) && (
                     <div style={{ padding: "8px 10px", fontSize: 12, color: KLEUR.mutedTekst }}>Niets gevonden.</div>
                   )}
                 </div>
@@ -747,7 +837,7 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
         <VoortgangBalk
           v={voortgang}
           periodeLabel={periodeLabel}
-          wie={isBeheerder && bekeken ? bekekenNaam : "jou"}
+          wie={magAndersBekijken && bekeken ? bekekenNaam : "jou"}
         />
       )}
 
@@ -767,13 +857,18 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
       </div>
 
       {fout && <div style={{ background: `${KLEUR.rood}12`, border: `1px solid ${KLEUR.rood}33`, color: KLEUR.rood, borderRadius: 8, padding: "9px 12px", marginBottom: 12, fontSize: 12.5 }}>{fout}</div>}
+      {geschrevenFout && (
+        <div style={{ background: KLEUR.amberBg, border: `1px solid ${KLEUR.amberRand}`, color: KLEUR.amber, borderRadius: 8, padding: "9px 12px", marginBottom: 12, fontSize: 12.5 }}>
+          De geschreven uren konden niet worden opgehaald; de kolommen "Geschreven" en "Verschil" blijven daardoor leeg.
+        </div>
+      )}
 
       {laden ? (
         <div style={{ display: "flex", alignItems: "center", gap: 8, color: KLEUR.mutedTekst, fontSize: 13, padding: "16px 0" }}><Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} /> Laden…</div>
       ) : !bekekenLc ? (
         <div style={{ color: KLEUR.mutedTekst, fontSize: 13, padding: "16px 0" }}>Je naam kon niet worden bepaald, dus je toegewezen werk kan niet worden getoond. Log opnieuw in of neem contact op met beheer.</div>
       ) : klantRijen.length === 0 ? (
-        <div style={{ color: KLEUR.mutedTekst, fontSize: 13, padding: "16px 0" }}>Er is voor deze periode niets aan {isBeheerder && bekeken ? bekekenNaam : "jou"} toegewezen{groepActief ? ` binnen klantgroep ${bekekenGroep}` : ""}{statusFilter ? " met deze status" : ""}.</div>
+        <div style={{ color: KLEUR.mutedTekst, fontSize: 13, padding: "16px 0" }}>Er is voor deze periode niets aan {magAndersBekijken && bekeken ? bekekenNaam : "jou"} toegewezen{groepActief ? ` binnen klantgroep ${bekekenGroep}` : ""}{statusFilter ? " met deze status" : ""}.</div>
       ) : zichtbareRijen.length === 0 ? (
         <div style={{ color: KLEUR.mutedTekst, fontSize: 13, padding: "16px 0" }}>Geen klanten voor deze filters.</div>
       ) : (
@@ -784,6 +879,7 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
                 <th style={{ ...kop, position: "sticky", left: 0, background: "#fff", zIndex: 2, minWidth: 200 }}>Klant</th>
                 {zichtbareTaken.map((t) => <th key={t.sleutel} style={{ ...kop, textAlign: "center" }}>{t.label}</th>)}
                 <th style={{ ...kop, textAlign: "right" }} title="Totaal geplande (indicatie-)uren van deze klant in deze periode">Geplande uren</th>
+                <th style={{ ...kop, textAlign: "right" }} title="Uren die er in deze periode werkelijk op deze klant zijn geschreven">Geschreven uren</th>
               </tr>
             </thead>
             <tbody>
@@ -838,6 +934,17 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
                         </div>
                       ) : null}
                     </td>
+                    {(() => {
+                      const g = rijTotalen.geschrevenPerKlant[rij.acc] || 0;
+                      const gepland = rijTotalen.perKlant[rij.acc] || 0;
+                      const meer = Math.round((g - gepland) * 100) / 100;
+                      return (
+                        <td style={{ ...cel, textAlign: "right", fontWeight: 700, whiteSpace: "nowrap" }} title={`${rij.klantnaam}: werkelijk geschreven uren in deze periode`}>
+                          {g ? uurTekst(g) : <span style={{ color: KLEUR.rand, fontWeight: 400 }}>—</span>}
+                          {g && meer > 0 ? <div style={{ fontSize: 10, fontWeight: 700, color: KLEUR.rood }} title="Meer geschreven dan gepland">+{uurTekst(meer)} t.o.v. plan</div> : null}
+                        </td>
+                      );
+                    })()}
                   </tr>
                 );
               })}
@@ -859,6 +966,14 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
                     <div title={`Nog geen indicatie-uren bij: ${rijTotalen.leegActiviteiten.join(", ")}. Vul ze in bij Beheer → Planning (standaard per activiteit) of per klant in de planning-configuratie.`}
                       style={{ fontSize: 10, fontWeight: 700, color: KLEUR.amber }}>
                       ⚠ {rijTotalen.leeg} zonder uren
+                    </div>
+                  )}
+                </td>
+                <td style={{ ...cel, textAlign: "right", fontSize: 13, fontWeight: 700, borderTop: `2px solid ${KLEUR.rand}`, whiteSpace: "nowrap", color: rijTotalen.totaalGeschreven > rijTotalen.totaal ? KLEUR.rood : KLEUR.blauw }}>
+                  {rijTotalen.totaalGeschreven ? uurTekst(rijTotalen.totaalGeschreven) : "—"}
+                  {rijTotalen.totaalGeschreven > rijTotalen.totaal && (
+                    <div style={{ fontSize: 10, fontWeight: 700, color: KLEUR.rood }} title="Er is in totaal meer op deze klanten geschreven dan er gepland stond">
+                      +{uurTekst(Math.round((rijTotalen.totaalGeschreven - rijTotalen.totaal) * 100) / 100)} t.o.v. plan
                     </div>
                   )}
                 </td>
@@ -890,10 +1005,10 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
             {/* Uren-regel: indicatie, urencode en wat er al geschreven is + knop om nu uren te schrijven. */}
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "10px 16px", background: "#FBFCFB", borderBottom: `1px solid ${KLEUR.rand}`, fontSize: 12 }}>
               <span style={{ color: KLEUR.subtekst }}>
-                Indicatie: <strong style={{ color: KLEUR.tekst }}>{actiefItem.indicatieUren != null ? `${Number(actiefItem.indicatieUren).toLocaleString("nl-NL", { maximumFractionDigits: 2 })} u` : "—"}</strong>
+                Indicatie: <strong style={{ color: KLEUR.tekst }}>{actiefItem.indicatieUren != null ? `${Number(actiefItem.indicatieUren).toLocaleString("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} u` : "—"}</strong>
               </span>
               <span style={{ color: KLEUR.subtekst }}>
-                Geschreven: <strong style={{ color: alGeschreven ? KLEUR.groen : KLEUR.tekst }}>{alGeschreven ? `${Number(alGeschreven).toLocaleString("nl-NL", { maximumFractionDigits: 2 })} u` : "—"}</strong>
+                Geschreven: <strong style={{ color: alGeschreven ? KLEUR.groen : KLEUR.tekst }}>{alGeschreven ? `${Number(alGeschreven).toLocaleString("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} u` : "—"}</strong>
               </span>
               {actiefItem.urencode
                 ? <span style={{ fontSize: 11, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 999, padding: "2px 9px" }}>{actiefItem.urencode}</span>

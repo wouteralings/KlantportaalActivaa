@@ -62,10 +62,10 @@ function TAKEN_KOLOMMEN(modus) {
     { key: "eigenaar", label: "Eigenaar", cel: (t) => t.eigenaar || "" },
     { key: "deadline", label: "Deadline", cel: (t) => datum(t.deadline), sortVal: (t) => tijd(t.deadline) },
     { key: "prioriteit", label: "Prioriteit", cel: (t) => t.prioriteit || "" },
-    { key: "uren", label: "Indic. uren", cel: (t) => (t.uren ? `${Number(t.uren).toLocaleString("nl-NL", { maximumFractionDigits: 2 })} u${t.urenOverride != null ? "*" : ""}` : ""), sortVal: (t) => Number(t.uren) || 0, uitlijnen: "right" },
+    { key: "uren", label: "Indic. uren", cel: (t) => (t.uren ? `${Number(t.uren).toLocaleString("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} u${t.urenOverride != null ? "*" : ""}` : ""), sortVal: (t) => Number(t.uren) || 0, uitlijnen: "right" },
     // Geschreven uren = wat er via het gekoppelde urenschrijven op deze taak is geboekt (alle
     // medewerkers samen, /api/mw-uren-bron) — de tegenhanger van de indicatie-uren.
-    { key: "geschrevenUren", label: "Geschr. uren", cel: (t) => (t.geschrevenUren ? `${Number(t.geschrevenUren).toLocaleString("nl-NL", { maximumFractionDigits: 2 })} u` : ""), sortVal: (t) => Number(t.geschrevenUren) || 0, uitlijnen: "right" },
+    { key: "geschrevenUren", label: "Geschr. uren", cel: (t) => (t.geschrevenUren ? `${Number(t.geschrevenUren).toLocaleString("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} u` : ""), sortVal: (t) => Number(t.geschrevenUren) || 0, uitlijnen: "right" },
     { key: "urencode", label: "Urencode", cel: (t) => t.urencode || "" },
     { key: "klantnummer", label: "Cliëntnr", cel: (t) => (t.klant && (t.klant.klantnummer ?? "") !== "" ? String(t.klant.klantnummer) : "") },
     { key: "groepsnaam", label: "Groep", cel: (t) => (t.klant && t.klant.groepsnaam) || "" },
@@ -322,7 +322,7 @@ function TaakDetail({ taak, modus, appUrl, urencodes = [], magBewerken = true, o
               {taak.standaardUren != null
                 ? <>Standaard voor deze soort: <strong>{taak.standaardUren} u</strong> (Beheer → Taken). Laat leeg om de standaard te gebruiken.</>
                 : <>Nog geen standaard-tijd voor deze soort ingesteld (Beheer → Taken). Vul hier eventueel handmatig uren in.</>}
-              {taak.geschrevenUren ? <> Er is al <strong>{Number(taak.geschrevenUren).toLocaleString("nl-NL", { maximumFractionDigits: 2 })} u</strong> op deze taak geschreven.</> : null}
+              {taak.geschrevenUren ? <> Er is al <strong>{Number(taak.geschrevenUren).toLocaleString("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} u</strong> op deze taak geschreven.</> : null}
             </div>
 
             {/* Urencode: bepaalt waarop de uren van deze taak geschreven worden (voorgevuld bij "Uren schrijven"). */}
