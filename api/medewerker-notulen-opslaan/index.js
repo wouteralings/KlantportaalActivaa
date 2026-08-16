@@ -244,6 +244,7 @@ module.exports = async function (context, req) {
         dossierVelden: body.dossierVelden || {},
         aandeelhouders: Array.isArray(body.aandeelhouders) ? body.aandeelhouders : [],
         tekst: veiligeStr(body.tekst),
+        besluit: veiligeStr(body.besluit),
         pdfUrl: sharepoint.url || "",
         bestandsnaam,
         opgesteldDoor: email || "",

@@ -4,7 +4,7 @@ import {
   Save, Loader2, FileText,
 } from "lucide-react";
 import { ontleedDocument, heeftEigenKop, blokkenNaarHtml, AFDRUK_CSS } from "../documentOpmaak";
-import { NOTULEN_SJABLONEN } from "../../beheer/notulenSjablonen";
+import { NOTULEN_SJABLONEN, steltNotulenSamen, haalBesluitUitTekst } from "../../beheer/notulenSjablonen";
 import { useMijnNaam } from "../MijnFilter";
 import { VeldInvoer, maakZichtbaarheid } from "../dossierVeldInvoer";
 import { normaliseerSleutel, vulSjabloonIn, bouwMergeWaarden } from "../dossierMerge";
@@ -71,7 +71,7 @@ function aandeelhoudersTekst(rijen) {
 
 /** De vijf standaardmodellen als terugval zolang Beheer → Dossiers nog geen sjablonen heeft. */
 function standaardSjablonen() {
-  return NOTULEN_SJABLONEN.map((s, i) => ({ id: `std${i}`, naam: s.naam, tekst: s.tekst, standaard: true }));
+  return NOTULEN_SJABLONEN.map((s, i) => ({ id: `std${i}`, naam: s.naam, tekst: s.tekst, besluit: s.besluit, standaard: true }));
 }
 
 export default function NotulenOpstellen({ onTerug }) {
@@ -103,9 +103,10 @@ export default function NotulenOpstellen({ onTerug }) {
   const [indeling, setIndeling] = useState({ secties: [], verborgen: [], voorwaarden: {}, alleenLezen: [] });
   const [veldenState, setVeldenState] = useState({}); // catalogussleutel → waarde
 
-  // Vrije tekst: het gekozen model, zelf bij te schaven vóór afdrukken. Leeg = het model volgen.
-  const [eigenTekst, setEigenTekst] = useState("");
-  const [tekstOpen, setTekstOpen] = useState(false);
+  // Het besluit (punt I) van dit ene stuk: begint bij het besluit van het gekozen model en is hier
+  // vrij aan te passen. Kop en staart komen uit Beheer en gelden voor álle notulen.
+  const [besluit, setBesluit] = useState("");
+  const [opbouw, setOpbouw] = useState({ kop: "", staart: "" });
 
   // Vastleggen: het notulendossier waar dit stuk bij hoort. Leeg = nog niet opgeslagen; na de eerste
   // keer opslaan werkt "Opslaan" hetzelfde dossier bij in plaats van er een tweede naast te zetten.
@@ -142,7 +143,11 @@ export default function NotulenOpstellen({ onTerug }) {
           start[v.key] = v.type === "boolean" ? false : null;
         }
         setVeldenState(start);
-        const uitBeheer = Array.isArray(d.sjablonen) ? d.sjablonen.filter((s) => s && veiligeStr(s.tekst)) : [];
+        setOpbouw({
+          kop: veiligeStr(d.sjabloonOpbouw && d.sjabloonOpbouw.kop),
+          staart: veiligeStr(d.sjabloonOpbouw && d.sjabloonOpbouw.staart),
+        });
+        const uitBeheer = Array.isArray(d.sjablonen) ? d.sjablonen.filter((s) => s && (veiligeStr(s.tekst) || veiligeStr(s.besluit))) : [];
         if (uitBeheer.length) { setSjablonen(uitBeheer); setSjabloonBron("beheer"); }
         else { setSjablonen(standaardSjablonen()); setSjabloonBron("standaard"); }
       })
@@ -252,7 +257,18 @@ export default function NotulenOpstellen({ onTerug }) {
     return m;
   }, [klant, vestigingsplaats, datumactie, notulist, aandeelhouders, catalogus, veldenState, picklistOpties]);
 
-  const ruweTekst = eigenTekst || (sjabloon ? sjabloon.tekst : "");
+  // Het stuk = vaste kop (Beheer) + het besluit van dit stuk + vaste staart (Beheer). Zo staan de
+  // aandeelhouders en het ondertekenblok altijd in de centrale tekst en bewegen ze mee met wat je
+  // hier invult; alleen het besluit is per stuk anders.
+  //
+  // Terugval voor een model dat nog als één lap tekst in Beheer staat (geen besluit-blok): dan tonen
+  // we die tekst ongewijzigd — er verdwijnt nooit iets, en het scherm meldt het hieronder.
+  const modelOngesplitst = !!sjabloon && !veiligeStr(sjabloon.besluit) && !!veiligeStr(sjabloon.tekst);
+  const ruweTekst = !sjabloon
+    ? ""
+    : modelOngesplitst && !veiligeStr(besluit)
+      ? sjabloon.tekst
+      : steltNotulenSamen({ kop: opbouw.kop, besluit, staart: opbouw.staart });
   const ingevuld = vulSjabloonIn(ruweTekst, mergeWaarden);
   const blokken = useMemo(() => ontleedDocument(ingevuld), [ingevuld]);
   const eigenKop = heeftEigenKop(ruweTekst);
@@ -368,6 +384,7 @@ export default function NotulenOpstellen({ onTerug }) {
           // De blokken zoals ze rechts in het voorbeeld staan — de PDF gebruikt exact dezelfde.
           blokken,
           tekst: ruweTekst,
+          besluit,
           bestandsnaamBasis: bestandsnaam,
         }),
       });
@@ -402,7 +419,9 @@ export default function NotulenOpstellen({ onTerug }) {
     setPdfUrl(r.pdfUrl || "");
     const model = lijst.find((s) => veiligeStr(s.naam) === veiligeStr(r.modelNaam));
     if (model) setSjabloonId(model.id);
-    setEigenTekst(veiligeStr(r.tekst) && (!model || veiligeStr(r.tekst) !== veiligeStr(model.tekst)) ? String(r.tekst) : "");
+    // Het besluit van dat stuk terug; oudere records hadden alleen de volledige tekst — daar halen we
+    // het besluit dan uit, zodat je 'm gewoon verder kunt bewerken.
+    setBesluit(veiligeStr(r.besluit) || haalBesluitUitTekst(r.tekst || "") || (model ? veiligeStr(model.besluit) : ""));
     setDatumactie(veiligeStr(r.datum) || vandaagISO());
     setVestigingsplaats(veiligeStr(v.vestigingsplaats));
     setNotulist(veiligeStr(v.notulist));
@@ -493,7 +512,7 @@ export default function NotulenOpstellen({ onTerug }) {
             {sjabloon ? (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "9px 12px", background: KLEUR.lichtblauw }}>
                 <span style={{ fontSize: 13.5, fontWeight: 700, color: KLEUR.tekst, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{veiligeStr(sjabloon.naam)}</span>
-                <button onClick={() => { setSjabloonId(""); setSjabloonZoek(""); setEigenTekst(""); }} style={{ ...knopLicht, padding: "6px 10px" }}><X size={14} /> Wijzig</button>
+                <button onClick={() => { setSjabloonId(""); setSjabloonZoek(""); setBesluit(""); }} style={{ ...knopLicht, padding: "6px 10px" }}><X size={14} /> Wijzig</button>
               </div>
             ) : (
               <>
@@ -505,7 +524,7 @@ export default function NotulenOpstellen({ onTerug }) {
                   {gefilterdeSjablonen.length === 0 ? (
                     <div style={{ padding: "10px 12px", fontSize: 12.5, color: KLEUR.mutedTekst }}>{sjablonen === null ? "Modellen laden…" : "Geen modellen gevonden."}</div>
                   ) : gefilterdeSjablonen.map((s) => (
-                    <button key={s.id} onClick={() => { setSjabloonId(s.id); setSjabloonZoek(""); setEigenTekst(""); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", border: "none", borderBottom: `1px solid ${KLEUR.rand}`, background: "#fff", cursor: "pointer" }}>
+                    <button key={s.id} onClick={() => { setSjabloonId(s.id); setSjabloonZoek(""); setBesluit(veiligeStr(s.besluit) || haalBesluitUitTekst(s.tekst)); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", border: "none", borderBottom: `1px solid ${KLEUR.rand}`, background: "#fff", cursor: "pointer" }}>
                       <span style={{ fontSize: 13, fontWeight: 600, color: KLEUR.tekst }}>{veiligeStr(s.naam)}</span>
                     </button>
                   ))}
@@ -606,33 +625,38 @@ export default function NotulenOpstellen({ onTerug }) {
             </div>
           ))}
 
-          {/* Tekst bijschaven */}
+          {/* Besluit — het enige stuk tekst dat per notulen verschilt */}
           <div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 5, flexWrap: "wrap" }}>
-              <span style={{ ...label, marginBottom: 0 }}>Tekst van dit stuk</span>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                {eigenTekst && (
-                  <button onClick={() => setEigenTekst("")} style={{ ...knopLicht, padding: "5px 9px", fontSize: 11.5 }} title="Terug naar de modeltekst"><RotateCcw size={13} /> Model herstellen</button>
-                )}
-                <button onClick={() => setTekstOpen((o) => !o)} disabled={!sjabloon} style={{ ...knopLicht, padding: "5px 9px", fontSize: 11.5, opacity: sjabloon ? 1 : 0.5, cursor: sjabloon ? "pointer" : "not-allowed" }}>
-                  {tekstOpen ? "Verbergen" : "Aanpassen voor dit stuk"}
+              <span style={{ ...label, marginBottom: 0 }}>Besluit — punt I van dit stuk</span>
+              {sjabloon && veiligeStr(sjabloon.besluit) && veiligeStr(besluit) !== veiligeStr(sjabloon.besluit) && (
+                <button onClick={() => setBesluit(veiligeStr(sjabloon.besluit))} style={{ ...knopLicht, padding: "5px 9px", fontSize: 11.5 }} title="Terug naar de tekst van het model">
+                  <RotateCcw size={13} /> Model herstellen
                 </button>
-              </div>
+              )}
             </div>
-            {tekstOpen && sjabloon && (
-              <>
-                <textarea
-                  value={eigenTekst || sjabloon.tekst}
-                  onChange={(e) => setEigenTekst(e.target.value)}
-                  rows={14}
-                  style={{ ...input, resize: "vertical", minHeight: 240, lineHeight: 1.5, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12 }}
-                />
-                <div style={{ marginTop: 6, fontSize: 11.5, color: KLEUR.mutedTekst }}>
-                  Alleen voor dit ene stuk — het model in Beheer blijft ongewijzigd. Opmaak: <code>#</code> titel,
-                  <code> ###</code> kopje, <code>---</code> lijn, <code>-</code> opsomming, <code>&gt;</code> inspringen,
-                  <code> [midden]</code> gecentreerd, <code>[ondertekening] functie | naam</code>.
-                </div>
-              </>
+            <textarea
+              value={besluit}
+              onChange={(e) => setBesluit(e.target.value)}
+              disabled={!sjabloon}
+              rows={8}
+              placeholder={sjabloon ? "I. Dividenduitkering\n> Per {{datumactie}} wordt er in totaal € {{bedrag}} dividend uitgekeerd…" : "Kies eerst een notulenmodel."}
+              style={{ ...input, resize: "vertical", minHeight: 150, lineHeight: 1.5, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12, background: sjabloon ? "#fff" : "#F7F8F6" }}
+            />
+            <div style={{ marginTop: 6, fontSize: 11.5, color: KLEUR.mutedTekst }}>
+              Alleen dit besluit hoort bij dít stuk; kop en staart (aanwezigen, sluiting, ondertekening)
+              staan één keer in Beheer → Dossiers → Notulen → Voorbeelddocumenten en gelden voor alle notulen.
+              Opmaak: <code>&gt;</code> inspringen, <code>-</code> opsomming, <code>###</code> kopje.
+            </div>
+            {modelOngesplitst && !veiligeStr(besluit) && (
+              <div style={{ marginTop: 8 }}>
+                <Banner type="fout" tekst="Dit model staat in Beheer nog als één lap tekst. Het stuk hiernaast is die tekst, ongewijzigd — knip het besluit in Beheer los, dan gebruiken kop en staart de centrale tekst en bewegen aandeelhouders en ondertekening mee." />
+              </div>
+            )}
+            {!modelOngesplitst && sjabloon && !/\{\{\s*aandeelhouders\s*[|}]/i.test(ruweTekst) && (
+              <div style={{ marginTop: 8 }}>
+                <Banner type="fout" tekst="In de vaste kop staat geen {{aandeelhouders}}, dus de aandeelhouders die je hier invult komen niet in het stuk. Voeg de plaatshouder toe in Beheer → Dossiers → Notulen → Voorbeelddocumenten." />
+              </div>
             )}
           </div>
 

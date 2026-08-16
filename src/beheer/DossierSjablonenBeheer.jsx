@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { FileText, Save, ChevronDown, ChevronRight, Plus, Trash2, ArrowUp, ArrowDown, Info } from "lucide-react";
-import { NOTULEN_SJABLONEN } from "./notulenSjablonen";
+import { NOTULEN_SJABLONEN, ROMP, STAART, steltNotulenSamen, haalBesluitUitTekst } from "./notulenSjablonen";
 
 /** Zelfde palet als de rest van het beheerdersportaal (bewust hier herhaald zodat dit bestand op
  *  zichzelf staat, zie bijv. DossierIndelingBeheer.jsx/BrievenBeheer.jsx). */
@@ -50,13 +50,21 @@ function nieuwSjabloonId() { sjabloonTeller += 1; return `sjabloon_${sjabloonTel
 function naarLijst(eigen) {
   if (eigen && Array.isArray(eigen.sjablonen)) {
     return eigen.sjablonen
-      .filter((s) => s && (s.naam != null || s.tekst != null))
-      .map((s) => ({ id: s.id || nieuwSjabloonId(), naam: String(s.naam || "Naamloos sjabloon"), tekst: String(s.tekst || "") }));
+      .filter((s) => s && (s.naam != null || s.tekst != null || s.besluit != null))
+      .map((s) => ({
+        id: s.id || nieuwSjabloonId(),
+        naam: String(s.naam || "Naamloos sjabloon"),
+        tekst: String(s.tekst || ""),
+        // Bestaande sjablonen waren één lap tekst; daar halen we het besluitblok eenmalig uit, zodat
+        // kop en staart voortaan centraal staan. Lukt dat niet, dan blijft het besluit leeg en zie je
+        // in het scherm de melding dat dit sjabloon nog gesplitst moet worden — er verdwijnt niets.
+        besluit: s.besluit != null ? String(s.besluit) : haalBesluitUitTekst(s.tekst || ""),
+      }));
   }
   const lijst = [];
-  if (eigen && typeof eigen.standaard === "string" && eigen.standaard.trim()) lijst.push({ id: nieuwSjabloonId(), naam: "Standaard", tekst: eigen.standaard });
+  if (eigen && typeof eigen.standaard === "string" && eigen.standaard.trim()) lijst.push({ id: nieuwSjabloonId(), naam: "Standaard", tekst: eigen.standaard, besluit: haalBesluitUitTekst(eigen.standaard) });
   if (eigen && eigen.perSoort && typeof eigen.perSoort === "object") {
-    for (const [k, v] of Object.entries(eigen.perSoort)) if (v && String(v).trim()) lijst.push({ id: nieuwSjabloonId(), naam: `Soort ${k}`, tekst: String(v) });
+    for (const [k, v] of Object.entries(eigen.perSoort)) if (v && String(v).trim()) lijst.push({ id: nieuwSjabloonId(), naam: `Soort ${k}`, tekst: String(v), besluit: haalBesluitUitTekst(v) });
   }
   return lijst;
 }
@@ -66,7 +74,11 @@ export default function DossierSjablonenPerSoort({ soort }) {
   const [open, setOpen] = useState(false); // dichtgeklapt bij openen van de pagina
   const [geladen, setGeladen] = useState(false);
   const [catalogus, setCatalogus] = useState([]);
-  const [sjablonen, setSjablonen] = useState([]); // [{ id, naam, tekst }]
+  const [sjablonen, setSjablonen] = useState([]); // [{ id, naam, tekst, besluit }]
+  // Alleen bij notulen: de vaste kop en staart die voor ÁLLE notulen gelden (één keer instellen).
+  // Leeg = de standaardtekst uit notulenSjablonen.js.
+  const [kop, setKop] = useState("");
+  const [staart, setStaart] = useState("");
   const [openIds, setOpenIds] = useState(() => new Set()); // welke sjabloon-kaarten opengeklapt zijn
   const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
   const [fout, setFout] = useState("");
@@ -86,15 +98,19 @@ export default function DossierSjablonenPerSoort({ soort }) {
         setCatalogus(velden.catalogus || []);
         const eigen = inst && inst.dossierSjablonen && inst.dossierSjablonen[soort];
         setSjablonen(naarLijst(eigen));
+        setKop(eigen && typeof eigen.kop === "string" ? eigen.kop : "");
+        setStaart(eigen && typeof eigen.staart === "string" ? eigen.staart : "");
         setGeladen(true);
       })
       .catch(() => { if (actief) { setFout("De voorbeeld-sjablonen konden niet worden geladen."); setGeladen(true); } });
     return () => { actief = false; };
   }, [soort]);
 
+  const isNotulen = soort === "notulen";
+
   const toggleKaart = (id) => setOpenIds((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const zet = (id, key, waarde) => setSjablonen((lijst) => lijst.map((s) => (s.id === id ? { ...s, [key]: waarde } : s)));
-  const nieuw = () => { const id = nieuwSjabloonId(); setSjablonen((lijst) => [...lijst, { id, naam: "Nieuw sjabloon", tekst: "" }]); setOpenIds((s) => new Set([...s, id])); };
+  const nieuw = () => { const id = nieuwSjabloonId(); setSjablonen((lijst) => [...lijst, { id, naam: "Nieuw sjabloon", tekst: "", besluit: "" }]); setOpenIds((s) => new Set([...s, id])); };
   // De vaste Activaa-notulen in één keer klaarzetten (overgezet uit de Word-modellen, zie
   // notulenSjablonen.js). Voegt alleen toe wat er nog niet staat — op naam — zodat je 'm veilig nog
   // eens kunt indrukken nadat je zelf iets hebt aangepast. Opslaan doe je daarna zelf.
@@ -104,7 +120,7 @@ export default function DossierSjablonenPerSoort({ soort }) {
       const nieuweIds = [];
       const erbij = NOTULEN_SJABLONEN
         .filter((s) => !bestaand.has(s.naam.trim().toLowerCase()))
-        .map((s) => { const id = nieuwSjabloonId(); nieuweIds.push(id); return { id, naam: s.naam, tekst: s.tekst }; });
+        .map((s) => { const id = nieuwSjabloonId(); nieuweIds.push(id); return { id, naam: s.naam, tekst: s.tekst, besluit: s.besluit || "" }; });
       if (nieuweIds.length) setOpenIds((o) => new Set([...o, nieuweIds[0]]));
       return [...lijst, ...erbij];
     });
@@ -117,16 +133,28 @@ export default function DossierSjablonenPerSoort({ soort }) {
     const n = lijst.slice(); [n[i], n[j]] = [n[j], n[i]]; return n;
   });
 
-  const huidigeTekst = (id) => { const s = sjablonen.find((x) => x.id === id); return s ? s.tekst : ""; };
+  // De tekst van het veld waar de cursor staat: een sjabloonveld (tekst/besluit) of, bij notulen,
+  // de vaste kop of staart.
+  const huidigeTekst = (id, veld) => {
+    if (id === "__kop") return kop || ROMP;
+    if (id === "__staart") return staart || STAART;
+    const s = sjablonen.find((x) => x.id === id);
+    return s ? String(s[veld || "tekst"] || "") : "";
+  };
+  const zetTekst = (id, veld, waarde) => {
+    if (id === "__kop") { setKop(waarde); return; }
+    if (id === "__staart") { setStaart(waarde); return; }
+    zet(id, veld || "tekst", waarde);
+  };
   const voegIn = (plaatshouder) => {
     const a = actiefRef.current;
     if (!a || !a.el) return;
     const el = a.el;
-    const oud = huidigeTekst(a.id);
+    const oud = huidigeTekst(a.id, a.veld);
     const start = typeof el.selectionStart === "number" ? el.selectionStart : oud.length;
     const eind = typeof el.selectionEnd === "number" ? el.selectionEnd : oud.length;
     const nieuweTekst = oud.slice(0, start) + plaatshouder + oud.slice(eind);
-    zet(a.id, "tekst", nieuweTekst);
+    zetTekst(a.id, a.veld, nieuweTekst);
     const pos = start + plaatshouder.length;
     if (typeof window !== "undefined" && window.requestAnimationFrame) {
       window.requestAnimationFrame(() => { try { el.focus(); el.setSelectionRange(pos, pos); } catch { /* caret best-effort */ } });
@@ -140,8 +168,17 @@ export default function DossierSjablonenPerSoort({ soort }) {
       // (dat een eigen blok/instantie heeft) ongemoeid.
       const huidig = await fetch("/api/beheer-instellingen").then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
       const alle = (huidig && huidig.dossierSjablonen && typeof huidig.dossierSjablonen === "object") ? huidig.dossierSjablonen : {};
-      const schoon = sjablonen.map((s) => ({ id: s.id, naam: String(s.naam || "").trim() || "Naamloos sjabloon", tekst: String(s.tekst || "") }));
-      const nieuweAlle = { ...alle, [soort]: { sjablonen: schoon } };
+      // Bij notulen is de opgeslagen "tekst" het samengestelde stuk (kop + besluit + staart). Zo blijft
+      // de Voorbeeld-knop in het dossier — die de volledige tekst gebruikt — gewoon werken, terwijl je
+      // hier alleen nog de kop, de staart en per model het besluit onderhoudt.
+      const schoon = sjablonen.map((s) => {
+        const besluit = String(s.besluit || "");
+        const tekst = isNotulen && besluit.trim()
+          ? steltNotulenSamen({ kop, besluit, staart })
+          : String(s.tekst || "");
+        return { id: s.id, naam: String(s.naam || "").trim() || "Naamloos sjabloon", tekst, besluit };
+      });
+      const nieuweAlle = { ...alle, [soort]: isNotulen ? { sjablonen: schoon, kop, staart } : { sjablonen: schoon } };
       const res = await fetch("/api/beheer-instellingen", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dossierSjablonen: nieuweAlle }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || "Opslaan mislukt.");
@@ -181,6 +218,51 @@ export default function DossierSjablonenPerSoort({ soort }) {
             </div>
           </div>
 
+          {/* Notulen: de kop en de staart gelden voor ÁLLE notulen — hier één keer instellen. In de
+              modellen hieronder staat alleen nog het besluit (punt I). */}
+          {isNotulen && geladen && (
+            <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 12, marginBottom: 14, background: "#FbFcFa" }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700, color: KLEUR.tekst, marginBottom: 4 }}>Vaste tekst voor alle notulen</div>
+              <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 12 }}>
+                Pas je dit aan, dan verandert het in één keer voor alle notulen. Houd de merge-velden staan:
+                <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>{"{{aandeelhouders}}"}</code>
+                vult de aandeelhouders met naam en aandeel in, en
+                <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>[ondertekening] Voorzitter | {"{{directeur}}"}</code>
+                laat het ondertekenblok meelopen met wie je bij het opstellen invult.
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <span style={labelStijl}>Kop — tot en met “…de navolgende besluiten heeft genomen:”</span>
+                  {String(kop || "").trim() !== "" && (
+                    <button onClick={() => setKop("")} style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 11.5, fontWeight: 600, cursor: "pointer", padding: 0, marginBottom: 5 }}>Standaardtekst herstellen</button>
+                  )}
+                </div>
+                <textarea
+                  value={kop || ROMP}
+                  onChange={(e) => setKop(e.target.value)}
+                  onFocus={(e) => { actiefRef.current = { el: e.target, id: "__kop", veld: "kop" }; }}
+                  rows={10}
+                  style={{ ...invoerStijl, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }}
+                />
+              </div>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <span style={labelStijl}>Staart — toelichting, besluit, sluiting en ondertekening</span>
+                  {String(staart || "").trim() !== "" && (
+                    <button onClick={() => setStaart("")} style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 11.5, fontWeight: 600, cursor: "pointer", padding: 0, marginBottom: 5 }}>Standaardtekst herstellen</button>
+                  )}
+                </div>
+                <textarea
+                  value={staart || STAART}
+                  onChange={(e) => setStaart(e.target.value)}
+                  onFocus={(e) => { actiefRef.current = { el: e.target, id: "__staart", veld: "staart" }; }}
+                  rows={10}
+                  style={{ ...invoerStijl, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }}
+                />
+              </div>
+            </div>
+          )}
+
           {!geladen ? (
             <div style={{ fontSize: 13, color: KLEUR.mutedTekst, padding: "8px 0" }}>Voorbeeld-sjablonen laden…</div>
           ) : (
@@ -207,17 +289,42 @@ export default function DossierSjablonenPerSoort({ soort }) {
                           <span style={labelStijl}>Naam</span>
                           <input value={s.naam} onChange={(e) => zet(s.id, "naam", e.target.value)} placeholder="Bijv. Standaard notulen AvA" style={invoerStijl} />
                         </div>
-                        <div style={{ marginBottom: 10 }}>
-                          <span style={labelStijl}>Tekst</span>
-                          <textarea
-                            value={s.tekst}
-                            onChange={(e) => zet(s.id, "tekst", e.target.value)}
-                            onFocus={(e) => { actiefRef.current = { el: e.target, id: s.id }; }}
-                            placeholder={"Bijv. Notulen van de algemene vergadering van {{klantnaam}} d.d. {{datum}}.\n\n…"}
-                            rows={9}
-                            style={{ ...invoerStijl, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }}
-                          />
-                        </div>
+                        {isNotulen ? (
+                          <div style={{ marginBottom: 10 }}>
+                            <span style={labelStijl}>Besluit — punt I van dit model</span>
+                            <textarea
+                              value={s.besluit || ""}
+                              onChange={(e) => zet(s.id, "besluit", e.target.value)}
+                              onFocus={(e) => { actiefRef.current = { el: e.target, id: s.id, veld: "besluit" }; }}
+                              placeholder={"I. Dividenduitkering\n> Per {{datumactie}} wordt er in totaal € {{bedrag}} dividend uitgekeerd…"}
+                              rows={7}
+                              style={{ ...invoerStijl, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }}
+                            />
+                            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4 }}>
+                              Alleen dit stukje verschilt per model; de kop en de staart hierboven gelden voor alle notulen.
+                              Bij het opstellen van een notulen is dit besluit nog per stuk aan te passen.
+                            </div>
+                            {!String(s.besluit || "").trim() && String(s.tekst || "").trim() && (
+                              <div style={{ fontSize: 11.5, color: KLEUR.goud, marginTop: 6 }}>
+                                Dit sjabloon staat nog als één lap tekst opgeslagen en kon niet automatisch worden
+                                gesplitst. Knip het besluit (punt I) hierboven in, dan gebruiken kop en staart voortaan
+                                de centrale tekst. De oude tekst blijft ondertussen gewoon werken.
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div style={{ marginBottom: 10 }}>
+                            <span style={labelStijl}>Tekst</span>
+                            <textarea
+                              value={s.tekst}
+                              onChange={(e) => zet(s.id, "tekst", e.target.value)}
+                              onFocus={(e) => { actiefRef.current = { el: e.target, id: s.id, veld: "tekst" }; }}
+                              placeholder={"Bijv. Notulen van de algemene vergadering van {{klantnaam}} d.d. {{datum}}.\n\n…"}
+                              rows={9}
+                              style={{ ...invoerStijl, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }}
+                            />
+                          </div>
+                        )}
                         <div>
                           <span style={labelStijl}>Merge-velden — klik om in te voegen</span>
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>

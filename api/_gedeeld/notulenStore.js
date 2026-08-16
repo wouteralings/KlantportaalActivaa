@@ -103,6 +103,9 @@ async function bewaar(record) {
     dossierVelden: record.dossierVelden || bestaand.dossierVelden || {},
     aandeelhouders: Array.isArray(record.aandeelhouders) ? record.aandeelhouders : (bestaand.aandeelhouders || []),
     tekst: record.tekst != null ? String(record.tekst) : (bestaand.tekst || ""),
+    // Het besluitblok (punt I) van dít stuk — kop en staart komen uit Beheer en gelden voor alle
+    // notulen, dus alleen dit hoeft per stuk bewaard te worden om het te kunnen heropenen.
+    besluit: record.besluit != null ? String(record.besluit) : (bestaand.besluit || ""),
     pdfUrl: record.pdfUrl || bestaand.pdfUrl || "",
     bestandsnaam: record.bestandsnaam || bestaand.bestandsnaam || "",
     opgesteldOp: new Date().toISOString(),

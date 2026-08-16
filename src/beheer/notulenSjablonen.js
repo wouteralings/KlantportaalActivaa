@@ -15,7 +15,7 @@
  * in de Word-modellen, zodat je ziet wát er nog moet worden ingevuld.
  */
 
-const ROMP = `# Notulen
+export const ROMP = `# Notulen
 [midden] van de Algemene Vergadering van {{klantnaam|NAAM}}
 [midden] gevestigd te {{vestigingsplaats|PLAATS}}
 [midden] (hierna te noemen: "de Vennootschap")
@@ -44,7 +44,7 @@ Vervolgens stelt de voorzitter de onderwerpen aan de orde waarover de Vergaderin
 Na beraadslaging, waarbij de bestuurder van de Vennootschap in de gelegenheid is gesteld de Vergadering ter zake van de voorgenomen besluiten te adviseren, worden deze in stemming gebracht. Vervolgens constateert de voorzitter dat de Vergadering met algemene stemmen de navolgende besluiten heeft genomen:
 `;
 
-const STAART = `{{toelichting|EXTRA TOELICHTING}}
+export const STAART = `{{toelichting|EXTRA TOELICHTING}}
 
 ### Besluit:
 Gehoord de toelichting van het bestuur wijst de Vergadering hierbij, voor zover vereist en voor zover zij zulks niet reeds eerder heeft gedaan, het bestuur alsmede de bestuurder alsnog aan als bevoegd vertegenwoordiger van de Vennootschap ter zake van:
@@ -62,8 +62,48 @@ Aldus opgemaakt en ondertekend te {{vestigingsplaats|PLAATS}} op d.d. {{datumact
 [ondertekening] Notulist | {{notulist|NOTULIST}}
 `;
 
+/**
+ * Zet kop + besluit + staart aan elkaar tot één stuk. Kop en staart komen uit Beheer (één keer
+ * ingesteld, geldt voor álle notulen); het besluit is per model — en per stuk aan te passen in
+ * "Notulen opstellen". Lege kop/staart valt terug op de standaardtekst hierboven.
+ */
+export function steltNotulenSamen({ kop, besluit, staart }) {
+  const k = String(kop == null || !String(kop).trim() ? ROMP : kop).replace(/\s+$/, "");
+  const s = String(staart == null || !String(staart).trim() ? STAART : staart).replace(/^\s+/, "");
+  const b = String(besluit == null ? "" : besluit).trim();
+  return `${k}\n${b ? b + "\n\n" : ""}${s}`;
+}
+
+/**
+ * Haalt het besluitblok (punt I) uit een compleet notulensjabloon — nodig om bestaande sjablonen,
+ * die nog één lap tekst waren, om te zetten naar de nieuwe opzet (kop en staart in Beheer, besluit
+ * per model). Zoekt tussen de laatste regel van de kop ("…de navolgende besluiten heeft genomen:")
+ * en het begin van de staart ({{toelichting}} of het kopje "Besluit:"). Lukt dat niet, dan geeft het
+ * een lege string terug — de aanroeper toont de volledige tekst dan ongewijzigd, zodat er nooit
+ * stilletjes iets verdwijnt.
+ */
+export function haalBesluitUitTekst(tekst) {
+  const t = String(tekst == null ? "" : tekst).replace(/\r\n/g, "\n");
+  const start = t.search(/navolgende\s+besluiten\s+heeft\s+genomen:/i);
+  if (start === -1) return "";
+  const na = t.indexOf("\n", start);
+  if (na === -1) return "";
+  const rest = t.slice(na + 1);
+  const eindKandidaten = [
+    rest.search(/\{\{\s*toelichting/i),
+    rest.search(/^\s*###\s*Besluit\s*:/im),
+    rest.search(/^\s*Besluit\s*:/im),
+  ].filter((i) => i > -1);
+  const eind = eindKandidaten.length ? Math.min(...eindKandidaten) : rest.length;
+  return rest.slice(0, eind).trim();
+}
+
 /** Bouwt één volledig sjabloon: vaste kop + het eigen besluitblok (punt I) + vaste staart. */
-const maak = (naam, besluitblok) => ({ naam, tekst: `${ROMP}\n${besluitblok.trim()}\n\n${STAART}` });
+const maak = (naam, besluitblok) => ({
+  naam,
+  besluit: besluitblok.trim(),
+  tekst: steltNotulenSamen({ besluit: besluitblok }),
+});
 
 export const NOTULEN_SJABLONEN = [
   maak("Notulen dividenduitkering", `

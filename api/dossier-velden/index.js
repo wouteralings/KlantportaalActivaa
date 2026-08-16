@@ -39,24 +39,35 @@ function standaardIndelingVoor(soort) {
  *  vorm en dezelfde terugwaartse compatibiliteit als haalSjabloonVoor() in api/medewerker-dossier.
  *  Best-effort: onleesbare of ontbrekende instellingen leveren een lege lijst, nooit een fout. */
 async function haalSjablonenVoor(soortKey) {
-  if (soortKey !== "notulen" && soortKey !== "dividend") return [];
+  if (soortKey !== "notulen" && soortKey !== "dividend") return { sjablonen: [], kop: "", staart: "" };
   try {
     const { dossierSjablonen } = await haalInstellingen();
     const eigen = dossierSjablonen && dossierSjablonen[soortKey];
+    // Kop en staart gelden bij notulen voor álle stukken (Beheer → Dossiers → Voorbeelddocumenten);
+    // leeg = het scherm gebruikt zijn eigen standaardtekst.
+    const kop = eigen && typeof eigen.kop === "string" ? eigen.kop : "";
+    const staart = eigen && typeof eigen.staart === "string" ? eigen.staart : "";
     if (eigen && Array.isArray(eigen.sjablonen)) {
-      return eigen.sjablonen
-        .filter((s) => s && (s.naam != null || s.tekst != null))
-        .map((s, i) => ({ id: s.id || `s${i}`, naam: String(s.naam || "Naamloos sjabloon"), tekst: String(s.tekst || "") }));
+      const sjablonen = eigen.sjablonen
+        .filter((s) => s && (s.naam != null || s.tekst != null || s.besluit != null))
+        .map((s, i) => ({
+          id: s.id || `s${i}`,
+          naam: String(s.naam || "Naamloos sjabloon"),
+          tekst: String(s.tekst || ""),
+          // Het besluitblok (punt I) — per model, en bij het opstellen per stuk aan te passen.
+          besluit: s.besluit != null ? String(s.besluit) : "",
+        }));
+      return { sjablonen, kop, staart };
     }
     // Oude vorm { standaard, perSoort } → dezelfde sjablonenlijst.
     const sjablonen = [];
-    if (eigen && typeof eigen.standaard === "string" && eigen.standaard.trim()) sjablonen.push({ id: "standaard", naam: "Standaard", tekst: eigen.standaard });
+    if (eigen && typeof eigen.standaard === "string" && eigen.standaard.trim()) sjablonen.push({ id: "standaard", naam: "Standaard", tekst: eigen.standaard, besluit: "" });
     if (eigen && eigen.perSoort && typeof eigen.perSoort === "object") {
-      for (const [k, v] of Object.entries(eigen.perSoort)) if (v && String(v).trim()) sjablonen.push({ id: `soort_${k}`, naam: `Soort ${k}`, tekst: String(v) });
+      for (const [k, v] of Object.entries(eigen.perSoort)) if (v && String(v).trim()) sjablonen.push({ id: `soort_${k}`, naam: `Soort ${k}`, tekst: String(v), besluit: "" });
     }
-    return sjablonen;
+    return { sjablonen, kop, staart };
   } catch {
-    return [];
+    return { sjablonen: [], kop: "", staart: "" };
   }
 }
 
@@ -105,7 +116,7 @@ module.exports = async function (context, req) {
 
   // statusOpties erbij: Beheer → Dossiers gebruikt die om per review-uitkomst de dossierstatus te
   // kiezen (zie het Review-blok in DossierIndelingBeheer.jsx). Zelfde lijst als het dossierdetail.
-  const sjablonen = await haalSjablonenVoor(soort.key);
+  const { sjablonen, kop, staart } = await haalSjablonenVoor(soort.key);
 
   // De ACTUELE indeling (de secties/volgorde/verborgen/voorwaarden zoals in Beheer → Dossiers
   // ingesteld, met de standaardindeling als terugval) — zodat een scherm dat velden toont zonder een
@@ -127,5 +138,5 @@ module.exports = async function (context, req) {
     // Best-effort: zonder leesbare instellingen de standaardindeling.
   }
 
-  context.res = { headers: { "Content-Type": "application/json" }, body: { soort: soort.key, catalogus, picklistOpties, standaardIndeling: standaard, indeling, statusOpties: soort.statusOpties || [], sjablonen } };
+  context.res = { headers: { "Content-Type": "application/json" }, body: { soort: soort.key, catalogus, picklistOpties, standaardIndeling: standaard, indeling, statusOpties: soort.statusOpties || [], sjablonen, sjabloonOpbouw: { kop, staart } } };
 };
