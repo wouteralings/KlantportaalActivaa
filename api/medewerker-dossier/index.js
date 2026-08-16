@@ -58,6 +58,8 @@ const { magVerwijderIb, magVerwijderVpb } = require("../_gedeeld/wijzigrechten")
 const { magSubBulkVerwijderen } = require("../_gedeeld/rollenConfig");
 const { haalSystemuser } = require("../_gedeeld/takenGedeeld");
 const dossierReview = require("../_gedeeld/dossierReview");
+const dossierVoorlopig = require("../_gedeeld/dossierVoorlopig");
+const dossierTaakketen = require("../_gedeeld/dossierTaakketen");
 
 /** Haalt de (door Beheer → Dossiers ingestelde) indeling van een soort op — secties (met
  * eventuele subrubrieken), verborgen velden, tonen-alleen-als-voorwaarden, alleen-lezen velden,
@@ -224,7 +226,7 @@ module.exports = async function (context, req) {
       // Gekoppelde uitvraaglijst(en) (aanleververzoeken) — alleen als Wouter in Beheer → Dossiers
       // een onderwerp aan deze dossiersoort heeft gekoppeld (indeling.onderwerpId). Primaire
       // contactpersoon van de cliënt — voor het voorinvullen van de ingebedde "Vaste uitvragen".
-      const [gekoppeldeUitvragen, gekoppeldeLijstId, defaultContact, sjabloon, bijlage, reviewCfg, reviewGeschiedenis] = await Promise.all([
+      const [gekoppeldeUitvragen, gekoppeldeLijstId, defaultContact, sjabloon, bijlage, reviewCfg, reviewGeschiedenis, voorlopigCfg, voorlopigNu] = await Promise.all([
         gekoppeldeUitvragenVoorDossier(dossier, indeling.onderwerpId),
         gekoppeldeLijstIdVoorDossier(indeling.onderwerpId),
         haalPrimairContactVoorDossier(resource, token, dossier.accountId),
@@ -232,6 +234,8 @@ module.exports = async function (context, req) {
         haalBijlageVoor(soort.key),
         dossierReview.instellingenVoorSoort(soort.key).catch(() => ({ aan: false })),
         dossierReview.haalVoorDossier(soort.key, id).catch(() => []),
+        dossierVoorlopig.instellingenVoorSoort(soort.key).catch(() => ({ aan: false, redenen: [] })),
+        dossierVoorlopig.haalVoorDossier(soort.key, id).catch(() => null),
       ]);
       // `review` vertelt het scherm of de knop "Review aanvragen" mag verschijnen (aan + een
       // gekoppelde taaksoort), of er al een review loopt, en wat de vorige rondes opleverden.
@@ -241,7 +245,17 @@ module.exports = async function (context, req) {
         lopend: reviewGeschiedenis.find((r) => r.status === "open") || null,
         geschiedenis: reviewGeschiedenis.slice(0, 20),
       };
-      context.res = { headers: { "Content-Type": "application/json" }, body: { dossier, statusOpties: soort.statusOpties, catalogus, secties: indeling.secties, verborgen: indeling.verborgen, voorwaarden: indeling.voorwaarden, alleenLezen: indeling.alleenLezen, picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId, onderwerpId: indeling.onderwerpId || "", defaultContact, sjabloon, bijlage, review } };
+      // `voorlopig` stuurt de knop "Voorlopige aangifte": aan + een gekoppelde taaksoort + minstens
+      // één actieve reden, en de eventueel al lopende registratie op dit dossier.
+      const voorlopig = {
+        aan: !!voorlopigCfg.aan && voorlopigCfg.taakSoort !== null && voorlopigCfg.taakSoort !== undefined
+          && (voorlopigCfg.redenen || []).some((r) => r.actief !== false),
+        ingesteld: !!voorlopigCfg.aan,
+        redenen: (voorlopigCfg.redenen || []).filter((r) => r.actief !== false),
+        standaardTermijnMaanden: voorlopigCfg.standaardTermijnMaanden || 6,
+        huidig: voorlopigNu,
+      };
+      context.res = { headers: { "Content-Type": "application/json" }, body: { dossier, statusOpties: soort.statusOpties, catalogus, secties: indeling.secties, verborgen: indeling.verborgen, voorwaarden: indeling.voorwaarden, alleenLezen: indeling.alleenLezen, picklistOpties, gekoppeldeUitvragen, gekoppeldeLijstId, onderwerpId: indeling.onderwerpId || "", defaultContact, sjabloon, bijlage, review, voorlopig } };
       return;
     }
 
@@ -305,6 +319,107 @@ module.exports = async function (context, req) {
           tekst: `Dossier ${soort.label}${huidig.jaar ? ` ${huidig.jaar}` : ""} van ${huidig.klantnaam || "de cliënt"} definitief verwijderd.`,
         });
         context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true } };
+        return;
+      }
+
+      // ── Voorlopige aangifte: markeren mét reden, toelichting én een ingeplande herziening ──
+      //    Bewust drie verplichte velden: zonder reden/toelichting weet niemand later waaróm het
+      //    voorlopig was, en zonder herzieningstaak blijft het dossier stil hangen.
+      if (actie === "voorlopige-aangifte") {
+        const cfg = await dossierVoorlopig.instellingenVoorSoort(soort.key);
+        if (!cfg.aan) {
+          context.res = { status: 409, headers: { "Content-Type": "application/json" }, body: { error: `"Voorlopige aangifte" staat voor ${soort.label.toLowerCase()}-dossiers nog uit. Zet 'm aan bij Beheer → Dossiers → Voorlopige aangifte.` } };
+          return;
+        }
+        if (cfg.taakSoort === null) {
+          context.res = { status: 409, headers: { "Content-Type": "application/json" }, body: { error: "Er is nog geen taaksoort gekoppeld aan de herzieningstaak. Stel die in bij Beheer → Dossiers → Voorlopige aangifte." } };
+          return;
+        }
+        const redenSleutel = String((req.body && req.body.reden) || "").trim();
+        const toelichting = String((req.body && req.body.toelichting) || "").trim();
+        const herzienOp = String((req.body && req.body.herzienOp) || "").trim();
+        const reden = (cfg.redenen || []).find((r) => r.sleutel === redenSleutel && r.actief !== false);
+        if (!reden) {
+          context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Kies een geldige reden voor de voorlopige aangifte." } };
+          return;
+        }
+        if (toelichting.length < 3) {
+          context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Een toelichting is verplicht — leg kort vast waarom deze aangifte voorlopig is." } };
+          return;
+        }
+        const herzienDatum = herzienOp ? new Date(herzienOp) : null;
+        if (!herzienDatum || isNaN(herzienDatum.getTime())) {
+          context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geef een herzieningsdatum op — daar wordt de verplichte follow-uptaak op ingepland." } };
+          return;
+        }
+        const vandaag = new Date(); vandaag.setHours(0, 0, 0, 0);
+        if (herzienDatum < vandaag) {
+          context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "De herzieningsdatum ligt in het verleden. Kies een datum in de toekomst." } };
+          return;
+        }
+
+        const huidigDossier = await haalEenDossier(resource, token, soort, id);
+        if (!huidigDossier) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Dossier niet gevonden." } }; return; }
+        if (!huidigDossier.actief) {
+          context.res = { status: 409, headers: { "Content-Type": "application/json" }, body: { error: "Dit dossier staat op inactief; een voorlopige aangifte markeren kan alleen bij een actief dossier." } };
+          return;
+        }
+        const lopend = await dossierVoorlopig.haalVoorDossier(soort.key, id).catch(() => null);
+        if (lopend && lopend.status === "open") {
+          context.res = { status: 409, headers: { "Content-Type": "application/json" }, body: { error: `Dit dossier staat al als voorlopige aangifte gemarkeerd (herziening gepland op ${lopend.herzienOp ? new Date(lopend.herzienOp).toLocaleDateString("nl-NL") : "onbekend"}). Rond die herzieningstaak eerst af.` } };
+          return;
+        }
+
+        const periode = dossierReview.periodeTekst(huidigDossier);
+        const ikzelf = await haalSystemuser(resource, token, email).catch(() => null);
+        // Herzieningstaak — bij de manager van het dossier, met de gekozen datum als deadline en de
+        // dossierkoppeling erin zodat je er vanuit de taak meteen bij kunt.
+        const taakId = await dossierReview.maakTaak(resource, token, {
+          subject: dossierReview.vulSjabloonIn(cfg.taakOnderwerp, {
+            klant: huidigDossier.klantnaam || "", periode, jaar: huidigDossier.jaar || "", soort: soort.label,
+          }),
+          description: [
+            `Deze ${soort.label.toLowerCase()} is als VOORLOPIGE aangifte verstuurd door ${(ikzelf && ikzelf.naam) || email || "een collega"}.`,
+            `\nReden: ${reden.label}`,
+            `Toelichting: ${toelichting}`,
+            `\nHerzie de aangifte en rond deze taak daarna af; het dossier wordt dan automatisch bijgewerkt.`,
+          ].join("\n") + dossierTaakketen.maakRef(soort.key, id, "voorlopig"),
+          accountId: huidigDossier.accountId,
+          soortWaarde: cfg.taakSoort,
+          rubriekWaarde: cfg.taakRubriek,
+          eigenaarId: huidigDossier.managerId || (ikzelf && ikzelf.id) || "",
+          deadline: herzienDatum.toISOString(),
+        });
+
+        await dossierVoorlopig.zetVoorlopig({
+          dossierSoort: soort.key, dossierId: id,
+          accountId: huidigDossier.accountId, klantnaam: huidigDossier.klantnaam, periode,
+          redenSleutel: reden.sleutel, redenLabel: reden.label,
+          toelichting, herzienOp: herzienDatum.toISOString(), taakId,
+          doorEmail: email, doorNaam: (ikzelf && ikzelf.naam) || "",
+        });
+
+        // Dossierstatus meebewegen — best-effort, de taak en de registratie staan er al.
+        if (cfg.status !== null) {
+          try {
+            const indelingNu = await haalIndeling(soort);
+            if (!new Set(indelingNu.alleenLezen || []).has("__status")) {
+              await werkDossierBij(resource, token, soort, id, { status: cfg.status });
+            }
+          } catch (e) {
+            context.log.error("Dossierstatus na voorlopige aangifte bijwerken mislukt (de taak staat er wél):", e);
+          }
+        }
+
+        await logGebeurtenis({
+          door: email || "onbekend", actie: "dossier", accountId: huidigDossier.accountId, accountIds: [huidigDossier.accountId],
+          klantnaam: huidigDossier.klantnaam,
+          tekst: `Dossier ${soort.label}${periode ? ` ${periode}` : ""} gemarkeerd als voorlopige aangifte (${reden.label}); herziening gepland op ${herzienDatum.toLocaleDateString("nl-NL")}.`,
+        }).catch(() => {});
+
+        const dossierNa = await haalEenDossier(resource, token, soort, id).catch(() => null);
+        const registratie = await dossierVoorlopig.haalVoorDossier(soort.key, id).catch(() => null);
+        context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, taakId, voorlopig: registratie, dossier: dossierNa } };
         return;
       }
 

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload, Lightbulb, Binoculars, BookOpen, FileSignature, Printer, UserCheck } from "lucide-react";
+import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload, Lightbulb, Binoculars, BookOpen, FileSignature, Printer, UserCheck, Clock } from "lucide-react";
 import { startMeekijken } from "../meekijken";
 import { luisterNaarDossierHash, wisDossierHash } from "./dossierNavigatie";
 import OffertesModule from "./OffertesModule";
@@ -2259,6 +2259,15 @@ function MedewerkerDossiers({ soort, magVerwijderenRubriek = true, magBulkVerwij
           }));
           if (res.dossier) setDossiers((h) => (h || []).map((x) => (x.id === res.dossier.id ? res.dossier : x)));
         }}
+        voorlopig={detail.voorlopig || { aan: false, redenen: [], huidig: null, standaardTermijnMaanden: 6 }}
+        onVoorlopigVastgelegd={(res) => {
+          setDetail((h) => ({
+            ...h,
+            dossier: res.dossier || h.dossier,
+            voorlopig: { ...(h.voorlopig || {}), huidig: res.voorlopig || null },
+          }));
+          if (res.dossier) setDossiers((h) => (h || []).map((x) => (x.id === res.dossier.id ? res.dossier : x)));
+        }}
         magVerwijderen={magVerwijderen && magVerwijderenRubriek}
         magWijzigen={magWijzigen}
         onDossierVerwijderd={dossierVerwijderd}
@@ -3675,7 +3684,113 @@ function ReviewAanvragenModal({ dossier, soortLabel, onSluit, onKlaar }) {
   );
 }
 
-function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen, picklistOpties, sjabloon, bijlage, gekoppeldeUitvragen, gekoppeldeLijstId, gekoppeldOnderwerpId, defaultContact, review, onReviewAangevraagd, magVerwijderen, magWijzigen, onDossierVerwijderd, onTerug, onOpgeslagen, onDossierAangemaakt }) {
+/* Voorlopige aangifte: markeer het dossier als "voorlopig" met een reden uit de beheerlijst, een
+   verplichte toelichting en een verplichte herzieningsdatum. Van die datum wordt meteen een taak
+   gemaakt bij de manager van het dossier — zo blijft er niets stil hangen. */
+function VoorlopigeAangifteModal({ dossier, soortLabel, voorlopig, onSluit, onKlaar }) {
+  const maanden = voorlopig.standaardTermijnMaanden || 6;
+  const standaardDatum = (() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + maanden);
+    return d.toISOString().slice(0, 10);
+  })();
+  const [reden, setReden] = useState("");
+  const [toelichting, setToelichting] = useState("");
+  const [herzienOp, setHerzienOp] = useState(standaardDatum);
+  const [bezig, setBezig] = useState(false);
+  const [fout, setFout] = useState("");
+
+  const vandaag = new Date().toISOString().slice(0, 10);
+  const compleet = reden && toelichting.trim().length >= 3 && herzienOp && herzienOp >= vandaag;
+
+  const versturen = async () => {
+    if (!compleet || bezig) return;
+    setBezig(true); setFout("");
+    try {
+      const r = await fetch("/api/medewerker-dossier", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ soort: dossier.soort, id: dossier.id, actie: "voorlopige-aangifte", reden, toelichting: toelichting.trim(), herzienOp }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      onKlaar(d);
+    } catch (e) {
+      setFout(e.message || "Kon de voorlopige aangifte niet vastleggen.");
+    } finally {
+      setBezig(false);
+    }
+  };
+
+  return (
+    <div onClick={onSluit} style={{ position: "fixed", inset: 0, background: "rgba(28,35,33,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 12, width: "100%", maxWidth: 520, maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 12px 48px rgba(0,0,0,0.2)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: `1px solid ${KLEUR.rand}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700 }}>
+            <Clock size={17} color="#A9660C" /> Voorlopige aangifte
+          </div>
+          <button onClick={onSluit} style={{ background: "none", border: "none", cursor: "pointer", color: KLEUR.mutedTekst, padding: 4 }}><X size={17} /></button>
+        </div>
+
+        <div style={{ padding: "14px 20px", overflowY: "auto" }}>
+          <div style={{ fontSize: 12.5, color: KLEUR.subtekst, lineHeight: 1.6, marginBottom: 14 }}>
+            {soortLabel}{dossier.jaar ? ` ${dossier.jaar}` : ""} — <strong>{dossier.klantnaam || "cliënt onbekend"}</strong>.
+            Je legt vast dat deze aangifte bewust nog niet definitief is. Alle drie de velden zijn verplicht:
+            zonder reden en toelichting weet niemand later waaróm, en zonder herzieningsdatum blijft het dossier stil hangen.
+          </div>
+
+          <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 5 }}>Reden</label>
+          <select
+            value={reden}
+            onChange={(e) => setReden(e.target.value)}
+            autoFocus
+            style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${reden ? KLEUR.rand : "#E0C9A0"}`, borderRadius: 8, padding: "8px 10px", fontSize: 13, background: "#fff", marginBottom: 14 }}
+          >
+            <option value="">— kies een reden —</option>
+            {(voorlopig.redenen || []).map((r) => <option key={r.sleutel} value={r.sleutel}>{r.label}</option>)}
+          </select>
+
+          <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 5 }}>Toelichting</label>
+          <textarea
+            value={toelichting}
+            onChange={(e) => setToelichting(e.target.value)}
+            rows={3}
+            placeholder="Wat ontbreekt er nog, en wat is er nodig om de aangifte definitief te maken?"
+            style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${toelichting.trim().length >= 3 ? KLEUR.rand : "#E0C9A0"}`, borderRadius: 8, padding: "8px 10px", fontSize: 13, resize: "vertical", fontFamily: "inherit", marginBottom: 14 }}
+          />
+
+          <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 5 }}>Herzien op</label>
+          <input
+            type="date"
+            value={herzienOp}
+            min={vandaag}
+            onChange={(e) => setHerzienOp(e.target.value)}
+            style={{ width: "100%", maxWidth: 220, boxSizing: "border-box", border: `1px solid ${herzienOp && herzienOp >= vandaag ? KLEUR.rand : "#E0C9A0"}`, borderRadius: 8, padding: "8px 10px", fontSize: 13 }}
+          />
+          <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 6 }}>
+            Op deze datum staat er een taak klaar bij {dossier.manager ? <strong>{dossier.manager}</strong> : "de manager van dit dossier"} om
+            de aangifte te herzien. Zodra die taak is afgerond, vervalt de voorlopig-markering vanzelf.
+          </div>
+          {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginTop: 10 }}>{fout}</div>}
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "12px 20px", borderTop: `1px solid ${KLEUR.rand}` }}>
+          <button onClick={onSluit} style={{ padding: "8px 14px", background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, fontSize: 12.5, fontWeight: 600, color: KLEUR.subtekst, cursor: "pointer" }}>Annuleren</button>
+          <button
+            onClick={versturen}
+            disabled={!compleet || bezig}
+            title={compleet ? "" : "Vul een reden, een toelichting en een herzieningsdatum in de toekomst in"}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", background: !compleet || bezig ? "#D3C3A5" : "#A9660C", color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: !compleet || bezig ? "default" : "pointer" }}
+          >
+            <Clock size={14} /> {bezig ? "Vastleggen…" : "Vastleggen & inplannen"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOpties, catalogus, secties, verborgen, voorwaarden, alleenLezen, picklistOpties, sjabloon, bijlage, gekoppeldeUitvragen, gekoppeldeLijstId, gekoppeldOnderwerpId, defaultContact, review, onReviewAangevraagd, voorlopig, onVoorlopigVastgelegd, magVerwijderen, magWijzigen, onDossierVerwijderd, onTerug, onOpgeslagen, onDossierAangemaakt }) {
   const [status, setStatus] = useState(dossier.status != null ? String(dossier.status) : "");
   const [urlDossier, setUrlDossier] = useState(dossier.urlDossier || "");
   const [documentUrl, setDocumentUrl] = useState(dossier.documentUrl || "");
@@ -3694,6 +3809,9 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
   const [kopieOpen, setKopieOpen] = useState(false); // "Aangifte kopiëren naar volgend jaar"-popup
   const [voorbeeldOpen, setVoorbeeldOpen] = useState(false); // "Voorbeeld"-document (notulen/dividend)
   const [reviewOpen, setReviewOpen] = useState(false); // "Review aanvragen"-popup
+  const [voorlopigOpen, setVoorlopigOpen] = useState(false); // "Voorlopige aangifte"-popup
+  const voorlopigInfo = voorlopig || { aan: false, redenen: [], huidig: null, standaardTermijnMaanden: 6 };
+  const voorlopigNu = voorlopigInfo.huidig && voorlopigInfo.huidig.status === "open" ? voorlopigInfo.huidig : null;
   const reviewInfo = review || { aan: false, ingesteld: false, lopend: null, geschiedenis: [] };
   const lopendeReview = reviewInfo.lopend || null;
   // Laatste afgeronde review (voor het bandje "akkoord bevonden" / "aanpassen na review").
@@ -3987,6 +4105,19 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
               <Copy size={14} /> {dossier.soort === "notulen" ? "Kopiëren naar nieuw dossier" : dossier.soort === "ib" ? "Aangifte kopiëren naar volgend jaar" : "Kopiëren naar volgend jaar"}
             </button>
           )}
+          {/* Voorlopige aangifte kan alleen bij een dossier dat nog niet op inactief staat. */}
+          {voorlopigInfo.aan && magWijzigen && dossier.actief !== false && (
+            <button
+              onClick={() => setVoorlopigOpen(true)}
+              disabled={!!voorlopigNu}
+              title={voorlopigNu
+                ? `Staat al als voorlopige aangifte gemarkeerd; herziening gepland op ${voorlopigNu.herzienOp ? new Date(voorlopigNu.herzienOp).toLocaleDateString("nl-NL") : "onbekend"}.`
+                : "Leg vast dat deze aangifte bewust nog niet definitief is, met reden, toelichting en een ingeplande herziening"}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, background: voorlopigNu ? "#F4F5F2" : "#fff", border: `1px solid ${voorlopigNu ? KLEUR.rand : "#A9660C"}`, color: voorlopigNu ? KLEUR.mutedTekst : "#A9660C", fontSize: 12.5, fontWeight: 600, cursor: voorlopigNu ? "default" : "pointer", padding: "6px 12px", borderRadius: 7 }}
+            >
+              <Clock size={14} /> {voorlopigNu ? "Voorlopig gemarkeerd" : "Voorlopige aangifte"}
+            </button>
+          )}
           {reviewInfo.aan && magWijzigen && dossier.actief !== false && (
             <button
               onClick={() => setReviewOpen(true)}
@@ -4007,6 +4138,40 @@ function DossierDetail({ dossier, soortLabel, periodeLabel, periode, statusOptie
         </div>
       </div>
       {verwijderFout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 10 }}>{verwijderFout}</div>}
+
+      {/* Voorlopige aangifte: reden, toelichting en de geplande herziening in beeld houden. */}
+      {voorlopigNu && (
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12.5, color: "#A9660C", background: "#FDF4E3", border: "1px solid #EBD9B4", borderRadius: 8, padding: "8px 12px", marginBottom: 12 }}>
+          <Clock size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+          <div>
+            <div>
+              <strong>Voorlopige aangifte</strong> — {voorlopigNu.redenLabel || "reden onbekend"}
+              {voorlopigNu.herzienOp ? <> · te herzien op <strong>{new Date(voorlopigNu.herzienOp).toLocaleDateString("nl-NL")}</strong></> : null}
+              {voorlopigNu.doorNaam ? <span style={{ color: KLEUR.subtekst }}> · vastgelegd door {voorlopigNu.doorNaam}</span> : null}
+            </div>
+            {voorlopigNu.toelichting && <div style={{ marginTop: 3, whiteSpace: "pre-wrap", color: KLEUR.tekst }}>{voorlopigNu.toelichting}</div>}
+          </div>
+        </div>
+      )}
+      {!voorlopigNu && voorlopigInfo.huidig && voorlopigInfo.huidig.status === "herzien" && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "#2E7D46", background: "#EDF6EF", border: "1px solid #C9E2D1", borderRadius: 8, padding: "8px 12px", marginBottom: 12 }}>
+          <Clock size={15} />
+          <span>
+            Was een voorlopige aangifte ({voorlopigInfo.huidig.redenLabel || "reden onbekend"}) en is
+            {voorlopigInfo.huidig.herzienDatum ? ` op ${new Date(voorlopigInfo.huidig.herzienDatum).toLocaleDateString("nl-NL")}` : ""} herzien.
+          </span>
+        </div>
+      )}
+
+      {voorlopigOpen && (
+        <VoorlopigeAangifteModal
+          dossier={dossier}
+          soortLabel={soortLabel}
+          voorlopig={voorlopigInfo}
+          onSluit={() => setVoorlopigOpen(false)}
+          onKlaar={(res) => { setVoorlopigOpen(false); if (onVoorlopigVastgelegd) onVoorlopigVastgelegd(res); }}
+        />
+      )}
 
       {/* Reviewstand: loopt er een review, of wat leverde de laatste op? */}
       {lopendeReview && (

@@ -42,6 +42,20 @@ const STANDAARD_KETEN_CFG = {
   statusVervolgKlaar: "", inactiefNaVervolg: false,
 };
 
+// Voorlopige aangifte — moet gelijk lopen met STANDAARD_VOORLOPIG in api/_gedeeld/dossierVoorlopig.js.
+const STANDAARD_VOORLOPIG_CFG = {
+  aan: false,
+  redenen: [
+    { sleutel: "jaarcijfers-onderneming", label: "Wacht op jaarcijfers onderneming", actief: true },
+    { sleutel: "buitenlands-inkomen", label: "Buitenlands inkomen nog onbekend", actief: true },
+    { sleutel: "ontbrekende-stukken", label: "Ontbrekende stukken van de cliënt", actief: true },
+    { sleutel: "teruggaaf-versnellen", label: "Teruggaaf versnellen", actief: true },
+  ],
+  status: "", taakSoort: "", taakOnderwerp: "Voorlopige aangifte herzien: {soort} {periode} — {klant}",
+  taakRubriek: "", standaardTermijnMaanden: 6,
+};
+const redenSleutel = (t) => String(t || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+
 // Types die via "Nieuw veld aanmaken" in Dynamics aangemaakt kunnen worden — zelfde vijf typen
 // als de rest van de catalogus ondersteunt (zie VeldInvoer in MedewerkerPortaal.jsx). Keuzelijst
 // (picklist) zit hier bewust nog niet bij: dat vraagt ook eigen opties/optionset-beheer, een
@@ -298,6 +312,11 @@ function SoortIndelingPaneel({ soort, onderaan }) {
   const [ketenCfg, setKetenCfg] = useState(null);        // null = nog niet geladen
   const [alleKetenCfg, setAlleKetenCfg] = useState({});  // andere soorten ongemoeid terugschrijven
   const [ketenStatus, setKetenStatus] = useState("rust");
+  // ── Voorlopige aangifte (instellingen-sleutel `dossierVoorlopig`) ──
+  const [voorlopigCfg, setVoorlopigCfg] = useState(null);        // null = nog niet geladen
+  const [alleVoorlopigCfg, setAlleVoorlopigCfg] = useState({});
+  const [voorlopigStatus, setVoorlopigStatus] = useState("rust");
+  const [nieuweReden, setNieuweReden] = useState("");
   // Heeft deze dossiersoort een veld "reviewnotitie"? Zo niet, dan komt de opmerking van de reviewer
   // alleen in de vervolgtaak — dat zeggen we er dan bij (IB en VPB hebben het veld, dividend/notulen niet).
   const heeftReviewNotitieVeld = (catalogus || []).some((v) => v && v.key === "reviewnotitie");
@@ -391,6 +410,9 @@ function SoortIndelingPaneel({ soort, onderaan }) {
         const alleKeten = (instellingenData && instellingenData.dossierAkkoord) || {};
         setAlleKetenCfg(alleKeten);
         setKetenCfg({ ...STANDAARD_KETEN_CFG, ...(alleKeten[soort] || {}) });
+        const alleVoorlopig = (instellingenData && instellingenData.dossierVoorlopig) || {};
+        setAlleVoorlopigCfg(alleVoorlopig);
+        setVoorlopigCfg({ ...STANDAARD_VOORLOPIG_CFG, ...(alleVoorlopig[soort] || {}) });
       })
       .catch(() => { setCatalogus([]); setSecties([]); setFout("Kon de dossierindeling niet laden."); });
   }, []);
@@ -568,6 +590,36 @@ function SoortIndelingPaneel({ soort, onderaan }) {
       setKetenStatus("opgeslagen");
     } catch {
       setKetenStatus("fout");
+    }
+  };
+
+  /** Voorlopige-aangifte-instellingen van DEZE soort opslaan; andere soorten blijven onaangeroerd. */
+  const bewaarVoorlopigInstellingen = async () => {
+    setVoorlopigStatus("bezig");
+    try {
+      const getal = (v) => (v === "" || v === null || v === undefined ? null : (Number.isFinite(Number(v)) ? Number(v) : null));
+      const schoon = {
+        aan: !!voorlopigCfg.aan,
+        redenen: (voorlopigCfg.redenen || []).filter((r) => r && String(r.label || "").trim()).map((r) => ({
+          sleutel: r.sleutel || redenSleutel(r.label), label: String(r.label).trim(), actief: r.actief !== false,
+        })),
+        status: getal(voorlopigCfg.status),
+        taakSoort: getal(voorlopigCfg.taakSoort),
+        taakOnderwerp: String(voorlopigCfg.taakOnderwerp || "").trim(),
+        taakRubriek: getal(voorlopigCfg.taakRubriek),
+        standaardTermijnMaanden: getal(voorlopigCfg.standaardTermijnMaanden) || 6,
+      };
+      const r = await fetch("/api/beheer-instellingen", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dossierVoorlopig: { ...alleVoorlopigCfg, [soort]: schoon } }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      setAlleVoorlopigCfg((h) => ({ ...h, [soort]: schoon }));
+      setVoorlopigCfg((h) => ({ ...h, redenen: schoon.redenen }));
+      setVoorlopigStatus("opgeslagen");
+    } catch {
+      setVoorlopigStatus("fout");
     }
   };
 
@@ -1073,6 +1125,183 @@ function SoortIndelingPaneel({ soort, onderaan }) {
         </div>
       </div>
       </>
+      )}
+
+      {/* ── Voorlopige aangifte ─────────────────────────────────────────────────────────────────
+          Een aangifte die bewust nog niet definitief is. De medewerker moet een reden uit deze
+          lijst kiezen, een toelichting geven én een herzieningsdatum prikken — daar wordt meteen een
+          taak van gemaakt. Zie api/_gedeeld/dossierVoorlopig.js. */}
+      {voorlopigCfg && (soort === "ib" || soort === "vpb") && (
+        <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 16, marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>Voorlopige aangifte — {soortLabelKort}</div>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 600, color: voorlopigCfg.aan ? KLEUR.blauw : KLEUR.subtekst, cursor: "pointer" }}>
+              <input type="checkbox" checked={!!voorlopigCfg.aan} onChange={(e) => { setVoorlopigCfg((h) => ({ ...h, aan: e.target.checked })); setVoorlopigStatus("rust"); }} />
+              Knop tonen in het {soortWoord}-dossier
+            </label>
+          </div>
+          <div style={{ fontSize: 12.5, color: KLEUR.subtekst, lineHeight: 1.6, marginBottom: 14 }}>
+            De medewerker legt vast dat een aangifte bewust nog niet definitief is. Verplicht: een{" "}
+            <strong>reden</strong> uit onderstaande lijst, een <strong>toelichting</strong> en een{" "}
+            <strong>herzieningsdatum</strong> — van die datum wordt een taak gemaakt bij de manager van het
+            dossier. Zodra die taak wordt afgerond vervalt de markering vanzelf. De knop verschijnt
+            alleen bij dossiers die nog niet op inactief staan.
+          </div>
+
+          {/* Redenen */}
+          <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 12, marginBottom: 10, opacity: voorlopigCfg.aan ? 1 : 0.55 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 8 }}>Redenen in de keuzelijst</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+              {(voorlopigCfg.redenen || []).length === 0 && (
+                <div style={{ fontSize: 12, color: KLEUR.rood }}>Geen redenen — zonder minstens één actieve reden blijft de knop verborgen.</div>
+              )}
+              {(voorlopigCfg.redenen || []).map((r, i) => (
+                <div key={r.sleutel || i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <input
+                    value={r.label}
+                    onChange={(e) => { const v = e.target.value; setVoorlopigCfg((h) => ({ ...h, redenen: (h.redenen || []).map((x, idx) => (idx === i ? { ...x, label: v } : x)) })); setVoorlopigStatus("rust"); }}
+                    disabled={!voorlopigCfg.aan}
+                    style={{ ...invoerStijl, flex: "1 1 auto", minWidth: 0, background: "#fff" }}
+                  />
+                  <label title="Uitgezette redenen verdwijnen uit de keuzelijst; bestaande registraties houden hun reden." style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: KLEUR.subtekst, cursor: "pointer", whiteSpace: "nowrap" }}>
+                    <input
+                      type="checkbox"
+                      checked={r.actief !== false}
+                      onChange={(e) => { const v = e.target.checked; setVoorlopigCfg((h) => ({ ...h, redenen: (h.redenen || []).map((x, idx) => (idx === i ? { ...x, actief: v } : x)) })); setVoorlopigStatus("rust"); }}
+                      disabled={!voorlopigCfg.aan}
+                    /> actief
+                  </label>
+                  <button
+                    onClick={() => { setVoorlopigCfg((h) => ({ ...h, redenen: (h.redenen || []).filter((_, idx) => idx !== i) })); setVoorlopigStatus("rust"); }}
+                    disabled={!voorlopigCfg.aan}
+                    title="Reden verwijderen"
+                    style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 26, height: 26, flexShrink: 0, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, background: "#fff", color: KLEUR.rood, cursor: voorlopigCfg.aan ? "pointer" : "default" }}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <input
+                value={nieuweReden}
+                onChange={(e) => setNieuweReden(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter" || !nieuweReden.trim()) return;
+                  const label = nieuweReden.trim();
+                  setVoorlopigCfg((h) => ({ ...h, redenen: [...(h.redenen || []), { sleutel: redenSleutel(label), label, actief: true }] }));
+                  setNieuweReden(""); setVoorlopigStatus("rust");
+                }}
+                disabled={!voorlopigCfg.aan}
+                placeholder="Nieuwe reden…"
+                style={{ ...invoerStijl, flex: "1 1 220px", maxWidth: 340, background: "#fff" }}
+              />
+              <button
+                onClick={() => {
+                  const label = nieuweReden.trim();
+                  if (!label) return;
+                  setVoorlopigCfg((h) => ({ ...h, redenen: [...(h.redenen || []), { sleutel: redenSleutel(label), label, actief: true }] }));
+                  setNieuweReden(""); setVoorlopigStatus("rust");
+                }}
+                disabled={!voorlopigCfg.aan || !nieuweReden.trim()}
+                style={{ padding: "7px 14px", background: !voorlopigCfg.aan || !nieuweReden.trim() ? "#9DB4A5" : KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: !voorlopigCfg.aan || !nieuweReden.trim() ? "default" : "pointer" }}
+              >
+                Toevoegen
+              </button>
+            </div>
+          </div>
+
+          {/* Taak + status */}
+          <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 12, marginBottom: 12, opacity: voorlopigCfg.aan ? 1 : 0.55 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 8 }}>De verplichte herzieningstaak</div>
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(180px, 1fr) minmax(180px, 1fr)", gap: 10, marginBottom: 8 }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Taaksoort (verplicht)</div>
+                <select
+                  value={voorlopigCfg.taakSoort === null || voorlopigCfg.taakSoort === undefined ? "" : String(voorlopigCfg.taakSoort)}
+                  onChange={(e) => { setVoorlopigCfg((h) => ({ ...h, taakSoort: e.target.value })); setVoorlopigStatus("rust"); }}
+                  disabled={!voorlopigCfg.aan}
+                  style={{ ...invoerStijl, width: "100%", background: "#fff" }}
+                >
+                  <option value="">— kies een taaksoort —</option>
+                  {taakSoortOpties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Dossierstatus bij markeren</div>
+                <select
+                  value={voorlopigCfg.status === null || voorlopigCfg.status === undefined ? "" : String(voorlopigCfg.status)}
+                  onChange={(e) => { setVoorlopigCfg((h) => ({ ...h, status: e.target.value })); setVoorlopigStatus("rust"); }}
+                  disabled={!voorlopigCfg.aan}
+                  style={{ ...invoerStijl, width: "100%", background: "#fff" }}
+                >
+                  <option value="">— status niet wijzigen —</option>
+                  {statusOpties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Onderwerp van de taak</div>
+            <input
+              value={voorlopigCfg.taakOnderwerp || ""}
+              onChange={(e) => { setVoorlopigCfg((h) => ({ ...h, taakOnderwerp: e.target.value })); setVoorlopigStatus("rust"); }}
+              disabled={!voorlopigCfg.aan}
+              style={{ ...invoerStijl, width: "100%", background: "#fff", marginBottom: 8 }}
+            />
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(180px, 1fr) minmax(180px, 1fr)", gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Rubriek (optioneel)</div>
+                {taakRubriekOpties.length > 0 ? (
+                  <select
+                    value={voorlopigCfg.taakRubriek === null || voorlopigCfg.taakRubriek === undefined ? "" : String(voorlopigCfg.taakRubriek)}
+                    onChange={(e) => { setVoorlopigCfg((h) => ({ ...h, taakRubriek: e.target.value })); setVoorlopigStatus("rust"); }}
+                    disabled={!voorlopigCfg.aan}
+                    style={{ ...invoerStijl, width: "100%", background: "#fff" }}
+                  >
+                    <option value="">— geen rubriek —</option>
+                    {taakRubriekOpties.map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
+                  </select>
+                ) : (
+                  <input
+                    value={voorlopigCfg.taakRubriek === null || voorlopigCfg.taakRubriek === undefined ? "" : String(voorlopigCfg.taakRubriek)}
+                    onChange={(e) => { setVoorlopigCfg((h) => ({ ...h, taakRubriek: e.target.value })); setVoorlopigStatus("rust"); }}
+                    disabled={!voorlopigCfg.aan}
+                    placeholder="optiesetwaarde, of leeg"
+                    style={{ ...invoerStijl, width: "100%", background: "#fff" }}
+                  />
+                )}
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, marginBottom: 3 }}>Voorgestelde termijn (maanden)</div>
+                <input
+                  type="number" min="1" max="60"
+                  value={voorlopigCfg.standaardTermijnMaanden ?? 6}
+                  onChange={(e) => { setVoorlopigCfg((h) => ({ ...h, standaardTermijnMaanden: e.target.value })); setVoorlopigStatus("rust"); }}
+                  disabled={!voorlopigCfg.aan}
+                  title="De herzieningsdatum staat in het scherm zo veel maanden vooruit voorgevuld; de medewerker kan 'm altijd aanpassen."
+                  style={{ ...invoerStijl, width: "100%", background: "#fff" }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {voorlopigCfg.aan && (voorlopigCfg.taakSoort === "" || voorlopigCfg.taakSoort === null) && (
+            <div style={{ fontSize: 12, color: KLEUR.rood, marginBottom: 10 }}>
+              Kies een taaksoort voor de herzieningstaak — zonder die soort blijft de knop verborgen.
+            </div>
+          )}
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button
+              onClick={bewaarVoorlopigInstellingen}
+              disabled={voorlopigStatus === "bezig"}
+              style={{ padding: "7px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: voorlopigStatus === "bezig" ? "default" : "pointer" }}
+            >
+              {voorlopigStatus === "bezig" ? "Opslaan…" : "Opslaan"}
+            </button>
+            {voorlopigStatus === "opgeslagen" && <span style={{ fontSize: 11.5, color: KLEUR.groen }}>Opgeslagen</span>}
+            {voorlopigStatus === "fout" && <span style={{ fontSize: 11.5, color: KLEUR.rood }}>Opslaan mislukt</span>}
+          </div>
+        </div>
       )}
 
       {/* ── Na versturen: vervolgtaak en dossierstatussen ──────────────────────────────────────

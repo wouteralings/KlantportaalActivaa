@@ -32,6 +32,7 @@ const takenUrencode = require("../_gedeeld/takenUrencode");
 const urencodesStore = require("../_gedeeld/urencodesStore");
 const dossierReview = require("../_gedeeld/dossierReview");
 const dossierTaakketen = require("../_gedeeld/dossierTaakketen");
+const dossierVoorlopig = require("../_gedeeld/dossierVoorlopig");
 const { SOORTEN, werkDossierBij } = require("../_gedeeld/dossiers");
 
 // Verbergt de interne "[dossier-ref: ...]"-koppeling die sommige flows in de omschrijving
@@ -345,8 +346,13 @@ module.exports = async function (context, req) {
       const ketenUit = await dossierTaakketen.naVervolgtaakAfgerond({
         context, resource, token, omschrijving: huidigeOmschrijving,
       });
+      // En was het de herzieningstaak van een voorlopige aangifte? Dan gaat die markering op
+      // "herzien", zodat het dossier niet onterecht als openstaand voorlopig blijft staan.
+      const voorlopigUit = await dossierVoorlopig.naHerzieningstaakAfgerond({
+        context, omschrijving: huidigeOmschrijving, door: email,
+      });
 
-      context.res = { status: 200, headers: { "Content-Type": "application/json" }, body: { ok: true, dossier: ketenUit.gedaan ? ketenUit : null } };
+      context.res = { status: 200, headers: { "Content-Type": "application/json" }, body: { ok: true, dossier: ketenUit.gedaan ? ketenUit : null, voorlopigHerzien: voorlopigUit.gedaan || false } };
       return;
     }
 

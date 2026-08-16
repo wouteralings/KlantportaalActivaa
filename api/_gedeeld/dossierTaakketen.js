@@ -38,7 +38,10 @@ const HEADERS = (token) => ({
   "OData-Version": "4.0",
 });
 
-const GELDIGE_FASEN = ["akkoord", "vervolg"];
+// "akkoord"    = de taak bij de cliënt na het versturen
+// "vervolg"    = de interne vervolgtaak daarna
+// "voorlopig"  = de herzieningstaak van een voorlopige aangifte (zie api/_gedeeld/dossierVoorlopig.js)
+const GELDIGE_FASEN = ["akkoord", "vervolg", "voorlopig"];
 const tekst = (v, max = 300) => String(v == null ? "" : v).trim().slice(0, max);
 
 // ── De onzichtbare dossierkoppeling in de taak-omschrijving ─────────────────
