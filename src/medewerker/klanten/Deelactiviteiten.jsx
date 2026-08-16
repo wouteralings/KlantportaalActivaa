@@ -42,6 +42,7 @@ function valtInMaand(r, maand1) {
   if (r.frequentie === "jaarlijks" || r.frequentie === "eenmalig") return Number(r.uitvoerMaand) === maand1;
   return false;
 }
+const uur = (n) => `${Number(n || 0).toLocaleString("nl-NL", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} u`;
 const datumKort = (iso) => { if (!iso) return ""; const d = new Date(iso); return isNaN(d.getTime()) ? "" : d.toLocaleDateString("nl-NL"); };
 
 /**
@@ -83,6 +84,9 @@ export default function Deelactiviteiten({ magAlles = true, standaardScope = "ka
   const [scope, setScope] = useState(magAlles ? standaardScope : (standaardScope === "kantoor" ? "mijzelf" : standaardScope)); // mijzelf | team | kantoor
   const [teamNamen, setTeamNamen] = useState(() => new Set()); // "mijn team" (uit de capaciteits-scope)
   const [toon, setToon] = useState(25); // paginagrootte
+  // Geschreven uren per planningstaak (klant × hoofdactiviteit × periode) — dat zijn de uren die via
+  // "Uren schrijven" vanuit deze planning zijn geboekt (cr283_urenboeking, bron=planning).
+  const [urenPerBron, setUrenPerBron] = useState({});
 
   const periode = type === "maand" ? `${jaar}-${pad(maand)}` : `${jaar}`;
   const mijnLc = String(mijnNaam || "").trim().toLowerCase();
@@ -93,6 +97,7 @@ export default function Deelactiviteiten({ magAlles = true, standaardScope = "ka
     fetch("/api/mw-planning-config").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => setConfig(d.config || [])).catch(() => { setConfig([]); setFout("Configuratie kon niet worden geladen."); });
     fetch("/api/mw-planning-overzicht").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => { setActiviteiten(d.activiteiten || []); setStatussen(d.statussen || []); }).catch(() => setActiviteiten([]));
     fetch("/api/beheer-klanten?alle=1").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => { const b = {}; (d.klanten || []).forEach((k) => { b[String(k.accountId || "").toLowerCase()] = k; }); setKlantenMap(b); }).catch(() => setKlantenMap({}));
+    fetch("/api/mw-uren-bron?soort=planning").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => setUrenPerBron(d.perBron || {})).catch(() => setUrenPerBron({}));
   }, []);
 
   useEffect(() => {
@@ -145,9 +150,13 @@ export default function Deelactiviteiten({ magAlles = true, standaardScope = "ka
       if (type === "maand") { if (!valtInMaand(r, maand)) continue; }
       else if ((act.type || "maand") !== "jaar") continue;
       const acc = String(r.klantAccountId || "").toLowerCase();
-      if (!map.has(acc)) map.set(acc, { acc, acts: new Map(), uitvoerders: new Set() });
+      if (!map.has(acc)) map.set(acc, { acc, acts: new Map(), uren: new Map(), uitvoerders: new Set() });
       const e = map.get(acc);
       if (!e.acts.has(act.sleutel)) e.acts.set(act.sleutel, act);
+      // Geplande (indicatie-)uren: per klant ingesteld, anders de standaard van de activiteit.
+      const uren = r.indicatieUren != null ? Number(r.indicatieUren) : (act.standaardUren != null ? Number(act.standaardUren) : null);
+      if (uren != null) e.uren.set(act.sleutel, (e.uren.get(act.sleutel) || 0) + uren);
+      else if (!e.uren.has(act.sleutel)) e.uren.set(act.sleutel, null);
       const wie = (r.toegewezenAan || "").trim() || teamPersoon(klantenMap[acc], act.rol);
       if (wie) e.uitvoerders.add(wie);
     }
@@ -162,7 +171,12 @@ export default function Deelactiviteiten({ magAlles = true, standaardScope = "ka
         if (total) { done = eff.filter((d) => stGereed(e.acc, act.sleutel, d.sleutel)).length; gereed = done === total; }
         else { gereed = stGereed(e.acc, act.sleutel, "__hoofd__"); }
         if (!gereed) alles = false;
-        perAct[act.sleutel] = { act, eff, done, total, gereed, statusKey: (status[`${e.acc}|${act.sleutel}|__status__`] || {}).statusKey || "" };
+        perAct[act.sleutel] = {
+          act, eff, done, total, gereed,
+          statusKey: (status[`${e.acc}|${act.sleutel}|__status__`] || {}).statusKey || "",
+          geplandeUren: e.uren.get(act.sleutel) ?? null,
+          geschrevenUren: (urenPerBron[`${e.acc}|${act.sleutel}|${periode}`] || {}).uren || 0,
+        };
       }
       rijen.push({
         acc: e.acc, klantnaam: klant?.klantnaam || "Onbekende klant", klantnummer: klant?.klantnummer || "",
@@ -171,7 +185,7 @@ export default function Deelactiviteiten({ magAlles = true, standaardScope = "ka
       });
     }
     return rijen;
-  }, [config, activiteitById, klantenMap, klantDeelstappen, status, type, maand]);
+  }, [config, activiteitById, klantenMap, klantDeelstappen, status, type, maand, urenPerBron, periode]);
 
   const kolommen = useMemo(() => {
     const set = new Map();
@@ -243,10 +257,20 @@ export default function Deelactiviteiten({ magAlles = true, standaardScope = "ka
       ? <button onClick={() => setOpenCel({ acc: row.acc, actSleutel: act.sleutel })} title="Gereed — klik om te bekijken/wijzigen" style={{ display: "inline-flex", alignItems: "center", gap: 5, background: KLEUR.groenBg, border: `1px solid ${KLEUR.groen}55`, color: KLEUR.groen, borderRadius: 6, padding: "3px 9px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}><CheckCircle2 size={13} /> Gereed</button>
       : <button onClick={() => setOpenCel({ acc: row.acc, actSleutel: act.sleutel })} title="Klik om deelstappen af te tekenen" style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#fff", border: `1px solid ${KLEUR.rand}`, color: KLEUR.subtekst, borderRadius: 6, padding: "3px 9px", fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}>{p.total ? `${p.done}/${p.total}` : "aftekenen"}</button>;
     const si = p.statusKey ? statusInfo[p.statusKey] : null;
+    const meer = p.geplandeUren != null && p.geschrevenUren > p.geplandeUren;
     return (
       <div style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
         {knop}
         {si && <span style={{ fontSize: 9.5, fontWeight: 700, color: si.kleur, background: `${si.kleur}18`, border: `1px solid ${si.kleur}55`, borderRadius: 20, padding: "1px 7px", whiteSpace: "nowrap" }}>{si.label}</span>}
+        {/* Geplande uren en wat er vanuit deze planningstaak is geschreven. */}
+        {(p.geplandeUren != null || p.geschrevenUren > 0) && (
+          <span title={`Gepland ${p.geplandeUren != null ? uur(p.geplandeUren) : "—"} · geschreven ${uur(p.geschrevenUren)} (uren die vanuit deze planningstaak zijn geboekt)`}
+            style={{ fontSize: 9.5, color: KLEUR.mutedTekst, whiteSpace: "nowrap" }}>
+            {p.geplandeUren != null ? uur(p.geplandeUren) : "—"}
+            {" · "}
+            <span style={{ fontWeight: 700, color: p.geschrevenUren ? (meer ? KLEUR.rood : KLEUR.groen) : KLEUR.mutedTekst }}>{uur(p.geschrevenUren)}</span>
+          </span>
+        )}
       </div>
     );
   };
@@ -349,7 +373,7 @@ export default function Deelactiviteiten({ magAlles = true, standaardScope = "ka
       )}
 
       <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 8, lineHeight: 1.5 }}>
-        Klik een cel om de deelstappen van die hoofdactiviteit af te tekenen (met wie/datum). Alle deelstappen af → cel <span style={{ color: KLEUR.groen, fontWeight: 700 }}>groen</span>. Alle hoofdactiviteiten van een klant groen → de klant staat onder <strong>Afgewikkeld</strong>.
+        Onder elke cel staat <strong>gepland · geschreven</strong> in uren; geschreven telt de uren die vanuit die planningstaak zijn geboekt (rood als het meer is dan gepland). Klik een cel om de deelstappen van die hoofdactiviteit af te tekenen (met wie/datum). Alle deelstappen af → cel <span style={{ color: KLEUR.groen, fontWeight: 700 }}>groen</span>. Alle hoofdactiviteiten van een klant groen → de klant staat onder <strong>Afgewikkeld</strong>.
       </div>
 
       {openCel && celRow && celAct && (

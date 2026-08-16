@@ -226,12 +226,26 @@ function TeamVoortgang({ rijen, periodeLabel, open, setOpen, ikLc, alles = false
   );
 }
 
-// Statuskleur van één cel (hoofdtaak × klant).
-function celStatus(item) {
+/**
+ * Statuskleur van één cel (hoofdtaak × klant). De stand volgt uit de deelstappen (niets af / deels /
+ * alles af). Is er in Beheer → Planning een status aan die stand gekoppeld (veld "Betekent"), dan
+ * gebruiken we DIE naam en kleur — zo bepaal je zelf hoe open/bezig/gereed heten en eruitzien.
+ * `voortgangStatus` is de map { open|bezig|gereed → statusobject }; ontbreekt er een, dan valt die
+ * stand terug op de standaardnamen en -kleuren hieronder.
+ */
+function celStatus(item, voortgangStatus = {}) {
   if (!item) return null;
-  if (item.gereed) return { kind: "gereed", label: item.total ? `${item.done}/${item.total}` : "Gereed", bg: KLEUR.groenBg, kleur: KLEUR.groen, rand: KLEUR.groenRand };
-  if (item.done > 0) return { kind: "bezig", label: `${item.done}/${item.total}`, bg: KLEUR.amberBg, kleur: KLEUR.amber, rand: KLEUR.amberRand };
-  return { kind: "open", label: item.total ? `0/${item.total}` : "Open", bg: KLEUR.roodBg, kleur: KLEUR.rood, rand: KLEUR.roodRand };
+  const kind = item.gereed ? "gereed" : item.done > 0 ? "bezig" : "open";
+  const val = {
+    gereed: { label: item.total ? `${item.done}/${item.total}` : "Gereed", bg: KLEUR.groenBg, kleur: KLEUR.groen, rand: KLEUR.groenRand },
+    bezig: { label: `${item.done}/${item.total}`, bg: KLEUR.amberBg, kleur: KLEUR.amber, rand: KLEUR.amberRand },
+    open: { label: item.total ? `0/${item.total}` : "Open", bg: KLEUR.roodBg, kleur: KLEUR.rood, rand: KLEUR.roodRand },
+  }[kind];
+  const eigen = voortgangStatus[kind];
+  if (!eigen) return { kind, ...val };
+  const k = eigen.kleur || val.kleur;
+  // De teller uit de deelstappen blijft achter de eigen naam staan, die is te waardevol om te verliezen.
+  return { kind, label: item.total ? `${eigen.label} · ${item.done}/${item.total}` : eigen.label, bg: `${k}18`, kleur: k, rand: `${k}55` };
 }
 
 export default function MijnWerk({ isBeheerder = false, magPlanning = false, magAftekenen = true, subRechten = null } = {}) {
@@ -290,6 +304,15 @@ export default function MijnWerk({ isBeheerder = false, magPlanning = false, mag
   const activiteitById = useMemo(() => Object.fromEntries(activiteiten.map((a) => [a.sleutel, a])), [activiteiten]);
   const activiteitOrder = useMemo(() => Object.fromEntries(activiteiten.map((a, i) => [a.sleutel, i])), [activiteiten]);
   const statusInfo = useMemo(() => Object.fromEntries((statussen || []).map((s) => [s.sleutel, s])), [statussen]);
+  // Welke beheer-status hoort bij welke stand uit de deelstappen? (Beheer → Planning, kolom "Betekent".)
+  const voortgangStatus = useMemo(() => {
+    const uit = {};
+    for (const st of statussen || []) if (st.voortgang && !uit[st.voortgang]) uit[st.voortgang] = st;
+    return uit;
+  }, [statussen]);
+  // Labels voor het statusfilter en de legenda: de eigen namen als ze er zijn.
+  const voortgangLabel = (kind, terugval) => (voortgangStatus[kind] ? voortgangStatus[kind].label : terugval);
+  const voortgangKleur = (kind, terugval) => (voortgangStatus[kind] ? voortgangStatus[kind].kleur : terugval);
   // Wiens werk tonen we? Standaard mijzelf. Een beheerder kan iedereen kiezen; een LEIDINGGEVENDE de
   // mensen uit zijn eigen team — dat zijn precies de medewerkers die /api/mw-planning-capaciteit
   // teruggeeft (dat endpoint scoopt al op leidinggevende, plus jezelf). Een gewone medewerker houdt
@@ -692,8 +715,8 @@ export default function MijnWerk({ isBeheerder = false, magPlanning = false, mag
   // De aangeklikte cel (voor de aftekenen-popup) — live afgeleid, zodat de status meebeweegt met afvinken.
   const actieveRij = actieveCel ? klantRijen.find((r) => r.acc === actieveCel.acc) : null;
   const actiefItem = actieveRij ? actieveRij.taken[actieveCel.actSleutel] : null;
-  const actieveStatus = actiefItem ? celStatus(actiefItem) : null;
-  const STATUS_LABEL = { open: "Open", bezig: "Bezig", gereed: "Gereed" };
+  const actieveStatus = actiefItem ? celStatus(actiefItem, voortgangStatus) : null;
+  const STATUS_LABEL = { open: voortgangLabel("open", "Open"), bezig: voortgangLabel("bezig", "Bezig"), gereed: voortgangLabel("gereed", "Gereed") };
   // Bron-sleutel van deze planningstaak (klant × hoofdtaak × periode) — hieraan hangen de geschreven
   // uren, zodat je ze naast de indicatie-uren kunt zetten. Zelfde vorm als in urenDataverse.js.
   const bronSleutel = actiefItem ? `${actieveRij.acc}|${actiefItem.actSleutel}|${periode}` : "";
@@ -833,9 +856,11 @@ export default function MijnWerk({ isBeheerder = false, magPlanning = false, mag
           <div style={{ fontSize: 14, fontWeight: 700, minWidth: type === "maand" ? 150 : 60, textAlign: "center" }}>{type === "maand" ? `${MAANDEN[maand - 1]} ${jaar}` : jaar}</div>
           <button onClick={volgende} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, background: "#fff", cursor: "pointer", color: KLEUR.subtekst }}><ChevronRight size={16} /></button>
           {type === "jaar" && (
-            <select value={maand} onChange={(e) => setMaand(Number(e.target.value))} disabled={heelJaar} title={heelJaar ? "Uit: je ziet nu het hele jaar" : "Filter op ingeplande maand (standaard: huidige maand)"} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "6px 8px", fontSize: 12.5, background: heelJaar ? "#F4F5F2" : "#fff", color: heelJaar ? KLEUR.mutedTekst : KLEUR.tekst, cursor: heelJaar ? "default" : "pointer" }}>
-              {MAANDEN.map((m, idx) => <option key={idx} value={idx + 1}>{m}</option>)}
-            </select>
+            <div title={heelJaar ? "Uit: je ziet nu het hele jaar" : "Filter op ingeplande maand (standaard: huidige maand)"} style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 4, paddingLeft: 10, borderLeft: `1px solid ${KLEUR.rand}`, opacity: heelJaar ? 0.45 : 1 }}>
+              <button onClick={() => setMaand((m) => (m === 1 ? 12 : m - 1))} disabled={heelJaar} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, background: "#fff", cursor: heelJaar ? "default" : "pointer", color: KLEUR.subtekst }}><ChevronLeft size={16} /></button>
+              <div style={{ fontSize: 13, fontWeight: 700, minWidth: 86, textAlign: "center", color: heelJaar ? KLEUR.mutedTekst : KLEUR.tekst }}>{MAANDEN[maand - 1]}</div>
+              <button onClick={() => setMaand((m) => (m === 12 ? 1 : m + 1))} disabled={heelJaar} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, background: "#fff", cursor: heelJaar ? "default" : "pointer", color: KLEUR.subtekst }}><ChevronRight size={16} /></button>
+            </div>
           )}
           {type === "jaar" && (
             <label title="Toon alle jaartaken van dit jaar in één keer, ongeacht de ingeplande maand" style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: "pointer", fontSize: 12, fontWeight: heelJaar ? 700 : 400, color: heelJaar ? KLEUR.blauw : KLEUR.subtekst, whiteSpace: "nowrap" }}>
@@ -911,11 +936,12 @@ export default function MijnWerk({ isBeheerder = false, magPlanning = false, mag
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "6px 8px", fontSize: 12.5, background: statusFilter ? KLEUR.lichtblauw : "#fff", color: statusFilter ? KLEUR.blauw : KLEUR.tekst, fontWeight: statusFilter ? 700 : 400, cursor: "pointer" }}>
             <option value="">Alle</option>
             <optgroup label="Voortgang">
-              {AFGELEIDE_STATUSSEN.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+              {AFGELEIDE_STATUSSEN.map(([k, label]) => <option key={k} value={k}>{voortgangLabel(k, label)}</option>)}
             </optgroup>
-            {statussen.length > 0 && (
+            {/* Alleen de statussen die NIET al aan een voortgangsstand hangen — die staan hierboven al. */}
+            {statussen.filter((s) => !s.voortgang).length > 0 && (
               <optgroup label="Statuslabel">
-                {statussen.map((s) => <option key={s.sleutel} value={s.sleutel}>{s.label}</option>)}
+                {statussen.filter((s) => !s.voortgang).map((s) => <option key={s.sleutel} value={s.sleutel}>{s.label}</option>)}
               </optgroup>
             )}
             <optgroup label="Overig">
@@ -941,9 +967,14 @@ export default function MijnWerk({ isBeheerder = false, magPlanning = false, mag
           })}
           <span style={{ flex: 1 }} />
           <span style={{ display: "inline-flex", alignItems: "center", gap: 12, fontSize: 11.5, color: KLEUR.subtekst }}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><span style={{ width: 11, height: 11, borderRadius: 3, background: KLEUR.roodBg, border: `1px solid ${KLEUR.roodRand}` }} /> Open</span>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><span style={{ width: 11, height: 11, borderRadius: 3, background: KLEUR.amberBg, border: `1px solid ${KLEUR.amberRand}` }} /> Bezig</span>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><span style={{ width: 11, height: 11, borderRadius: 3, background: KLEUR.groenBg, border: `1px solid ${KLEUR.groenRand}` }} /> Gereed</span>
+            {[["open", KLEUR.roodBg, KLEUR.roodRand, "Open"], ["bezig", KLEUR.amberBg, KLEUR.amberRand, "Bezig"], ["gereed", KLEUR.groenBg, KLEUR.groenRand, "Gereed"]].map(([k, bg, rand, val]) => {
+              const kl = voortgangKleur(k, null);
+              return (
+                <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ width: 11, height: 11, borderRadius: 3, background: kl ? `${kl}18` : bg, border: `1px solid ${kl ? `${kl}55` : rand}` }} /> {voortgangLabel(k, val)}
+                </span>
+              );
+            })}
           </span>
         </div>
       )}
@@ -1010,7 +1041,7 @@ export default function MijnWerk({ isBeheerder = false, magPlanning = false, mag
                     </td>
                     {zichtbareTaken.map((t) => {
                       const it = rij.taken[t.sleutel];
-                      const st = celStatus(it);
+                      const st = celStatus(it, voortgangStatus);
                       if (!st) return <td key={t.sleutel} style={{ ...cel, textAlign: "center", color: KLEUR.rand }}>—</td>;
                       const isActief = celOpen && actieveCel.actSleutel === t.sleutel;
                       // Heeft de taak een handmatig statuslabel? Dan is DAT de cel — het vervangt de
@@ -1108,7 +1139,7 @@ export default function MijnWerk({ isBeheerder = false, magPlanning = false, mag
       )}
 
       <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 10, lineHeight: 1.5 }}>
-        Klanten in de rijen, jouw hoofdtaken in de kolommen. De kleur toont de status: <span style={{ color: KLEUR.rood, fontWeight: 700 }}>open</span>, <span style={{ color: KLEUR.amber, fontWeight: 700 }}>bezig</span> of <span style={{ color: KLEUR.groen, fontWeight: 700 }}>gereed</span>. Kies je in een cel zelf een <strong>statuslabel</strong> (bijv. "Wacht op klant"), dan komt dat label mét zijn eigen kleur in de plaats van open/bezig/gereed; de voortgang uit de deelstappen blijft als teller zichtbaar. Klik een cel om af te tekenen, je status te kiezen of gelijk je uren op de klant te schrijven. In de jaar-weergave filter je met de maand-keuze (standaard de huidige maand) op de ingeplande maand — vink <strong>Heel jaar</strong> aan om alle jaartaken in één keer te zien; jaartaken zonder ingestelde maand blijven altijd staan. Een <strong>jaartaak</strong> die in een eerdere maand gepland stond en nog niet af is, wordt automatisch <strong>meegenomen</strong> naar de gekozen maand, gemarkeerd met <span style={{ fontWeight: 700, color: KLEUR.amber }}>↷ uit &lt;maand&gt;</span>. Maandtaken schuiven niet door: die horen bij hun eigen maand.
+        Klanten in de rijen, jouw hoofdtaken in de kolommen. De kleur toont de voortgang uit de deelstappen; hoe die heet en welke kleur hij heeft, stel je in bij Beheer → Planning → Statussen (kolom “Betekent”). Kies je in een cel zelf een <strong>statuslabel</strong> (bijv. "Wacht op klant"), dan komt dat label mét zijn eigen kleur in de plaats van open/bezig/gereed; de voortgang uit de deelstappen blijft als teller zichtbaar. Klik een cel om af te tekenen, je status te kiezen of gelijk je uren op de klant te schrijven. In de jaar-weergave filter je met de maand-keuze (standaard de huidige maand) op de ingeplande maand — vink <strong>Heel jaar</strong> aan om alle jaartaken in één keer te zien; jaartaken zonder ingestelde maand blijven altijd staan. Een <strong>jaartaak</strong> die in een eerdere maand gepland stond en nog niet af is, wordt automatisch <strong>meegenomen</strong> naar de gekozen maand, gemarkeerd met <span style={{ fontWeight: 700, color: KLEUR.amber }}>↷ uit &lt;maand&gt;</span>. Maandtaken schuiven niet door: die horen bij hun eigen maand.
       </div>
 
       {/* Aftekenen-popup: deelstappen + status per taak; is de taak gereed, dan gelijk uren schrijven */}
@@ -1155,8 +1186,8 @@ export default function MijnWerk({ isBeheerder = false, magPlanning = false, mag
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 14, paddingBottom: 14, borderBottom: `1px solid ${KLEUR.rand}` }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>Status</span>
                   <select value={actiefItem.statusKey || ""} disabled={!magAftekenen} onChange={(e) => zetItemStatus(actieveRij.acc, actiefItem.actSleutel, e.target.value, actiefItem.periode)} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "6px 10px", fontSize: 12.5, background: "#fff", cursor: magAftekenen ? "pointer" : "default", opacity: magAftekenen ? 1 : 0.6 }}>
-                    <option value="">— geen (kleur volgt de deelstappen) —</option>
-                    {statussen.map((s) => <option key={s.sleutel} value={s.sleutel}>{s.label}</option>)}
+                    <option value="">— geen (volgt de deelstappen) —</option>
+                    {statussen.filter((s) => !s.voortgang).map((s) => <option key={s.sleutel} value={s.sleutel}>{s.label}</option>)}
                   </select>
                   {actiefItem.statusKey && statusInfo[actiefItem.statusKey] && (
                     <span style={{ display: "inline-block", fontSize: 10.5, fontWeight: 700, color: statusInfo[actiefItem.statusKey].kleur, background: `${statusInfo[actiefItem.statusKey].kleur}18`, border: `1px solid ${statusInfo[actiefItem.statusKey].kleur}55`, borderRadius: 20, padding: "2px 9px" }}>{statusInfo[actiefItem.statusKey].label}</span>
