@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { FileText, Save, ChevronDown, ChevronRight, Plus, Trash2, ArrowUp, ArrowDown, Info } from "lucide-react";
+import { NOTULEN_SJABLONEN } from "./notulenSjablonen";
 
 /** Zelfde palet als de rest van het beheerdersportaal (bewust hier herhaald zodat dit bestand op
  *  zichzelf staat, zie bijv. DossierIndelingBeheer.jsx/BrievenBeheer.jsx). */
@@ -94,6 +95,21 @@ export default function DossierSjablonenPerSoort({ soort }) {
   const toggleKaart = (id) => setOpenIds((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const zet = (id, key, waarde) => setSjablonen((lijst) => lijst.map((s) => (s.id === id ? { ...s, [key]: waarde } : s)));
   const nieuw = () => { const id = nieuwSjabloonId(); setSjablonen((lijst) => [...lijst, { id, naam: "Nieuw sjabloon", tekst: "" }]); setOpenIds((s) => new Set([...s, id])); };
+  // De vaste Activaa-notulen in één keer klaarzetten (overgezet uit de Word-modellen, zie
+  // notulenSjablonen.js). Voegt alleen toe wat er nog niet staat — op naam — zodat je 'm veilig nog
+  // eens kunt indrukken nadat je zelf iets hebt aangepast. Opslaan doe je daarna zelf.
+  const voegStandaardNotulenToe = () => {
+    setSjablonen((lijst) => {
+      const bestaand = new Set(lijst.map((s) => String(s.naam || "").trim().toLowerCase()));
+      const nieuweIds = [];
+      const erbij = NOTULEN_SJABLONEN
+        .filter((s) => !bestaand.has(s.naam.trim().toLowerCase()))
+        .map((s) => { const id = nieuwSjabloonId(); nieuweIds.push(id); return { id, naam: s.naam, tekst: s.tekst }; });
+      if (nieuweIds.length) setOpenIds((o) => new Set([...o, nieuweIds[0]]));
+      return [...lijst, ...erbij];
+    });
+    setStatus("rust");
+  };
   const verwijder = (id) => { setSjablonen((lijst) => lijst.filter((s) => s.id !== id)); setOpenIds((s) => { const n = new Set(s); n.delete(id); return n; }); };
   const verplaats = (id, richting) => setSjablonen((lijst) => {
     const i = lijst.findIndex((s) => s.id === id); const j = i + richting;
@@ -225,10 +241,19 @@ export default function DossierSjablonenPerSoort({ soort }) {
                 );
               })}
 
-              <div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                 <button onClick={nieuw} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.blauw, borderRadius: 8, padding: "8px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
                   <Plus size={14} /> Nieuw sjabloon
                 </button>
+                {soort === "notulen" && (
+                  <button
+                    onClick={voegStandaardNotulenToe}
+                    title="Zet de vijf vaste notulen klaar (dividenduitkering, dividendbeleid, agiostorting, benoeming en ontslag bestuurder). Wat al bestaat blijft ongemoeid; daarna nog opslaan."
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.tekst, borderRadius: 8, padding: "8px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+                  >
+                    <Plus size={14} /> Standaard-notulen toevoegen ({NOTULEN_SJABLONEN.length})
+                  </button>
+                )}
               </div>
             </div>
           )}

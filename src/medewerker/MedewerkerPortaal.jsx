@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload, Lightbulb, Binoculars, BookOpen, FileSignature, Printer, UserCheck, Clock } from "lucide-react";
 import { startMeekijken } from "../meekijken";
 import { luisterNaarDossierHash, wisDossierHash } from "./dossierNavigatie";
+import { ontleedDocument, heeftEigenKop, blokkenNaarHtml, AFDRUK_CSS } from "./documentOpmaak";
 import OffertesModule from "./OffertesModule";
 import ContractenOverzicht from "./ContractenOverzicht";
 import TakenOverzicht from "./TakenOverzicht";
@@ -3528,7 +3529,10 @@ function DossierVoorbeeldModal({ dossier, soortLabel, periodeTekst, catalogus, v
 
   const mergeWaarden = bouwMergeWaarden({ dossier, periodeTekst, catalogus, veldenState, picklistOpties, lookupNamen });
   const tekst = gekozen ? vulSjabloonIn(gekozen.tekst, mergeWaarden) : "";
-  const alineas = String(tekst || "").replace(/\r\n/g, "\n").split(/\n[ \t]*\n/);
+  // Lichte opmaak (titel, koppen, opsommingen, ondertekenblok) — zie documentOpmaak.js. Scherm en
+  // afdruk gebruiken dezelfde blokken, dus wat je ziet is wat je print.
+  const blokken = ontleedDocument(tekst);
+  const eigenKop = heeftEigenKop(gekozen ? gekozen.tekst : "");
   const subkop = `${soortLabel}${periodeTekst ? " · " + periodeTekst : ""}`;
   const leeg = !gekozen || !String(gekozen.tekst || "").trim();
 
@@ -3537,16 +3541,54 @@ function DossierVoorbeeldModal({ dossier, soortLabel, periodeTekst, catalogus, v
     const w = typeof window !== "undefined" ? window.open("", "_blank", "width=840,height=1180") : null;
     if (!w) return; // popup geblokkeerd — de preview op het scherm blijft beschikbaar
     const esc = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const alineasHtml = alineas.map((a) => `<p>${esc(a).replace(/\n/g, "<br>")}</p>`).join("");
+    const kopHtml = eigenKop
+      ? ""
+      : `<div class="kop-klant">${esc(dossier.klantnaam || "—")}</div><div class="kop-sub">${esc(subkop)}</div>`;
     w.document.write(
       `<!doctype html><html lang="nl"><head><meta charset="utf-8"><title>${esc(soortLabel)} — ${esc(dossier.klantnaam || "")}</title>` +
-      `<style>@page{size:A4;margin:20mm}body{font-family:Helvetica,Arial,sans-serif;color:#1C2321;font-size:12pt;line-height:1.55}` +
-      `h1{font-size:16pt;margin:0 0 2px}.sub{color:#5B6259;font-size:10.5pt;margin-bottom:26px}p{margin:0 0 10px;white-space:pre-wrap}</style>` +
-      `</head><body><h1>${esc(dossier.klantnaam || "—")}</h1><div class="sub">${esc(subkop)}</div>${alineasHtml}</body></html>`
+      `<style>${AFDRUK_CSS}</style></head><body>${kopHtml}${blokkenNaarHtml(blokken, esc)}</body></html>`
     );
     w.document.close();
     w.focus();
     setTimeout(() => { try { w.print(); } catch { /* afdruk best-effort */ } }, 300);
+  };
+
+  // Eén blok als React — zelfde volgorde en verhoudingen als blokkenNaarHtml hierboven.
+  const renderBlok = (b, i) => {
+    switch (b.type) {
+      case "titel":
+        return <div key={i} style={{ fontSize: 21, fontWeight: 700, textAlign: "center", marginBottom: 2 }}>{b.tekst}</div>;
+      case "kop":
+        return <div key={i} style={{ fontSize: 14.5, fontWeight: 700, margin: "14px 0 4px" }}>{b.tekst}</div>;
+      case "kopje":
+        return <div key={i} style={{ fontSize: 13, fontWeight: 700, margin: "12px 0 3px" }}>{b.tekst}</div>;
+      case "midden":
+        return <div key={i} style={{ textAlign: "center", marginBottom: 4 }}>{b.tekst}</div>;
+      case "lijn":
+        return <div key={i} style={{ borderTop: `1px solid ${KLEUR.tekst}`, margin: "14px 0" }} />;
+      case "punt":
+        return (
+          <div key={i} style={{ display: "flex", gap: 8, margin: "0 0 5px 10px" }}>
+            <span style={{ flex: "0 0 auto", minWidth: 18 }}>{b.merk}</span>
+            <span>{b.tekst}</span>
+          </div>
+        );
+      case "inspring":
+        return <div key={i} style={{ margin: "0 0 9px 22px" }}>{b.tekst}</div>;
+      case "handtekening":
+        return (
+          <div key={i} style={{ display: "flex", gap: 40, marginTop: 46 }}>
+            {b.namen.map((n, j) => (
+              <div key={j} style={{ flex: "1 1 0", minWidth: 0 }}>
+                <div style={{ borderBottom: `1px solid ${KLEUR.tekst}`, height: 34 }} />
+                <div style={{ fontSize: 11.5, marginTop: 4 }}>{n}</div>
+              </div>
+            ))}
+          </div>
+        );
+      default:
+        return <div key={i} style={{ marginTop: b.naPunt ? 9 : 0, marginBottom: 9, whiteSpace: "pre-wrap" }}>{b.tekst}</div>;
+    }
   };
 
   return (
@@ -3577,9 +3619,13 @@ function DossierVoorbeeldModal({ dossier, soortLabel, periodeTekst, catalogus, v
 
         <div style={{ overflowY: "auto", padding: 20, background: "#EEF0EC" }}>
           {/* Blanco A4 */}
-          <div style={{ background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 4, boxShadow: "0 6px 24px rgba(0,0,0,0.08)", margin: "0 auto", maxWidth: 620, aspectRatio: "1 / 1.414", padding: "56px 60px", boxSizing: "border-box", color: KLEUR.tekst, fontFamily: "Helvetica, Arial, sans-serif", fontSize: 13, lineHeight: 1.55, overflow: "auto" }}>
-            <div style={{ fontSize: 19, fontWeight: 700 }}>{dossier.klantnaam || "—"}</div>
-            <div style={{ color: KLEUR.subtekst, fontSize: 12, marginBottom: 26 }}>{subkop}</div>
+          <div style={{ background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 4, boxShadow: "0 6px 24px rgba(0,0,0,0.08)", margin: "0 auto", maxWidth: 620, minHeight: "calc(620px * 1.414)", padding: "56px 60px", boxSizing: "border-box", color: KLEUR.tekst, fontFamily: "Helvetica, Arial, sans-serif", fontSize: 12.5, lineHeight: 1.55 }}>
+            {/* Begint het sjabloon met een eigen titel (# …), dan laten we de standaardkop weg — een
+                notulenstuk draagt zijn kop al in de tekst zelf. */}
+            {!eigenKop && (<>
+              <div style={{ fontSize: 19, fontWeight: 700 }}>{dossier.klantnaam || "—"}</div>
+              <div style={{ color: KLEUR.subtekst, fontSize: 12, marginBottom: 26 }}>{subkop}</div>
+            </>)}
             {leeg ? (
               <div style={{ color: KLEUR.mutedTekst, fontStyle: "italic" }}>
                 {sjablonen.length === 0
@@ -3587,7 +3633,7 @@ function DossierVoorbeeldModal({ dossier, soortLabel, periodeTekst, catalogus, v
                   : "Dit sjabloon heeft nog geen tekst."}
               </div>
             ) : (
-              alineas.map((a, i) => <div key={i} style={{ marginBottom: 11, whiteSpace: "pre-wrap" }}>{a}</div>)
+              blokken.map(renderBlok)
             )}
           </div>
         </div>
