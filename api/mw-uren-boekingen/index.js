@@ -124,6 +124,9 @@ module.exports = async function (context, req) {
         boekingen.push(await uren.maakBoeking({
           email, naam, datum, soort, accountId: b.accountId, omschrijving: b.omschrijving,
           uren: aantalUren, tariefSoort: b.tariefSoort, urencode: b.urencode, jaar,
+          // Optionele koppeling met de taak/planningstaak waar vandaan geschreven wordt (zie
+          // UrenSchrijvenPanel). Ontbreekt deze, dan is het gewoon een handmatige boeking.
+          bronSoort: b.bronSoort, bronId: b.bronId, bronLabel: b.bronLabel,
         }, klantMeta));
       }
       return json(context, 200, { ok: true, boeking: boekingen[0], boekingen });

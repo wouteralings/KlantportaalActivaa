@@ -166,6 +166,12 @@ module.exports = async function (context, req) {
       [`${PREFIX}_urencode`, Str(`${PREFIX}_Urencode`, "Urencode", 100)],
       [`${PREFIX}_jaar`, Int(`${PREFIX}_Jaar`, "Jaar (abonnement)")],           // verplicht in te vullen bij soort 'abonnement' (zie mw-uren-boekingen)
       [`${PREFIX}_vast`, Bool(`${PREFIX}_Vast`, "Vaste (contract)uren")],       // door beheer vastgezet, niet zelf te wijzigen
+      // Bron van het gekoppelde urenschrijven: vanuit welke taak of planningstaak zijn deze uren
+      // geschreven? bronsoort = 'taak' | 'planning'; bronid = de Dynamics-activityid (taak) of
+      // "<accountId>|<activiteit>|<periode>" (planningstaak); bronlabel = leesbare omschrijving.
+      [`${PREFIX}_bronsoort`, Str(`${PREFIX}_Bronsoort`, "Bron (soort)", 20)],
+      [`${PREFIX}_bronid`, Str(`${PREFIX}_Bronid`, "Bron (sleutel)", 200)],
+      [`${PREFIX}_bronlabel`, Str(`${PREFIX}_Bronlabel`, "Bron (omschrijving)", 300)],
     ];
     for (const [logisch, meta] of boekingAttrs) stappen.push(await maakAttribuut(token, resource, B, logisch, meta, boekingBestaandeAttrs));
 

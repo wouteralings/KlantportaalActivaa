@@ -19,6 +19,9 @@ function naarBuiten(row) {
     activiteit: row.activiteit || "",
     frequentie: row.frequentie || "maandelijks",
     indicatieUren: row.indicatie_uren != null ? Number(row.indicatie_uren) : null,
+    // Urencode waarop de uren van deze activiteit voor DEZE klant geschreven worden. Leeg = erf de
+    // standaard-urencode van de activiteit (Beheer → Planning). Zelfde erf-patroon als indicatieUren.
+    urencode: row.urencode || "",
     toegewezenAan: row.toegewezen_aan || "",
     uitvoerMaand: row.uitvoer_maand != null ? Number(row.uitvoer_maand) : null,
     vanaf: row.vanaf ? String(row.vanaf).trim() : "",
@@ -56,6 +59,16 @@ function valideerMaand(waarde) {
 // "Vanaf"-moment per klant: een maand/jaar "YYYY-MM" of null (= altijd). Vóór dit moment wordt de
 // activiteit voor deze klant niet in de planning/Mijn werk opgenomen. Per klant ingesteld (Planning →
 // configuratie per klant), i.p.v. globaal op de activiteit.
+// Urencode = de NAAM van een urencode uit Beheer → Uren (zie urencodesStore). Leeg = erf de
+// standaard-urencode van de activiteit. Bewust niet hard gevalideerd tegen de codelijst: een code
+// hernoemen/uitzetten mag een bestaande planningsregel niet onopslaanbaar maken (net als bij
+// cr283_urenboeking.urencode, die ook gewoon de naam bewaart).
+function valideerUrencode(waarde) {
+  if (waarde === undefined || waarde === null) return null;
+  const s = String(waarde).trim().slice(0, 100);
+  return s || null;
+}
+
 function valideerMaandJaar(waarde) {
   if (waarde === undefined || waarde === null || waarde === "") return null;
   const s = String(waarde).trim();
@@ -63,27 +76,30 @@ function valideerMaandJaar(waarde) {
   return s;
 }
 
-// De 'vanaf'-kolom is later toegevoegd. We schrijven hem ALLEEN weg als hij bestaat, en proberen hem
-// eenmalig aan te maken. Zo blijft opslaan (uren, uitvoerder, frequentie, …) altijd werken — ook als de
-// kolom nog niet bestaat of niet aangemaakt kan worden; 'vanaf' wordt dan simpelweg (nog) niet bewaard.
-// Lezen werkt sowieso: ontbreekt de kolom, dan is row.vanaf undefined → "".
-let vanafKolomStatus = null; // null = onbekend, true = aanwezig, false = afwezig/niet aan te maken
-async function vanafKolomAanwezig(pool) {
-  if (vanafKolomStatus !== null) return vanafKolomStatus;
+// De kolommen 'vanaf' en 'urencode' zijn later toegevoegd. We schrijven ze ALLEEN weg als ze bestaan,
+// en proberen ze eenmalig aan te maken. Zo blijft opslaan (uren, uitvoerder, frequentie, …) altijd
+// werken — ook als de kolom nog niet bestaat of niet aangemaakt kan worden; de waarde wordt dan
+// simpelweg (nog) niet bewaard. Lezen werkt sowieso: ontbreekt de kolom, dan is row.<kolom>
+// undefined → "".
+const kolomStatus = new Map(); // kolomnaam → true (aanwezig) | false (afwezig/niet aan te maken)
+async function kolomAanwezig(pool, kolom, sqlType) {
+  if (kolomStatus.has(kolom)) return kolomStatus.get(kolom);
   try {
-    const check = await pool.request().query("SELECT COL_LENGTH('dbo.planning_config_klanten','vanaf') AS len");
-    if (check.recordset && check.recordset[0] && check.recordset[0].len != null) { vanafKolomStatus = true; return true; }
+    const check = await pool.request().query(`SELECT COL_LENGTH('dbo.planning_config_klanten','${kolom}') AS len`);
+    if (check.recordset && check.recordset[0] && check.recordset[0].len != null) { kolomStatus.set(kolom, true); return true; }
   } catch {
     // Kon niet controleren; probeer de kolom hieronder toe te voegen, val anders terug op 'afwezig'.
   }
   try {
-    await pool.request().query("ALTER TABLE dbo.planning_config_klanten ADD vanaf CHAR(7) NULL;");
-    vanafKolomStatus = true;
+    await pool.request().query(`ALTER TABLE dbo.planning_config_klanten ADD ${kolom} ${sqlType} NULL;`);
+    kolomStatus.set(kolom, true);
   } catch {
-    vanafKolomStatus = false; // geen rechten of andere reden — sla 'vanaf' voorlopig niet op
+    kolomStatus.set(kolom, false); // geen rechten of andere reden — sla de waarde voorlopig niet op
   }
-  return vanafKolomStatus;
+  return kolomStatus.get(kolom);
 }
+const vanafKolomAanwezig = (pool) => kolomAanwezig(pool, "vanaf", "CHAR(7)");
+const urencodeKolomAanwezig = (pool) => kolomAanwezig(pool, "urencode", "NVARCHAR(100)");
 
 async function valideerActiviteit(waarde) {
   const v = String(waarde || "").trim();
@@ -135,6 +151,7 @@ async function maakRegel(data, email) {
 
   const pool = await haalPool();
   const heeftVanaf = await vanafKolomAanwezig(pool);
+  const heeftUrencode = await urencodeKolomAanwezig(pool);
   const request = pool.request();
   request.input("klantAccountId", sql.UniqueIdentifier, klantAccountId);
   request.input("activiteit", sql.NVarChar(100), activiteit);
@@ -146,9 +163,11 @@ async function maakRegel(data, email) {
   request.input("opmerkingen", sql.NVarChar(sql.MAX), data.opmerkingen ? String(data.opmerkingen) : null);
   request.input("email", sql.NVarChar(320), email || null);
   if (heeftVanaf) request.input("vanaf", sql.Char(7), vanaf);
+  if (heeftUrencode) request.input("urencode", sql.NVarChar(100), valideerUrencode(data.urencode));
   const kolommen = ["klant_account_id", "activiteit", "frequentie", "indicatie_uren", "uitvoer_maand", "toegewezen_aan", "actief", "opmerkingen", "aangemaakt_door"];
   const waarden = ["@klantAccountId", "@activiteit", "@frequentie", "@indicatieUren", "@uitvoerMaand", "@toegewezenAan", "@actief", "@opmerkingen", "@email"];
   if (heeftVanaf) { kolommen.splice(5, 0, "vanaf"); waarden.splice(5, 0, "@vanaf"); }
+  if (heeftUrencode) { kolommen.splice(5, 0, "urencode"); waarden.splice(5, 0, "@urencode"); }
   const result = await request.query(
     `INSERT INTO dbo.planning_config_klanten (${kolommen.join(", ")}) OUTPUT INSERTED.* VALUES (${waarden.join(", ")})`
   );
@@ -164,12 +183,14 @@ async function wijzigRegel(id, data, email) {
   const indicatieUren = data.indicatieUren !== undefined ? valideerUren(data.indicatieUren) : bestaand.indicatieUren;
   const uitvoerMaand = data.uitvoerMaand !== undefined ? valideerMaand(data.uitvoerMaand) : (bestaand.uitvoerMaand ?? null);
   const vanaf = data.vanaf !== undefined ? valideerMaandJaar(data.vanaf) : (bestaand.vanaf || null);
+  const urencode = data.urencode !== undefined ? valideerUrencode(data.urencode) : (bestaand.urencode || null);
   const toegewezenAan = data.toegewezenAan !== undefined ? (data.toegewezenAan ? String(data.toegewezenAan).trim().slice(0, 320) : null) : (bestaand.toegewezenAan || null);
   const actief = data.actief !== undefined ? (data.actief === false ? 0 : 1) : (bestaand.actief ? 1 : 0);
   const opmerkingen = data.opmerkingen !== undefined ? (data.opmerkingen ? String(data.opmerkingen) : null) : (bestaand.opmerkingen || null);
 
   const pool = await haalPool();
   const heeftVanaf = await vanafKolomAanwezig(pool);
+  const heeftUrencode = await urencodeKolomAanwezig(pool);
   const request = pool.request();
   request.input("id", sql.UniqueIdentifier, id);
   request.input("activiteit", sql.NVarChar(100), activiteit);
@@ -181,12 +202,14 @@ async function wijzigRegel(id, data, email) {
   request.input("opmerkingen", sql.NVarChar(sql.MAX), opmerkingen);
   request.input("email", sql.NVarChar(320), email || null);
   if (heeftVanaf) request.input("vanaf", sql.Char(7), vanaf);
+  if (heeftUrencode) request.input("urencode", sql.NVarChar(100), urencode);
   const setDelen = [
     "activiteit = @activiteit", "frequentie = @frequentie", "indicatie_uren = @indicatieUren",
     "uitvoer_maand = @uitvoerMaand", "toegewezen_aan = @toegewezenAan", "actief = @actief",
     "opmerkingen = @opmerkingen", "gewijzigd_op = SYSUTCDATETIME()", "gewijzigd_door = @email",
   ];
   if (heeftVanaf) setDelen.splice(4, 0, "vanaf = @vanaf");
+  if (heeftUrencode) setDelen.splice(4, 0, "urencode = @urencode");
   const result = await request.query(
     `UPDATE dbo.planning_config_klanten SET ${setDelen.join(", ")} OUTPUT INSERTED.* WHERE id = @id`
   );

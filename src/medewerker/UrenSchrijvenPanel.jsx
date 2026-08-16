@@ -7,7 +7,16 @@
  * de soort op "Abonnement" met het huidige jaar; is er een urencode gekozen, dan bepaalt die de soort.
  * Voor declarabele soorten (abonnement/UXT) hoort een cliënt; abonnement vereist een jaar.
  *
- * Props: { accountId, klantnaam, voorgesteldeUren?, omschrijving?, onGeboekt?(uren), onOverslaan?, compact? }
+ * `urencode` vult de urencode (en daarmee de soort) alvast in — dat is de urencode die aan de taaksoort/
+ * taak (Beheer → Taken) of aan de planningsactiviteit (Beheer → Planning / configuratie per klant) hangt.
+ * Zo hoef je bij het schrijven alleen nog het aantal uren te bevestigen.
+ *
+ * `bron` legt vast VANUIT WELKE taak/planningstaak er geschreven wordt ({ soort: "taak"|"planning",
+ * id, label }). Dat gaat mee naar de boeking (cr283_bronsoort/-bronid/-bronlabel), zodat de geschreven
+ * uren later naast de indicatie-uren van die taak te zien zijn (/api/mw-uren-bron).
+ *
+ * Props: { accountId, klantnaam, voorgesteldeUren?, omschrijving?, urencode?, bron?,
+ *          onGeboekt?(uren), onOverslaan?, compact? }
  */
 import { useEffect, useState } from "react";
 import { Clock, CheckCircle2, Loader2 } from "lucide-react";
@@ -29,11 +38,11 @@ function vandaagISO() { const d = new Date(); return `${d.getFullYear()}-${pad(d
 
 const veld = { boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "8px 10px", fontSize: 13, outline: "none", background: "#fff" };
 
-export default function UrenSchrijvenPanel({ accountId, klantnaam, voorgesteldeUren, omschrijving, onGeboekt, onOverslaan, compact }) {
+export default function UrenSchrijvenPanel({ accountId, klantnaam, voorgesteldeUren, omschrijving, urencode: voorgesteldeCode, bron, onGeboekt, onOverslaan, compact }) {
   const [codes, setCodes] = useState([]);
   const [tarief, setTarief] = useState(null);
   const [soort, setSoort] = useState("abonnement");
-  const [urencode, setUrencode] = useState("");
+  const [urencode, setUrencode] = useState(voorgesteldeCode || "");
   const [uren, setUren] = useState(voorgesteldeUren != null && voorgesteldeUren !== "" ? String(voorgesteldeUren) : "");
   const [jaar, setJaar] = useState(String(new Date().getFullYear()));
   const [tariefSoort, setTariefSoort] = useState("normaal");
@@ -47,10 +56,22 @@ export default function UrenSchrijvenPanel({ accountId, klantnaam, voorgesteldeU
     let actief = true;
     fetch(`/api/mw-uren-boekingen?vanaf=${t}&tot=${t}`)
       .then((r) => (r.ok ? r.json() : {}))
-      .then((d) => { if (!actief) return; setCodes((d.urencodes || []).filter((c) => c.actief !== false)); setTarief(d.tarief || null); })
+      .then((d) => {
+        if (!actief) return;
+        const lijst = (d.urencodes || []).filter((c) => c.actief !== false);
+        setCodes(lijst);
+        setTarief(d.tarief || null);
+        // Voorgevulde urencode (van de taaksoort/taak of de planningsactiviteit): zodra de codelijst
+        // binnen is, ook de bijbehorende soort meezetten — dan klopt declarabel/jaar/tarief meteen.
+        const c = voorgesteldeCode ? lijst.find((x) => x.naam === voorgesteldeCode) : null;
+        if (c && c.categorie && SOORTEN.some((s) => s.key === c.categorie)) setSoort(c.categorie);
+      })
       .catch(() => {});
     return () => { actief = false; };
-  }, []);
+  }, [voorgesteldeCode]);
+
+  // Wijzigt de voorgestelde code (andere taak geopend), dan de keuze meebewegen.
+  useEffect(() => { setUrencode(voorgesteldeCode || ""); }, [voorgesteldeCode]);
 
   const decl = isDecl(soort);
   const kiesCode = (naam) => {
@@ -71,6 +92,8 @@ export default function UrenSchrijvenPanel({ accountId, klantnaam, voorgesteldeU
         accountId: decl ? accountId : undefined, omschrijving: omschr,
         uren: aantal, tariefSoort: decl ? tariefSoort : undefined,
         jaar: soort === "abonnement" ? Number(jaar) : undefined,
+        // Koppeling met de taak/planningstaak waar vandaan geschreven wordt (optioneel).
+        ...(bron && bron.soort && bron.id ? { bronSoort: bron.soort, bronId: bron.id, bronLabel: bron.label || "" } : {}),
       };
       const res = await fetch("/api/mw-uren-boekingen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const d = await res.json().catch(() => ({}));
@@ -101,10 +124,15 @@ export default function UrenSchrijvenPanel({ accountId, klantnaam, voorgesteldeU
         {codes.length > 0 && (
           <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>
             Urencode
-            <select value={urencode} onChange={(e) => kiesCode(e.target.value)} style={{ ...veld, width: 200 }}>
+            <select value={urencode} onChange={(e) => kiesCode(e.target.value)} style={{ ...veld, width: 200, borderColor: voorgesteldeCode && urencode === voorgesteldeCode ? KLEUR.blauw : KLEUR.rand }}>
               <option value="">— kies —</option>
+              {/* Voorgevulde code die (inmiddels) niet meer in de lijst staat: toch tonen, anders lijkt het veld leeg. */}
+              {urencode && !codes.some((c) => c.naam === urencode) && <option value={urencode}>{urencode}</option>}
               {codes.map((c) => <option key={c.naam} value={c.naam}>{c.naam}</option>)}
             </select>
+            {voorgesteldeCode && urencode === voorgesteldeCode && (
+              <span style={{ fontSize: 10, fontWeight: 600, color: KLEUR.blauw, textTransform: "none", letterSpacing: 0 }}>voorgevuld</span>
+            )}
           </label>
         )}
         <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>

@@ -269,7 +269,7 @@ async function boekingenVanMedewerker(email, { vanaf, tot } = {}) {
   return haalBoekingen(resource, token, f, `${P}_datum desc`);
 }
 
-async function maakBoeking({ email, naam, datum, soort, accountId, omschrijving, uren, tariefSoort, urencode, jaar, vast }, klantMeta) {
+async function maakBoeking({ email, naam, datum, soort, accountId, omschrijving, uren, tariefSoort, urencode, jaar, vast, bronSoort, bronId, bronLabel }, klantMeta) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   const token = await haalDynamicsToken();
   const set = await entitySet(resource, token, BOEKING);
@@ -298,6 +298,15 @@ async function maakBoeking({ email, naam, datum, soort, accountId, omschrijving,
   // Jaar (bij een abonnement verplicht, zie mw-uren-boekingen). Alleen meesturen als het is
   // meegegeven, zodat andere soorten onveranderd blijven.
   if (jaar != null && jaar !== "") body[`${P}_jaar`] = Number(jaar);
+  // Bron: vanuit welke taak/planningstaak zijn deze uren geschreven? Alleen meesturen als hij er is,
+  // zodat handmatige boekingen ongewijzigd blijven. Zie BRON_VELDEN voor de terugval als de kolommen
+  // nog niet bestaan (uren-schema-setup nog niet opnieuw gedraaid).
+  const bron = normaliseerBron({ bronSoort, bronId, bronLabel });
+  if (bron) {
+    body[`${P}_bronsoort`] = bron.soort;
+    body[`${P}_bronid`] = bron.id;
+    body[`${P}_bronlabel`] = bron.label || null;
+  }
   if (decl && accountId) body[`${P}_Client@odata.bind`] = `/accounts(${accountId})`;
   const suId = await haalSystemuserId(resource, token, email);
   if (suId) body[`${P}_Medewerker@odata.bind`] = `/systemusers(${suId})`;
@@ -307,21 +316,87 @@ async function maakBoeking({ email, naam, datum, soort, accountId, omschrijving,
 }
 
 /**
- * Doet een POST/PATCH; als die faalt omdat het (nieuwe) veld cr283_jaar nog niet bestaat (schema-
- * setup nog niet gedraaid), wordt de aanvraag één keer opnieuw geprobeerd zónder dat veld. Zo breekt
- * het uren schrijven nooit op een ontbrekende kolom — het jaar wordt dan gewoon (nog) niet bewaard.
+ * Doet een POST/PATCH; als die faalt omdat een (nieuw) veld nog niet bestaat (uren-schema-setup nog
+ * niet opnieuw gedraaid), wordt de aanvraag één keer opnieuw geprobeerd zónder die velden. Zo breekt
+ * het uren schrijven nooit op een ontbrekende kolom — de waarde wordt dan gewoon (nog) niet bewaard.
+ * Geldt voor cr283_jaar (abonnementjaar) en de bron-velden (koppeling met taak/planningstaak).
  */
+const OPTIONELE_VELDEN = [`${P}_jaar`, `${P}_bronsoort`, `${P}_bronid`, `${P}_bronlabel`];
 async function postMetJaarTerugval(resource, token, url, methode, body) {
   const doe = (b) => fetch(url, { method: methode, headers: schrijfHeaders(token, true), body: JSON.stringify(b) });
   let res = await doe(body);
-  if (!res.ok && Object.prototype.hasOwnProperty.call(body, `${P}_jaar`)) {
+  const aanwezig = OPTIONELE_VELDEN.filter((v) => Object.prototype.hasOwnProperty.call(body, v));
+  if (!res.ok && aanwezig.length) {
     const tekst = await res.clone().text().catch(() => "");
-    if (/cr283_jaar/i.test(tekst) || /jaar/i.test(tekst)) {
-      const { [`${P}_jaar`]: _weg, ...zonder } = body;
+    // Dataverse noemt het ontbrekende attribuut in de foutmelding; noemt hij er één van de onze, dan
+    // laten we ze allemaal weg en proberen we het nog één keer.
+    if (aanwezig.some((v) => new RegExp(v, "i").test(tekst)) || /jaar/i.test(tekst)) {
+      const zonder = { ...body };
+      for (const v of aanwezig) delete zonder[v];
       res = await doe(zonder);
     }
   }
   return res;
+}
+
+// ---------------------------------------------------------------------------
+// Bron: vanuit welke taak of planningstaak zijn deze uren geschreven?
+// ---------------------------------------------------------------------------
+// bronSoort "taak"     → bronId = de Dynamics-activityid van de taak.
+// bronSoort "planning" → bronId = "<accountId>|<activiteit-sleutel>|<periode>" (zelfde sleutel als de
+//                        deelactiviteiten-opslag), zodat een planningstaak per periode uniek is.
+// bronLabel = leesbare omschrijving voor rapportage ("Administratie · 2026-03"), puur informatief.
+const BRON_SOORTEN = ["taak", "planning"];
+function normaliseerBron({ bronSoort, bronId, bronLabel }) {
+  const soort = String(bronSoort || "").trim().toLowerCase();
+  const id = String(bronId || "").trim().slice(0, 200);
+  if (!BRON_SOORTEN.includes(soort) || !id) return null;
+  return { soort, id, label: String(bronLabel || "").trim().slice(0, 300) };
+}
+
+/**
+ * Alle geschreven uren per bron, over ALLE medewerkers heen — voor de terugkoppeling "hoeveel is er
+ * al op deze taak/planningstaak geschreven?" t.o.v. de indicatie-uren. Geeft
+ * { "<bronId>": { uren, aantal } } terug. Bestaan de bron-kolommen nog niet (schema-setup nog niet
+ * opnieuw gedraaid), dan komt er gewoon een leeg object terug.
+ */
+async function urenPerBron(bronSoort) {
+  const soort = String(bronSoort || "").trim().toLowerCase();
+  if (!BRON_SOORTEN.includes(soort)) return {};
+  const resource = process.env.DYNAMICS_RESOURCE_URL;
+  const token = await haalDynamicsToken();
+  const set = await entitySet(resource, token, BOEKING);
+  const sel = `${P}_bronid,${P}_uren,${P}_status`;
+  const filter = encodeURIComponent(`${P}_bronsoort eq '${esc(soort)}'`);
+  const url = `${resource}/api/data/v9.2/${set}?$select=${sel}&$filter=${filter}`;
+  let res;
+  try {
+    res = await fetch(url, { headers: leesHeaders(token) });
+  } catch {
+    return {};
+  }
+  if (!res.ok) return {}; // o.a. wanneer de kolommen nog niet bestaan
+  const per = {};
+  let data = await res.json();
+  let rijen = data.value || [];
+  let next = data["@odata.nextLink"];
+  while (next && rijen.length < 20000) {
+    const r2 = await fetch(next, { headers: leesHeaders(token) });
+    if (!r2.ok) break;
+    data = await r2.json();
+    rijen = rijen.concat(data.value || []);
+    next = data["@odata.nextLink"];
+  }
+  for (const r of rijen) {
+    const id = r[`${P}_bronid`];
+    if (!id) continue;
+    const key = String(id);
+    if (!per[key]) per[key] = { uren: 0, aantal: 0 };
+    per[key].uren += Number(r[`${P}_uren`]) || 0;
+    per[key].aantal += 1;
+  }
+  for (const k of Object.keys(per)) per[k].uren = Math.round(per[k].uren * 100) / 100;
+  return per;
 }
 
 async function werkBoekingBij(id, email, velden, klantMeta) {
@@ -755,6 +830,7 @@ module.exports = {
   haalKlantMeta,
   haalTarief, lijstTarieven, zetTarief,
   boekingenVanMedewerker, maakBoeking, werkBoekingBij, verwijderBoeking,
+  BRON_SOORTEN, urenPerBron,
   vasteUrenSlots, vasteUrenVirtueel,
   dienWeekIn, weekstatenVoorLeidinggevende, keurWeekGoed, keurWeekAf, verwijderWeek,
   boekingenVoorControle, controleActie,

@@ -14,15 +14,22 @@
  *      ("automatisch" = de cliënt handelt de taak zelf af via akkoord/ondertekenen; "handmatig" =
  *      een medewerker moet 'm aftekenen), plus het klant-account-id zodat de voorkant de
  *      klantnaam/-nummer/groep erbij joint via /api/beheer-klanten.
- * PATCH { id, actie: "afronden" } → markeert de taak als Voltooid (statecode 1/5) met een notitie.
+ * PATCH { id, actie: "afronden" }        → markeert de taak als Voltooid (statecode 1/5) met een notitie.
+ * PATCH { id, actie: "tijd", uren }      → indicatie-uren van deze taak (leeg = standaard van de soort).
+ * PATCH { id, actie: "urencode", urencode } → urencode van deze taak voor het gekoppelde urenschrijven
+ *        (leeg = de standaard-urencode van de taaksoort uit Beheer → Taken). Beide laatste acties
+ *        schrijven naar een eigen blob en raken Dynamics niet aan.
  */
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const {
   SOORT_VELD, KLANT_VELD, KLANT_VALUE, FV, DYNAMICS_HEADERS,
   haalSystemuser, haalAutomatischAfgewikkeldeSoorten, afwikkelingVoorSoort,
-  haalStandaardUrenPerSoort, effectieveTaakUren, dynamicsAppUrl,
+  haalStandaardUrenPerSoort, effectieveTaakUren,
+  haalStandaardUrencodePerSoort, effectieveTaakUrencode, dynamicsAppUrl,
 } = require("../_gedeeld/takenGedeeld");
 const takenTijd = require("../_gedeeld/takenTijd");
+const takenUrencode = require("../_gedeeld/takenUrencode");
+const urencodesStore = require("../_gedeeld/urencodesStore");
 
 // Verbergt de interne "[dossier-ref: ...]"-koppeling die sommige flows in de omschrijving
 // verstoppen (zie api/taken) — nooit bedoeld voor weergave.
@@ -37,7 +44,7 @@ function magErin(req) {
   return rollen.includes("beheerder") || rollen.includes("medewerker");
 }
 
-async function haalTaken(resource, token, statecode, automatischeSet, mijnId, standaardPerSoort, tijdOverrides) {
+async function haalTaken(resource, token, statecode, automatischeSet, mijnId, standaardPerSoort, tijdOverrides, urencodePerSoort, urencodeOverrides) {
   const orderby = statecode === 1 ? "modifiedon desc" : "createdon desc";
   const top = statecode === 1 ? 1000 : 2000;
   const query =
@@ -52,6 +59,8 @@ async function haalTaken(resource, token, statecode, automatischeSet, mijnId, st
   const data = await res.json();
   const overrides = tijdOverrides || {};
   const stdPerSoort = standaardPerSoort || {};
+  const codeOverrides = urencodeOverrides || {};
+  const codePerSoort = urencodePerSoort || {};
 
   return (data.value || []).map((rij) => {
     const soortWaarde = SOORT_VELD ? rij[SOORT_VELD] : null;
@@ -59,8 +68,10 @@ async function haalTaken(resource, token, statecode, automatischeSet, mijnId, st
     const klantAccountId = rij[KLANT_VALUE] || rij._regardingobjectid_value || "";
     const id = rij.activityid;
     const override = id != null ? overrides[String(id).toLowerCase()] : undefined;
+    const codeOverride = id != null ? codeOverrides[String(id).toLowerCase()] : undefined;
     const standaardUren = soortWaarde == null ? null : (stdPerSoort[String(soortWaarde)] != null ? stdPerSoort[String(soortWaarde)] : null);
     const urenOverride = override == null ? null : Number(override);
+    const standaardUrencode = soortWaarde == null ? "" : (codePerSoort[String(soortWaarde)] || "");
     return {
       id,
       onderwerp: rij.subject || "(geen onderwerp)",
@@ -78,6 +89,11 @@ async function haalTaken(resource, token, statecode, automatischeSet, mijnId, st
       standaardUren,
       urenOverride,
       uren: effectieveTaakUren(soortWaarde, stdPerSoort, override),
+      // Urencode voor het gekoppelde urenschrijven: standaard van de soort (Beheer → Taken), per
+      // taak overschrijfbaar. `urencode` is de effectieve waarde (overschrijving wint).
+      standaardUrencode,
+      urencodeOverride: codeOverride == null || codeOverride === "" ? null : String(codeOverride),
+      urencode: effectieveTaakUrencode(soortWaarde, codePerSoort, codeOverride),
       eigenaar: rij[`_ownerid_value${FV}`] || "",
       eigenaarId,
       eigenaarVanMij: !!mijnId && eigenaarId.toLowerCase() === mijnId.toLowerCase(),
@@ -106,16 +122,19 @@ module.exports = async function (context, req) {
 
     if (req.method === "GET") {
       const statusParam = (req.query && req.query.status) === "afgehandeld" ? 1 : 0;
-      const [automatischeSet, mij, standaardPerSoort, tijdOverrides] = await Promise.all([
+      const [automatischeSet, mij, standaardPerSoort, tijdOverrides, urencodePerSoort, urencodeOverrides, urencodes] = await Promise.all([
         haalAutomatischAfgewikkeldeSoorten(),
         haalSystemuser(resource, token, email),
         haalStandaardUrenPerSoort().catch(() => ({})),
         takenTijd.haalAlle().catch(() => ({})),
+        haalStandaardUrencodePerSoort().catch(() => ({})),
+        takenUrencode.haalAlle().catch(() => ({})),
+        urencodesStore.haalCodes().then((c) => (c || []).filter((x) => x.actief !== false)).catch(() => []),
       ]);
-      const taken = await haalTaken(resource, token, statusParam, automatischeSet, mij.id, standaardPerSoort, tijdOverrides);
+      const taken = await haalTaken(resource, token, statusParam, automatischeSet, mij.id, standaardPerSoort, tijdOverrides, urencodePerSoort, urencodeOverrides);
       context.res = {
         headers: { "Content-Type": "application/json" },
-        body: { taken, appUrl: dynamicsAppUrl(resource), mijnNaam: mij.naam, configuratieNodig: !SOORT_VELD },
+        body: { taken, urencodes, appUrl: dynamicsAppUrl(resource), mijnNaam: mij.naam, configuratieNodig: !SOORT_VELD },
       };
       return;
     }
@@ -137,6 +156,19 @@ module.exports = async function (context, req) {
         } catch (e) {
           const validatie = String(e.message || "").startsWith("VALIDATIE:");
           context.res = { status: validatie ? 400 : 500, headers: { "Content-Type": "application/json" }, body: { error: validatie ? e.message.replace("VALIDATIE: ", "") : "Kon de tijd niet opslaan." } };
+        }
+        return;
+      }
+
+      // Urencode van deze taak overschrijven (of leeg = terug naar de standaard van de soort).
+      // Schrijft alleen naar de eigen blob, raakt Dynamics niet aan.
+      if (actie === "urencode") {
+        try {
+          const nieuw = await takenUrencode.zetUrencode(taakId, req.body ? req.body.urencode : "");
+          context.res = { status: 200, headers: { "Content-Type": "application/json" }, body: { ok: true, urencodeOverride: nieuw } };
+        } catch (e) {
+          context.log.error(e);
+          context.res = { status: 500, headers: { "Content-Type": "application/json" }, body: { error: "Kon de urencode niet opslaan." } };
         }
         return;
       }

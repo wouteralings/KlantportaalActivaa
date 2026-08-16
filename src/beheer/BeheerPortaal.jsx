@@ -337,6 +337,8 @@ export default function BeheerPortaal() {
   const [taaksoortenConfig, setTaaksoortenConfig] = useState({});
   const [taaksoortenConfiguratieNodig, setTaaksoortenConfiguratieNodig] = useState(false);
   const [taaksoortenFout, setTaaksoortenFout] = useState("");
+  // Urencodes (Beheer → Uren): keuzelijst voor de standaard-urencode per taaksoort.
+  const [urencodes, setUrencodes] = useState([]);
   const [taaksoortenOpslaanStatus, setTaaksoortenOpslaanStatus] = useState("idle"); // idle | bezig | gelukt | fout
   const [taaksoortenSectieOpen, setTaaksoortenSectieOpen] = useState(true);
   const [taaksoortenZoek, setTaaksoortenZoek] = useState("");
@@ -533,6 +535,11 @@ export default function BeheerPortaal() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setTaakRubriekOpties((d && d.opties) || []))
       .catch(() => setTaakRubriekOpties([]));
+    // Urencodes (Beheer → Uren) — voor de standaard-urencode per taaksoort. Best-effort.
+    fetch("/api/beheer-urencodes")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setUrencodes(((d && d.codes) || []).filter((c) => c.actief !== false)))
+      .catch(() => setUrencodes([]));
     fetch("/api/beheer-klanten")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setFacturatieKlanten(
@@ -1286,6 +1293,9 @@ export default function BeheerPortaal() {
         const n = aan === "" || aan == null ? null : Number(aan);
         nieuw.standaardUren = n == null || isNaN(n) || n < 0 ? null : Math.round(n * 100) / 100;
       }
+      // Standaard-urencode: de code waarop uren van taken van deze soort geschreven worden (per taak
+      // te overschrijven in het Taken-overzicht). Leeg = geen voorgevulde code.
+      if (veld === "standaardUrencode") nieuw.standaardUrencode = String(aan || "").trim();
       return { ...huidig, [key]: nieuw };
     });
     setTaaksoortenOpslaanStatus("idle");
@@ -3081,9 +3091,10 @@ export default function BeheerPortaal() {
                 {soortToevoegenStatus === "gelukt" && <span style={{ fontSize: 12, color: KLEUR.groen }}>Toegevoegd.</span>}
                 {soortToevoegenStatus === "fout" && <span style={{ fontSize: 12, color: KLEUR.rood }}>{soortToevoegenFout || "Toevoegen mislukt."}</span>}
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto auto auto", gap: "0 18px", alignItems: "center" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto auto auto auto auto", gap: "0 18px", alignItems: "center" }}>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}` }}>Soort</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }} title="Standaard-tijd per taak van deze soort, voor de planning/bezetting. Per losse taak overschrijfbaar in het Taken-overzicht.">Std. uren</div>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }} title="Urencode waarop de uren van taken van deze soort geschreven worden. Staat voorgevuld bij 'Uren schrijven' vanuit een taak; per losse taak overschrijfbaar in het Taken-overzicht.">Urencode</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Zichtbaar</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Mag goedkeuren</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Vereist handtekening</div>
@@ -3111,6 +3122,18 @@ export default function BeheerPortaal() {
                           title="Standaard-tijd (uren) per taak van deze soort"
                           style={{ width: 62, textAlign: "center", border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "5px 6px", fontSize: 12.5, background: "#fff" }}
                         />
+                      </div>
+                      <div style={{ textAlign: "center", padding: "10px 0", borderBottom: rijRand }}>
+                        <select
+                          value={cfg.standaardUrencode || ""}
+                          onChange={(e) => wijzigTaaksoort(optie.waarde, "standaardUrencode", e.target.value, optie.label)}
+                          title="Urencode voor het gekoppelde urenschrijven vanuit een taak van deze soort"
+                          style={{ minWidth: 130, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "5px 6px", fontSize: 12.5, background: "#fff", cursor: "pointer" }}
+                        >
+                          <option value="">— geen —</option>
+                          {cfg.standaardUrencode && !urencodes.some((c) => c.naam === cfg.standaardUrencode) && <option value={cfg.standaardUrencode}>{cfg.standaardUrencode}</option>}
+                          {urencodes.map((c) => <option key={c.id || c.naam} value={c.naam}>{c.naam}</option>)}
+                        </select>
                       </div>
                       <div style={{ textAlign: "center", padding: "10px 0", borderBottom: rijRand }}>
                         <input

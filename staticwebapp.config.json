@@ -681,6 +681,13 @@
       ]
     },
     {
+      "route": "/api/mw-uren-bron",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
       "route": "/api/mw-verlof-aanvraag",
       "allowedRoles": [
         "beheerder",

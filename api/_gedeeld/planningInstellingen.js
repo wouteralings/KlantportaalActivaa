@@ -183,7 +183,11 @@ function normaliseerActiviteiten(lijst) {
     const rol = GELDIGE_ROLLEN.includes(t && t.rol) ? t.rol : "";
     // standaardUren = de standaard indicatie-uren van deze activiteit. Per klant overschrijfbaar
     // (planning_config_klanten.indicatie_uren); leeg per klant = erf deze standaard.
-    uit.push({ sleutel, label, type: (t && t.type) === "jaar" ? "jaar" : "maand", rol, standaardUren: urenOfNull(t && t.standaardUren), vanaf: geldigeMaandJaar(t && t.vanaf), deelstappen: normaliseerDeelstappen(t && t.deelstappen), actief: t && t.actief === false ? false : true });
+    // standaardUrencode = de urencode waarop de uren van deze activiteit standaard geschreven worden
+    // (naam uit urencodesStore). Ook per klant overschrijfbaar (planning_config_klanten.urencode);
+    // leeg = geen voorgevulde urencode, de medewerker kiest zelf. Bewust op NAAM (net als
+    // cr283_urenboeking.urencode), zodat de koppeling los staat van interne id's.
+    uit.push({ sleutel, label, type: (t && t.type) === "jaar" ? "jaar" : "maand", rol, standaardUren: urenOfNull(t && t.standaardUren), standaardUrencode: tekst(t && t.standaardUrencode, 100), vanaf: geldigeMaandJaar(t && t.vanaf), deelstappen: normaliseerDeelstappen(t && t.deelstappen), actief: t && t.actief === false ? false : true });
   }
   return uit;
 }

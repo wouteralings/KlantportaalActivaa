@@ -48,6 +48,7 @@ function urenTekst(n) {
 
 export default function PlanningConfigPerKlant({ initieelAccountId, vasteKlant, readOnly = false } = {}) {
   const [activiteiten, setActiviteiten] = useState([]);
+  const [urencodes, setUrencodes] = useState([]); // actieve urencodes (Beheer → Uren)
   const [klantenLijst, setKlantenLijst] = useState([]);
   const [klantZoek, setKlantZoek] = useState("");
   const [klant, setKlant] = useState(null); // gekozen klant (object uit beheer-klanten)
@@ -61,6 +62,7 @@ export default function PlanningConfigPerKlant({ initieelAccountId, vasteKlant, 
   const [nwUren, setNwUren] = useState("");
   const [nwUitvoerMaand, setNwUitvoerMaand] = useState("");
   const [nwVanaf, setNwVanaf] = useState("");
+  const [nwUrencode, setNwUrencode] = useState("");
   const [overrides, setOverrides] = useState({}); // id → tekst tijdens het bewerken van een afwijkende toewijzing
   const [setjes, setSetjes] = useState([]); // beheer-setjes van hoofdtaken
   const [setjeKeuze, setSetjeKeuze] = useState("");
@@ -72,7 +74,7 @@ export default function PlanningConfigPerKlant({ initieelAccountId, vasteKlant, 
   useEffect(() => {
     fetch("/api/mw-planning-overzicht")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { setActiviteiten(d.activiteiten || []); setSetjes(Array.isArray(d.setjes) ? d.setjes : []); })
+      .then((d) => { setActiviteiten(d.activiteiten || []); setSetjes(Array.isArray(d.setjes) ? d.setjes : []); setUrencodes(Array.isArray(d.urencodes) ? d.urencodes : []); })
       .catch(() => setActiviteiten([]));
     // Klantenlijst alleen nodig voor de picker; bij een vaste klant (ingebed in de klantkaart) overslaan.
     if (!vasteKlant) {
@@ -123,10 +125,10 @@ export default function PlanningConfigPerKlant({ initieelAccountId, vasteKlant, 
     try {
       const res = await fetch("/api/mw-planning-config", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ klantAccountId: String(klant.accountId).toLowerCase(), activiteit: nwActiviteit, frequentie: nwFrequentie, indicatieUren: nwUren === "" ? null : nwUren, uitvoerMaand: heeftUitvoerMaand(nwFrequentie) && nwUitvoerMaand ? Number(nwUitvoerMaand) : null, vanaf: nwVanaf || null }),
+        body: JSON.stringify({ klantAccountId: String(klant.accountId).toLowerCase(), activiteit: nwActiviteit, frequentie: nwFrequentie, indicatieUren: nwUren === "" ? null : nwUren, uitvoerMaand: heeftUitvoerMaand(nwFrequentie) && nwUitvoerMaand ? Number(nwUitvoerMaand) : null, vanaf: nwVanaf || null, urencode: nwUrencode || null }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
-      setNwActiviteit(""); setNwUren(""); setNwFrequentie("maandelijks"); setNwUitvoerMaand(""); setNwVanaf("");
+      setNwActiviteit(""); setNwUren(""); setNwFrequentie("maandelijks"); setNwUitvoerMaand(""); setNwVanaf(""); setNwUrencode("");
       laadConfig(String(klant.accountId).toLowerCase());
     } catch (e) { setFout(e.message || "Toevoegen mislukt."); } finally { setBezig(false); }
   };
@@ -201,6 +203,9 @@ export default function PlanningConfigPerKlant({ initieelAccountId, vasteKlant, 
         Beheer → Planning). Wijs je iemand anders toe, dan zie je dat gemarkeerd als
         <span style={{ color: KLEUR.amber, fontWeight: 600 }}> afwijkend van team</span>. Met
         <strong> Vanaf</strong> bepaal je per klant vanaf welke maand/jaar een activiteit meetelt (leeg = altijd).
+        De <strong>urencode</strong> bepaalt waarop de uren van die activiteit geschreven worden; laat je 'm leeg,
+        dan geldt de standaard-urencode van de activiteit (Beheer → Planning). Bij "Uren schrijven" vanuit
+        Mijn werk staat die code dan al ingevuld.
       </div>
 
       {fout && <div style={{ background: `${KLEUR.rood}12`, border: `1px solid ${KLEUR.rood}33`, color: KLEUR.rood, borderRadius: 8, padding: "9px 12px", marginBottom: 14, fontSize: 12.5 }}>{fout}</div>}
@@ -268,11 +273,13 @@ export default function PlanningConfigPerKlant({ initieelAccountId, vasteKlant, 
             <div style={{ color: KLEUR.mutedTekst, fontSize: 13, padding: "20px 0" }}>Configuratie laden…</div>
           ) : (
             <div style={{ overflowX: "auto", border: `1px solid ${KLEUR.rand}`, borderRadius: 10, marginBottom: 14 }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 860 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1000 }}>
                 <thead><tr>
                   <th style={th}>Activiteit</th><th style={th}>Type</th><th style={th}>Frequentie</th><th style={th}>Uitvoermaand</th>
                   <th style={th} title="Vanaf welke maand/jaar deze activiteit voor deze klant in de planning wordt opgenomen (leeg = altijd)">Vanaf</th>
-                  <th style={th}>Indicatie-uren</th><th style={th}>Uitvoerder (team)</th><th style={th}></th>
+                  <th style={th}>Indicatie-uren</th>
+                  <th style={th} title="Urencode waarop de uren van deze activiteit voor deze klant geschreven worden (leeg = de standaard-urencode van de activiteit)">Urencode</th>
+                  <th style={th}>Uitvoerder (team)</th><th style={th}></th>
                 </tr></thead>
                 <tbody>
                   {config.map((r) => {
@@ -314,6 +321,17 @@ export default function PlanningConfigPerKlant({ initieelAccountId, vasteKlant, 
                           )}
                         </td>
                         <td style={td}>
+                          {readOnly ? <span>{r.urencode || (info.act?.standaardUrencode ? `${info.act.standaardUrencode} (std)` : "—")}</span> : (
+                            <select value={r.urencode || ""} onChange={(e) => wijzig(r.id, { urencode: e.target.value })}
+                              title={info.act?.standaardUrencode ? `Leeg = de standaard-urencode van deze activiteit (${info.act.standaardUrencode})` : "Urencode voor het gekoppelde urenschrijven"}
+                              style={{ ...inputStijl, width: "auto", minWidth: 150, padding: "5px 8px" }}>
+                              <option value="">{info.act?.standaardUrencode ? `— standaard (${info.act.standaardUrencode}) —` : "— geen —"}</option>
+                              {r.urencode && !urencodes.some((c) => c.naam === r.urencode) && <option value={r.urencode}>{r.urencode}</option>}
+                              {urencodes.map((c) => <option key={c.id || c.naam} value={c.naam}>{c.naam}</option>)}
+                            </select>
+                          )}
+                        </td>
+                        <td style={td}>
                           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                             <span style={{ fontWeight: info.afwijkend ? 700 : 400, color: info.afwijkend ? KLEUR.amber : KLEUR.tekst }}>{info.toon || <span style={{ color: KLEUR.mutedTekst }}>— geen {ROL_LABELS[info.rol] || "rol"} —</span>}</span>
                             {info.afwijkend && (
@@ -343,7 +361,7 @@ export default function PlanningConfigPerKlant({ initieelAccountId, vasteKlant, 
                       </tr>
                     );
                   })}
-                  {config.length === 0 && <tr><td colSpan={8} style={{ ...td, color: KLEUR.mutedTekst, textAlign: "center", padding: "20px" }}>Nog niets ingesteld voor deze klant.{readOnly ? "" : " Voeg hieronder een activiteit toe."}</td></tr>}
+                  {config.length === 0 && <tr><td colSpan={9} style={{ ...td, color: KLEUR.mutedTekst, textAlign: "center", padding: "20px" }}>Nog niets ingesteld voor deze klant.{readOnly ? "" : " Voeg hieronder een activiteit toe."}</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -368,6 +386,10 @@ export default function PlanningConfigPerKlant({ initieelAccountId, vasteKlant, 
             )}
             <input type="number" min="0" step="0.25" value={nwUren} onChange={(e) => setNwUren(e.target.value)} placeholder={activiteitById[nwActiviteit]?.standaardUren != null ? `${activiteitById[nwActiviteit].standaardUren} (standaard)` : "uren (bv. 2)"} title="Leeg = de standaard-uren van de activiteit" style={{ ...inputStijl, width: 150 }} />
             <input type="month" value={nwVanaf} onChange={(e) => setNwVanaf(e.target.value)} title="Vanaf welke maand/jaar deze activiteit voor deze klant meetelt (leeg = altijd)" style={{ ...inputStijl, width: "auto" }} />
+            <select value={nwUrencode} onChange={(e) => setNwUrencode(e.target.value)} title="Urencode voor het gekoppelde urenschrijven (leeg = de standaard-urencode van de activiteit)" style={{ ...inputStijl, width: "auto", minWidth: 160 }}>
+              <option value="">{activiteitById[nwActiviteit]?.standaardUrencode ? `Urencode: standaard (${activiteitById[nwActiviteit].standaardUrencode})` : "Urencode…"}</option>
+              {urencodes.map((c) => <option key={c.id || c.naam} value={c.naam}>{c.naam}</option>)}
+            </select>
             <button onClick={voegToe} disabled={!nwActiviteit || bezig} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: KLEUR.blauw, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: nwActiviteit ? "pointer" : "default", opacity: nwActiviteit ? 1 : 0.6 }}>
               <Plus size={14} /> Toevoegen
             </button>

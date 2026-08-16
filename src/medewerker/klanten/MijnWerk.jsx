@@ -78,6 +78,8 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
 
   const [config, setConfig] = useState(null);
   const [activiteiten, setActiviteiten] = useState([]);
+  const [urenPerBron, setUrenPerBron] = useState({}); // "acc|act|periode" → { uren, aantal } geschreven uren
+  const [urenSchrijvenOpen, setUrenSchrijvenOpen] = useState(false); // uren schrijven zónder alles af te vinken
   const [statussen, setStatussen] = useState([]);      // { sleutel, label, kleur } — beheer-statussen
   const [klantenMap, setKlantenMap] = useState({});
   const [status, setStatus] = useState({});            // { "acc|act|deel" of "acc|act|__status__": {...} }
@@ -108,6 +110,8 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
   useEffect(() => {
     fetch("/api/mw-planning-config").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => setConfig(d.config || [])).catch(() => { setConfig([]); setFout("Configuratie kon niet worden geladen."); });
     fetch("/api/mw-planning-overzicht").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => { setActiviteiten(d.activiteiten || []); setStatussen(d.statussen || []); }).catch(() => setActiviteiten([]));
+    // Al geschreven uren per planningstaak (kantoorbreed) — best-effort, puur informatief.
+    fetch("/api/mw-uren-bron?soort=planning").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => setUrenPerBron(d.perBron || {})).catch(() => setUrenPerBron({}));
     fetch("/api/beheer-klanten?alle=1").then((r) => (r.ok ? r.json() : Promise.reject())).then((d) => { const b = {}; (d.klanten || []).forEach((k) => { b[String(k.accountId || "").toLowerCase()] = k; }); setKlantenMap(b); }).catch(() => setKlantenMap({}));
     // Alleen beheerders: de medewerkerslijst voor de "werk van"-keuze.
     if (isBeheerder) {
@@ -122,6 +126,9 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
       .then((d) => { setStatus(d.status || {}); setKlantDeelstappen(d.klantDeelstappen || {}); })
       .catch(() => { setStatus({}); setKlantDeelstappen({}); });
   }, [periode]);
+
+  // Andere cel geopend (of gesloten) → het los geopende uren-paneel weer dichtklappen.
+  useEffect(() => { setUrenSchrijvenOpen(false); }, [actieveCel]);
 
   const effDeelstappen = (acc, actSleutel) => {
     const ov = klantDeelstappen[`${acc}|${actSleutel}`];
@@ -175,6 +182,10 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
       rijen.push({
         key: dubbelKey, acc, accountId: klant?.accountId || r.klantAccountId || "", actSleutel: act.sleutel, act, eff, done, total, gereed, uitvoerMaand: r.uitvoerMaand,
         statusKey,
+        // Urencode + indicatie-uren voor het gekoppelde urenschrijven: per klant ingesteld
+        // (planning-configuratie), anders de standaard van de activiteit (Beheer → Planning).
+        urencode: (r.urencode || "").trim() || act.standaardUrencode || "",
+        indicatieUren: r.indicatieUren != null ? r.indicatieUren : (act.standaardUren != null ? act.standaardUren : null),
         klantnaam: klant?.klantnaam || "Onbekende klant", klantnummer: klant?.klantnummer || "", klantgroep: klant?.groepsnaam || "",
       });
     }
@@ -256,6 +267,11 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
   const actiefItem = actieveRij ? actieveRij.taken[actieveCel.actSleutel] : null;
   const actieveStatus = actiefItem ? celStatus(actiefItem) : null;
   const STATUS_LABEL = { open: "Open", bezig: "Bezig", gereed: "Gereed" };
+  // Bron-sleutel van deze planningstaak (klant × hoofdtaak × periode) — hieraan hangen de geschreven
+  // uren, zodat je ze naast de indicatie-uren kunt zetten. Zelfde vorm als in urenDataverse.js.
+  const bronSleutel = actiefItem ? `${actieveRij.acc}|${actiefItem.actSleutel}|${periode}` : "";
+  const alGeschreven = (urenPerBron[bronSleutel] || {}).uren || 0;
+  const urenPaneelZichtbaar = !!actiefItem && (actiefItem.gereed || urenSchrijvenOpen);
 
   const afvink = async (acc, actSleutel, deelSleutel, gereed) => {
     // Alleen-lezen rol: hard blokkeren, niet alleen de knop uitzetten.
@@ -516,6 +532,25 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
               </div>
             </div>
 
+            {/* Uren-regel: indicatie, urencode en wat er al geschreven is + knop om nu uren te schrijven. */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "10px 16px", background: "#FBFCFB", borderBottom: `1px solid ${KLEUR.rand}`, fontSize: 12 }}>
+              <span style={{ color: KLEUR.subtekst }}>
+                Indicatie: <strong style={{ color: KLEUR.tekst }}>{actiefItem.indicatieUren != null ? `${Number(actiefItem.indicatieUren).toLocaleString("nl-NL", { maximumFractionDigits: 2 })} u` : "—"}</strong>
+              </span>
+              <span style={{ color: KLEUR.subtekst }}>
+                Geschreven: <strong style={{ color: alGeschreven ? KLEUR.groen : KLEUR.tekst }}>{alGeschreven ? `${Number(alGeschreven).toLocaleString("nl-NL", { maximumFractionDigits: 2 })} u` : "—"}</strong>
+              </span>
+              {actiefItem.urencode
+                ? <span style={{ fontSize: 11, fontWeight: 700, color: KLEUR.blauw, background: KLEUR.lichtblauw, borderRadius: 999, padding: "2px 9px" }}>{actiefItem.urencode}</span>
+                : <span style={{ fontSize: 11, color: KLEUR.mutedTekst }} title="Stel een urencode in bij Beheer → Planning of in de planning-configuratie van deze klant">geen urencode</span>}
+              <span style={{ flex: 1 }} />
+              {actieveRij.accountId && !urenPaneelZichtbaar && (
+                <button onClick={() => setUrenSchrijvenOpen(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", border: `1px solid ${KLEUR.blauw}`, borderRadius: 8, background: "#fff", color: KLEUR.blauw, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                  Uren schrijven
+                </button>
+              )}
+            </div>
+
             <div style={{ padding: 16 }}>
               {statussen.length > 0 && (
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 14, paddingBottom: 14, borderBottom: `1px solid ${KLEUR.rand}` }}>
@@ -548,17 +583,22 @@ export default function MijnWerk({ isBeheerder = false, magAftekenen = true } = 
                 );
               })}
 
-              {actiefItem.gereed && (
+              {urenPaneelZichtbaar && (
                 <div style={{ marginTop: 16 }}>
                   {actieveRij.accountId ? (
                     <UrenSchrijvenPanel
-                      key={`${actieveRij.acc}|${actiefItem.actSleutel}`}
+                      key={`${actieveRij.acc}|${actiefItem.actSleutel}|${periode}`}
                       accountId={actieveRij.accountId}
                       klantnaam={actieveRij.klantnaam}
-                      voorgesteldeUren=""
+                      voorgesteldeUren={actiefItem.indicatieUren != null ? actiefItem.indicatieUren : ""}
                       omschrijving={actiefItem.act.label}
-                      onGeboekt={() => {}}
-                      onOverslaan={() => setActieveCel(null)}
+                      urencode={actiefItem.urencode || ""}
+                      bron={{ soort: "planning", id: bronSleutel, label: `${actiefItem.act.label} · ${periode}` }}
+                      onGeboekt={(u) => setUrenPerBron((h) => {
+                        const vorig = h[bronSleutel] || { uren: 0, aantal: 0 };
+                        return { ...h, [bronSleutel]: { uren: Math.round((vorig.uren + Number(u || 0)) * 100) / 100, aantal: vorig.aantal + 1 } };
+                      })}
+                      onOverslaan={() => (urenSchrijvenOpen ? setUrenSchrijvenOpen(false) : setActieveCel(null))}
                     />
                   ) : (
                     <div style={{ fontSize: 12, color: KLEUR.mutedTekst }}>Geen cliënt gekoppeld, dus er kunnen geen uren worden geschreven.</div>

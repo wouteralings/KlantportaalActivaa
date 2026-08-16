@@ -98,6 +98,31 @@ async function haalStandaardUrenPerSoort() {
   return map;
 }
 
+/**
+ * De in Beheer → Taken per taaksoort ingestelde standaard-URENCODE (voor het gekoppelde
+ * urenschrijven vanuit een taak). Geeft een map { "<optieset-waarde>": "<urencode-naam>" } terug
+ * (alleen soorten met een ingevulde code).
+ */
+async function haalStandaardUrencodePerSoort() {
+  const instellingen = await haalInstellingen().catch(() => ({}));
+  const config = (instellingen && instellingen.taaksoorten) || {};
+  const map = {};
+  for (const [waarde, opties] of Object.entries(config)) {
+    if (!opties) continue;
+    const code = String(opties.standaardUrencode || "").trim();
+    if (code) map[String(waarde)] = code;
+  }
+  return map;
+}
+
+/** De effectieve urencode van een taak: de per-taak-overschrijving wint, anders die van de soort. */
+function effectieveTaakUrencode(soortWaarde, standaardPerSoort, override) {
+  const eigen = override == null ? "" : String(override).trim();
+  if (eigen) return eigen;
+  const std = soortWaarde == null ? undefined : standaardPerSoort[String(soortWaarde)];
+  return std || "";
+}
+
 /** De effectieve uren van een taak: de per-taak-overschrijving wint, anders de standaard van de soort. */
 function effectieveTaakUren(soortWaarde, standaardPerSoort, override) {
   if (override != null && override !== "") {
@@ -129,5 +154,7 @@ module.exports = {
   afwikkelingVoorSoort,
   haalStandaardUrenPerSoort,
   effectieveTaakUren,
+  haalStandaardUrencodePerSoort,
+  effectieveTaakUrencode,
   dynamicsAppUrl,
 };

@@ -27,7 +27,7 @@
  * geen tweede Dynamics-accountquery nodig is.
  */
 import { useEffect, useRef, useState } from "react";
-import { Search, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Loader2, Star, User, Users, Building2, CheckCircle2, ExternalLink } from "lucide-react";
+import { Search, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Loader2, Star, User, Users, Building2, CheckCircle2, ExternalLink, Clock } from "lucide-react";
 import { useMijnNaam, isKlantVanMij } from "./MijnFilter";
 import UrenSchrijvenPanel from "./UrenSchrijvenPanel";
 
@@ -63,6 +63,10 @@ function TAKEN_KOLOMMEN(modus) {
     { key: "deadline", label: "Deadline", cel: (t) => datum(t.deadline), sortVal: (t) => tijd(t.deadline) },
     { key: "prioriteit", label: "Prioriteit", cel: (t) => t.prioriteit || "" },
     { key: "uren", label: "Indic. uren", cel: (t) => (t.uren ? `${Number(t.uren).toLocaleString("nl-NL", { maximumFractionDigits: 2 })} u${t.urenOverride != null ? "*" : ""}` : ""), sortVal: (t) => Number(t.uren) || 0, uitlijnen: "right" },
+    // Geschreven uren = wat er via het gekoppelde urenschrijven op deze taak is geboekt (alle
+    // medewerkers samen, /api/mw-uren-bron) — de tegenhanger van de indicatie-uren.
+    { key: "geschrevenUren", label: "Geschr. uren", cel: (t) => (t.geschrevenUren ? `${Number(t.geschrevenUren).toLocaleString("nl-NL", { maximumFractionDigits: 2 })} u` : ""), sortVal: (t) => Number(t.geschrevenUren) || 0, uitlijnen: "right" },
+    { key: "urencode", label: "Urencode", cel: (t) => t.urencode || "" },
     { key: "klantnummer", label: "Cliëntnr", cel: (t) => (t.klant && (t.klant.klantnummer ?? "") !== "" ? String(t.klant.klantnummer) : "") },
     { key: "groepsnaam", label: "Groep", cel: (t) => (t.klant && t.klant.groepsnaam) || "" },
   ];
@@ -75,8 +79,8 @@ function TAKEN_KOLOMMEN(modus) {
   return basis;
 }
 const STANDAARD_VERBORGEN = {
-  open: ["prioriteit", "klantnummer", "groepsnaam"],
-  afgehandeld: ["prioriteit", "klantnummer", "groepsnaam", "afwikkeling", "uren"],
+  open: ["prioriteit", "klantnummer", "groepsnaam", "urencode"],
+  afgehandeld: ["prioriteit", "klantnummer", "groepsnaam", "afwikkeling", "uren", "urencode"],
 };
 
 // ── Scope-schakelaar (3-weg) ─────────────────────────────────────────────────
@@ -115,15 +119,38 @@ function AfwikkelingBadge({ waarde }) {
 }
 
 // ── Detailweergave van één taak ──────────────────────────────────────────────
-function TaakDetail({ taak, modus, appUrl, magBewerken = true, onTerug, onAfgehandeld, onTijd }) {
+function TaakDetail({ taak, modus, appUrl, urencodes = [], magBewerken = true, onTerug, onAfgehandeld, onTijd, onUrencode, onGeboekt }) {
   const [bezig, setBezig] = useState(false);
   const [fout, setFout] = useState("");
   const [afgerond, setAfgerond] = useState(false); // net afgehandeld → uren schrijven tonen
   const [geboekt, setGeboekt] = useState(false);
+  const [urenSchrijven, setUrenSchrijven] = useState(false); // uren schrijven zónder de taak af te ronden
   const [urenInput, setUrenInput] = useState(taak.urenOverride == null ? "" : String(taak.urenOverride));
   const [urenBezig, setUrenBezig] = useState(false);
   const [urenStatus, setUrenStatus] = useState(""); // "" | "gelukt" | foutmelding
+  const [codeInput, setCodeInput] = useState(taak.urencodeOverride || "");
+  const [codeStatus, setCodeStatus] = useState(""); // "" | "gelukt" | foutmelding
   const dynamicsLink = appUrl ? `${appUrl}/main.aspx?pagetype=entityrecord&etn=task&id=${taak.id}` : "";
+  // De bron-koppeling: uren die hier geschreven worden hangen aan deze taak.
+  const bron = { soort: "taak", id: taak.id, label: taak.onderwerp || "" };
+
+  // Urencode van deze taak zetten/wissen (leeg = terug naar de standaard van de taaksoort).
+  const bewaarCode = async (waarde) => {
+    if (!magBewerken) return;
+    setCodeStatus("");
+    try {
+      const r = await fetch("/api/mw-taken", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: taak.id, actie: "urencode", urencode: waarde }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      const d = await r.json().catch(() => ({}));
+      onUrencode && onUrencode(taak.id, d.urencodeOverride || null);
+      setCodeStatus("gelukt");
+    } catch (e) {
+      setCodeStatus(e.message || "Opslaan mislukt.");
+    }
+  };
 
   const bewaarUren = async () => {
     if (!magBewerken) return; // alleen-lezen rol
@@ -183,7 +210,9 @@ function TaakDetail({ taak, modus, appUrl, magBewerken = true, onTerug, onAfgeha
               klantnaam={klantnaam}
               voorgesteldeUren={taak.uren != null && taak.uren !== "" ? taak.uren : ""}
               omschrijving={taak.onderwerp || ""}
-              onGeboekt={() => setGeboekt(true)}
+              urencode={taak.urencode || ""}
+              bron={bron}
+              onGeboekt={(u) => { setGeboekt(true); onGeboekt && onGeboekt(taak.id, u); }}
               onOverslaan={() => onAfgehandeld(taak.id)}
             />
             <div style={{ marginTop: 12 }}>
@@ -219,6 +248,11 @@ function TaakDetail({ taak, modus, appUrl, magBewerken = true, onTerug, onAfgeha
               <ExternalLink size={14} /> Open in Dynamics
             </a>
           )}
+          {modus === "open" && magBewerken && taak.klantAccountId && (
+            <button onClick={() => setUrenSchrijven((v) => !v)} title="Schrijf uren op deze taak — urencode, cliënt en omschrijving staan al ingevuld" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: urenSchrijven ? KLEUR.lichtblauw : "#fff", color: KLEUR.blauw, border: `1px solid ${KLEUR.blauw}`, borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
+              <Clock size={14} /> Uren schrijven
+            </button>
+          )}
           {modus === "open" && magBewerken && (
             <button onClick={rond} disabled={bezig} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: bezig ? "default" : "pointer", opacity: bezig ? 0.7 : 1 }}>
               <CheckCircle2 size={14} /> {bezig ? "Bezig…" : "Markeer als afgehandeld"}
@@ -231,6 +265,22 @@ function TaakDetail({ taak, modus, appUrl, magBewerken = true, onTerug, onAfgeha
       </div>
 
       {fout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 12 }}>{fout}</div>}
+
+      {/* Uren schrijven zónder de taak af te ronden — urencode/cliënt/omschrijving staan al goed. */}
+      {urenSchrijven && taak.klantAccountId && (
+        <div style={{ maxWidth: 720, marginBottom: 14 }}>
+          <UrenSchrijvenPanel
+            accountId={taak.klantAccountId}
+            klantnaam={taak.klantnaam || (taak.klant && taak.klant.klantnaam) || ""}
+            voorgesteldeUren={taak.uren != null && taak.uren !== "" ? taak.uren : ""}
+            omschrijving={taak.onderwerp || ""}
+            urencode={taak.urencode || ""}
+            bron={bron}
+            onGeboekt={(u) => onGeboekt && onGeboekt(taak.id, u)}
+            onOverslaan={() => setUrenSchrijven(false)}
+          />
+        </div>
+      )}
 
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: "16px 18px", maxWidth: 720 }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 24px" }}>
@@ -272,7 +322,34 @@ function TaakDetail({ taak, modus, appUrl, magBewerken = true, onTerug, onAfgeha
               {taak.standaardUren != null
                 ? <>Standaard voor deze soort: <strong>{taak.standaardUren} u</strong> (Beheer → Taken). Laat leeg om de standaard te gebruiken.</>
                 : <>Nog geen standaard-tijd voor deze soort ingesteld (Beheer → Taken). Vul hier eventueel handmatig uren in.</>}
+              {taak.geschrevenUren ? <> Er is al <strong>{Number(taak.geschrevenUren).toLocaleString("nl-NL", { maximumFractionDigits: 2 })} u</strong> op deze taak geschreven.</> : null}
             </div>
+
+            {/* Urencode: bepaalt waarop de uren van deze taak geschreven worden (voorgevuld bij "Uren schrijven"). */}
+            <div style={{ fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", margin: "14px 0 6px" }}>Urencode</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <select
+                value={codeInput}
+                onChange={(e) => { setCodeInput(e.target.value); bewaarCode(e.target.value); }}
+                style={{ minWidth: 200, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 13, background: "#fff" }}
+              >
+                <option value="">{taak.standaardUrencode ? `— standaard van de soort (${taak.standaardUrencode}) —` : "— geen —"}</option>
+                {codeInput && !urencodes.some((c) => c.naam === codeInput) && <option value={codeInput}>{codeInput}</option>}
+                {urencodes.map((c) => <option key={c.id || c.naam} value={c.naam}>{c.naam}</option>)}
+              </select>
+              {codeStatus === "gelukt" && <span style={{ fontSize: 12, color: KLEUR.groen, fontWeight: 600 }}>Opgeslagen</span>}
+              {codeStatus && codeStatus !== "gelukt" && <span style={{ fontSize: 12, color: KLEUR.rood }}>{codeStatus}</span>}
+            </div>
+            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 6 }}>
+              {taak.standaardUrencode
+                ? <>Standaard voor deze soort: <strong>{taak.standaardUrencode}</strong> (Beheer → Taken). Kies hier alleen iets anders als deze taak afwijkt.</>
+                : <>Nog geen urencode voor deze soort ingesteld (Beheer → Taken). Kies er hier eventueel handmatig één.</>}
+            </div>
+          </div>
+        )}
+        {modus === "open" && !magBewerken && taak.urencode && (
+          <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${KLEUR.rand}`, fontSize: 12.5, color: KLEUR.subtekst }}>
+            Urencode: <strong>{taak.urencode}</strong>
           </div>
         )}
       </div>
@@ -286,6 +363,8 @@ function TakenTabel({ modus, magBewerken = true }) {
   const [fout, setFout] = useState(false);
   const [configNodig, setConfigNodig] = useState(false);
   const [appUrl, setAppUrl] = useState("");
+  const [urencodes, setUrencodes] = useState([]);   // actieve urencodes (Beheer → Uren)
+  const [urenPerTaak, setUrenPerTaak] = useState({}); // taak-id → { uren, aantal } geschreven uren
   const [klantenMap, setKlantenMap] = useState({});
   const [zoek, setZoek] = useState("");
   const [kolomFilters, setKolomFilters] = useState({});
@@ -323,8 +402,13 @@ function TakenTabel({ modus, magBewerken = true }) {
       .catch(() => {});
     fetch(`/api/mw-taken?status=${statusParam}`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { if (!actief) return; setTaken(d.taken || []); setAppUrl(d.appUrl || ""); setConfigNodig(!!d.configuratieNodig); })
+      .then((d) => { if (!actief) return; setTaken(d.taken || []); setAppUrl(d.appUrl || ""); setUrencodes(d.urencodes || []); setConfigNodig(!!d.configuratieNodig); })
       .catch(() => { if (actief) { setTaken([]); setFout(true); } });
+    // Geschreven uren per taak (kantoorbreed) — best-effort; ontbreekt het, dan blijft die kolom leeg.
+    fetch("/api/mw-uren-bron?soort=taak")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => { if (actief) setUrenPerTaak(d.perBron || {}); })
+      .catch(() => {});
     fetch(`/api/medewerker-weergaven?scherm=${encodeURIComponent(scherm)}`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => {
@@ -374,8 +458,12 @@ function TakenTabel({ modus, magBewerken = true }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zichtbareKolommen, kolomVolgorde, kolomFilters, sortKey, sortDir, toonAantal, scherm]);
 
-  // Klant-info bij elke taak joinen (klantnaam-fallback, klantnummer, groep, rolvelden).
-  const verrijkt = (taken || []).map((t) => ({ ...t, klant: klantenMap[t.klantAccountId] || null }));
+  // Klant-info + geschreven uren bij elke taak joinen (klantnaam-fallback, klantnummer, groep, rolvelden).
+  const verrijkt = (taken || []).map((t) => ({
+    ...t,
+    klant: klantenMap[t.klantAccountId] || null,
+    geschrevenUren: (urenPerTaak[String(t.id)] || urenPerTaak[String(t.id).toLowerCase()] || {}).uren || 0,
+  }));
 
   const huidigeConfig = () => ({ kolommen: [...zichtbareSet], volgorde: geordendeKolommen.map((k) => k.key), filters: kolomFilters, sortKey, sortDir, toonAantal });
   function pasWeergaveToe(cfg) {
@@ -425,6 +513,7 @@ function TakenTabel({ modus, magBewerken = true }) {
           taak={taak}
           modus={modus}
           appUrl={appUrl}
+          urencodes={urencodes}
           magBewerken={magBewerken}
           onTerug={() => setDetailId(null)}
           onAfgehandeld={(id) => { setTaken((h) => (h || []).filter((x) => x.id !== id)); setDetailId(null); }}
@@ -433,6 +522,14 @@ function TakenTabel({ modus, magBewerken = true }) {
             const eff = override != null ? override : (x.standaardUren != null ? x.standaardUren : 0);
             return { ...x, urenOverride: override, uren: eff };
           }))}
+          onUrencode={(id, override) => setTaken((h) => (h || []).map((x) => (
+            x.id === id ? { ...x, urencodeOverride: override, urencode: override || x.standaardUrencode || "" } : x
+          )))}
+          onGeboekt={(id, aantal) => setUrenPerTaak((h) => {
+            const key = String(id);
+            const vorig = h[key] || h[key.toLowerCase()] || { uren: 0, aantal: 0 };
+            return { ...h, [key]: { uren: Math.round((vorig.uren + Number(aantal || 0)) * 100) / 100, aantal: vorig.aantal + 1 } };
+          })}
         />
       );
     }

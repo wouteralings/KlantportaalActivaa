@@ -67,7 +67,7 @@ function AantalKiezer({ aantal, setAantal, totaal }) {
 }
 
 // Grid-kolommen zodat de koppen exact boven de invoervelden uitlijnen.
-const GRID_ACT = "52px minmax(140px, 1fr) 76px 128px 66px 88px"; // pijltjes | Activiteit | Periode | Functie | Std.uren | Status
+const GRID_ACT = "52px minmax(140px, 1fr) 76px 128px 66px 140px 88px"; // pijltjes | Activiteit | Periode | Functie | Std.uren | Urencode | Status
 const GRID_STAT = "52px minmax(180px, 1fr) 52px 96px";       // pijltjes | Status | Kleur | (actief)
 const kopStijl = { fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" };
 
@@ -88,6 +88,7 @@ export default function PlanningInstellingenBeheer() {
   const [statusAantal, setStatusAantal] = useState(25);
   const [uitgesloten, setUitgesloten] = useState([]); // [{ email, naam, reden }]
   const [medewerkers, setMedewerkers] = useState([]); // [{ naam, email }]
+  const [urencodes, setUrencodes] = useState([]);     // actieve urencodes (Beheer → Uren)
   const [nwUitEmail, setNwUitEmail] = useState("");
   const [nwUitReden, setNwUitReden] = useState("");
   const [setjes, setSetjes] = useState([]); // [{ sleutel, naam, items:[{activiteit,frequentie,uitvoerMaand,indicatieUren}] }]
@@ -103,6 +104,11 @@ export default function PlanningInstellingenBeheer() {
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setMedewerkers(d.medewerkers || []))
       .catch(() => setMedewerkers([]));
+    // Urencodes (Beheer → Uren) voor de standaard-urencode per activiteit — best-effort.
+    fetch("/api/beheer-urencodes")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => setUrencodes((d.codes || []).filter((c) => c.actief !== false)))
+      .catch(() => setUrencodes([]));
   }, []);
 
   const opslaan = async (nieuweActiviteiten, nieuweStatussen, nieuweUitgesloten = uitgesloten, nieuweSetjes = setjes) => {
@@ -133,6 +139,9 @@ export default function PlanningInstellingenBeheer() {
   };
   const wijzigActiviteitLabel = (sleutel, label) => setActiviteiten((h) => (h || []).map((a) => (a.sleutel === sleutel ? { ...a, label } : a)));
   const wijzigActiviteitStandaardUren = (sleutel, standaardUren) => setActiviteiten((h) => (h || []).map((a) => (a.sleutel === sleutel ? { ...a, standaardUren } : a)));
+  // Standaard-urencode: meteen opslaan (keuzelijst, geen onBlur nodig).
+  const wijzigActiviteitUrencode = (sleutel, standaardUrencode) =>
+    opslaan((activiteiten || []).map((a) => (a.sleutel === sleutel ? { ...a, standaardUrencode } : a)), statussen || []);
 
   // Deelstappen (deelactiviteiten) per activiteit — sjabloon, per klant nog aan te passen.
   const metDeel = (actSleutel, fn) => (activiteiten || []).map((a) => (a.sleutel === actSleutel ? { ...a, deelstappen: fn(a.deelstappen || []) } : a));
@@ -241,7 +250,7 @@ export default function PlanningInstellingenBeheer() {
               <CalendarClock size={16} color={KLEUR.blauw} /> Activiteiten <span style={{ fontSize: 12, fontWeight: 600, color: KLEUR.mutedTekst }}>({activiteiten.length})</span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: GRID_ACT, gap: 8, alignItems: "center", padding: "0 10px 6px", ...kopStijl }}>
-              <span></span><span>Activiteit</span><span>Periode</span><span>Functie</span><span>Std. uren</span><span>Status</span>
+              <span></span><span>Activiteit</span><span>Periode</span><span>Functie</span><span>Std. uren</span><span title="Urencode waarop de uren van deze activiteit standaard geschreven worden (per klant overschrijfbaar)">Urencode</span><span>Status</span>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 6 }}>
               {activiteiten.slice(0, activiteitAantal).map((a, i) => {
@@ -261,6 +270,11 @@ export default function PlanningInstellingenBeheer() {
                       {ROLLEN.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
                     </select>
                     <input type="number" min="0" step="0.25" value={a.standaardUren ?? ""} onChange={(e) => wijzigActiviteitStandaardUren(a.sleutel, e.target.value)} onBlur={() => opslaan(activiteiten, statussen)} title="Standaard indicatie-uren (per klant overschrijfbaar)" placeholder="—" style={{ ...invoerStijl, minWidth: 0 }} />
+                    <select value={a.standaardUrencode || ""} onChange={(e) => wijzigActiviteitUrencode(a.sleutel, e.target.value)} title="Urencode waarop de uren van deze activiteit standaard geschreven worden — per klant te overschrijven in de planning-configuratie" style={{ ...invoerStijl, minWidth: 0 }}>
+                      <option value="">— geen —</option>
+                      {a.standaardUrencode && !urencodes.some((c) => c.naam === a.standaardUrencode) && <option value={a.standaardUrencode}>{a.standaardUrencode}</option>}
+                      {urencodes.map((c) => <option key={c.id || c.naam} value={c.naam}>{c.naam}</option>)}
+                    </select>
                     {ACTIEF_KNOP(a.actief, () => zetActiviteitActief(a.sleutel, !a.actief))}
                   </div>
                   <div style={{ padding: "0 10px 8px 62px" }}>
