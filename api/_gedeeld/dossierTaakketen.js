@@ -23,7 +23,7 @@
  * taak die via een andere weg is aangemaakt of gekopieerd houdt zijn dossierkoppeling vanzelf.
  */
 const { haalInstellingen } = require("./instellingen");
-const { SOORTEN, haalEenDossier, werkDossierBij } = require("./dossiers");
+const { SOORTEN, haalEenDossier, werkDossierBij, haalNavigatieNaam } = require("./dossiers");
 
 const SOORT_VELD = process.env.DYNAMICS_TAAK_SOORT_VELD || "";
 const KLANT_VELD = process.env.DYNAMICS_TAAK_KLANT_VELD || "sk_client";
@@ -45,18 +45,22 @@ const GELDIGE_FASEN = ["akkoord", "vervolg", "voorlopig"];
 const tekst = (v, max = 300) => String(v == null ? "" : v).trim().slice(0, max);
 
 // ── De onzichtbare dossierkoppeling in de taak-omschrijving ─────────────────
-/** `[dossier-ref: <soort>:<guid>|<fase>]` — fase "akkoord" = de taak bij de cliënt, "vervolg" = de interne vervolgtaak. */
-function maakRef(soortKey, dossierId, fase) {
+/**
+ * `[dossier-ref: <soort>:<guid>|<fase>]`, en met een afsluitende `|v` als het om een VOORLOPIGE
+ * aangifte gaat. Die vlag reist zo de hele keten mee: de taak bij de cliënt, de vervolgtaak daarna
+ * en elke statuswijziging weten daardoor dat ze de voorlopige variant moeten gebruiken.
+ */
+function maakRef(soortKey, dossierId, fase, voorlopig) {
   const s = String(soortKey || "").toLowerCase();
   const id = String(dossierId || "").trim();
   if (!s || !id) return "";
   const f = GELDIGE_FASEN.includes(fase) ? fase : "akkoord";
-  return `\n\n[dossier-ref: ${s}:${id}|${f}]`;
+  return `\n\n[dossier-ref: ${s}:${id}|${f}${voorlopig ? "|v" : ""}]`;
 }
 
-/** Leest de koppeling uit een omschrijving: { soort, id, fase } of null. */
+/** Leest de koppeling uit een omschrijving: { soort, id, fase, voorlopig } of null. */
 function leesRef(omschrijving) {
-  const m = /\[dossier-ref:\s*([a-z]+):([^\]|\s]+)(?:\|([a-z]+))?\s*\]/i.exec(String(omschrijving || ""));
+  const m = /\[dossier-ref:\s*([a-z]+):([^\]|\s]+)(?:\|([a-z]+))?(?:\|(v))?\s*\]/i.exec(String(omschrijving || ""));
   if (!m) return null;
   const soort = String(m[1] || "").toLowerCase();
   const id = String(m[2] || "").trim();
@@ -64,7 +68,23 @@ function leesRef(omschrijving) {
   // Zonder fase is het een oude markering uit de tijd dat alleen IB-versturen 'm schreef: dat was
   // altijd de taak bij de cliënt.
   const fase = GELDIGE_FASEN.includes(String(m[3] || "").toLowerCase()) ? String(m[3]).toLowerCase() : "akkoord";
-  return { soort, id, fase };
+  return { soort, id, fase, voorlopig: String(m[4] || "").toLowerCase() === "v" };
+}
+
+/**
+ * Vult de plaatshouder {voorlopig} in een sjabloon: "voorlopige " bij een voorlopige aangifte, en
+ * anders niets. Zo werkt één sjabloon voor beide varianten — "Aangifte {voorlopig}inkomstenbelasting
+ * {jaar}" wordt "Aangifte voorlopige inkomstenbelasting 2025" of "Aangifte inkomstenbelasting 2025".
+ * De spatie zit in de vervanging, zodat je 'm in het sjabloon direct tegen het woord aan kunt zetten.
+ */
+function vulVoorlopigIn(sjabloon, voorlopig) {
+  const s = String(sjabloon == null ? "" : sjabloon);
+  if (!s.includes("{voorlopig}")) {
+    // Geen plaatshouder in het sjabloon: bij een voorlopige aangifte plakken we het er zelf voor,
+    // zodat bestaande sjablonen zonder aanpassing tóch "Voorlopig" tonen.
+    return voorlopig && s.trim() ? `Voorlopig — ${s}` : s;
+  }
+  return s.replaceAll("{voorlopig}", voorlopig ? "voorlopige " : "").replace(/\s{2,}/g, " ");
 }
 
 /** Haalt de markering uit een tekst — nooit tonen aan cliënt of medewerker. */
@@ -84,6 +104,14 @@ const STANDAARD_KETEN = {
   // Stap 3 — zodra die vervolgtaak is afgerond.
   statusVervolgKlaar: null,
   inactiefNaVervolg: false,
+  // Dezelfde drie stappen, maar voor een VOORLOPIGE aangifte (zie api/_gedeeld/dossierVoorlopig.js).
+  // Zelfde taken en teksten, alleen andere dossierstatussen — de IB-optieset kent voor elke stap een
+  // "voorlopige" tegenhanger. Leeg = die stap de status niet laten wijzigen. Bewust géén
+  // "inactief na vervolg" bij voorlopig: een voorlopige aangifte moet juist open blijven staan tot
+  // de herziening is gedaan.
+  voorlopigStatusVersturen: null,
+  voorlopigStatusAkkoord: null,
+  voorlopigStatusVervolgKlaar: null,
 };
 
 function getalOfNull(v) {
@@ -102,7 +130,32 @@ function normaliseerKetenConfig(ruw) {
     statusAkkoord: getalOfNull(r.statusAkkoord),
     statusVervolgKlaar: getalOfNull(r.statusVervolgKlaar),
     inactiefNaVervolg: r.inactiefNaVervolg === true,
+    voorlopigStatusVersturen: getalOfNull(r.voorlopigStatusVersturen),
+    voorlopigStatusAkkoord: getalOfNull(r.voorlopigStatusAkkoord),
+    voorlopigStatusVervolgKlaar: getalOfNull(r.voorlopigStatusVervolgKlaar),
   };
+}
+
+/**
+ * De statussen van de keten voor deze variant: bij een voorlopige aangifte de "voorlopig"-set, en
+ * anders de gewone. Eén plek waar die keuze valt, zodat de drie inhaakpunten hem niet elk apart
+ * hoeven te maken.
+ */
+function statussenVoor(cfg, voorlopig) {
+  return voorlopig
+    ? {
+        versturen: cfg.voorlopigStatusVersturen,
+        akkoord: cfg.voorlopigStatusAkkoord,
+        vervolgKlaar: cfg.voorlopigStatusVervolgKlaar,
+        // Een voorlopige aangifte niet afsluiten: de herziening moet nog komen.
+        inactief: false,
+      }
+    : {
+        versturen: cfg.statusVersturen,
+        akkoord: cfg.statusAkkoord,
+        vervolgKlaar: cfg.statusVervolgKlaar,
+        inactief: cfg.inactiefNaVervolg,
+      };
 }
 
 function normaliseerAlleKetenConfig(ruw) {
@@ -162,7 +215,8 @@ async function naAkkoordVanClient({ context, resource, token, taak, klantnaam })
     const soort = soortVan(ref.soort);
     if (!soort) return { gedaan: false };
     const cfg = await instellingenVoorSoort(soort.key);
-    if (cfg.akkoordTaakSoort === null && cfg.statusAkkoord === null) return { gedaan: false };
+    const st = statussenVoor(cfg, ref.voorlopig);
+    if (cfg.akkoordTaakSoort === null && st.akkoord === null) return { gedaan: false };
 
     const dossier = await haalEenDossier(resource, token, soort, ref.id).catch(() => null);
     if (!dossier) return { gedaan: false };
@@ -177,14 +231,20 @@ async function naAkkoordVanClient({ context, resource, token, taak, klantnaam })
         soort: soort.label,
       });
       const body = {
-        subject: tekst(onderwerp, 400) || `Vervolgactie ${soort.label}`,
+        subject: tekst(vulVoorlopigIn(onderwerp, ref.voorlopig), 400) || `Vervolgactie ${soort.label}`,
         description:
           `De cliënt heeft akkoord gegeven op "${(taak && taak.subject) || soort.label}".` +
+          (ref.voorlopig ? `\nLet op: dit betreft een VOORLOPIGE aangifte.` : "") +
           `\nDossier: ${soort.label}${periodeTekst(dossier) ? ` ${periodeTekst(dossier)}` : ""} — ${dossier.klantnaam || "cliënt onbekend"}.` +
           `\nRond deze taak af zodra het is verstuurd; het dossier wordt dan automatisch bijgewerkt.` +
-          maakRef(soort.key, ref.id, "vervolg"),
+          maakRef(soort.key, ref.id, "vervolg", ref.voorlopig),
       };
-      if (dossier.accountId) body[`${KLANT_VELD}@odata.bind`] = `/accounts(${dossier.accountId})`;
+      // Cliënt-lookup via de NAVIGATIE-eigenschapsnaam (uit de metadata, gecached) — met de logische
+      // kolomnaam weigert Dynamics de taak met 0x80048d19 "undeclared property".
+      if (dossier.accountId) {
+        const klantNav = await haalNavigatieNaam(resource, "task", KLANT_VELD, token);
+        body[`${klantNav}@odata.bind`] = `/accounts(${dossier.accountId})`;
+      }
       if (SOORT_VELD) body[SOORT_VELD] = cfg.akkoordTaakSoort;
       if (RUBRIEK_VELD && cfg.akkoordTaakRubriek !== null) body[RUBRIEK_VELD] = cfg.akkoordTaakRubriek;
 
@@ -206,10 +266,10 @@ async function naAkkoordVanClient({ context, resource, token, taak, klantnaam })
       vervolgTaakId = (await res.json().catch(() => ({}))).activityid || "";
     }
 
-    if (cfg.statusAkkoord !== null) {
-      await werkDossierBij(resource, token, soort, ref.id, { status: cfg.statusAkkoord });
+    if (st.akkoord !== null) {
+      await werkDossierBij(resource, token, soort, ref.id, { status: st.akkoord });
     }
-    return { gedaan: true, vervolgTaakId, soort: soort.key };
+    return { gedaan: true, vervolgTaakId, soort: soort.key, voorlopig: !!ref.voorlopig };
   } catch (err) {
     log("Dossier-taakketen na akkoord mislukt (het akkoord zelf is wél verwerkt):", err);
     return { gedaan: false };
@@ -233,19 +293,20 @@ async function naVervolgtaakAfgerond({ context, resource, token, omschrijving })
     const soort = soortVan(ref.soort);
     if (!soort) return { gedaan: false };
     const cfg = await instellingenVoorSoort(soort.key);
-    if (cfg.statusVervolgKlaar === null && !cfg.inactiefNaVervolg) return { gedaan: false };
+    const st = statussenVoor(cfg, ref.voorlopig);
+    if (st.vervolgKlaar === null && !st.inactief) return { gedaan: false };
 
     // Bewust in TWEE stappen, status eerst: een deactivering die om wat voor reden ook faalt mag de
     // statuswijziging niet meesleuren, en een status zetten op een al gedeactiveerd (alleen-lezen)
     // record is in Dataverse een gok. Zo is de status altijd bijgewerkt, ook als het inactief zetten
     // misgaat — en dat laatste kan een medewerker desnoods handmatig doen.
     let statusGezet = false;
-    if (cfg.statusVervolgKlaar !== null) {
-      await werkDossierBij(resource, token, soort, ref.id, { status: cfg.statusVervolgKlaar });
+    if (st.vervolgKlaar !== null) {
+      await werkDossierBij(resource, token, soort, ref.id, { status: st.vervolgKlaar });
       statusGezet = true;
     }
     let inactiefGezet = false;
-    if (cfg.inactiefNaVervolg) {
+    if (st.inactief) {
       try {
         await werkDossierBij(resource, token, soort, ref.id, { actief: false });
         inactiefGezet = true;
@@ -253,7 +314,7 @@ async function naVervolgtaakAfgerond({ context, resource, token, omschrijving })
         log("Dossier op inactief zetten mislukt (de status is wél bijgewerkt):", e);
       }
     }
-    return { gedaan: statusGezet || inactiefGezet, status: statusGezet ? cfg.statusVervolgKlaar : null, inactief: inactiefGezet, soort: soort.key };
+    return { gedaan: statusGezet || inactiefGezet, status: statusGezet ? st.vervolgKlaar : null, inactief: inactiefGezet, soort: soort.key, voorlopig: !!ref.voorlopig };
   } catch (err) {
     log("Dossier-taakketen na afronden vervolgtaak mislukt (de taak is wél afgerond):", err);
     return { gedaan: false };
@@ -262,7 +323,7 @@ async function naVervolgtaakAfgerond({ context, resource, token, omschrijving })
 
 module.exports = {
   STANDAARD_KETEN,
-  maakRef, leesRef, verbergRef,
+  maakRef, leesRef, verbergRef, vulVoorlopigIn, statussenVoor,
   normaliseerKetenConfig, normaliseerAlleKetenConfig, instellingenVoorSoort,
   periodeTekst, vulSjabloonIn,
   naAkkoordVanClient, naVervolgtaakAfgerond,

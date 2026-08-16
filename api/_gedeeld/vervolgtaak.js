@@ -8,6 +8,8 @@
  * ongeacht via welke route de klant "akkoord" gaf.
  */
 
+const { haalNavigatieNaam } = require("./dossiers");
+
 const SOORT_VELD = process.env.DYNAMICS_TAAK_SOORT_VELD || "";
 const KLANT_VELD = process.env.DYNAMICS_TAAK_KLANT_VELD || "sk_client";
 // Optieset "Rubriek" op Task (cr283_rubriek) — dezelfde Application Setting en standaardwaarde als
@@ -51,10 +53,15 @@ function vulVervolgtaakSjabloonIn(sjabloon, { klant, titel }) {
  */
 async function maakVervolgtaak({ context, resource, token, taak, klantnaam, soortCfg }) {
   try {
+    // De cliënt-lookup koppelen via @odata.bind vereist de NAVIGATIE-eigenschapsnaam, niet de
+    // logische kolomnaam. Met de kolomnaam weigert Dynamics de hele taak met 0x80048d19 "undeclared
+    // property 'sk_client'" — en omdat deze functie best-effort is, verdween dat stilletjes in het
+    // log en werd er nooit een vervolgtaak aangemaakt. (Zelfde aanpak als api/medewerker-aangifte-versturen.)
+    const klantNav = await haalNavigatieNaam(resource, "task", KLANT_VELD, token);
     const taakBody = {
       subject: vulVervolgtaakSjabloonIn(soortCfg.vervolgtaakOnderwerp, { klant: klantnaam, titel: taak.subject }),
       description: `Automatisch aangemaakt na akkoord van de cliënt op taak "${taak.subject}".`,
-      [`${KLANT_VELD}@odata.bind`]: `/accounts(${taak.accountId})`,
+      [`${klantNav}@odata.bind`]: `/accounts(${taak.accountId})`,
     };
     if (SOORT_VELD && soortCfg.vervolgtaakSoort !== undefined && soortCfg.vervolgtaakSoort !== "") {
       const soortWaarde = Number(soortCfg.vervolgtaakSoort);

@@ -17,7 +17,7 @@
  */
 const { BlobServiceClient } = require("@azure/storage-blob");
 const { haalInstellingen } = require("./instellingen");
-const { SOORTEN, haalEenDossier, werkDossierBij } = require("./dossiers");
+const { SOORTEN, haalEenDossier, werkDossierBij, haalNavigatieNaam } = require("./dossiers");
 const dossierTaakketen = require("./dossierTaakketen");
 
 const CONTAINER_NAAM = "portaalcontent";
@@ -266,7 +266,13 @@ async function maakTaak(resource, token, { subject, description, accountId, soor
     subject: tekst(subject, 400) || "Voorlopige aangifte herzien",
     description: String(description || "").slice(0, 100000),
   };
-  if (accountId) body[`${TAAK_KLANT_VELD}@odata.bind`] = `/accounts(${accountId})`;
+  // De cliënt-lookup koppelen via @odata.bind vereist de NAVIGATIE-eigenschapsnaam, niet de logische
+  // kolomnaam — anders 0x80048d19 "undeclared property 'sk_client'". Die naam komt uit de metadata
+  // (gecached in dossiers.js), precies zoals api/medewerker-aangifte-versturen het doet.
+  if (accountId) {
+    const klantNav = await haalNavigatieNaam(resource, "task", TAAK_KLANT_VELD, token);
+    body[`${klantNav}@odata.bind`] = `/accounts(${accountId})`;
+  }
   if (TAAK_SOORT_VELD && soortWaarde !== null && soortWaarde !== undefined && soortWaarde !== "") {
     const n = Number(soortWaarde);
     if (Number.isFinite(n)) body[TAAK_SOORT_VELD] = n;

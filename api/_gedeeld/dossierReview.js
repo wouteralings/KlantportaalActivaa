@@ -21,6 +21,7 @@
  */
 const { BlobServiceClient } = require("@azure/storage-blob");
 const { haalInstellingen } = require("./instellingen");
+const { haalNavigatieNaam } = require("./dossiers");
 
 const CONTAINER_NAAM = "portaalcontent";
 const BLOB_NAAM = "dossier-reviews.json";
@@ -330,7 +331,12 @@ async function maakTaak(resource, token, { subject, description, accountId, soor
     subject: tekst(subject, 400) || "Review",
     description: String(description || "").slice(0, 100000),
   };
-  if (accountId) body[`${KLANT_VELD}@odata.bind`] = `/accounts(${accountId})`;
+  // De cliënt-lookup koppelen via @odata.bind vereist de NAVIGATIE-eigenschapsnaam, niet de logische
+  // kolomnaam — anders 0x80048d19 "undeclared property 'sk_client'". Uit de metadata (gecached).
+  if (accountId) {
+    const klantNav = await haalNavigatieNaam(resource, "task", KLANT_VELD, token);
+    body[`${klantNav}@odata.bind`] = `/accounts(${accountId})`;
+  }
   if (SOORT_VELD && soortWaarde !== null && soortWaarde !== undefined && soortWaarde !== "") {
     const n = Number(soortWaarde);
     if (Number.isFinite(n)) body[SOORT_VELD] = n;
