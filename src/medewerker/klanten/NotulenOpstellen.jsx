@@ -338,7 +338,11 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
   }, [sjabloon, velddefinities]);
 
   // Bij een ander model beginnen de invulvelden schoon; een "keuze"/"paragraaf" start op de eerste optie.
+  // Behalve direct na het heropenen van een bewaard stuk: dan zijn de waarden net teruggezet en zou dit
+  // effect ze meteen weer wissen (herstelRef). Dat was precies waarom een heropend stuk "niets onthield".
+  const herstelRef = useRef(false);
   useEffect(() => {
+    if (herstelRef.current) { herstelRef.current = false; return; }
     const start = {};
     for (const v of actieveInvulvelden) {
       const eerste = (v.opties || [])[0];
@@ -532,17 +536,22 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
     setEmailVoorzitter(veiligeStr(v.emailVoorzitter));
     setNotulist(veiligeStr(v.notulist));
     setEmailNotulist(veiligeStr(v.emailNotulist));
-    if (r.invulwaarden && typeof r.invulwaarden === "object") setInvulwaarden(r.invulwaarden);
-    // De dossiervelden terugzetten. Oudere records (van vóór de dossiervelden in dit scherm) hadden
-    // directeur/bedrag/percentage/toelichting los in "velden" staan — die nemen we netjes over.
-    setVeldenState((h) => ({
-      ...h,
-      ...(r.dossierVelden && typeof r.dossierVelden === "object" ? r.dossierVelden : {}),
-      ...(veiligeStr(v.directeur) ? { directeur: veiligeStr(v.directeur) } : {}),
-      ...(veiligeStr(v.bedrag) ? { bedrag: Number(String(v.bedrag).replace(",", ".")) || null } : {}),
-      ...(veiligeStr(v.percentage) ? { percentage: Number(String(v.percentage).replace(",", ".")) || null } : {}),
-      ...(veiligeStr(v.toelichting) ? { toelichting: veiligeStr(v.toelichting) } : {}),
-    }));
+    // De invulvelden terugzetten. Let op: dit moet ná het zetten van het model gebeuren én het
+    // reset-effect op sjabloonId mag er niet overheen lopen — daarvoor is herstelRef (zie hieronder).
+    herstelRef.current = true;
+    const bewaardeInvul = (r.invulwaarden && typeof r.invulwaarden === "object") ? r.invulwaarden : {};
+    // Oudere records (van vóór de invulvelden) hadden bedrag/percentage/toelichting los in "velden"
+    // of in dossierVelden staan; die nemen we mee zodat er niets verdwijnt bij het heropenen.
+    const oudeWaarden = {};
+    const uitDossier = (r.dossierVelden && typeof r.dossierVelden === "object") ? r.dossierVelden : {};
+    for (const [sleutel, waarde] of Object.entries(uitDossier)) {
+      if (sleutel === "directeur" || sleutel === "emailvoorzitter" || sleutel === "emailnotulist") continue;
+      if (waarde !== null && waarde !== undefined && String(waarde) !== "") oudeWaarden[sleutel] = waarde;
+    }
+    for (const sleutel of ["bedrag", "percentage", "toelichting"]) {
+      if (veiligeStr(v[sleutel]) && oudeWaarden[sleutel] === undefined) oudeWaarden[sleutel] = v[sleutel];
+    }
+    setInvulwaarden({ ...oudeWaarden, ...bewaardeInvul });
     setAandeelhouders(Array.isArray(r.aandeelhouders) && r.aandeelhouders.length ? r.aandeelhouders : [{ naam: "", percentage: "100" }]);
     setMelding({ type: "ok", tekst: "Eerder opgestelde notulen teruggehaald — opslaan werkt hetzelfde dossier bij." });
   }

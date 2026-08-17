@@ -97,6 +97,9 @@ export default function DossierSjablonenPerSoort({ soort }) {
   // De medewerker vult/kiest ze bij het opstellen; ze vullen {{sleutel}} in de tekst.
   const [velddefinities, setVelddefinities] = useState([]);
   const [openVelddefs, setOpenVelddefs] = useState(() => new Set());
+  // De vaste tekst (kop/staart + standaard voorzitter/notulist) is een lange kaart; standaard
+  // ingeklapt, net als de sjabloonkaarten hieronder.
+  const [vasteTekstOpen, setVasteTekstOpen] = useState(false);
   const [openIds, setOpenIds] = useState(() => new Set()); // welke sjabloon-kaarten opengeklapt zijn
   const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
   const [fout, setFout] = useState("");
@@ -260,9 +263,20 @@ export default function DossierSjablonenPerSoort({ soort }) {
           {/* Notulen: de kop en de staart gelden voor ÁLLE notulen — hier één keer instellen. In de
               modellen hieronder staat alleen nog het besluit (punt I). */}
           {isNotulen && geladen && (
-            <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 12, marginBottom: 14, background: "#FbFcFa" }}>
-              <div style={{ fontSize: 13.5, fontWeight: 700, color: KLEUR.tekst, marginBottom: 4 }}>Vaste tekst voor alle notulen</div>
-              <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 12 }}>
+            <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, marginBottom: 14, background: "#FbFcFa", overflow: "hidden" }}>
+              <button
+                onClick={() => setVasteTekstOpen((o) => !o)}
+                style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+              >
+                {vasteTekstOpen ? <ChevronDown size={15} color={KLEUR.mutedTekst} /> : <ChevronRight size={15} color={KLEUR.mutedTekst} />}
+                <span style={{ fontSize: 13.5, fontWeight: 700, color: KLEUR.tekst }}>Vaste tekst voor alle notulen</span>
+                <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>
+                  kop en staart{String(kop || "").trim() || String(staart || "").trim() ? " · aangepast" : " · standaardtekst"} · standaard voorzitter en notulist
+                </span>
+              </button>
+              {vasteTekstOpen && (
+              <div style={{ padding: "0 12px 12px", borderTop: `1px solid ${KLEUR.rand}` }}>
+              <div style={{ fontSize: 12, color: KLEUR.subtekst, margin: "12px 0" }}>
                 Pas je dit aan, dan verandert het in één keer voor alle notulen. Houd de merge-velden staan:
                 <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>{"{{aandeelhouders}}"}</code>
                 vult de aandeelhouders met naam en aandeel in, en
@@ -350,6 +364,8 @@ export default function DossierSjablonenPerSoort({ soort }) {
                   Dit is alleen het voorstel: bij het opstellen kun je er altijd iemand anders bij zoeken.
                 </div>
               </div>
+              </div>
+              )}
             </div>
           )}
 
