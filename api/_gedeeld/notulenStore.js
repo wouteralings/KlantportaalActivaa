@@ -101,6 +101,8 @@ async function bewaar(record) {
     // De dossiervelden (catalogussleutel → waarde) zoals in het opstel-scherm ingevuld — nodig om
     // een stuk te kunnen heropenen met alles er nog in, ook zelf aangemaakte velden.
     dossierVelden: record.dossierVelden || bestaand.dossierVelden || {},
+    // De vrije invulvelden van dit stuk (sleutel → waarde), zodat "Bewerken" ze terughaalt.
+    invulwaarden: record.invulwaarden || bestaand.invulwaarden || {},
     aandeelhouders: Array.isArray(record.aandeelhouders) ? record.aandeelhouders : (bestaand.aandeelhouders || []),
     tekst: record.tekst != null ? String(record.tekst) : (bestaand.tekst || ""),
     // Het besluitblok (punt I) van dít stuk — kop en staart komen uit Beheer en gelden voor alle

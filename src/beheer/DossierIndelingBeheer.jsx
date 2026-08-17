@@ -266,11 +266,14 @@ function VeldRij({ veldKey, veld, weergaveLabel, pad, padOpties, index, laatsteI
  * eigen endpoint nodig voor de indeling zelf. Alleen de "ib"-sleutel wordt hier gelezen/
  * geschreven; eventuele latere andere soorten (bijv. straks vpb) blijven met rust (zie bewaar()).
  */
+// Notulen staat hier bewust NIET (meer) tussen: dat is een eigen tabblad geworden (Beheer → Notulen),
+// net als Brieven. Een notulen wordt opgemaakt als stúk met invulvelden — de veldindeling van het
+// dossier had daar geen rol meer in, dus die kaart is hier weggehaald. Het notulendossier in Dynamics
+// blijft gewoon bestaan; het wordt gevuld vanuit "Notulen opstellen".
 const SOORTEN_TABS = [
   { key: "ib", label: "Inkomstenbelasting", dynamicsTabel: "Inkomstenbelasting" },
   { key: "vpb", label: "Vennootschapsbelasting", dynamicsTabel: "Vennootschapsbelasting" },
   { key: "dividend", label: "Dividenduitkeringen", dynamicsTabel: "Dividenduitkering" },
-  { key: "notulen", label: "Notulen", dynamicsTabel: "Notulen" },
 ];
 
 // Eén zelfstandig, inklapbaar indeling-paneel voor één dossiersoort (ib of vpb). De pagina rendert er
@@ -1929,9 +1932,7 @@ export default function DossierIndelingBeheer() {
               alleen de dossierkaart. */}
           <SoortIndelingPaneel
             soort={s.key}
-            // Notulen heeft sinds kort een eigen beheertabblad (Beheer → Notulen), net als Brieven —
-            // de voorbeelddocumenten van die soort staan daar, niet meer genest onder deze kaart.
-            onderaan={SOORTEN_MET_SJABLONEN.has(s.key) && s.key !== "notulen" ? <DossierSjablonenPerSoort soort={s.key} /> : null}
+            onderaan={SOORTEN_MET_SJABLONEN.has(s.key) ? <DossierSjablonenPerSoort soort={s.key} /> : null}
           />
         </div>
       ))}

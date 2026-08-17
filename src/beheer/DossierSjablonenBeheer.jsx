@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { FileText, Save, ChevronDown, ChevronRight, Plus, Trash2, ArrowUp, ArrowDown, Info } from "lucide-react";
+import { FileText, Save, ChevronDown, ChevronRight, Plus, Trash2, ArrowUp, ArrowDown, Info, X } from "lucide-react";
 import { NOTULEN_SJABLONEN, ROMP, STAART, steltNotulenSamen, haalBesluitUitTekst } from "./notulenSjablonen";
 
 /** Zelfde palet als de rest van het beheerdersportaal (bewust hier herhaald zodat dit bestand op
@@ -42,6 +42,9 @@ const VASTE_PLAATSHOUDERS = [
   { key: "datum", label: "Datum van vandaag" },
 ];
 
+/** Sleutel uit een label: kleine letters, alleen a-z0-9 — zelfde regel als bij de standaardbrieven. */
+function slug(v) { return String(v || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, ""); }
+
 let sjabloonTeller = 0;
 function nieuwSjabloonId() { sjabloonTeller += 1; return `sjabloon_${sjabloonTeller}_${(typeof performance !== "undefined" && performance.now ? Math.floor(performance.now()) : sjabloonTeller)}`; }
 
@@ -62,6 +65,9 @@ function naarLijst(eigen) {
         // De Dynamics-kolommen die bij dít model horen (catalogussleutels). Leeg = alle velden van de
         // soort, volgens de indeling in Beheer → Dossiers.
         velden: Array.isArray(s.velden) ? s.velden.map(String) : [],
+        // De vrije invulvelden (velddefinities hieronder) die bij dít model horen — net als
+        // "Invulvelden bij deze brief" bij de standaardbrieven.
+        invulvelden: Array.isArray(s.invulvelden) ? s.invulvelden.map(String) : [],
       }));
   }
   const lijst = [];
@@ -86,6 +92,11 @@ export default function DossierSjablonenPerSoort({ soort }) {
   // bron "contact" = de contactpersoon van de cliënt, "medewerker" = de ingelogde medewerker,
   // "vast" = altijd dezelfde naam (het invulveld ernaast).
   const [standaard, setStandaard] = useState({ voorzitterBron: "contact", voorzitterVast: "", notulistBron: "medewerker", notulistVast: "" });
+  // Vrije invulvelden voor notulen — precies zoals de "briefvelden" bij de standaardbrieven:
+  // [{ sleutel, label, type: "tekst"|"keuze"|"paragraaf", opties: [{ sleutel, label, tekst? }] }].
+  // De medewerker vult/kiest ze bij het opstellen; ze vullen {{sleutel}} in de tekst.
+  const [velddefinities, setVelddefinities] = useState([]);
+  const [openVelddefs, setOpenVelddefs] = useState(() => new Set());
   const [openIds, setOpenIds] = useState(() => new Set()); // welke sjabloon-kaarten opengeklapt zijn
   const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
   const [fout, setFout] = useState("");
@@ -107,6 +118,7 @@ export default function DossierSjablonenPerSoort({ soort }) {
         setSjablonen(naarLijst(eigen));
         setKop(eigen && typeof eigen.kop === "string" ? eigen.kop : "");
         setStaart(eigen && typeof eigen.staart === "string" ? eigen.staart : "");
+        setVelddefinities(eigen && Array.isArray(eigen.velddefinities) ? eigen.velddefinities : []);
         const st = (eigen && eigen.standaard && typeof eigen.standaard === "object") ? eigen.standaard : {};
         setStandaard({
           voorzitterBron: st.voorzitterBron === "vast" ? "vast" : "contact",
@@ -124,7 +136,7 @@ export default function DossierSjablonenPerSoort({ soort }) {
 
   const toggleKaart = (id) => setOpenIds((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const zet = (id, key, waarde) => setSjablonen((lijst) => lijst.map((s) => (s.id === id ? { ...s, [key]: waarde } : s)));
-  const nieuw = () => { const id = nieuwSjabloonId(); setSjablonen((lijst) => [...lijst, { id, naam: "Nieuw sjabloon", tekst: "", besluit: "", velden: [] }]); setOpenIds((s) => new Set([...s, id])); };
+  const nieuw = () => { const id = nieuwSjabloonId(); setSjablonen((lijst) => [...lijst, { id, naam: "Nieuw sjabloon", tekst: "", besluit: "", velden: [], invulvelden: [] }]); setOpenIds((s) => new Set([...s, id])); };
   // De vaste Activaa-notulen in één keer klaarzetten (overgezet uit de Word-modellen, zie
   // notulenSjablonen.js). Voegt alleen toe wat er nog niet staat — op naam — zodat je 'm veilig nog
   // eens kunt indrukken nadat je zelf iets hebt aangepast. Opslaan doe je daarna zelf.
@@ -134,7 +146,7 @@ export default function DossierSjablonenPerSoort({ soort }) {
       const nieuweIds = [];
       const erbij = NOTULEN_SJABLONEN
         .filter((s) => !bestaand.has(s.naam.trim().toLowerCase()))
-        .map((s) => { const id = nieuwSjabloonId(); nieuweIds.push(id); return { id, naam: s.naam, tekst: s.tekst, besluit: s.besluit || "", velden: [] }; });
+        .map((s) => { const id = nieuwSjabloonId(); nieuweIds.push(id); return { id, naam: s.naam, tekst: s.tekst, besluit: s.besluit || "", velden: [], invulvelden: [] }; });
       if (nieuweIds.length) setOpenIds((o) => new Set([...o, nieuweIds[0]]));
       return [...lijst, ...erbij];
     });
@@ -149,6 +161,26 @@ export default function DossierSjablonenPerSoort({ soort }) {
 
   // De tekst van het veld waar de cursor staat: een sjabloonveld (tekst/besluit) of, bij notulen,
   // de vaste kop of staart.
+  // ── Invulvelden (velddefinities) bewerken — zelfde bewerkingen als bij de standaardbrieven ──
+  const zetVelddef = (i, key, waarde) => setVelddefinities((lijst) => lijst.map((v, idx) => (idx === i ? { ...v, [key]: waarde, ...(key === "label" && !v.sleutelHandmatig ? { sleutel: slug(waarde) } : {}) } : v)));
+  const zetVelddefSleutel = (i, waarde) => setVelddefinities((lijst) => lijst.map((v, idx) => (idx === i ? { ...v, sleutel: slug(waarde), sleutelHandmatig: true } : v)));
+  const nieuwVelddef = () => { const idx = velddefinities.length; setVelddefinities((l) => [...l, { sleutel: "", label: "", type: "tekst", opties: [] }]); setOpenVelddefs((o) => new Set([...o, idx])); };
+  const verwijderVelddef = (i) => setVelddefinities((l) => l.filter((_, idx) => idx !== i));
+  const verplaatsVelddef = (i, richting) => setVelddefinities((l) => { const j = i + richting; if (j < 0 || j >= l.length) return l; const n = l.slice(); [n[i], n[j]] = [n[j], n[i]]; return n; });
+  const zetOptie = (vi, oi, key, waarde) => setVelddefinities((l) => l.map((v, idx) => {
+    if (idx !== vi) return v;
+    const opties = (v.opties || []).slice();
+    opties[oi] = { ...opties[oi], [key]: waarde, ...(key === "label" ? { sleutel: slug(waarde) } : {}) };
+    return { ...v, opties };
+  }));
+  const nieuweOptie = (vi) => setVelddefinities((l) => l.map((v, idx) => (idx === vi ? { ...v, opties: [...(v.opties || []), { sleutel: "", label: "", tekst: "" }] } : v)));
+  const verwijderOptie = (vi, oi) => setVelddefinities((l) => l.map((v, idx) => (idx === vi ? { ...v, opties: (v.opties || []).filter((_, k) => k !== oi) } : v)));
+  const toggleSjabloonInvulveld = (id, sleutel) => setSjablonen((lijst) => lijst.map((s2) => {
+    if (s2.id !== id) return s2;
+    const huidig = Array.isArray(s2.invulvelden) ? s2.invulvelden : [];
+    return { ...s2, invulvelden: huidig.includes(sleutel) ? huidig.filter((k) => k !== sleutel) : [...huidig, sleutel] };
+  }));
+
   const huidigeTekst = (id, veld) => {
     if (id === "__kop") return kop || ROMP;
     if (id === "__staart") return staart || STAART;
@@ -190,9 +222,17 @@ export default function DossierSjablonenPerSoort({ soort }) {
         const tekst = isNotulen && besluit.trim()
           ? steltNotulenSamen({ kop, besluit, staart })
           : String(s.tekst || "");
-        return { id: s.id, naam: String(s.naam || "").trim() || "Naamloos sjabloon", tekst, besluit, velden: Array.isArray(s.velden) ? s.velden : [] };
+        return { id: s.id, naam: String(s.naam || "").trim() || "Naamloos sjabloon", tekst, besluit, velden: Array.isArray(s.velden) ? s.velden : [], invulvelden: Array.isArray(s.invulvelden) ? s.invulvelden : [] };
       });
-      const nieuweAlle = { ...alle, [soort]: isNotulen ? { sjablonen: schoon, kop, staart, standaard } : { sjablonen: schoon } };
+      const velddefsSchoon = velddefinities
+        .map((v) => ({
+          sleutel: slug(v.sleutel || v.label),
+          label: String(v.label || "").trim(),
+          type: v.type === "keuze" || v.type === "paragraaf" ? v.type : "tekst",
+          opties: (v.opties || []).map((o) => ({ sleutel: slug(o.sleutel || o.label), label: String(o.label || "").trim(), tekst: String(o.tekst || "") })),
+        }))
+        .filter((v) => v.sleutel);
+      const nieuweAlle = { ...alle, [soort]: isNotulen ? { sjablonen: schoon, kop, staart, standaard, velddefinities: velddefsSchoon } : { sjablonen: schoon } };
       const res = await fetch("/api/beheer-instellingen", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dossierSjablonen: nieuweAlle }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || "Opslaan mislukt.");
@@ -390,36 +430,28 @@ export default function DossierSjablonenPerSoort({ soort }) {
                             />
                           </div>
                         )}
-                        {isNotulen && (
+                        {isNotulen && velddefinities.length > 0 && (
                           <div style={{ marginBottom: 12 }}>
-                            <span style={labelStijl}>Dynamics-kolommen bij dit model</span>
+                            <span style={labelStijl}>Invulvelden bij dit model</span>
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                              {(catalogus || [])
-                                .filter((v) => v && v.key && !String(v.key).startsWith("__") && v.type !== "lookup")
-                                .map((v) => {
-                                  const aan = (s.velden || []).includes(v.key);
-                                  return (
-                                    <button
-                                      key={v.key}
-                                      type="button"
-                                      onClick={() => zet(s.id, "velden", aan ? (s.velden || []).filter((k) => k !== v.key) : [...(s.velden || []), v.key])}
-                                      title={v.key}
-                                      style={{
-                                        border: `1px solid ${aan ? KLEUR.blauw : KLEUR.rand}`,
-                                        background: aan ? KLEUR.lichtblauw : "#F7F8F6",
-                                        color: aan ? KLEUR.blauw : KLEUR.tekst,
-                                        borderRadius: 999, padding: "4px 10px", fontSize: 11.5, fontWeight: 600, cursor: "pointer",
-                                      }}
-                                    >
-                                      {v.label || v.key}
-                                    </button>
-                                  );
-                                })}
+                              {velddefinities.filter((v) => slug(v.sleutel || v.label)).map((v) => {
+                                const sleutel = slug(v.sleutel || v.label);
+                                const aan = (s.invulvelden || []).includes(sleutel);
+                                return (
+                                  <button
+                                    key={sleutel}
+                                    type="button"
+                                    onClick={() => toggleSjabloonInvulveld(s.id, sleutel)}
+                                    style={{ border: `1px solid ${aan ? KLEUR.blauw : KLEUR.rand}`, background: aan ? KLEUR.lichtblauw : "#fff", color: aan ? KLEUR.blauw : KLEUR.subtekst, borderRadius: 20, padding: "4px 11px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                                  >
+                                    {aan ? "✓ " : ""}{v.label || sleutel} <span style={{ fontFamily: "monospace", opacity: 0.7 }}>{`{{${sleutel}}}`}</span>
+                                  </button>
+                                );
+                              })}
                             </div>
                             <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 6 }}>
-                              {(s.velden || []).length === 0
-                                ? "Niets gekozen = alle velden van de soort, volgens de rubrieken uit de indeling hierboven."
-                                : `${(s.velden || []).length} kolom${(s.velden || []).length === 1 ? "" : "men"} gekozen — in "Notulen opstellen" verschijnen bij dit model precies deze velden, in deze volgorde.`}
+                              De medewerker krijgt bij dit model precies deze invulvelden te zien; zet de sleutel in het besluit
+                              of in de vaste tekst om de waarde op die plek te laten verschijnen.
                             </div>
                           </div>
                         )}
@@ -446,6 +478,93 @@ export default function DossierSjablonenPerSoort({ soort }) {
                   </div>
                 );
               })}
+
+              {isNotulen && (
+                <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 12, background: "#FbFcFa" }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 700, color: KLEUR.tekst, marginBottom: 4 }}>Invulvelden ({velddefinities.length})</div>
+                  <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 12 }}>
+                    Een vaste set velden die je per notulenmodel aanzet — precies zoals bij de standaardbrieven.
+                    De medewerker vult of kiest ze bij het opstellen; ze vullen <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}` }}>{"{{sleutel}}"}</code> in de tekst.
+                    Deze velden staan los van de Dynamics-kolommen: ze horen bij het stuk, niet bij het dossier.
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {velddefinities.map((v, i) => {
+                      const openVeld = openVelddefs.has(i);
+                      const sleutel = slug(v.sleutel || v.label);
+                      return (
+                        <div key={i} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden", background: "#fff" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px" }}>
+                            <button
+                              onClick={() => setOpenVelddefs((o) => { const n = new Set(o); n.has(i) ? n.delete(i) : n.add(i); return n; })}
+                              style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", flex: 1, textAlign: "left", padding: 0 }}
+                            >
+                              {openVeld ? <ChevronDown size={15} color={KLEUR.mutedTekst} /> : <ChevronRight size={15} color={KLEUR.mutedTekst} />}
+                              <span style={{ fontWeight: 600, color: KLEUR.tekst, fontSize: 13 }}>{v.label || "(zonder label)"}</span>
+                              <span style={{ fontFamily: "monospace", fontSize: 11.5, color: KLEUR.mutedTekst }}>{sleutel ? `{{${sleutel}}}` : ""}</span>
+                              <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>· {v.type === "keuze" ? "keuzelijst" : v.type === "paragraaf" ? "alinea-keuze" : "vrije tekst"}</span>
+                            </button>
+                            <button onClick={() => verplaatsVelddef(i, -1)} disabled={i === 0} title="Omhoog" style={{ background: "none", border: "none", cursor: i === 0 ? "default" : "pointer", opacity: i === 0 ? 0.35 : 1, padding: 2 }}><ArrowUp size={15} color={KLEUR.mutedTekst} /></button>
+                            <button onClick={() => verplaatsVelddef(i, 1)} disabled={i === velddefinities.length - 1} title="Omlaag" style={{ background: "none", border: "none", cursor: i === velddefinities.length - 1 ? "default" : "pointer", opacity: i === velddefinities.length - 1 ? 0.35 : 1, padding: 2 }}><ArrowDown size={15} color={KLEUR.mutedTekst} /></button>
+                            <button onClick={() => verwijderVelddef(i)} title="Verwijderen" style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}><Trash2 size={15} color={KLEUR.rood} /></button>
+                          </div>
+                          {openVeld && (
+                            <div style={{ padding: 12, borderTop: `1px solid ${KLEUR.rand}` }}>
+                              <div style={{ display: "flex", alignItems: "flex-end", gap: 8, flexWrap: "wrap" }}>
+                                <div style={{ flex: "1 1 200px" }}><span style={labelStijl}>Label</span><input value={v.label || ""} onChange={(e) => zetVelddef(i, "label", e.target.value)} placeholder="bijv. Aanleiding" style={invoerStijl} /></div>
+                                <div style={{ flex: "0 1 180px" }}><span style={labelStijl}>Sleutel ({"{{...}}"})</span><input value={v.sleutel || ""} onChange={(e) => zetVelddefSleutel(i, e.target.value)} placeholder="aanleiding" style={{ ...invoerStijl, fontFamily: "monospace" }} /></div>
+                                <div style={{ flex: "0 1 160px" }}><span style={labelStijl}>Type</span>
+                                  <select value={v.type || "tekst"} onChange={(e) => zetVelddef(i, "type", e.target.value)} style={invoerStijl}>
+                                    <option value="tekst">Vrije tekst</option>
+                                    <option value="keuze">Keuzelijst</option>
+                                    <option value="paragraaf">Paragraaf (alinea kiezen)</option>
+                                  </select>
+                                </div>
+                              </div>
+                              {(v.type === "keuze" || v.type === "paragraaf") && (
+                                <div style={{ marginTop: 10 }}>
+                                  <span style={labelStijl}>{v.type === "paragraaf" ? "Alinea-opties" : "Opties"}</span>
+                                  {v.type === "paragraaf" ? (
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                                      {(v.opties || []).map((o, oi) => (
+                                        <div key={oi} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10 }}>
+                                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                                            <input value={o.label || ""} onChange={(e) => zetOptie(i, oi, "label", e.target.value)} placeholder="naam van de optie (bijv. Variant A)" style={{ ...invoerStijl, fontWeight: 600 }} />
+                                            <button onClick={() => verwijderOptie(i, oi)} title="Verwijderen" style={{ border: "none", background: "none", cursor: "pointer", color: KLEUR.rood, display: "flex" }}><X size={15} /></button>
+                                          </div>
+                                          <textarea value={o.tekst || ""} onChange={(e) => zetOptie(i, oi, "tekst", e.target.value)} rows={4} placeholder="De alinea die in de notulen komt als deze optie gekozen wordt…" style={{ ...invoerStijl, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }} />
+                                        </div>
+                                      ))}
+                                      <button onClick={() => nieuweOptie(i)} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.blauw, borderRadius: 8, padding: "5px 9px", fontSize: 12, fontWeight: 600, cursor: "pointer", alignSelf: "flex-start" }}><Plus size={13} /> alinea-optie</button>
+                                    </div>
+                                  ) : (
+                                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                                      {(v.opties || []).map((o, oi) => (
+                                        <div key={oi} style={{ display: "inline-flex", alignItems: "center", gap: 4, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "3px 6px 3px 9px", background: KLEUR.lichtblauw }}>
+                                          <input value={o.label || ""} onChange={(e) => zetOptie(i, oi, "label", e.target.value)} placeholder="optie" style={{ border: "none", background: "transparent", outline: "none", fontSize: 12.5, width: 110, color: KLEUR.tekst }} />
+                                          <button onClick={() => verwijderOptie(i, oi)} style={{ border: "none", background: "none", cursor: "pointer", color: KLEUR.mutedTekst, display: "flex" }}><X size={13} /></button>
+                                        </div>
+                                      ))}
+                                      <button onClick={() => nieuweOptie(i)} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.blauw, borderRadius: 8, padding: "5px 9px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}><Plus size={13} /> optie</button>
+                                    </div>
+                                  )}
+                                  {v.type === "paragraaf" && (
+                                    <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 6 }}>
+                                      Zet <span style={{ fontFamily: "monospace" }}>{`{{${sleutel || "sleutel"}}}`}</span> in het besluit of in de vaste tekst; de medewerker kiest een optie en die alinea komt op die plek.
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <button onClick={nieuwVelddef} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.blauw, borderRadius: 8, padding: "8px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", marginTop: 10 }}>
+                    <Plus size={14} /> Nieuw invulveld
+                  </button>
+                </div>
+              )}
 
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                 <button onClick={nieuw} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.blauw, borderRadius: 8, padding: "8px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>

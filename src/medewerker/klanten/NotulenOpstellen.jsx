@@ -6,7 +6,6 @@ import {
 import { ontleedDocument, heeftEigenKop, blokkenNaarHtml, AFDRUK_CSS } from "../documentOpmaak";
 import { NOTULEN_SJABLONEN, steltNotulenSamen, haalBesluitUitTekst } from "../../beheer/notulenSjablonen";
 import { useMijnNaam } from "../MijnFilter";
-import { VeldInvoer, maakZichtbaarheid } from "../dossierVeldInvoer";
 import { normaliseerSleutel, vulSjabloonIn, bouwMergeWaarden } from "../dossierMerge";
 
 /**
@@ -18,12 +17,17 @@ import { normaliseerSleutel, vulSjabloonIn, bouwMergeWaarden } from "../dossierM
  * staart van de notulen liggen vast (zie src/beheer/notulenSjablonen.js) — alleen het besluit
  * ertussen verschilt per model.
  *
+ * Net als bij een brief toont dit scherm géén dossiervelden: je vult de INVULVELDEN in die in
+ * Beheer → Notulen bij dit model zijn aangezet. Bij het opslaan gaat wat plaatsbaar is alsnog naar
+ * het notulendossier in Dynamics (de voorzitter, en elk invulveld waarvan de sleutel een kolom van
+ * de soort Notulen is, bijv. {{bedrag}} → cr283_bedrag).
+ *
  * Namen (aandeelhouders, voorzitter, notulist) zoek je op in plaats van ze te typen — dat scheelt
  * typefouten en houdt de schrijfwijze gelijk aan Dynamics. Er wordt gezocht in de cliënten (holdings
  * en andere vennootschappen), de contactpersonen (/api/klant-contacten) en, voor de notulist, de
  * medewerkers. Zelf iets intypen mag altijd: een aandeelhouder die nog nergens staat, tik je gewoon in.
  *
- * De modellen komen uit Beheer → Dossiers → Voorbeelddocumenten (soort "notulen"); staat daar nog
+ * De modellen komen uit Beheer → Notulen; staat daar nog
  * niets, dan gebruikt dit scherm de vijf standaardmodellen uit de code, zodat je altijd kunt
  * beginnen. Wat je hier invult wordt niet in Dynamics weggeschreven — dit scherm maakt het stuk;
  * afdrukken/PDF gaat via het afdrukvenster van de browser.
@@ -93,21 +97,23 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
   // dossier, en de aandeelhouders vullen we met naam + aandeel in (Dynamics heeft alleen percentages).
   const [vestigingsplaats, setVestigingsplaats] = useState("");
   const [datumactie, setDatumactie] = useState(vandaagISO());
+  const [voorzitter, setVoorzitter] = useState("");
   const [notulist, setNotulist] = useState("");
   const [aandeelhouders, setAandeelhouders] = useState([{ naam: "", percentage: "100" }]);
 
-  // De dossiervelden van de soort Notulen (Beheer → Dossiers): catalogus, keuzelijst-opties en de
-  // indeling (rubrieken, volgorde, verborgen velden, "alleen tonen als"-regels).
+  // De veldencatalogus van de soort Notulen — alleen nog om te herkennen wélk invulveld toevallig
+  // een Dynamics-kolom is (dan schrijven we die waarde ook naar het notulendossier weg).
   const [catalogus, setCatalogus] = useState([]);
-  const [picklistOpties, setPicklistOpties] = useState({});
-  const [indeling, setIndeling] = useState({ secties: [], verborgen: [], voorwaarden: {}, alleenLezen: [] });
-  const [veldenState, setVeldenState] = useState({}); // catalogussleutel → waarde
-  const [allesTonen, setAllesTonen] = useState(false); // "alleen tonen als"-regels tijdelijk negeren
 
   // Het besluit (punt I) van dit ene stuk: begint bij het besluit van het gekozen model en is hier
   // vrij aan te passen. Kop en staart komen uit Beheer en gelden voor álle notulen.
   const [besluit, setBesluit] = useState("");
   const [opbouw, setOpbouw] = useState({ kop: "", staart: "", standaard: null });
+  // Vrije invulvelden (Beheer → Notulen → Invulvelden), net als bij de standaardbrieven: per model
+  // staat vast wélke je krijgt; hier houden we bij wat je invult. Sleutel → waarde (bij "paragraaf"
+  // is de waarde de gekozen alineatekst, zodat die zo in het stuk komt).
+  const [velddefinities, setVelddefinities] = useState([]);
+  const [invulwaarden, setInvulwaarden] = useState({});
 
   // Vastleggen: het notulendossier waar dit stuk bij hoort. Leeg = nog niet opgeslagen; na de eerste
   // keer opslaan werkt "Opslaan" hetzelfde dossier bij in plaats van er een tweede naast te zetten.
@@ -132,26 +138,12 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
         if (!levend.current) return;
         const cat = Array.isArray(d.catalogus) ? d.catalogus : [];
         setCatalogus(cat);
-        setPicklistOpties(d.picklistOpties || {});
-        const ind = d.indeling || d.standaardIndeling || {};
-        setIndeling({
-          secties: Array.isArray(ind.secties) ? ind.secties : [],
-          verborgen: Array.isArray(ind.verborgen) ? ind.verborgen : [],
-          voorwaarden: ind.voorwaarden || {},
-          alleenLezen: Array.isArray(ind.alleenLezen) ? ind.alleenLezen : [],
-        });
-        // Beginwaarden: ja/nee op "Nee", de rest leeg — zelfde uitgangspunt als een nieuw dossier.
-        const start = {};
-        for (const v of cat) {
-          if (!v || !v.key || String(v.key).startsWith("__")) continue;
-          start[v.key] = v.type === "boolean" ? false : null;
-        }
-        setVeldenState(start);
         setOpbouw({
           kop: veiligeStr(d.sjabloonOpbouw && d.sjabloonOpbouw.kop),
           staart: veiligeStr(d.sjabloonOpbouw && d.sjabloonOpbouw.staart),
           standaard: (d.sjabloonOpbouw && d.sjabloonOpbouw.standaard) || null,
         });
+        setVelddefinities(Array.isArray(d.sjabloonOpbouw && d.sjabloonOpbouw.velddefinities) ? d.sjabloonOpbouw.velddefinities : []);
         const uitBeheer = Array.isArray(d.sjablonen) ? d.sjablonen.filter((s) => s && (veiligeStr(s.tekst) || veiligeStr(s.besluit))) : [];
         if (uitBeheer.length) { setSjablonen(uitBeheer); setSjabloonBron("beheer"); }
         else { setSjablonen(standaardSjablonen()); setSjabloonBron("standaard"); }
@@ -192,7 +184,7 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
     setVestigingsplaats(plaats);
     // Voorzitter: de contactpersoon van de cliënt, of de vaste naam uit Beheer.
     const st = opbouw.standaard || {};
-    zetVeld("directeur", st.voorzitterBron === "vast" && veiligeStr(st.voorzitterVast) ? veiligeStr(st.voorzitterVast) : contactNaam);
+    setVoorzitter(st.voorzitterBron === "vast" && veiligeStr(st.voorzitterVast) ? veiligeStr(st.voorzitterVast) : contactNaam);
     setAandeelhouders([{ naam: contactNaam, percentage: "100" }]);
     setMelding(null);
     // Een andere cliënt = een ander stuk: de koppeling met het vorige notulendossier loslaten. Het
@@ -288,91 +280,51 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openStuk, klanten, lijst]);
 
-  /** Eén dossierveld zetten (catalogussleutel → waarde). */
-  function zetVeld(key, waarde) { setVeldenState((h) => ({ ...h, [key]: waarde })); }
-
-  // Welke velden dit scherm zélf afhandelt en dus niet nog een tweede keer als dossierveld toont:
-  // de vergaderdatum (staat als "Datum vergadering" bij Vergadering) en de aandeel-percentages
-  // (komen uit de aandeelhoudersrijen, mét naam). Lookup-velden slaan we over: die koppelen aan een
-  // Dynamics-record en horen bij het dossier zelf, niet bij het opstellen van het stuk.
-  const EIGEN_BEHEER = new Set(["datumactie", "aandeelhouders1", "aandeelhouders2", "aandeelhouders3", "aandeelhouders4", "aandeelhouders5"]);
-  const toonbaar = (key) => {
-    if (!key || String(key).startsWith("__") || EIGEN_BEHEER.has(key)) return false;
-    const def = catalogus.find((v) => v.key === key);
-    return !!def && def.type !== "lookup";
-  };
-
-  // Rubrieken/volgorde/verborgen/"alleen tonen als" precies zoals in Beheer → Dossiers ingesteld.
-  // Met "alles tonen" aan laten we de "alleen tonen als"-regels even los — handig als je een veld mist
-  // omdat het aan een ander veld hangt dat je (nog) niet hebt ingevuld.
-  const zichtbareSecties = useMemo(() => {
-    const { zichtbareSecties: filter } = maakZichtbaarheid({
-      verborgen: indeling.verborgen,
-      voorwaarden: allesTonen ? {} : indeling.voorwaarden,
-      veldenState,
-    });
-    return filter(indeling.secties).map((s) => ({
-      ...s,
-      velden: s.velden.filter(toonbaar),
-      subsecties: (s.subsecties || []).map((sub) => ({ ...sub, velden: sub.velden.filter(toonbaar) })).filter((sub) => sub.velden.length),
-    })).filter((s) => s.velden.length || (s.subsecties || []).length);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [indeling, veldenState, catalogus, allesTonen]);
-
-  // Heeft het gekozen model eigen Dynamics-kolommen (Beheer → Voorbeelddocumenten → "Dynamics-
-  // kolommen bij dit model")? Dan tonen we precies die velden, in die volgorde — één rubriek, geen
-  // "alleen tonen als"-regels ertussen. Niets gekozen = de volledige indeling hieronder.
-  const modelVelden = useMemo(() => {
-    const keys = sjabloon && Array.isArray(sjabloon.velden) ? sjabloon.velden : [];
-    return keys.filter(toonbaar);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sjabloon, catalogus]);
-
-  // Velden uit de catalogus die in Beheer in géén enkele rubriek staan — die zouden hier anders
-  // onzichtbaar blijven. We tonen ze onderaan onder "Overige velden", zodat je nooit een veld mist
-  // doordat het (nog) niet is ingedeeld.
-  const overigeVelden = useMemo(() => {
-    const inSecties = new Set();
-    for (const s of indeling.secties || []) {
-      for (const k of s.velden || []) inSecties.add(k);
-      for (const sub of s.subsecties || []) for (const k of sub.velden || []) inSecties.add(k);
+  /**
+   * Wat er van dit stuk naar het notulendossier in Dynamics gaat. Dit scherm toont geen dossiervelden
+   * meer (zoals een brief die ook niet toont): de voorzitter gaat mee als "Directeur", en verder elk
+   * invulveld waarvan de sleutel toevallig een kolom van de soort Notulen is — {{bedrag}} landt dus in
+   * cr283_bedrag. Al het andere hoort bij het stuk zelf en staat in het notulenlogboek.
+   */
+  const dossierVeldenUitStuk = useMemo(() => {
+    const uit = {};
+    if (veiligeStr(voorzitter)) uit.directeur = veiligeStr(voorzitter);
+    for (const [sleutel, waarde] of Object.entries(invulwaarden || {})) {
+      const def = catalogus.find((v) => v && v.key === sleutel && v.type !== "lookup" && !String(v.key).startsWith("__"));
+      if (!def) continue;
+      if (waarde === undefined || waarde === null || String(waarde).trim() === "") continue;
+      uit[sleutel] = waarde;
     }
-    return catalogus
-      .map((v) => v && v.key)
-      .filter((k) => toonbaar(k) && !inSecties.has(k) && !(indeling.verborgen || []).includes(k));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [indeling, catalogus]);
-
-  // De sleutels die dit scherm daadwerkelijk toont. Gaat mee naar de server, zodat een veld dat je
-  // hier hebt leeggemaakt óók in Dynamics leeg wordt — en een veld dat je nooit zag ongemoeid blijft.
-  const zichtbareSleutels = useMemo(() => {
-    if (modelVelden.length) return modelVelden;
-    const uit = [];
-    for (const s of zichtbareSecties) {
-      uit.push(...s.velden);
-      for (const sub of s.subsecties || []) uit.push(...sub.velden);
-    }
-    uit.push(...overigeVelden);
     return uit;
-  }, [zichtbareSecties, overigeVelden, modelVelden]);
+  }, [voorzitter, invulwaarden, catalogus]);
 
-  // Hoeveel velden nu wegvallen door een "alleen tonen als"-regel (dus niet door "verborgen").
-  const aantalVoorwaardelijkVerborgen = useMemo(() => {
-    if (allesTonen) return 0;
-    const { magTonen } = maakZichtbaarheid({ verborgen: indeling.verborgen, voorwaarden: indeling.voorwaarden, veldenState });
-    let n = 0;
-    for (const s of indeling.secties || []) {
-      const keys = [...(s.velden || []), ...(s.subsecties || []).flatMap((sub) => sub.velden || [])];
-      for (const k of keys) if (toonbaar(k) && !(indeling.verborgen || []).includes(k) && !magTonen(k)) n += 1;
+  // De vrije invulvelden die bij het gekozen model horen (Beheer bepaalt welke), in de volgorde
+  // waarin ze in Beheer staan.
+  const actieveInvulvelden = useMemo(() => {
+    const gekozen = sjabloon && Array.isArray(sjabloon.invulvelden) ? sjabloon.invulvelden : [];
+    if (!gekozen.length) return [];
+    return velddefinities.filter((v) => v && gekozen.includes(String(v.sleutel)));
+  }, [sjabloon, velddefinities]);
+
+  // Bij een ander model beginnen de invulvelden schoon; een "keuze"/"paragraaf" start op de eerste optie.
+  useEffect(() => {
+    const start = {};
+    for (const v of actieveInvulvelden) {
+      const eerste = (v.opties || [])[0];
+      start[v.sleutel] = v.type === "keuze" && eerste ? (eerste.label || "")
+        : v.type === "paragraaf" && eerste ? (eerste.tekst || "")
+        : "";
     }
-    return n;
+    setInvulwaarden(start);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [indeling, veldenState, catalogus, allesTonen]);
+  }, [sjabloonId, velddefinities]);
 
   const mergeWaarden = useMemo(() => {
     // Eerst de dossiervelden (zelfde weergave als in het dossiervoorbeeld: keuzelijst-labels, ja/nee,
     // nette datums en getallen), daarna wat dit scherm zelf beheert.
     const m = bouwMergeWaarden({
+      // Geen dossiervelden meer in dit scherm (net als bij een brief); alleen de vaste klantgegevens.
+      catalogus: [], veldenState: {}, picklistOpties: {}, lookupNamen: {},
       dossier: {
         klantnaam: klant ? veiligeStr(klant.klantnaam) : "",
         groepsnaam: klant ? veiligeStr(klant.groepsnaam) : "",
@@ -381,7 +333,6 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
         manager: klant ? (veiligeStr(klant.manager && klant.manager.naam) || veiligeStr(klant.relatiebeheerder)) : "",
       },
       periodeTekst: langeDatum(datumactie),
-      catalogus, veldenState, picklistOpties, lookupNamen: {},
     });
     const zet = (k, v) => { m[normaliseerSleutel(k)] = v == null ? "" : String(v); };
     zet("vestigingsplaats", vestigingsplaats);
@@ -389,10 +340,14 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
     zet("datumactie", langeDatum(datumactie));
     zet("datum", langeDatum(datumactie) || langeDatum(vandaagISO()));
     zet("notulist", notulist);
-    zet("voorzitter", veiligeStr(veldenState.directeur)); // in de modellen heet de voorzitter "directeur"
+    // In de modellen heet de voorzitter "directeur" (zo heet de kolom in Dynamics ook).
+    zet("voorzitter", voorzitter);
+    zet("directeur", voorzitter);
     zet("aandeelhouders", aandeelhoudersTekst(aandeelhouders));
+    // De vrije invulvelden als laatste: die horen bij dít stuk en winnen dus van gelijknamige velden.
+    for (const [sleutel, waarde] of Object.entries(invulwaarden || {})) zet(sleutel, waarde);
     return m;
-  }, [klant, vestigingsplaats, datumactie, notulist, aandeelhouders, catalogus, veldenState, picklistOpties]);
+  }, [klant, vestigingsplaats, datumactie, voorzitter, notulist, aandeelhouders, invulwaarden]);
 
   // Het stuk = vaste kop (Beheer) + het besluit van dit stuk + vaste staart (Beheer). Zo staan de
   // aandeelhouders en het ondertekenblok altijd in de centrale tekst en bewegen ze mee met wat je
@@ -416,43 +371,6 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
     return t + (Number.isFinite(n) ? n : 0);
   }, 0);
   const aandeelIngevuld = aandeelhouders.some((r) => veiligeStr(r.percentage));
-
-  /**
-   * Eén dossierveld tekenen. Standaard met hetzelfde besturingselement als in het dossier zelf
-   * (VeldInvoer — zo werkt een veld dat je in Beheer instelt hier precies hetzelfde), behalve de
-   * voorzitter: die krijgt de naam-zoeker, zodat je 'm net als de aandeelhouders kunt opzoeken.
-   */
-  function renderDossierVeld(key) {
-    const veldDef = catalogus.find((v) => v.key === key);
-    if (!veldDef) return null;
-    if (key === "directeur") {
-      return (
-        <div key={key} style={{ display: "flex", flexDirection: "column" }}>
-          <div style={veldStijlen.label}>{veldDef.label}</div>
-          <NaamZoeker
-            waarde={veiligeStr(veldenState[key])}
-            opWaarde={(v) => zetVeld(key, v)}
-            placeholder="zoek of typ een naam…"
-            bronnen={["contact", "klant"]}
-            klanten={klanten}
-            medewerkers={medewerkers}
-            invoerStijl={veldStijlen.veld}
-          />
-        </div>
-      );
-    }
-    return (
-      <VeldInvoer
-        key={key}
-        veldDef={veldDef}
-        waarde={veldenState[key]}
-        onChange={(w) => zetVeld(key, w)}
-        picklistOpties={picklistOpties}
-        alleenLezen={(indeling.alleenLezen || []).includes(key)}
-        stijlen={veldStijlen}
-      />
-    );
-  }
 
   function zetAandeelhouder(i, veld, waarde) {
     setAandeelhouders((rijen) => rijen.map((r, j) => (j === i ? { ...r, [veld]: waarde } : r)));
@@ -512,13 +430,15 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
           dossierId: dossierId || undefined,
           modelNaam: veiligeStr(sjabloon && sjabloon.naam),
           datum: datumactie,
-          // De dossiervelden (catalogussleutel → waarde) gaan naar het notulendossier in Dynamics…
-          dossierVelden: veldenState,
-          // Alleen de velden die je hier ook echt zag mogen leeggemaakt worden in Dynamics.
-          zichtbareSleutels,
+          // Naar het notulendossier in Dynamics gaat wat we kúnnen plaatsen: de voorzitter, plus elk
+          // invulveld waarvan de sleutel toevallig een kolom van de soort Notulen is (bijv. {{bedrag}}
+          // → cr283_bedrag). De rest van de invulvelden hoort bij het stuk en blijft in het logboek.
+          dossierVelden: dossierVeldenUitStuk,
+          zichtbareSleutels: Object.keys(dossierVeldenUitStuk),
           // …en dit zijn de gegevens die het scherm zelf beheert; die worden bewaard zodat je het
           // stuk later kunt heropenen (vooral de aandeelhoudersnamen — die passen niet in Dynamics).
-          velden: { vestigingsplaats, notulist },
+          velden: { vestigingsplaats, voorzitter, notulist },
+          invulwaarden,
           aandeelhouders,
           // De blokken zoals ze rechts in het voorbeeld staan — de PDF gebruikt exact dezelfde.
           blokken,
@@ -567,7 +487,9 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
     setBesluit(veiligeStr(r.besluit) || haalBesluitUitTekst(r.tekst || "") || (model ? veiligeStr(model.besluit) : ""));
     setDatumactie(veiligeStr(r.datum) || vandaagISO());
     setVestigingsplaats(veiligeStr(v.vestigingsplaats));
+    setVoorzitter(veiligeStr(v.voorzitter) || veiligeStr(v.directeur));
     setNotulist(veiligeStr(v.notulist));
+    if (r.invulwaarden && typeof r.invulwaarden === "object") setInvulwaarden(r.invulwaarden);
     // De dossiervelden terugzetten. Oudere records (van vóór de dossiervelden in dit scherm) hadden
     // directeur/bedrag/percentage/toelichting los in "velden" staan — die nemen we netjes over.
     setVeldenState((h) => ({
@@ -593,9 +515,6 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
 
   const label = { display: "block", fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em", marginBottom: 5 };
   const input = { width: "100%", boxSizing: "border-box", padding: "8px 10px", fontSize: 13, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, outline: "none", color: KLEUR.tekst, background: "#fff" };
-  // Stijlen voor de dossiervelden — zelfde vorm als in het dossierdetail ({ label, veld }), zodat
-  // VeldInvoer hier hetzelfde oogt als daar.
-  const veldStijlen = { label: { fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }, veld: input };
   const knop = (kleur, aan = true) => ({ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 13px", borderRadius: 8, border: `1px solid ${aan ? kleur : KLEUR.rand}`, background: aan ? kleur : "#F2F3F0", color: aan ? "#fff" : KLEUR.mutedTekst, fontSize: 12.5, fontWeight: 600, cursor: aan ? "pointer" : "not-allowed" });
   const knopLicht = { display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 13px", borderRadius: 8, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.blauw, fontSize: 12.5, fontWeight: 600, cursor: "pointer" };
 
@@ -677,7 +596,7 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
             {sjabloonBron === "standaard" && (
               <div style={{ marginTop: 6, fontSize: 11.5, color: KLEUR.mutedTekst }}>
                 Dit zijn de vijf standaardmodellen uit de code. Wil je ze aanpassen, zet ze dan via
-                Beheer → Dossiers → Notulen → Voorbeelddocumenten (knop “Standaard-notulen toevoegen”) in beheer.
+                Beheer → Notulen (knop “Standaard-notulen toevoegen”).
               </div>
             )}
           </div>
@@ -693,6 +612,13 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
               <div style={{ flex: "1 1 160px" }}>
                 <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>Datum vergadering</div>
                 <input type="date" value={datumactie} onChange={(e) => setDatumactie(e.target.value)} style={input} />
+              </div>
+              <div style={{ flex: "1 1 180px", display: "flex", flexDirection: "column" }}>
+                <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>Voorzitter</div>
+                <NaamZoeker
+                  waarde={voorzitter} opWaarde={setVoorzitter} placeholder="zoek of typ een naam…"
+                  bronnen={["contact", "klant"]} klanten={klanten} medewerkers={medewerkers} invoerStijl={input}
+                />
               </div>
               <div style={{ flex: "1 1 180px", display: "flex", flexDirection: "column" }}>
                 <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>Notulist</div>
@@ -748,63 +674,50 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
             </div>
           </div>
 
-          {/* Dossiervelden — precies de velden, rubrieken, volgorde en "alleen tonen als"-regels die
-              in Beheer → Dossiers → Notulen zijn ingesteld. Wat je hier invult komt zowel in het stuk
-              ({{sleutel}}) als, bij opslaan, in het notulendossier terecht. */}
-          {/* Model met eigen kolomkeuze: precies die velden, in de volgorde uit Beheer. */}
-          {modelVelden.length > 0 ? (
+          {/* Invulvelden bij dit model — de vrije velden uit Beheer (tekst, keuzelijst of alinea-keuze),
+              precies zoals bij de standaardbrieven. */}
+          {actieveInvulvelden.length > 0 && (
             <div>
-              <span style={label}>Gegevens voor dit model</span>
+              <span style={label}>Invulvelden</span>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 }}>
-                {modelVelden.map(renderDossierVeld)}
-              </div>
-              <div style={{ marginTop: 6, fontSize: 11.5, color: KLEUR.mutedTekst }}>
-                Deze kolommen horen bij “{veiligeStr(sjabloon && sjabloon.naam)}” — in te stellen bij
-                Beheer → Dossiers → Notulen → Voorbeelddocumenten.
-              </div>
-            </div>
-          ) : zichtbareSecties.map((sectie) => (
-            <div key={sectie.sleutel || sectie.titel}>
-              <span style={label}>{sectie.titel || "Gegevens"}</span>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 }}>
-                {sectie.velden.map(renderDossierVeld)}
-              </div>
-              {(sectie.subsecties || []).map((sub) => (
-                <div key={sub.sleutel || sub.titel} style={{ marginTop: 12 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 6 }}>{sub.titel}</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 }}>
-                    {sub.velden.map(renderDossierVeld)}
+                {actieveInvulvelden.map((v) => (
+                  <div key={v.sleutel} style={v.type === "paragraaf" ? { gridColumn: "1 / -1" } : undefined}>
+                    <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>{v.label || v.sleutel}</div>
+                    {v.type === "keuze" ? (
+                      <select
+                        value={invulwaarden[v.sleutel] || ""}
+                        onChange={(e) => setInvulwaarden((h) => ({ ...h, [v.sleutel]: e.target.value }))}
+                        style={input}
+                      >
+                        <option value="">—</option>
+                        {(v.opties || []).map((o, i) => <option key={o.sleutel || i} value={o.label}>{o.label}</option>)}
+                      </select>
+                    ) : v.type === "paragraaf" ? (
+                      <>
+                        <select
+                          value={invulwaarden[v.sleutel] || ""}
+                          onChange={(e) => setInvulwaarden((h) => ({ ...h, [v.sleutel]: e.target.value }))}
+                          style={input}
+                        >
+                          <option value="">— kies een alinea —</option>
+                          {(v.opties || []).map((o, i) => <option key={o.sleutel || i} value={o.tekst || ""}>{o.label}</option>)}
+                        </select>
+                        {veiligeStr(invulwaarden[v.sleutel]) && (
+                          <div style={{ marginTop: 6, fontSize: 11.5, color: KLEUR.mutedTekst, whiteSpace: "pre-wrap", borderLeft: `2px solid ${KLEUR.rand}`, paddingLeft: 8 }}>
+                            {invulwaarden[v.sleutel]}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <input
+                        value={invulwaarden[v.sleutel] || ""}
+                        onChange={(e) => setInvulwaarden((h) => ({ ...h, [v.sleutel]: e.target.value }))}
+                        style={input}
+                      />
+                    )}
                   </div>
-                </div>
-              ))}
-            </div>
-          ))}
-
-          {/* Velden die in Beheer nog in geen enkele rubriek staan — anders zou je ze hier missen. */}
-          {modelVelden.length === 0 && overigeVelden.length > 0 && (
-            <div>
-              <span style={label}>Overige velden</span>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 }}>
-                {overigeVelden.map(renderDossierVeld)}
+                ))}
               </div>
-              <div style={{ marginTop: 6, fontSize: 11.5, color: KLEUR.mutedTekst }}>
-                Deze velden staan in Beheer → Dossiers → Notulen nog niet in een rubriek. Zet je ze daar in
-                een rubriek, dan verschijnen ze hierboven op de plek die je kiest.
-              </div>
-            </div>
-          )}
-
-          {/* Velden die wegvallen door een "alleen tonen als"-regel: laten weten dát ze er zijn. */}
-          {modelVelden.length === 0 && (aantalVoorwaardelijkVerborgen > 0 || allesTonen) && (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", fontSize: 11.5, color: KLEUR.mutedTekst, border: `1px dashed ${KLEUR.rand}`, borderRadius: 8, padding: "8px 10px" }}>
-              <span>
-                {allesTonen
-                  ? "Alle velden staan nu aan, ook die normaal pas verschijnen als een ander veld is ingevuld."
-                  : `${aantalVoorwaardelijkVerborgen} ${aantalVoorwaardelijkVerborgen === 1 ? "veld verschijnt" : "velden verschijnen"} pas als een ander veld is ingevuld (zo staat het in Beheer ingesteld).`}
-              </span>
-              <button onClick={() => setAllesTonen((a) => !a)} style={{ ...knopLicht, padding: "5px 9px", fontSize: 11.5 }}>
-                {allesTonen ? "Volg de instellingen" : "Toon ze toch"}
-              </button>
             </div>
           )}
 
@@ -828,7 +741,7 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
             />
             <div style={{ marginTop: 6, fontSize: 11.5, color: KLEUR.mutedTekst }}>
               Alleen dit besluit hoort bij dít stuk; kop en staart (aanwezigen, sluiting, ondertekening)
-              staan één keer in Beheer → Dossiers → Notulen → Voorbeelddocumenten en gelden voor alle notulen.
+              staan één keer in Beheer → Notulen en gelden voor alle notulen.
               Opmaak: <code>&gt;</code> inspringen, <code>-</code> opsomming, <code>###</code> kopje.
             </div>
             {modelOngesplitst && !veiligeStr(besluit) && (
@@ -838,7 +751,7 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
             )}
             {!modelOngesplitst && sjabloon && !/\{\{\s*aandeelhouders\s*[|}]/i.test(ruweTekst) && (
               <div style={{ marginTop: 8 }}>
-                <Banner type="fout" tekst="In de vaste kop staat geen {{aandeelhouders}}, dus de aandeelhouders die je hier invult komen niet in het stuk. Voeg de plaatshouder toe in Beheer → Dossiers → Notulen → Voorbeelddocumenten." />
+                <Banner type="fout" tekst="In de vaste kop staat geen {{aandeelhouders}}, dus de aandeelhouders die je hier invult komen niet in het stuk. Voeg de plaatshouder toe in Beheer → Notulen." />
               </div>
             )}
           </div>

@@ -39,7 +39,7 @@ function standaardIndelingVoor(soort) {
  *  vorm en dezelfde terugwaartse compatibiliteit als haalSjabloonVoor() in api/medewerker-dossier.
  *  Best-effort: onleesbare of ontbrekende instellingen leveren een lege lijst, nooit een fout. */
 async function haalSjablonenVoor(soortKey) {
-  if (soortKey !== "notulen" && soortKey !== "dividend") return { sjablonen: [], kop: "", staart: "", standaard: null };
+  if (soortKey !== "notulen" && soortKey !== "dividend") return { sjablonen: [], kop: "", staart: "", standaard: null, velddefinities: [] };
   try {
     const { dossierSjablonen } = await haalInstellingen();
     const eigen = dossierSjablonen && dossierSjablonen[soortKey];
@@ -49,6 +49,17 @@ async function haalSjablonenVoor(soortKey) {
     const staart = eigen && typeof eigen.staart === "string" ? eigen.staart : "";
     // Wie standaard als voorzitter/notulist wordt voorgesteld in "Notulen opstellen".
     const st = (eigen && eigen.standaard && typeof eigen.standaard === "object") ? eigen.standaard : {};
+    // Vrije invulvelden (zelfde opzet als de briefvelden): [{ sleutel, label, type, opties }].
+    const velddefinities = eigen && Array.isArray(eigen.velddefinities)
+      ? eigen.velddefinities
+          .filter((v) => v && (v.sleutel || v.label))
+          .map((v) => ({
+            sleutel: String(v.sleutel || ""),
+            label: String(v.label || v.sleutel || ""),
+            type: v.type === "keuze" || v.type === "paragraaf" ? v.type : "tekst",
+            opties: Array.isArray(v.opties) ? v.opties.map((o) => ({ sleutel: String(o.sleutel || ""), label: String(o.label || ""), tekst: String(o.tekst || "") })) : [],
+          }))
+      : [];
     const standaard = {
       voorzitterBron: st.voorzitterBron === "vast" ? "vast" : "contact",
       voorzitterVast: String(st.voorzitterVast || ""),
@@ -66,8 +77,10 @@ async function haalSjablonenVoor(soortKey) {
           besluit: s.besluit != null ? String(s.besluit) : "",
           // De Dynamics-kolommen die bij dit model horen (catalogussleutels); leeg = alle velden.
           velden: Array.isArray(s.velden) ? s.velden.map(String) : [],
+          // De vrije invulvelden die bij dit model horen (sleutels uit velddefinities).
+          invulvelden: Array.isArray(s.invulvelden) ? s.invulvelden.map(String) : [],
         }));
-      return { sjablonen, kop, staart, standaard };
+      return { sjablonen, kop, staart, standaard, velddefinities };
     }
     // Oude vorm { standaard, perSoort } → dezelfde sjablonenlijst.
     const sjablonen = [];
@@ -75,9 +88,9 @@ async function haalSjablonenVoor(soortKey) {
     if (eigen && eigen.perSoort && typeof eigen.perSoort === "object") {
       for (const [k, v] of Object.entries(eigen.perSoort)) if (v && String(v).trim()) sjablonen.push({ id: `soort_${k}`, naam: `Soort ${k}`, tekst: String(v), besluit: "", velden: [] });
     }
-    return { sjablonen, kop, staart, standaard };
+    return { sjablonen, kop, staart, standaard, velddefinities };
   } catch {
-    return { sjablonen: [], kop: "", staart: "", standaard: null };
+    return { sjablonen: [], kop: "", staart: "", standaard: null, velddefinities: [] };
   }
 }
 
@@ -126,7 +139,7 @@ module.exports = async function (context, req) {
 
   // statusOpties erbij: Beheer → Dossiers gebruikt die om per review-uitkomst de dossierstatus te
   // kiezen (zie het Review-blok in DossierIndelingBeheer.jsx). Zelfde lijst als het dossierdetail.
-  const { sjablonen, kop, staart, standaard: sjabloonStandaard } = await haalSjablonenVoor(soort.key);
+  const { sjablonen, kop, staart, standaard: sjabloonStandaard, velddefinities } = await haalSjablonenVoor(soort.key);
 
   // De ACTUELE indeling (de secties/volgorde/verborgen/voorwaarden zoals in Beheer → Dossiers
   // ingesteld, met de standaardindeling als terugval) — zodat een scherm dat velden toont zonder een
@@ -148,5 +161,5 @@ module.exports = async function (context, req) {
     // Best-effort: zonder leesbare instellingen de standaardindeling.
   }
 
-  context.res = { headers: { "Content-Type": "application/json" }, body: { soort: soort.key, catalogus, picklistOpties, standaardIndeling: standaard, indeling, statusOpties: soort.statusOpties || [], sjablonen, sjabloonOpbouw: { kop, staart, standaard: sjabloonStandaard } } };
+  context.res = { headers: { "Content-Type": "application/json" }, body: { soort: soort.key, catalogus, picklistOpties, standaardIndeling: standaard, indeling, statusOpties: soort.statusOpties || [], sjablonen, sjabloonOpbouw: { kop, staart, standaard: sjabloonStandaard, velddefinities } } };
 };

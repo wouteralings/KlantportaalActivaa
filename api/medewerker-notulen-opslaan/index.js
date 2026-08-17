@@ -338,6 +338,7 @@ module.exports = async function (context, req) {
         dossierId, accountId, klantnaam, modelNaam, datum,
         velden: body.velden || {},
         dossierVelden: body.dossierVelden || {},
+        invulwaarden: body.invulwaarden || {},
         aandeelhouders: Array.isArray(body.aandeelhouders) ? body.aandeelhouders : [],
         tekst: veiligeStr(body.tekst),
         besluit: veiligeStr(body.besluit),
