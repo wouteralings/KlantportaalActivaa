@@ -329,8 +329,29 @@ module.exports = async function (context, req) {
         bijlagen,
         afzender: mailAfzenderCfg.mailAfzender || "",
       });
-      await logBrief(context, req, { actie: "mail", brief, body, naar, cc: body.cc, pdfUrl: "", bijlage });
-      context.res = { headers: { "Content-Type": "application/json" }, body: { verzonden: true, van: resultaat.van } };
+      // Een gemailde brief gaat óók in het klantdossier (SharePoint). Zonder dat zou er van een
+      // gemailde brief niets bewaard blijven: de PDF vertrekt als bijlage en er is later geen link
+      // meer om te openen of te delen — precies wat in het brievenlogboek opviel. Best-effort: is er
+      // geen SharePoint-map of geen app-toegang, dan is de mail gewoon verstuurd en blijft de
+      // logregel zonder link (de reden komt mee in het antwoord).
+      let archief = { gedaan: false, reden: "Geen cliënt bij deze brief, dus geen klantdossier." };
+      const accountIdMail = String(body.accountId || "").trim();
+      if (accountIdMail) {
+        const configMail = await haalConfig().catch(() => ({ sharepointMap: "Brieven" }));
+        archief = await naarDossier({
+          accountId: accountIdMail,
+          submap: configMail.sharepointMap || "Brieven",
+          bestandsnaam: veiligeBestandsnaam(basisMetKenmerk(body.bestandsnaamBasis, brief), "pdf"),
+          buffer: pdf,
+          contentType: PDF_TYPE,
+          bijlage,
+        });
+      }
+      await logBrief(context, req, { actie: "mail", brief, body, naar, cc: body.cc, pdfUrl: archief.url || "", bijlage });
+      context.res = {
+        headers: { "Content-Type": "application/json" },
+        body: { verzonden: true, van: resultaat.van, dossierGedaan: archief.gedaan === true, dossierReden: archief.reden || "" },
+      };
       return;
     }
 

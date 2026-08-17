@@ -45,6 +45,7 @@ const BEHEER_TABS = [
   { key: "planning", label: "Planning" },
   { key: "offertes", label: "Offertes" },
   { key: "brieven", label: "Brieven" },
+  { key: "notulen", label: "Notulen" },
   { key: "aanleveren", label: "Uitvraag" },
   { key: "uren", label: "Uren" },
   { key: "dossiers", label: "Dossiers" },

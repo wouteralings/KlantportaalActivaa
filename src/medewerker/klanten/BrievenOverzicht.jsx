@@ -418,7 +418,11 @@ export default function BrievenOverzicht({ onTerug }) {
       if (!res.ok) throw new Error(data.error || `Er ging iets mis (${res.status}).`);
       const metBijlage = bijlage ? " (met bijlage)" : "";
       if (actie === "genereer") { base64Download(data.base64, data.bestandsnaam, data.contentType); setMelding({ type: "ok", tekst: `${data.bestandsnaam} is gedownload.` }); }
-      else if (actie === "mail") { setMelding({ type: "ok", tekst: `Brief gemaild naar ${naar.trim()}${metBijlage}.` }); }
+      else if (actie === "mail") {
+        setMelding(data.dossierGedaan
+          ? { type: "ok", tekst: `Brief gemaild naar ${naar.trim()}${metBijlage} en opgeslagen in het klantdossier.` }
+          : { type: "ok", tekst: `Brief gemaild naar ${naar.trim()}${metBijlage}. Let op: opslaan in het klantdossier lukte niet${data.dossierReden ? ` (${data.dossierReden})` : ""}, dus er staat geen link bij in het brievenlogboek.` });
+      }
       else if (actie === "dossier") { if (data.gedaan) setMelding({ type: "ok", tekst: `Brief opgeslagen in het SharePoint-dossier van de klant${metBijlage}.` }); else setMelding({ type: "fout", tekst: data.reden || "Opslaan in het dossier is niet gelukt." }); }
       else if (actie === "backoffice") {
         if (data.taakGedaan) setMelding({ type: "ok", tekst: `Taak voor backoffice aangemaakt${data.dossierGedaan ? " en de brief staat in het klantdossier" : ""}${metBijlage}.${data.eigenaarGevonden ? "" : " (Let op: deze klant heeft geen manager/relatiebeheerder, dus de taak heeft geen eigenaar gekregen.)"}` });
@@ -462,7 +466,9 @@ export default function BrievenOverzicht({ onTerug }) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `Er ging iets mis (${res.status}).`);
       setMailModal(null);
-      setMelding({ type: "ok", tekst: `Brief gemaild naar ${naarTrim}${bijlage ? " (met bijlage)" : ""}.` });
+      setMelding(data.dossierGedaan
+        ? { type: "ok", tekst: `Brief gemaild naar ${naarTrim}${bijlage ? " (met bijlage)" : ""} en opgeslagen in het klantdossier.` }
+        : { type: "ok", tekst: `Brief gemaild naar ${naarTrim}${bijlage ? " (met bijlage)" : ""}. Let op: opslaan in het klantdossier lukte niet${data.dossierReden ? ` (${data.dossierReden})` : ""}, dus er staat geen link bij in het brievenlogboek.` });
       laadVerzonden(klant && klant.accountId);
     } catch (e) { setMailFout(String(e.message || e)); }
     finally { if (levend.current) setBezig(""); }
@@ -762,7 +768,8 @@ export default function BrievenOverzicht({ onTerug }) {
           <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 14, padding: 24, width: "100%", maxWidth: 620, maxHeight: "88vh", overflowY: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.2)" }}>
             <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>E-mail versturen</div>
             <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 16 }}>
-              De brief gaat als PDF-bijlage mee. Controleer of pas de begeleidende e-mail hieronder aan vóór het versturen.
+              De brief gaat als PDF-bijlage mee en wordt ook in het klantdossier (SharePoint) opgeslagen,
+              zodat je 'm later kunt terugvinden en delen. Controleer of pas de begeleidende e-mail hieronder aan vóór het versturen.
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 12 }}>
               <div style={{ flex: "1 1 240px" }}><span style={label}>E-mail ontvanger</span>

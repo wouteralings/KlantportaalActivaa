@@ -246,6 +246,15 @@ function StandaardartikelFormulierRij({ form, setForm, bezig, onOpslaan, onAnnul
   );
 }
 
+/**
+ * Nieuwe beheer-tabs erven hun zichtbaarheid van het tabblad waar ze uit zijn losgetrokken. Zonder dit
+ * verdwijnt een nieuw tabblad stilletjes bij iedereen die al een rol met een vaste tabbladenlijst
+ * heeft (Beheer → Rollen & toegang): die lijst is per definitie van vóór het nieuwe tabblad.
+ * "Notulen" stond eerst onder Dossiers en hoort inhoudelijk bij Brieven — mag je één van beide zien,
+ * dan zie je Notulen ook. In Rollen & toegang is het daarna gewoon apart aan/uit te zetten.
+ */
+const BEHEER_TAB_ERFT_VAN = { notulen: ["dossiers", "brieven"] };
+
 export default function BeheerPortaal() {
   const [status, setStatus] = useState("laden"); // laden | nietIngelogd | geenRol | klaar
   const [gebruiker, setGebruiker] = useState(null);
@@ -480,7 +489,8 @@ export default function BeheerPortaal() {
   // Toont de nagebootste rol geen enkel beheer-tabblad, dan een sentinel (blanco inhoud + nette melding).
   useEffect(() => {
     if (!zichtbareBeheerTabs) return;
-    if (!zichtbareBeheerTabs.includes(tab)) setTab(zichtbareBeheerTabs[0] || (impersonatie ? "__geen__" : "content"));
+    const magZien = zichtbareBeheerTabs.includes(tab) || (BEHEER_TAB_ERFT_VAN[tab] || []).some((ouder) => zichtbareBeheerTabs.includes(ouder));
+    if (!magZien) setTab(zichtbareBeheerTabs[0] || (impersonatie ? "__geen__" : "content"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zichtbareBeheerTabs]);
 
@@ -1596,7 +1606,7 @@ export default function BeheerPortaal() {
           ["dossiers", "Dossiers"],
           ["postboek", "Postboek"],
           ["instellingen", "Instellingen"],
-        ].filter(([k]) => !zichtbareBeheerTabs || zichtbareBeheerTabs.includes(k)).map(([k, label]) => (
+        ].filter(([k]) => !zichtbareBeheerTabs || zichtbareBeheerTabs.includes(k) || (BEHEER_TAB_ERFT_VAN[k] || []).some((ouder) => zichtbareBeheerTabs.includes(ouder))).map(([k, label]) => (
           <button
             key={k}
             onClick={() => setTab(k)}
