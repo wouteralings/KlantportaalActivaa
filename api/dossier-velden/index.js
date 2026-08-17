@@ -56,7 +56,7 @@ async function haalSjablonenVoor(soortKey) {
           .map((v) => ({
             sleutel: String(v.sleutel || ""),
             label: String(v.label || v.sleutel || ""),
-            type: v.type === "keuze" || v.type === "paragraaf" ? v.type : "tekst",
+            type: ["keuze", "paragraaf", "bedrag", "datum"].includes(v.type) ? v.type : "tekst",
             opties: Array.isArray(v.opties) ? v.opties.map((o) => ({ sleutel: String(o.sleutel || ""), label: String(o.label || ""), tekst: String(o.tekst || "") })) : [],
           }))
       : [];

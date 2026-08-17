@@ -213,7 +213,7 @@ export default function DossierSjablonenPerSoort({ soort }) {
         .map((v) => ({
           sleutel: slug(v.sleutel || v.label),
           label: String(v.label || "").trim(),
-          type: v.type === "keuze" || v.type === "paragraaf" ? v.type : "tekst",
+          type: ["keuze", "paragraaf", "bedrag", "datum"].includes(v.type) ? v.type : "tekst",
           opties: (v.opties || []).map((o) => ({ sleutel: slug(o.sleutel || o.label), label: String(o.label || "").trim(), tekst: String(o.tekst || "") })),
         }))
         .filter((v) => v.sleutel);
@@ -469,6 +469,8 @@ export default function DossierSjablonenPerSoort({ soort }) {
                   <div style={{ fontSize: 13.5, fontWeight: 700, color: KLEUR.tekst, marginBottom: 4 }}>Invulvelden ({velddefinities.length})</div>
                   <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 12 }}>
                     Een vaste set velden die je per notulenmodel aanzet — precies zoals bij de standaardbrieven.
+                    Een <strong>bedrag</strong> komt in het stuk als € 100.000 en een <strong>datum</strong> als 17 augustus 2026,
+                    hoe je het ook intikt.
                     De medewerker vult of kiest ze bij het opstellen; ze vullen <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}` }}>{"{{sleutel}}"}</code> in de tekst.
                     Deze velden staan los van de Dynamics-kolommen: ze horen bij het stuk, niet bij het dossier.
                   </div>
@@ -486,7 +488,7 @@ export default function DossierSjablonenPerSoort({ soort }) {
                               {openVeld ? <ChevronDown size={15} color={KLEUR.mutedTekst} /> : <ChevronRight size={15} color={KLEUR.mutedTekst} />}
                               <span style={{ fontWeight: 600, color: KLEUR.tekst, fontSize: 13 }}>{v.label || "(zonder label)"}</span>
                               <span style={{ fontFamily: "monospace", fontSize: 11.5, color: KLEUR.mutedTekst }}>{sleutel ? `{{${sleutel}}}` : ""}</span>
-                              <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>· {v.type === "keuze" ? "keuzelijst" : v.type === "paragraaf" ? "alinea-keuze" : "vrije tekst"}</span>
+                              <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>· {v.type === "keuze" ? "keuzelijst" : v.type === "paragraaf" ? "alinea-keuze" : v.type === "bedrag" ? "bedrag (€)" : v.type === "datum" ? "datum" : "vrije tekst"}</span>
                             </button>
                             <button onClick={() => verplaatsVelddef(i, -1)} disabled={i === 0} title="Omhoog" style={{ background: "none", border: "none", cursor: i === 0 ? "default" : "pointer", opacity: i === 0 ? 0.35 : 1, padding: 2 }}><ArrowUp size={15} color={KLEUR.mutedTekst} /></button>
                             <button onClick={() => verplaatsVelddef(i, 1)} disabled={i === velddefinities.length - 1} title="Omlaag" style={{ background: "none", border: "none", cursor: i === velddefinities.length - 1 ? "default" : "pointer", opacity: i === velddefinities.length - 1 ? 0.35 : 1, padding: 2 }}><ArrowDown size={15} color={KLEUR.mutedTekst} /></button>
@@ -500,6 +502,8 @@ export default function DossierSjablonenPerSoort({ soort }) {
                                 <div style={{ flex: "0 1 160px" }}><span style={labelStijl}>Type</span>
                                   <select value={v.type || "tekst"} onChange={(e) => zetVelddef(i, "type", e.target.value)} style={invoerStijl}>
                                     <option value="tekst">Vrije tekst</option>
+                                    <option value="bedrag">Bedrag (€)</option>
+                                    <option value="datum">Datum</option>
                                     <option value="keuze">Keuzelijst</option>
                                     <option value="paragraaf">Paragraaf (alinea kiezen)</option>
                                   </select>

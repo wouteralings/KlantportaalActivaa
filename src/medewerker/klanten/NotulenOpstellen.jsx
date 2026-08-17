@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Search, X, Printer, Copy, CheckCircle2, AlertTriangle, ArrowLeft, Plus, Trash2, Users, RotateCcw,
-  Save, Loader2, FileText, Mail, FileSignature,
+  Save, Loader2, FileText, Mail, FileSignature, Lock,
 } from "lucide-react";
 import { ontleedDocument, heeftEigenKop, blokkenNaarHtml, AFDRUK_CSS } from "../documentOpmaak";
 import { steltNotulenSamen, haalBesluitUitTekst } from "../../beheer/notulenSjablonen";
@@ -59,6 +59,19 @@ function percentageTekst(v) {
   return Number.isFinite(n) ? n.toLocaleString("nl-NL", { maximumFractionDigits: 2 }) : s;
 }
 
+/**
+ * Een bedrag zoals het in een stuk hoort te staan: "100000" → "€ 100.000", "1250,50" → "€ 1.250,50".
+ * Is het geen getal (iemand tikt "nader te bepalen"), dan blijft de tekst zoals hij is.
+ */
+function bedragTekst(v) {
+  const ruw = veiligeStr(v);
+  if (!ruw) return "";
+  const n = Number(ruw.replace(/[€\s]/g, "").replace(/\.(?=\d{3}(\D|$))/g, "").replace(",", "."));
+  if (!Number.isFinite(n)) return ruw;
+  const heleEuros = Number.isInteger(n);
+  return `€ ${n.toLocaleString("nl-NL", { minimumFractionDigits: heleEuros ? 0 : 2, maximumFractionDigits: 2 })}`;
+}
+
 /** De aandeelhoudersregels zoals ze in het "Aanwezig"-blok komen: naam + aandeel, één per regel. */
 function aandeelhoudersTekst(rijen) {
   return (rijen || [])
@@ -95,6 +108,10 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
   const [emailVoorzitter, setEmailVoorzitter] = useState("");
   const [notulist, setNotulist] = useState("");
   const [emailNotulist, setEmailNotulist] = useState("");
+  // De mailadressen komen uit het gekozen record en staan daarom op alleen-lezen. Heeft een
+  // contactpersoon of medewerker geen adres in Dynamics, dan kun je het veld met "Aanpassen" openzetten
+  // — anders zou je hier vast kunnen lopen zonder te kunnen mailen.
+  const [mailVrij, setMailVrij] = useState({ voorzitter: false, notulist: false });
   const [aandeelhouders, setAandeelhouders] = useState([{ naam: "", percentage: "100" }]);
 
   // De veldencatalogus van de soort Notulen — alleen nog om te herkennen wélk invulveld toevallig
@@ -300,10 +317,17 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
       const def = catalogus.find((v) => v && v.key === sleutel && v.type !== "lookup" && !String(v.key).startsWith("__"));
       if (!def) continue;
       if (waarde === undefined || waarde === null || String(waarde).trim() === "") continue;
+      // Naar Dynamics gaat de kále waarde: een getalkolom wil 100000, niet "€ 100.000".
+      const eigen = velddefinities.find((v) => v && String(v.sleutel) === sleutel);
+      if (eigen && eigen.type === "bedrag") {
+        const n = Number(String(waarde).replace(/[€\s]/g, "").replace(/\.(?=\d{3}(\D|$))/g, "").replace(",", "."));
+        uit[sleutel] = Number.isFinite(n) ? n : waarde;
+        continue;
+      }
       uit[sleutel] = waarde;
     }
     return uit;
-  }, [voorzitter, emailVoorzitter, emailNotulist, invulwaarden, catalogus]);
+  }, [voorzitter, emailVoorzitter, emailNotulist, invulwaarden, catalogus, velddefinities]);
 
   // De vrije invulvelden die bij het gekozen model horen (Beheer bepaalt welke), in de volgorde
   // waarin ze in Beheer staan.
@@ -355,9 +379,16 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
     zet("datumnotulen", langeDatum(datumactie));
     zet("aandeelhouders", aandeelhoudersTekst(aandeelhouders));
     // De vrije invulvelden als laatste: die horen bij dít stuk en winnen dus van gelijknamige velden.
-    for (const [sleutel, waarde] of Object.entries(invulwaarden || {})) zet(sleutel, waarde);
+    // Een bedrag komt als "€ 100.000" in het stuk en een datum als "17 augustus 2026" — ongeacht hoe
+    // het is ingetikt, zodat je dat niet per model hoeft te regelen.
+    for (const [sleutel, waarde] of Object.entries(invulwaarden || {})) {
+      const def = velddefinities.find((v) => v && String(v.sleutel) === sleutel);
+      if (def && def.type === "bedrag") zet(sleutel, bedragTekst(waarde));
+      else if (def && def.type === "datum") zet(sleutel, langeDatum(waarde));
+      else zet(sleutel, waarde);
+    }
     return m;
-  }, [klant, vestigingsplaats, datumactie, voorzitter, emailVoorzitter, notulist, emailNotulist, aandeelhouders, invulwaarden]);
+  }, [klant, vestigingsplaats, datumactie, voorzitter, emailVoorzitter, notulist, emailNotulist, aandeelhouders, invulwaarden, velddefinities]);
 
   // Het stuk = vaste kop (Beheer) + het besluit van dit stuk + vaste staart (Beheer). Zo staan de
   // aandeelhouders en het ondertekenblok altijd in de centrale tekst en bewegen ze mee met wat je
@@ -689,27 +720,63 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
                 <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>Datum notulen</div>
                 <input type="date" value={datumactie} onChange={(e) => setDatumactie(e.target.value)} style={input} />
               </div>
-              <div style={{ flex: "1 1 180px", display: "flex", flexDirection: "column" }}>
+            </div>
+
+            {/* Voorzitter en notulist onder elkaar, elk met het bijbehorende mailadres. Kies je een naam
+                uit de lijst, dan wordt het e-mailadres van die contactpersoon/cliënt/medewerker meteen
+                overgenomen — handmatig aanpassen blijft mogelijk. */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 12 }}>
+              <div style={{ flex: "1 1 220px", display: "flex", flexDirection: "column" }}>
                 <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>Voorzitter</div>
                 <NaamZoeker
-                  waarde={voorzitter} opWaarde={setVoorzitter} placeholder="zoek of typ een naam…"
+                  waarde={voorzitter}
+                  opWaarde={setVoorzitter}
+                  opKeuze={(s) => { if (veiligeStr(s.email)) setEmailVoorzitter(veiligeStr(s.email)); }}
+                  placeholder="zoek of typ een naam…"
                   bronnen={["contact", "klant"]} klanten={klanten} medewerkers={medewerkers} invoerStijl={input}
                 />
               </div>
-              <div style={{ flex: "1 1 200px" }}>
-                <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>E-mail voorzitter</div>
-                <input value={emailVoorzitter} onChange={(e) => setEmailVoorzitter(e.target.value)} style={input} placeholder="naam@bedrijf.nl" />
+              <div style={{ flex: "1 1 240px" }}>
+                <MailVeldKop
+                  titel="E-mail voorzitter"
+                  vrij={mailVrij.voorzitter}
+                  opWissel={() => setMailVrij((h) => ({ ...h, voorzitter: !h.voorzitter }))}
+                />
+                <input
+                  value={emailVoorzitter}
+                  onChange={(e) => setEmailVoorzitter(e.target.value)}
+                  readOnly={!mailVrij.voorzitter}
+                  style={mailVrij.voorzitter ? input : { ...input, background: "#F7F8F6", color: KLEUR.subtekst }}
+                  placeholder="komt uit de gekozen voorzitter"
+                  title={mailVrij.voorzitter ? "" : "Komt uit het gekozen record — klik “Aanpassen” om te wijzigen"}
+                />
               </div>
-              <div style={{ flex: "1 1 180px", display: "flex", flexDirection: "column" }}>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 12 }}>
+              <div style={{ flex: "1 1 220px", display: "flex", flexDirection: "column" }}>
                 <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>Notulist</div>
                 <NaamZoeker
-                  waarde={notulist} opWaarde={setNotulist} placeholder="zoek of typ een naam…"
+                  waarde={notulist}
+                  opWaarde={setNotulist}
+                  opKeuze={(s) => { if (veiligeStr(s.email)) setEmailNotulist(veiligeStr(s.email)); }}
+                  placeholder="zoek of typ een naam…"
                   bronnen={["medewerker", "contact"]} klanten={klanten} medewerkers={medewerkers} invoerStijl={input}
                 />
               </div>
-              <div style={{ flex: "1 1 200px" }}>
-                <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>E-mail notulist</div>
-                <input value={emailNotulist} onChange={(e) => setEmailNotulist(e.target.value)} style={input} placeholder="naam@activaa.nl" />
+              <div style={{ flex: "1 1 240px" }}>
+                <MailVeldKop
+                  titel="E-mail notulist"
+                  vrij={mailVrij.notulist}
+                  opWissel={() => setMailVrij((h) => ({ ...h, notulist: !h.notulist }))}
+                />
+                <input
+                  value={emailNotulist}
+                  onChange={(e) => setEmailNotulist(e.target.value)}
+                  readOnly={!mailVrij.notulist}
+                  style={mailVrij.notulist ? input : { ...input, background: "#F7F8F6", color: KLEUR.subtekst }}
+                  placeholder="komt uit de gekozen notulist"
+                  title={mailVrij.notulist ? "" : "Komt uit het gekozen record — klik “Aanpassen” om te wijzigen"}
+                />
               </div>
             </div>
           </div>
@@ -790,6 +857,31 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
                           <div style={{ marginTop: 6, fontSize: 11.5, color: KLEUR.mutedTekst, whiteSpace: "pre-wrap", borderLeft: `2px solid ${KLEUR.rand}`, paddingLeft: 8 }}>
                             {invulwaarden[v.sleutel]}
                           </div>
+                        )}
+                      </>
+                    ) : v.type === "bedrag" ? (
+                      <>
+                        <input
+                          value={invulwaarden[v.sleutel] || ""}
+                          onChange={(e) => setInvulwaarden((h) => ({ ...h, [v.sleutel]: e.target.value }))}
+                          inputMode="decimal"
+                          placeholder="bijv. 100000"
+                          style={input}
+                        />
+                        {veiligeStr(invulwaarden[v.sleutel]) && (
+                          <div style={{ marginTop: 4, fontSize: 11.5, color: KLEUR.mutedTekst }}>in het stuk: {bedragTekst(invulwaarden[v.sleutel])}</div>
+                        )}
+                      </>
+                    ) : v.type === "datum" ? (
+                      <>
+                        <input
+                          type="date"
+                          value={veiligeStr(invulwaarden[v.sleutel]).slice(0, 10)}
+                          onChange={(e) => setInvulwaarden((h) => ({ ...h, [v.sleutel]: e.target.value }))}
+                          style={input}
+                        />
+                        {veiligeStr(invulwaarden[v.sleutel]) && (
+                          <div style={{ marginTop: 4, fontSize: 11.5, color: KLEUR.mutedTekst }}>in het stuk: {langeDatum(invulwaarden[v.sleutel])}</div>
                         )}
                       </>
                     ) : (
@@ -973,7 +1065,7 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
  * Kiezen vult de naam exact zoals hij in Dynamics staat. Zelf een naam intikken blijft gewoon
  * mogelijk — de suggesties zijn hulp, geen verplichting.
  */
-function NaamZoeker({ waarde, opWaarde, placeholder, bronnen, klanten, medewerkers, invoerStijl }) {
+function NaamZoeker({ waarde, opWaarde, opKeuze, placeholder, bronnen, klanten, medewerkers, invoerStijl }) {
   const [open, setOpen] = useState(false);
   const [term, setTerm] = useState("");
   const [contacten, setContacten] = useState([]);
@@ -1015,6 +1107,9 @@ function NaamZoeker({ waarde, opWaarde, placeholder, bronnen, klanten, medewerke
         if (!veiligeStr(k.klantnaam).toLowerCase().includes(t)) continue;
         uit.push({
           sleutel: `k-${k.accountId}`, naam: veiligeStr(k.klantnaam), soort: "Cliënt",
+          // Het adres van de contactpersoon van die cliënt, anders het algemene klantadres — zodat het
+          // e-mailveld ernaast automatisch gevuld kan worden.
+          email: veiligeStr(k.contact && k.contact.email) || veiligeStr(k.emailKlant),
           sub: [veiligeStr(k.klantnummer) && `nr ${veiligeStr(k.klantnummer)}`, veiligeStr(k.groepsnaam)].filter(Boolean).join("  ·  "),
         });
         if (uit.length >= 8) break;
@@ -1023,12 +1118,12 @@ function NaamZoeker({ waarde, opWaarde, placeholder, bronnen, klanten, medewerke
     if (bronnen.includes("medewerker")) {
       for (const m of medewerkers || []) {
         if (!veiligeStr(m.naam).toLowerCase().includes(t)) continue;
-        uit.push({ sleutel: `m-${m.id}`, naam: veiligeStr(m.naam), soort: "Medewerker", sub: veiligeStr(m.functie) });
+        uit.push({ sleutel: `m-${m.id}`, naam: veiligeStr(m.naam), soort: "Medewerker", email: veiligeStr(m.email), sub: veiligeStr(m.functie) });
         if (uit.length >= 16) break;
       }
     }
     for (const c of contacten) {
-      uit.push({ sleutel: `c-${c.id}`, naam: veiligeStr(c.naam), soort: "Contactpersoon", sub: veiligeStr(c.email) });
+      uit.push({ sleutel: `c-${c.id}`, naam: veiligeStr(c.naam), soort: "Contactpersoon", email: veiligeStr(c.email), sub: veiligeStr(c.email) });
       if (uit.length >= 24) break;
     }
     // Dezelfde naam uit twee bronnen (cliënt én contactpersoon) maar één keer tonen.
@@ -1055,7 +1150,7 @@ function NaamZoeker({ waarde, opWaarde, placeholder, bronnen, klanten, medewerke
           ) : suggesties.map((s) => (
             <button
               key={s.sleutel}
-              onClick={() => { opWaarde(s.naam); setOpen(false); }}
+              onClick={() => { opWaarde(s.naam); if (opKeuze) opKeuze(s); setOpen(false); }}
               style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", border: "none", borderBottom: `1px solid ${KLEUR.rand}`, background: "#fff", cursor: "pointer" }}
             >
               <div style={{ fontSize: 12.5, fontWeight: 600, color: KLEUR.tekst }}>{s.naam}</div>
@@ -1114,6 +1209,25 @@ function renderBlok(b, i) {
     default:
       return <div key={i} style={{ marginTop: b.naPunt ? 9 : 0, marginBottom: 9, whiteSpace: "pre-wrap" }}>{b.tekst}</div>;
   }
+}
+
+/** Label van een alleen-lezen mailveld, met een slotje en een schakelaar om het toch te openen. */
+function MailVeldKop({ titel, vrij, opWissel }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, marginBottom: 4 }}>
+      <span style={{ fontSize: 11.5, color: KLEUR.subtekst, display: "inline-flex", alignItems: "center", gap: 4 }}>
+        {titel}
+        {!vrij && <Lock size={10} color={KLEUR.mutedTekst} />}
+      </span>
+      <button
+        type="button"
+        onClick={opWissel}
+        style={{ background: "none", border: "none", padding: 0, color: KLEUR.blauw, fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+      >
+        {vrij ? "Vastzetten" : "Aanpassen"}
+      </button>
+    </div>
+  );
 }
 
 function Banner({ type, tekst }) {
