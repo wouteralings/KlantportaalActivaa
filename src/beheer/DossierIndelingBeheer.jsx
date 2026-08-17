@@ -1929,7 +1929,9 @@ export default function DossierIndelingBeheer() {
               alleen de dossierkaart. */}
           <SoortIndelingPaneel
             soort={s.key}
-            onderaan={SOORTEN_MET_SJABLONEN.has(s.key) ? <DossierSjablonenPerSoort soort={s.key} /> : null}
+            // Notulen heeft sinds kort een eigen beheertabblad (Beheer → Notulen), net als Brieven —
+            // de voorbeelddocumenten van die soort staan daar, niet meer genest onder deze kaart.
+            onderaan={SOORTEN_MET_SJABLONEN.has(s.key) && s.key !== "notulen" ? <DossierSjablonenPerSoort soort={s.key} /> : null}
           />
         </div>
       ))}

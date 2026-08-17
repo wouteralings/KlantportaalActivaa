@@ -11,6 +11,7 @@ import PlanningInstellingenBeheer from "./PlanningInstellingenBeheer";
 import ContractenDossierInstellingen from "./ContractenDossierInstellingen";
 import ContractenMailInstellingen from "./ContractenMailInstellingen";
 import BrievenBeheer from "./BrievenBeheer";
+import NotulenBeheer from "./NotulenBeheer";
 import BrievenAfzenderInstellingen from "./BrievenAfzenderInstellingen";
 import GastaccountsOverzicht from "./GastaccountsOverzicht";
 import RollenBeheer from "./RollenBeheer";
@@ -1589,6 +1590,7 @@ export default function BeheerPortaal() {
           ["planning", "Planning"],
           ["offertes", "Offertes"],
           ["brieven", "Brieven"],
+          ["notulen", "Notulen"],
           ["aanleveren", "Uitvraag"],
           ["uren", "Uren"],
           ["dossiers", "Dossiers"],
@@ -3537,6 +3539,11 @@ export default function BeheerPortaal() {
       {tab === "offertes" && <OffertetoolApp modus="beheer" />}
 
       {tab === "brieven" && <BrievenBeheer />}
+
+      {/* Notulen — losgetrokken uit Beheer → Dossiers, net als Brieven een eigen tabblad: vaste kop en
+          staart, de modellen met hun besluit en kolommen, de standaard voorzitter/notulist, plus de
+          bijlage- en mailinstellingen van de soort Notulen. */}
+      {tab === "notulen" && <NotulenBeheer />}
 
     </div>
   );

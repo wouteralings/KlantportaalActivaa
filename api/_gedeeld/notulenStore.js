@@ -116,4 +116,19 @@ async function bewaar(record) {
   return alles[dossierId];
 }
 
-module.exports = { haalAlles, haalVoorDossier, haalVoorKlant, bewaar };
+/**
+ * Haalt één opgestelde notulen uit het overzicht (op dossierId). Alleen de vermelding verdwijnt: het
+ * stuk in SharePoint en het notulendossier in Dynamics blijven staan — dat zijn het dossier van de
+ * cliënt en de administratie, en daar hoort dit overzicht niet ongevraagd in te snijden.
+ */
+async function verwijder(dossierId) {
+  const sleutel = String(dossierId || "").trim();
+  if (!sleutel) return false;
+  const alles = await haalAlles();
+  if (!alles[sleutel]) return false;
+  delete alles[sleutel];
+  await schrijfAlles(alles);
+  return true;
+}
+
+module.exports = { haalAlles, haalVoorDossier, haalVoorKlant, bewaar, verwijder };

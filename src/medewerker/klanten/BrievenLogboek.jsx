@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Search, RefreshCw, Loader2, FileText, AlertTriangle, Plus, ChevronUp, ChevronDown, Star } from "lucide-react";
+import { Search, RefreshCw, Loader2, FileText, AlertTriangle, Plus, ChevronUp, ChevronDown, Star, Link2, Trash2, Check } from "lucide-react";
 import ScopeToggle, { useMijnNaam, isKlantVanMij } from "../MijnFilter";
 
 /**
@@ -36,7 +36,7 @@ const KOLOMMEN_STANDAARD_VERBORGEN = []; // alle kolommen standaard zichtbaar
 const kolomVan = (key) => KOLOMMEN.find((c) => c.key === key);
 const alleKeys = KOLOMMEN.map((c) => c.key);
 
-export default function BrievenLogboek({ onNieuweBrief }) {
+export default function BrievenLogboek({ onNieuweBrief, isBeheerder = false }) {
   const [brieven, setBrieven] = useState(null); // null = laden
   const [klantMap, setKlantMap] = useState(null); // accountId(lowercase) → klant (voor "Mijn cliënten")
   const [fout, setFout] = useState("");
@@ -58,6 +58,40 @@ export default function BrievenLogboek({ onNieuweBrief }) {
   const [scope, setScope] = useState("mijn"); // "mijn" | "alle"
   const geladenRef = useRef(false);
   const autoOpslaanTimerRef = useRef(null);
+
+  // Snellink: het webadres van de brief op het klembord, om in een mail of chat te plakken. De id van
+  // de brief waarvan de link net gekopieerd is, zodat de knop even "Gekopieerd" kan tonen.
+  const [gekopieerd, setGekopieerd] = useState("");
+  const [verwijderBezig, setVerwijderBezig] = useState("");
+  const [verwijderFout, setVerwijderFout] = useState("");
+
+  async function kopieerLink(brief) {
+    try {
+      await navigator.clipboard.writeText(String(brief.pdfUrl || ""));
+      setGekopieerd(brief.id);
+      setTimeout(() => setGekopieerd((h) => (h === brief.id ? "" : h)), 2000);
+    } catch {
+      setVerwijderFout("Kopiëren naar het klembord lukte niet in deze browser.");
+    }
+  }
+
+  /** Alleen voor beheerders: de regel uit het logboek halen. De PDF blijft in SharePoint staan. */
+  async function verwijderRegel(brief) {
+    const naam = veiligeStr(brief.betreft) || veiligeStr(brief.sjabloonnaam) || "deze brief";
+    if (typeof window !== "undefined" && !window.confirm(`"${naam}" uit het brievenlogboek verwijderen?\n\nDe brief zelf blijft in de SharePoint-map van de cliënt staan; alleen de vermelding hier verdwijnt.`)) return;
+    setVerwijderBezig(brief.id); setVerwijderFout("");
+    try {
+      const res = await fetch(`/api/brief-log?id=${encodeURIComponent(brief.id)}`, { method: "DELETE" });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || `Verwijderen mislukt (${res.status}).`);
+      setBrieven((lijst) => (lijst || []).filter((x) => x.id !== brief.id));
+    } catch (e) {
+      setVerwijderFout(String((e && e.message) || e));
+    } finally {
+      setVerwijderBezig("");
+    }
+  }
+
 
   async function laad() {
     setBezig(true); setFout("");
@@ -333,6 +367,11 @@ export default function BrievenLogboek({ onNieuweBrief }) {
         <div style={{ fontSize: 12, color: KLEUR.goud, marginBottom: 8 }}>Je naam kon niet automatisch worden bepaald; gebruik <strong>Kantoorbreed</strong>.</div>
       )}
 
+      {verwijderFout && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", borderRadius: 8, fontSize: 12.5, background: "#FBECEC", color: KLEUR.rood, border: "1px solid #F0C9C9", marginBottom: 10 }}>
+          <AlertTriangle size={15} /> <span>{verwijderFout}</span>
+        </div>
+      )}
       {fout && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", borderRadius: 8, fontSize: 12.5, background: "#FBECEC", color: KLEUR.rood, border: "1px solid #F0C9C9", marginBottom: 12 }}>
           <AlertTriangle size={15} /> <span>{fout}</span>
@@ -379,12 +418,31 @@ export default function BrievenLogboek({ onNieuweBrief }) {
                     {zichtKols.map((kol) => (
                       <td key={kol.key} style={td}>{celInhoud(kol, b)}</td>
                     ))}
-                    <td style={{ ...td, textAlign: "right" }}>
+                    <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
                       {veiligeStr(b.pdfUrl) ? (
-                        <a href={b.pdfUrl} target="_blank" rel="noopener noreferrer" style={{ ...knopLicht, padding: "5px 9px", textDecoration: "none" }}>
-                          <FileText size={13} /> Bekijk
-                        </a>
+                        <>
+                          <a href={b.pdfUrl} target="_blank" rel="noopener noreferrer" style={{ ...knopLicht, padding: "5px 9px", textDecoration: "none" }}>
+                            <FileText size={13} /> Bekijk
+                          </a>
+                          <button
+                            onClick={() => kopieerLink(b)}
+                            title="Kopieer de link naar deze brief, om in een mail of chat te plakken"
+                            style={{ ...knopLicht, padding: "5px 9px", marginLeft: 6 }}
+                          >
+                            {gekopieerd === b.id ? <><Check size={13} /> Gekopieerd</> : <><Link2 size={13} /> Snellink</>}
+                          </button>
+                        </>
                       ) : null}
+                      {isBeheerder && (
+                        <button
+                          onClick={() => verwijderRegel(b)}
+                          disabled={verwijderBezig === b.id}
+                          title="Uit het logboek verwijderen (de brief blijft in SharePoint staan)"
+                          style={{ ...knopLicht, padding: "5px 9px", marginLeft: 6, color: KLEUR.rood, borderColor: "#F0C9C9" }}
+                        >
+                          {verwijderBezig === b.id ? <Loader2 size={13} className="spin" /> : <Trash2 size={13} />}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

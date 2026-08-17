@@ -87,4 +87,17 @@ async function haalBrievenVoorKlant(accountId) {
     .sort((a, b) => String(b.verzondenOp).localeCompare(String(a.verzondenOp)));
 }
 
-module.exports = { haalAlleBrieven, voegBriefToe, haalBrievenVoorKlant };
+/**
+ * Verwijdert één brief uit het logboek (op id). Alleen de LOGREGEL verdwijnt — de PDF blijft in de
+ * SharePoint-map van de cliënt staan; dat is het dossier van de klant en daar hoort het portaal niet
+ * ongevraagd in te snijden. Geeft true als er echt iets is verwijderd.
+ */
+async function verwijderBrief(id) {
+  const brieven = await haalAlleBrieven();
+  const over = brieven.filter((b) => String(b.id) !== String(id));
+  if (over.length === brieven.length) return false;
+  await schrijfBrieven(over);
+  return true;
+}
+
+module.exports = { haalAlleBrieven, voegBriefToe, haalBrievenVoorKlant, verwijderBrief };

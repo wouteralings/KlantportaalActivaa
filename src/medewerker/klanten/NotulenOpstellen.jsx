@@ -74,7 +74,7 @@ function standaardSjablonen() {
   return NOTULEN_SJABLONEN.map((s, i) => ({ id: `std${i}`, naam: s.naam, tekst: s.tekst, besluit: s.besluit, standaard: true }));
 }
 
-export default function NotulenOpstellen({ onTerug }) {
+export default function NotulenOpstellen({ onTerug, openStuk = null }) {
   const { mijnNaam } = useMijnNaam();
 
   const [sjablonen, setSjablonen] = useState(null); // null = laden
@@ -232,6 +232,8 @@ export default function NotulenOpstellen({ onTerug }) {
    * welke rij dat gaat; zodra je opslaat is het geen wegwerp-rij meer en wordt de ref losgelaten.
    */
   const autoRef = useRef("");
+  // Openen we een bestaand stuk vanuit het logboek? Dan hoort er géén nieuwe rij te ontstaan.
+  const openendRef = useRef(!!openStuk);
   useEffect(() => {
     const vorige = autoRef.current;
     if (vorige) {
@@ -242,6 +244,7 @@ export default function NotulenOpstellen({ onTerug }) {
       }).catch(() => { /* opruimen is best-effort */ });
     }
     if (!klant || !klant.accountId) return;
+    if (openendRef.current) { openendRef.current = false; return; } // bestaand stuk: geen nieuwe rij
     let bezig = true;
     fetch("/api/medewerker-notulen-opslaan", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -269,6 +272,21 @@ export default function NotulenOpstellen({ onTerug }) {
       body: JSON.stringify({ actie: "verwijderen", dossierId: id }),
     }).catch(() => { /* best-effort */ });
   }, []);
+
+  // Vanuit het notulenlogboek geopend ("Bewerken"): de juiste cliënt kiezen en het stuk terughalen.
+  const geopendRef = useRef(false);
+  useEffect(() => {
+    if (!openStuk || geopendRef.current) return;
+    if (!Array.isArray(klanten) || !lijst.length) return; // wachten tot cliënten én modellen er zijn
+    const k = klanten.find((x) => String(x.accountId) === String(openStuk.accountId));
+    if (!k) return;
+    geopendRef.current = true;
+    openendRef.current = true; // de klantwissel hieronder mag geen nieuwe rij aanmaken
+    setKlant(k);
+    // Na het zetten van de cliënt worden de velden voorgevuld; daarna pas het stuk terugzetten.
+    setTimeout(() => { if (levend.current) heropen(openStuk); }, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openStuk, klanten, lijst]);
 
   /** Eén dossierveld zetten (catalogussleutel → waarde). */
   function zetVeld(key, waarde) { setVeldenState((h) => ({ ...h, [key]: waarde })); }

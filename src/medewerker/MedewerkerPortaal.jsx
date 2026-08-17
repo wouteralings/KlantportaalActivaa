@@ -19,6 +19,7 @@ import PlanningConfigPerKlant from "./klanten/PlanningConfigPerKlant";
 import BrievenOverzicht from "./klanten/BrievenOverzicht";
 import BrievenLogboek from "./klanten/BrievenLogboek";
 import NotulenOpstellen from "./klanten/NotulenOpstellen";
+import NotulenLogboek from "./klanten/NotulenLogboek";
 import ImpersonatieBanner from "../ImpersonatieBanner";
 import { VeldInvoer } from "./dossierVeldInvoer";
 import { normaliseerSleutel, vulSjabloonIn, menselijkeVeldwaarde, bouwMergeWaarden } from "./dossierMerge";
@@ -27,11 +28,11 @@ import { normaliseerSleutel, vulSjabloonIn, menselijkeVeldwaarde, bouwMergeWaard
  * Brieven-tab: start op het brievenlogboek (alle verstuurde brieven, filterbaar). Via "Nieuwe brief"
  * ga je naar het opstel-scherm; "Terug naar overzicht" brengt je weer bij het logboek.
  */
-function BrievenTab() {
+function BrievenTab({ isBeheerder = false }) {
   const [briefView, setBriefView] = useState("logboek");
   return briefView === "opstellen"
     ? <BrievenOverzicht onTerug={() => setBriefView("logboek")} />
-    : <BrievenLogboek onNieuweBrief={() => setBriefView("opstellen")} />;
+    : <BrievenLogboek onNieuweBrief={() => setBriefView("opstellen")} isBeheerder={isBeheerder} />;
 }
 import NogInTeRichten from "./klanten/NogInTeRichten";
 import Logboek from "./klanten/Logboek";
@@ -1766,9 +1767,9 @@ function KlantenModule({ magContracten = false, isBeheerder = false, magPlanning
       <div style={{ paddingTop: 24 }}>
         {sub === "klanten" && <KlantOverzicht magPlanning={magPlanning} magBulkVerwijderen={subRechten ? subRechten.bulk("klanten") : isBeheerder} />}
         {sub === "contactpersonen" && <ContactpersonenOverzicht magBulkVerwijderen={subRechten ? subRechten.bulk("contactpersonen") : isBeheerder} magSubVerwijderen={subRechten ? subRechten.verwijderen("contactpersonen") : true} />}
-        {sub === "brieven" && <BrievenTab />}
+        {sub === "brieven" && <BrievenTab isBeheerder={isBeheerder} />}
         {sub === "contracten" && (magContracten || isBeheerder) && <ContractenOverzicht />}
-        {sub === "notulen" && <NotulenTab magVerwijderenRubriek={subRechten ? subRechten.verwijderen("notulen") : true} magBulkVerwijderen={subRechten ? subRechten.bulk("notulen") : isBeheerder} />}
+        {sub === "notulen" && <NotulenTab magVerwijderenRubriek={subRechten ? subRechten.verwijderen("notulen") : true} magBulkVerwijderen={subRechten ? subRechten.bulk("notulen") : isBeheerder} isBeheerder={isBeheerder} />}
         {(sub === "ib" || sub === "vpb" || sub === "dividend") && <MedewerkerDossiers soort={sub} magVerwijderenRubriek={subRechten ? subRechten.verwijderen(sub) : true} magBulkVerwijderen={subRechten ? subRechten.bulk(sub) : isBeheerder} />}
         {sub === "lonen" && <NogInTeRichten titel={actief.label} watKomtEr={actief.watKomtEr} />}
       </div>
@@ -1783,17 +1784,57 @@ function KlantenModule({ magContracten = false, isBeheerder = false, magPlanning
  * opslaan. Komt er ondertussen een doorklik naar een notulendossier binnen (#dossier=notulen:<id>),
  * dan springen we terug naar het overzicht zodat dat dossier gewoon opent.
  */
-function NotulenTab({ magVerwijderenRubriek, magBulkVerwijderen }) {
-  const [view, setView] = useState("overzicht");
+function NotulenTab({ magVerwijderenRubriek, magBulkVerwijderen, isBeheerder = false }) {
+  const [view, setView] = useState("overzicht"); // overzicht | logboek | opstellen
+  const [openStuk, setOpenStuk] = useState(null); // een stuk uit het logboek dat we openen
   useEffect(() => luisterNaarDossierHash(({ soort }) => { if (soort === "notulen") setView("overzicht"); }), []);
-  if (view === "opstellen") return <NotulenOpstellen onTerug={() => setView("overzicht")} />;
+
+  if (view === "opstellen") {
+    return (
+      <NotulenOpstellen
+        openStuk={openStuk}
+        onTerug={() => { setOpenStuk(null); setView(openStuk ? "logboek" : "overzicht"); }}
+      />
+    );
+  }
+
+  // Twee weergaven naast elkaar: het dossieroverzicht uit Dynamics (status, behandelaar) en het
+  // logboek van de stukken die in het portaal zijn opgemaakt — zoals bij de brieven.
+  const pil = (waarde, tekst) => (
+    <button
+      key={waarde}
+      onClick={() => setView(waarde)}
+      style={{
+        border: "none", background: view === waarde ? KLEUR.blauw : "transparent",
+        color: view === waarde ? "#fff" : KLEUR.blauw, padding: "6px 12px", borderRadius: 20,
+        fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+      }}
+    >
+      {tekst}
+    </button>
+  );
+
   return (
-    <MedewerkerDossiers
-      soort="notulen"
-      magVerwijderenRubriek={magVerwijderenRubriek}
-      magBulkVerwijderen={magBulkVerwijderen}
-      onNieuw={() => setView("opstellen")}
-    />
+    <>
+      <div style={{ maxWidth: 1600, margin: "0 auto", padding: "0 24px 12px", display: "flex", gap: 4 }}>
+        {pil("overzicht", "Dossieroverzicht")}
+        {pil("logboek", "Logboek")}
+      </div>
+      {view === "logboek" ? (
+        <NotulenLogboek
+          isBeheerder={isBeheerder}
+          onNieuweNotulen={() => { setOpenStuk(null); setView("opstellen"); }}
+          onBewerken={(stuk) => { setOpenStuk(stuk); setView("opstellen"); }}
+        />
+      ) : (
+        <MedewerkerDossiers
+          soort="notulen"
+          magVerwijderenRubriek={magVerwijderenRubriek}
+          magBulkVerwijderen={magBulkVerwijderen}
+          onNieuw={() => { setOpenStuk(null); setView("opstellen"); }}
+        />
+      )}
+    </>
   );
 }
 
@@ -1825,7 +1866,7 @@ function formatteerDossierDatum(s) {
 // `extraKolommen` = door Beheer → Kolommen zelf toegevoegde Dynamics-velden voor déze dossiersoort
 // (instellingen.dossierExtraKolommen[soort], zie api/medewerker-dossiers) — zelfde idee als
 // config.extraKolommen bij KlantOverzicht hierboven.
-function dossierKolommen(periodeLabel, periode, extraKolommen) {
+function dossierKolommen(periodeLabel, periode, extraKolommen, soort) {
   const basis = [
     { key: "klantnaam", label: "Cliënt", cel: (d) => d.klantnaam || "" },
     { key: "dossiernaam", label: "Dossiernaam", cel: (d) => d.dossiernaam || "" },
@@ -1836,6 +1877,11 @@ function dossierKolommen(periodeLabel, periode, extraKolommen) {
     { key: "manager", label: "Manager", cel: (d) => d.manager || "" },
     { key: "groepsnaam", label: "Groep", cel: (d) => d.groepsnaam || "" },
   ];
+  // Notulen: het opgemaakte stuk staat als link op het dossier (URL dossier / cr283_urlnotulen).
+  // Handig om vanuit het overzicht meteen de PDF in SharePoint te openen — zie ook het notulenlogboek.
+  if (soort === "notulen") {
+    basis.push({ key: "stuk", label: "Stuk", cel: (d) => (d.urlDossier ? "Openen" : ""), soort: "link", geenSort: true, geenFilter: true });
+  }
   const extra = (extraKolommen || []).filter((c) => c && c.veld).map((c) => ({
     key: "extra_" + c.veld,
     label: c.label || c.veld,
@@ -2175,7 +2221,7 @@ function MedewerkerDossiers({ soort, magVerwijderenRubriek = true, magBulkVerwij
     soort === "notulen"
       ? formatteerDossierDatum(d.begindatum)
       : (d.jaar != null && d.jaar !== "" ? String(d.jaar) : dossierBoekjaar(d));
-  const KOLOMMEN = dossierKolommen(periodeLabel, periode, extraKolommen);
+  const KOLOMMEN = dossierKolommen(periodeLabel, periode, extraKolommen, soort);
   const alleKeys = KOLOMMEN.map((c) => c.key);
   useEffect(() => {
     setZichtbareKolommen((huidig) => huidig || new Set(alleKeys.filter((key) => !DOSSIER_KOLOMMEN_STANDAARD_VERBORGEN.includes(key))));
@@ -2683,6 +2729,19 @@ function MedewerkerDossiers({ soort, magVerwijderenRubriek = true, magBulkVerwij
                           <span title={d.dossiernaam || ""} style={{ display: "inline-block", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "bottom", fontSize: "inherit", fontWeight: 400 }}>
                             {d.dossiernaam || "—"}
                           </span>
+                        ) : kol.key === "stuk" ? (
+                          d.urlDossier ? (
+                            <a
+                              href={d.urlDossier}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ display: "inline-flex", alignItems: "center", gap: 5, color: KLEUR.blauw, textDecoration: "none", fontWeight: 600 }}
+                              title="Het opgemaakte stuk in SharePoint openen"
+                            >
+                              <FileText size={13} /> Openen
+                            </a>
+                          ) : "—"
                         ) : (
                           kol.cel(d) || "—"
                         )}

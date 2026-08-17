@@ -29,7 +29,7 @@ const { haalInstellingen } = require("../_gedeeld/instellingen");
 const { haalAppGraphToken } = require("../_gedeeld/graphApp");
 const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/sharepointUpload");
 const { blokkenNaarPdf } = require("../_gedeeld/notulenRenderer");
-const { haalVoorDossier, haalVoorKlant, bewaar } = require("../_gedeeld/notulenStore");
+const { haalAlles, haalVoorDossier, haalVoorKlant, bewaar, verwijder } = require("../_gedeeld/notulenStore");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
 
 const SHAREPOINT_VELD = process.env.DYNAMICS_KLANT_SHAREPOINT_VELD || "cr283_sharepoint";
@@ -172,7 +172,17 @@ module.exports = async function (context, req) {
         return;
       }
       const accountId = veiligeStr(req.query && req.query.accountId);
-      context.res = { headers: { "Content-Type": "application/json" }, body: { notulen: await haalVoorKlant(accountId) } };
+      if (accountId) {
+        context.res = { headers: { "Content-Type": "application/json" }, body: { notulen: await haalVoorKlant(accountId) } };
+        return;
+      }
+      // Zonder cliënt: álle opgestelde notulen, nieuwste eerst — het notulenlogboek (zelfde idee als
+      // /api/brief-log zonder accountId).
+      const alle = await haalAlles();
+      const lijst = Object.values(alle || {})
+        .filter(Boolean)
+        .sort((a, b) => String(b.opgesteldOp || "").localeCompare(String(a.opgesteldOp || "")));
+      context.res = { headers: { "Content-Type": "application/json" }, body: { notulen: lijst } };
     } catch (err) {
       // Zonder (leesbare) opslag gewoon een lege lijst: het opstellen zelf moet blijven werken.
       context.res = { headers: { "Content-Type": "application/json" }, body: { notulen: veiligeStr(req.query && req.query.dossierId) ? null : [] } };
@@ -238,6 +248,29 @@ module.exports = async function (context, req) {
       // van het scherm niet blokkeren.
       if (context.log) context.log.error(err);
       context.res = { headers: { "Content-Type": "application/json" }, body: { ok: false, reden: String((err && err.message) || err) } };
+    }
+    return;
+  }
+
+  // ── actie "logboek-verwijderen": een regel uit het notulenlogboek halen (alleen beheerder) ─────
+  // Het stuk in SharePoint en het notulendossier in Dynamics blijven staan; alleen de vermelding in
+  // het overzicht verdwijnt — zelfde afspraak als bij het brievenlogboek.
+  if (actie === "logboek-verwijderen") {
+    if (!rollen.includes("beheerder")) {
+      context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Alleen een beheerder kan notulen uit het logboek verwijderen." } };
+      return;
+    }
+    const teVerwijderen = veiligeStr(body.dossierId);
+    if (!teVerwijderen) {
+      context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Geen dossierId meegegeven." } };
+      return;
+    }
+    try {
+      const gedaan = await verwijder(teVerwijderen);
+      context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, gedaan } };
+    } catch (err) {
+      if (context.log) context.log.error(err);
+      context.res = { status: 500, headers: { "Content-Type": "application/json" }, body: { error: "Kon de notulen niet uit het logboek verwijderen.", detail: String((err && err.message) || err) } };
     }
     return;
   }
