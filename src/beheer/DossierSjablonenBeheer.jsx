@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { FileText, Save, ChevronDown, ChevronRight, Plus, Trash2, ArrowUp, ArrowDown, Info, X } from "lucide-react";
-import { NOTULEN_SJABLONEN, ROMP, STAART, steltNotulenSamen, haalBesluitUitTekst } from "./notulenSjablonen";
+import { ROMP, STAART, steltNotulenSamen, haalBesluitUitTekst } from "./notulenSjablonen";
 
 /** Zelfde palet als de rest van het beheerdersportaal (bewust hier herhaald zodat dit bestand op
  *  zichzelf staat, zie bijv. DossierIndelingBeheer.jsx/BrievenBeheer.jsx). */
@@ -137,21 +137,6 @@ export default function DossierSjablonenPerSoort({ soort }) {
   const toggleKaart = (id) => setOpenIds((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const zet = (id, key, waarde) => setSjablonen((lijst) => lijst.map((s) => (s.id === id ? { ...s, [key]: waarde } : s)));
   const nieuw = () => { const id = nieuwSjabloonId(); setSjablonen((lijst) => [...lijst, { id, naam: "Nieuw sjabloon", tekst: "", besluit: "", velden: [], invulvelden: [] }]); setOpenIds((s) => new Set([...s, id])); };
-  // De vaste Activaa-notulen in één keer klaarzetten (overgezet uit de Word-modellen, zie
-  // notulenSjablonen.js). Voegt alleen toe wat er nog niet staat — op naam — zodat je 'm veilig nog
-  // eens kunt indrukken nadat je zelf iets hebt aangepast. Opslaan doe je daarna zelf.
-  const voegStandaardNotulenToe = () => {
-    setSjablonen((lijst) => {
-      const bestaand = new Set(lijst.map((s) => String(s.naam || "").trim().toLowerCase()));
-      const nieuweIds = [];
-      const erbij = NOTULEN_SJABLONEN
-        .filter((s) => !bestaand.has(s.naam.trim().toLowerCase()))
-        .map((s) => { const id = nieuwSjabloonId(); nieuweIds.push(id); return { id, naam: s.naam, tekst: s.tekst, besluit: s.besluit || "", velden: [], invulvelden: [] }; });
-      if (nieuweIds.length) setOpenIds((o) => new Set([...o, nieuweIds[0]]));
-      return [...lijst, ...erbij];
-    });
-    setStatus("rust");
-  };
   const verwijder = (id) => { setSjablonen((lijst) => lijst.filter((s) => s.id !== id)); setOpenIds((s) => { const n = new Set(s); n.delete(id); return n; }); };
   const verplaats = (id, richting) => setSjablonen((lijst) => {
     const i = lijst.findIndex((s) => s.id === id); const j = i + richting;
@@ -570,15 +555,6 @@ export default function DossierSjablonenPerSoort({ soort }) {
                 <button onClick={nieuw} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.blauw, borderRadius: 8, padding: "8px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>
                   <Plus size={14} /> Nieuw sjabloon
                 </button>
-                {soort === "notulen" && (
-                  <button
-                    onClick={voegStandaardNotulenToe}
-                    title="Zet de vijf vaste notulen klaar (dividenduitkering, dividendbeleid, agiostorting, benoeming en ontslag bestuurder). Wat al bestaat blijft ongemoeid; daarna nog opslaan."
-                    style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.tekst, borderRadius: 8, padding: "8px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
-                  >
-                    <Plus size={14} /> Standaard-notulen toevoegen ({NOTULEN_SJABLONEN.length})
-                  </button>
-                )}
               </div>
             </div>
           )}
@@ -798,6 +774,10 @@ export function DossierMailTaakPerSoort({ soort }) {
   const [mailTekst, setMailTekst] = useState("");
   const [keuzeOpties, setKeuzeOpties] = useState([]); // [{ waarde, label }]
   const [mailPerOptie, setMailPerOptie] = useState({}); // { <optiewaarde>: { onderwerp, tekst } }
+  // Notulen kunnen op twee manieren de deur uit: gewoon mailen (de tekst hierboven) of ter
+  // ondertekening aanbieden via een taak. Die tweede krijgt zijn eigen onderwerp en tekst.
+  const [ondOnderwerp, setOndOnderwerp] = useState("");
+  const [ondTekst, setOndTekst] = useState("");
   const [mailStatus, setMailStatus] = useState("rust");
   const [taakAan, setTaakAan] = useState(false);
   const [taakOnderwerp, setTaakOnderwerp] = useState("");
@@ -841,6 +821,9 @@ export function DossierMailTaakPerSoort({ soort }) {
         setTaakSoortOpties(soortOpties.filter((o) => !(soortCfg[String(o.waarde)] && soortCfg[String(o.waarde)].bevroren)));
         setTaakRubriekOpties((taakrubriekenData && Array.isArray(taakrubriekenData.opties)) ? taakrubriekenData.opties : []);
         const dt = (inst && inst[`${soort}Taak`] && typeof inst[`${soort}Taak`] === "object") ? inst[`${soort}Taak`] : {};
+        const ond = (dm.ondertekening && typeof dm.ondertekening === "object") ? dm.ondertekening : {};
+        setOndOnderwerp(typeof ond.onderwerp === "string" ? ond.onderwerp : "");
+        setOndTekst(typeof ond.tekst === "string" ? ond.tekst : "");
         setTaakAan(!!dt.aan);
         setTaakOnderwerp(typeof dt.onderwerp === "string" ? dt.onderwerp : "");
         setTaakSoort(dt.soort != null ? String(dt.soort) : "");
@@ -867,7 +850,12 @@ export function DossierMailTaakPerSoort({ soort }) {
         const tks = (v && typeof v.tekst === "string") ? v.tekst : "";
         if (ond.trim() || tks.trim()) perOptieSchoon[w] = { onderwerp: ond, tekst: tks };
       }
-      const body = { [`${soort}Mail`]: { afzender: mailAfzender.trim(), onderwerp: mailOnderwerp, tekst: mailTekst, perOptie: perOptieSchoon } };
+      const body = {
+        [`${soort}Mail`]: {
+          afzender: mailAfzender.trim(), onderwerp: mailOnderwerp, tekst: mailTekst, perOptie: perOptieSchoon,
+          ...(isNotulen ? { ondertekening: { onderwerp: ondOnderwerp, tekst: ondTekst } } : {}),
+        },
+      };
       const res = await fetch("/api/beheer-instellingen", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Opslaan mislukt.");
       setMailStatus("opgeslagen"); setTimeout(() => setMailStatus("rust"), 2500);
@@ -922,6 +910,19 @@ export function DossierMailTaakPerSoort({ soort }) {
           <span style={veldLabel}>Tekst</span>
           <textarea value={mailTekst} onChange={(e) => { setMailTekst(e.target.value); setMailStatus("rust"); }} rows={8} placeholder={soort === "notulen" ? "Beste {{klantnaam}},\n\nBijgaand ontvangt u de notulen.\n\n…" : "Beste {{klantnaam}},\n\nBijgaand ontvangt u de aangifte dividendbelasting {{jaar}}.\n\n…"} style={{ ...witInvoer, width: "100%", maxWidth: 560, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }} />
         </div>
+
+        {isNotulen && (
+          <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: 10, marginBottom: 12, background: "#fff" }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: KLEUR.tekst, marginBottom: 2 }}>Ter ondertekening aanbieden</div>
+            <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 8 }}>
+              Kiest de medewerker bij het versturen “ter ondertekening”, dan gebruiken we dít onderwerp en deze tekst,
+              en komt er een taak voor de cliënt bij (onderwerp, soort en rubriek staan hieronder bij “Taak”).
+              Laat je dit leeg, dan geldt de gewone mailtekst hierboven.
+            </div>
+            <input value={ondOnderwerp} onChange={(e) => { setOndOnderwerp(e.target.value); setMailStatus("rust"); }} placeholder="Onderwerp, bijv. Notulen ter ondertekening" style={{ ...witInvoer, marginBottom: 6 }} />
+            <textarea value={ondTekst} onChange={(e) => { setOndTekst(e.target.value); setMailStatus("rust"); }} rows={6} placeholder={"Beste {{klantnaam}},\n\nIn uw portaal staat een taak klaar om de notulen te ondertekenen.\n\n…"} style={{ ...witInvoer, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }} />
+          </div>
+        )}
 
         {keuzeOpties.length > 0 && (
           <div style={{ marginTop: 6, marginBottom: 10 }}>

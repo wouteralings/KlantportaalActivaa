@@ -1769,7 +1769,7 @@ function KlantenModule({ magContracten = false, isBeheerder = false, magPlanning
         {sub === "contactpersonen" && <ContactpersonenOverzicht magBulkVerwijderen={subRechten ? subRechten.bulk("contactpersonen") : isBeheerder} magSubVerwijderen={subRechten ? subRechten.verwijderen("contactpersonen") : true} />}
         {sub === "brieven" && <BrievenTab isBeheerder={isBeheerder} />}
         {sub === "contracten" && (magContracten || isBeheerder) && <ContractenOverzicht />}
-        {sub === "notulen" && <NotulenTab magVerwijderenRubriek={subRechten ? subRechten.verwijderen("notulen") : true} magBulkVerwijderen={subRechten ? subRechten.bulk("notulen") : isBeheerder} isBeheerder={isBeheerder} />}
+        {sub === "notulen" && <NotulenTab isBeheerder={isBeheerder} />}
         {(sub === "ib" || sub === "vpb" || sub === "dividend") && <MedewerkerDossiers soort={sub} magVerwijderenRubriek={subRechten ? subRechten.verwijderen(sub) : true} magBulkVerwijderen={subRechten ? subRechten.bulk(sub) : isBeheerder} />}
         {sub === "lonen" && <NogInTeRichten titel={actief.label} watKomtEr={actief.watKomtEr} />}
       </div>
@@ -1784,7 +1784,7 @@ function KlantenModule({ magContracten = false, isBeheerder = false, magPlanning
  * opslaan. Komt er ondertussen een doorklik naar een notulendossier binnen (#dossier=notulen:<id>),
  * dan springen we terug naar het overzicht zodat dat dossier gewoon opent.
  */
-function NotulenTab({ magVerwijderenRubriek, magBulkVerwijderen, isBeheerder = false }) {
+function NotulenTab({ isBeheerder = false }) {
   const [view, setView] = useState("overzicht"); // overzicht | logboek | opstellen
   const [openStuk, setOpenStuk] = useState(null); // een stuk uit het logboek dat we openen
   useEffect(() => luisterNaarDossierHash(({ soort }) => { if (soort === "notulen") setView("overzicht"); }), []);
@@ -1798,43 +1798,15 @@ function NotulenTab({ magVerwijderenRubriek, magBulkVerwijderen, isBeheerder = f
     );
   }
 
-  // Twee weergaven naast elkaar: het dossieroverzicht uit Dynamics (status, behandelaar) en het
-  // logboek van de stukken die in het portaal zijn opgemaakt — zoals bij de brieven.
-  const pil = (waarde, tekst) => (
-    <button
-      key={waarde}
-      onClick={() => setView(waarde)}
-      style={{
-        border: "none", background: view === waarde ? KLEUR.blauw : "transparent",
-        color: view === waarde ? "#fff" : KLEUR.blauw, padding: "6px 12px", borderRadius: 20,
-        fontSize: 12.5, fontWeight: 600, cursor: "pointer",
-      }}
-    >
-      {tekst}
-    </button>
-  );
-
+  // Alleen het logboek: notulen zijn stukken die je opmaakt, net als brieven. Het dossieroverzicht uit
+  // Dynamics hoeft daar niet naast — het notulendossier ontstaat vanzelf bij het opstellen en de link
+  // naar het stuk staat in het logboek.
   return (
-    <>
-      <div style={{ maxWidth: 1600, margin: "0 auto", padding: "0 24px 12px", display: "flex", gap: 4 }}>
-        {pil("overzicht", "Dossieroverzicht")}
-        {pil("logboek", "Logboek")}
-      </div>
-      {view === "logboek" ? (
-        <NotulenLogboek
-          isBeheerder={isBeheerder}
-          onNieuweNotulen={() => { setOpenStuk(null); setView("opstellen"); }}
-          onBewerken={(stuk) => { setOpenStuk(stuk); setView("opstellen"); }}
-        />
-      ) : (
-        <MedewerkerDossiers
-          soort="notulen"
-          magVerwijderenRubriek={magVerwijderenRubriek}
-          magBulkVerwijderen={magBulkVerwijderen}
-          onNieuw={() => { setOpenStuk(null); setView("opstellen"); }}
-        />
-      )}
-    </>
+    <NotulenLogboek
+      isBeheerder={isBeheerder}
+      onNieuweNotulen={() => { setOpenStuk(null); setView("opstellen"); }}
+      onBewerken={(stuk) => { setOpenStuk(stuk); setView("opstellen"); }}
+    />
   );
 }
 

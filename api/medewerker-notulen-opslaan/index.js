@@ -31,8 +31,17 @@ const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/
 const { blokkenNaarPdf } = require("../_gedeeld/notulenRenderer");
 const { haalAlles, haalVoorDossier, haalVoorKlant, bewaar, verwijder } = require("../_gedeeld/notulenStore");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
+const { verstuurMailMetBijlage } = require("../_gedeeld/mail");
+const { haalNavigatieNaam } = require("../_gedeeld/dossiers");
 
 const SHAREPOINT_VELD = process.env.DYNAMICS_KLANT_SHAREPOINT_VELD || "cr283_sharepoint";
+// Taakvelden — zelfde Application Settings als _gedeeld/vervolgtaak.js en api/taken.
+const TAAK_KLANT_VELD = process.env.DYNAMICS_TAAK_KLANT_VELD || "sk_client";
+const TAAK_SOORT_VELD = process.env.DYNAMICS_TAAK_SOORT_VELD || "";
+const TAAK_RUBRIEK_VELD = process.env.DYNAMICS_TAAK_RUBRIEK_VELD || "cr283_rubriek";
+// Kolom op Task waarin de documentlink staat; die kolom laat het klantportaal het stuk zien en
+// (bij een taaksoort met "vereist handtekening") ondertekenen. Zie api/taken + api/taken-ondertekenen.
+const TAAK_DOCUMENT_VELD = process.env.DYNAMICS_TAAK_DOCUMENT_VELD || "";
 const SUBMAP_STANDAARD = "Notulen";
 const PDF_TYPE = "application/pdf";
 
@@ -155,6 +164,59 @@ function bouwDossierVelden({ soort, dossierVelden, zichtbareSleutels, aandeelhou
   return uit;
 }
 
+/** Plaatshouders in de mailteksten uit Beheer ({{klantnaam}}, {{datum}}, {{jaar}}). */
+function vulMailIn(tekst, waarden) {
+  return String(tekst || "").replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_, sleutel) => {
+    const key = String(sleutel).toLowerCase().replace(/[^a-z0-9]/g, "");
+    return Object.prototype.hasOwnProperty.call(waarden, key) ? String(waarden[key] ?? "") : "";
+  });
+}
+
+function alsHtml(tekst) {
+  const esc = (x) => String(x == null ? "" : x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const alineas = String(tekst || "").replace(/\r\n/g, "\n").split(/\n{2,}/);
+  return `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#1C2321;line-height:1.55">${
+    alineas.map((a) => `<p>${esc(a).replace(/\n/g, "<br>")}</p>`).join("")
+  }</div>`;
+}
+
+/**
+ * Maakt de taak waarmee de cliënt de notulen kan ondertekenen. De taaksoort komt uit Beheer → Notulen
+ * ("Taak"): staat die soort daar op "vereist handtekening", dan biedt het klantportaal de
+ * ondertekenknop aan bij deze taak (zie api/taken + api/taken-ondertekenen). De link naar het stuk
+ * gaat mee in de documentkolom, zodat de cliënt het stuk kan inzien vóór ondertekenen.
+ * Best-effort: mislukt de taak, dan is de mail wél verstuurd en krijgt de medewerker de reden te zien.
+ */
+async function maakOndertekentaak({ context, resource, token, accountId, klantnaam, cfg, onderwerp, documentUrl }) {
+  try {
+    const klantNav = await haalNavigatieNaam(resource, "task", TAAK_KLANT_VELD, token);
+    const body = {
+      subject: veiligeStr(onderwerp) || `Notulen ondertekenen — ${veiligeStr(klantnaam)}`,
+      description: "De notulen staan klaar om te ondertekenen.",
+      [`${klantNav}@odata.bind`]: `/accounts(${accountId})`,
+    };
+    if (TAAK_SOORT_VELD && cfg && cfg.soort !== undefined && cfg.soort !== "") {
+      const n = Number(cfg.soort);
+      if (Number.isFinite(n)) body[TAAK_SOORT_VELD] = n;
+    }
+    if (TAAK_RUBRIEK_VELD && cfg && cfg.rubriek !== undefined && cfg.rubriek !== "") {
+      const n = Number(cfg.rubriek);
+      if (Number.isFinite(n)) body[TAAK_RUBRIEK_VELD] = n;
+    }
+    if (TAAK_DOCUMENT_VELD && documentUrl) body[TAAK_DOCUMENT_VELD] = String(documentUrl).slice(0, 2000);
+    const res = await fetch(`${resource}/api/data/v9.2/tasks`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json", "OData-MaxVersion": "4.0", "OData-Version": "4.0" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`Aanmaken ondertekentaak mislukt (${res.status}): ${await res.text()}`);
+    return { gedaan: true };
+  } catch (e) {
+    if (context && context.log) context.log.error("Ondertekentaak aanmaken mislukt:", e);
+    return { gedaan: false, reden: String((e && e.message) || e) };
+  }
+}
+
 module.exports = async function (context, req) {
   const rollen = haalRollenUitPrincipal(req);
   if (!(rollen.includes("beheerder") || rollen.includes("medewerker"))) {
@@ -271,6 +333,112 @@ module.exports = async function (context, req) {
     } catch (err) {
       if (context.log) context.log.error(err);
       context.res = { status: 500, headers: { "Content-Type": "application/json" }, body: { error: "Kon de notulen niet uit het logboek verwijderen.", detail: String((err && err.message) || err) } };
+    }
+    return;
+  }
+
+  // ── actie "versturen": de notulen mailen, of ter ondertekening aanbieden via een taak ──────────
+  // Twee varianten met eigen tekst uit Beheer → Notulen:
+  //   "mail"        → gewoon mailen, met het stuk als PDF-bijlage.
+  //   "ondertekenen" → mailen dat er iets klaarstaat én een taak voor de cliënt aanmaken; staat de
+  //                   gekozen taaksoort in Beheer → Taken op "vereist handtekening", dan kan de
+  //                   cliënt daar ondertekenen (bestaande keten, zie api/taken-ondertekenen).
+  if (actie === "versturen") {
+    const variant = veiligeStr(body.variant) === "ondertekenen" ? "ondertekenen" : "mail";
+    const naar = veiligeStr(body.naar);
+    if (!accountId) {
+      context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Kies eerst een cliënt." } };
+      return;
+    }
+    if (!naar) {
+      context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Vul het e-mailadres van de ontvanger in." } };
+      return;
+    }
+    if (!blokken.length) {
+      context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Er is geen notulentekst meegestuurd." } };
+      return;
+    }
+    try {
+      const inst = await haalInstellingen().catch(() => ({}));
+      const mailCfg = (inst && inst.notulenMail && typeof inst.notulenMail === "object") ? inst.notulenMail : {};
+      const taakCfg = (inst && inst.notulenTaak && typeof inst.notulenTaak === "object") ? inst.notulenTaak : {};
+      const ondCfg = (mailCfg.ondertekening && typeof mailCfg.ondertekening === "object") ? mailCfg.ondertekening : {};
+
+      const klantnaamMail = veiligeStr(body.klantnaam);
+      const datumMail = veiligeStr(body.datum).slice(0, 10) || null;
+      const plaatshouders = {
+        klantnaam: klantnaamMail,
+        datum: datumMail || "",
+        jaar: datumMail ? datumMail.slice(0, 4) : "",
+      };
+      // De medewerker mag onderwerp/tekst in het verstuurvenster nog aanpassen; anders de tekst uit
+      // Beheer (bij "ondertekenen" die van de ondertekenvariant, met de gewone tekst als terugval).
+      const basisOnderwerp = variant === "ondertekenen" ? (veiligeStr(ondCfg.onderwerp) || veiligeStr(mailCfg.onderwerp)) : veiligeStr(mailCfg.onderwerp);
+      const basisTekst = variant === "ondertekenen" ? (veiligeStr(ondCfg.tekst) || veiligeStr(mailCfg.tekst)) : veiligeStr(mailCfg.tekst);
+      const onderwerp = veiligeStr(body.onderwerp) || vulMailIn(basisOnderwerp, plaatshouders) || `Notulen ${klantnaamMail}`.trim();
+      const tekst = veiligeStr(body.tekst) || vulMailIn(basisTekst, plaatshouders) || "Bijgaand ontvangt u de notulen.";
+
+      // Het stuk renderen en (opnieuw) in de SharePoint-map van de cliënt zetten, zodat de mail en de
+      // taak naar hetzelfde document verwijzen als het logboek.
+      const pdf = await blokkenNaarPdf(blokken, null);
+      const bestandsnaam = veiligeBestandsnaam(body.bestandsnaamBasis || `Notulen${klantnaamMail ? " - " + klantnaamMail : ""}${datumMail ? " - " + datumMail : ""}`);
+      const submap = await haalSubmap();
+      const sharepoint = await naarSharepoint({ accountId, submap, bestandsnaam, buffer: pdf });
+
+      let taak = { gedaan: false, reden: "" };
+      if (variant === "ondertekenen") {
+        const token = await haalDynamicsToken();
+        taak = await maakOndertekentaak({
+          context, resource, token, accountId, klantnaam: klantnaamMail, cfg: taakCfg,
+          onderwerp: vulMailIn(veiligeStr(taakCfg.onderwerp), plaatshouders),
+          documentUrl: sharepoint.url || "",
+        });
+      }
+
+      const mail = await verstuurMailMetBijlage({
+        naar,
+        cc: Array.isArray(body.cc) ? body.cc : (veiligeStr(body.cc) ? [veiligeStr(body.cc)] : []),
+        onderwerp,
+        html: alsHtml(tekst),
+        bijlagen: [{ naam: bestandsnaam, contentType: PDF_TYPE, inhoud: pdf }],
+        afzender: veiligeStr(mailCfg.afzender),
+      });
+
+      // In het logboek bijhouden dat (en hoe) het stuk de deur uit is.
+      if (veiligeStr(body.dossierId)) {
+        try {
+          await bewaar({
+            dossierId: veiligeStr(body.dossierId),
+            accountId, klantnaam: klantnaamMail,
+            pdfUrl: sharepoint.url || "",
+            verstuurd: { op: new Date().toISOString(), variant, naar, onderwerp, taakGedaan: taak.gedaan === true },
+          });
+        } catch (e) {
+          if (context.log) context.log.error("Verstuurgegevens bewaren mislukt:", e);
+        }
+      }
+
+      await logGebeurtenis({
+        door: haalEmailUitPrincipal(req) || "onbekend",
+        actie: "dossier",
+        accountId, accountIds: [accountId], klantnaam: klantnaamMail,
+        tekst: variant === "ondertekenen"
+          ? `Notulen ter ondertekening aangeboden aan ${naar}${taak.gedaan ? " (taak aangemaakt)" : " (taak mislukt)"}.`
+          : `Notulen gemaild naar ${naar}.`,
+      });
+
+      context.res = {
+        headers: { "Content-Type": "application/json" },
+        body: {
+          ok: true, variant, verzonden: true, van: mail && mail.van,
+          pdfUrl: sharepoint.url || "",
+          sharepoint: { gedaan: !!sharepoint.gedaan, reden: sharepoint.reden || "" },
+          taak,
+        },
+      };
+    } catch (err) {
+      if (context.log) context.log.error(err);
+      context.res = { status: 500, headers: { "Content-Type": "application/json" }, body: { error: "Versturen mislukt.", detail: String((err && err.message) || err) } };
     }
     return;
   }

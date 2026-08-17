@@ -110,6 +110,8 @@ async function bewaar(record) {
     besluit: record.besluit != null ? String(record.besluit) : (bestaand.besluit || ""),
     pdfUrl: record.pdfUrl || bestaand.pdfUrl || "",
     bestandsnaam: record.bestandsnaam || bestaand.bestandsnaam || "",
+    // Laatste verzending (mail of ter ondertekening) — voor het logboek.
+    verstuurd: record.verstuurd || bestaand.verstuurd || null,
     opgesteldOp: new Date().toISOString(),
     opgesteldDoor: record.opgesteldDoor || bestaand.opgesteldDoor || "",
     aangemaaktOp: bestaand.aangemaaktOp || new Date().toISOString(),

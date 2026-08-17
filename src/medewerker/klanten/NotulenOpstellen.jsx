@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Search, X, Printer, Copy, CheckCircle2, AlertTriangle, ArrowLeft, Plus, Trash2, Users, RotateCcw,
-  Save, Loader2, FileText,
+  Save, Loader2, FileText, Mail, FileSignature,
 } from "lucide-react";
 import { ontleedDocument, heeftEigenKop, blokkenNaarHtml, AFDRUK_CSS } from "../documentOpmaak";
-import { NOTULEN_SJABLONEN, steltNotulenSamen, haalBesluitUitTekst } from "../../beheer/notulenSjablonen";
+import { steltNotulenSamen, haalBesluitUitTekst } from "../../beheer/notulenSjablonen";
 import { useMijnNaam } from "../MijnFilter";
 import { normaliseerSleutel, vulSjabloonIn, bouwMergeWaarden } from "../dossierMerge";
 
@@ -73,16 +73,10 @@ function aandeelhoudersTekst(rijen) {
     .join("\n");
 }
 
-/** De vijf standaardmodellen als terugval zolang Beheer → Dossiers nog geen sjablonen heeft. */
-function standaardSjablonen() {
-  return NOTULEN_SJABLONEN.map((s, i) => ({ id: `std${i}`, naam: s.naam, tekst: s.tekst, besluit: s.besluit, standaard: true }));
-}
-
 export default function NotulenOpstellen({ onTerug, openStuk = null }) {
   const { mijnNaam } = useMijnNaam();
 
   const [sjablonen, setSjablonen] = useState(null); // null = laden
-  const [sjabloonBron, setSjabloonBron] = useState(""); // "beheer" | "standaard"
   const [klanten, setKlanten] = useState(null);
   const [klantFout, setKlantFout] = useState("");
   const [medewerkers, setMedewerkers] = useState([]); // voor het opzoeken van de notulist
@@ -98,7 +92,9 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
   const [vestigingsplaats, setVestigingsplaats] = useState("");
   const [datumactie, setDatumactie] = useState(vandaagISO());
   const [voorzitter, setVoorzitter] = useState("");
+  const [emailVoorzitter, setEmailVoorzitter] = useState("");
   const [notulist, setNotulist] = useState("");
+  const [emailNotulist, setEmailNotulist] = useState("");
   const [aandeelhouders, setAandeelhouders] = useState([{ naam: "", percentage: "100" }]);
 
   // De veldencatalogus van de soort Notulen — alleen nog om te herkennen wélk invulveld toevallig
@@ -124,6 +120,10 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
   const [opgeslagenOoit, setOpgeslagenOoit] = useState(false);
   const [pdfUrl, setPdfUrl] = useState("");
   const [eerdere, setEerdere] = useState([]); // eerder opgestelde notulen van deze cliënt
+  // Versturen: mailen of ter ondertekening aanbieden. null = dicht; anders { variant, naar, cc, onderwerp, tekst }.
+  const [verstuurModal, setVerstuurModal] = useState(null);
+  const [verstuurBezig, setVerstuurBezig] = useState(false);
+  const [mailCfg, setMailCfg] = useState(null); // instellingen.notulenMail (onderwerp/tekst per variant)
 
   const [melding, setMelding] = useState(null);
   const levend = useRef(true);
@@ -144,17 +144,21 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
           standaard: (d.sjabloonOpbouw && d.sjabloonOpbouw.standaard) || null,
         });
         setVelddefinities(Array.isArray(d.sjabloonOpbouw && d.sjabloonOpbouw.velddefinities) ? d.sjabloonOpbouw.velddefinities : []);
-        const uitBeheer = Array.isArray(d.sjablonen) ? d.sjablonen.filter((s) => s && (veiligeStr(s.tekst) || veiligeStr(s.besluit))) : [];
-        if (uitBeheer.length) { setSjablonen(uitBeheer); setSjabloonBron("beheer"); }
-        else { setSjablonen(standaardSjablonen()); setSjabloonBron("standaard"); }
+        // Modellen komen alléén uit Beheer → Notulen; er zijn geen ingebouwde standaardmodellen meer
+        // (je maakt ze zelf, net als de standaardbrieven).
+        setSjablonen(Array.isArray(d.sjablonen) ? d.sjablonen.filter((s) => s && (veiligeStr(s.tekst) || veiligeStr(s.besluit))) : []);
       })
-      .catch(() => { if (levend.current) { setSjablonen(standaardSjablonen()); setSjabloonBron("standaard"); } });
+      .catch(() => { if (levend.current) setSjablonen([]); });
     fetch("/api/beheer-klanten")
       .then((r) => (r.ok ? r.json() : Promise.reject(r)))
       .then((d) => { if (levend.current) setKlanten(d.klanten || []); })
       .catch(() => { if (levend.current) { setKlanten([]); setKlantFout("De klantenlijst kon niet worden geladen."); } });
     // Medewerkers: alleen voor het opzoeken van de notulist. Best-effort — lukt dit niet, dan blijft
     // die suggestielijst leeg en typ je de naam gewoon zelf.
+    fetch("/api/instellingen")
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((d) => { if (levend.current) setMailCfg((d && d.notulenMail) || {}); })
+      .catch(() => { if (levend.current) setMailCfg({}); });
     fetch("/api/beheer-medewerkers")
       .then((r) => (r.ok ? r.json() : Promise.reject(r)))
       .then((d) => { if (levend.current) setMedewerkers(d.medewerkers || []); })
@@ -185,6 +189,7 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
     // Voorzitter: de contactpersoon van de cliënt, of de vaste naam uit Beheer.
     const st = opbouw.standaard || {};
     setVoorzitter(st.voorzitterBron === "vast" && veiligeStr(st.voorzitterVast) ? veiligeStr(st.voorzitterVast) : contactNaam);
+    setEmailVoorzitter(veiligeStr(klant.contact && klant.contact.email) || veiligeStr(klant.emailKlant));
     setAandeelhouders([{ naam: contactNaam, percentage: "100" }]);
     setMelding(null);
     // Een andere cliënt = een ander stuk: de koppeling met het vorige notulendossier loslaten. Het
@@ -289,6 +294,8 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
   const dossierVeldenUitStuk = useMemo(() => {
     const uit = {};
     if (veiligeStr(voorzitter)) uit.directeur = veiligeStr(voorzitter);
+    if (veiligeStr(emailVoorzitter)) uit.emailvoorzitter = veiligeStr(emailVoorzitter);
+    if (veiligeStr(emailNotulist)) uit.emailnotulist = veiligeStr(emailNotulist);
     for (const [sleutel, waarde] of Object.entries(invulwaarden || {})) {
       const def = catalogus.find((v) => v && v.key === sleutel && v.type !== "lookup" && !String(v.key).startsWith("__"));
       if (!def) continue;
@@ -296,7 +303,7 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
       uit[sleutel] = waarde;
     }
     return uit;
-  }, [voorzitter, invulwaarden, catalogus]);
+  }, [voorzitter, emailVoorzitter, emailNotulist, invulwaarden, catalogus]);
 
   // De vrije invulvelden die bij het gekozen model horen (Beheer bepaalt welke), in de volgorde
   // waarin ze in Beheer staan.
@@ -343,11 +350,14 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
     // In de modellen heet de voorzitter "directeur" (zo heet de kolom in Dynamics ook).
     zet("voorzitter", voorzitter);
     zet("directeur", voorzitter);
+    zet("emailvoorzitter", emailVoorzitter);
+    zet("emailnotulist", emailNotulist);
+    zet("datumnotulen", langeDatum(datumactie));
     zet("aandeelhouders", aandeelhoudersTekst(aandeelhouders));
     // De vrije invulvelden als laatste: die horen bij dít stuk en winnen dus van gelijknamige velden.
     for (const [sleutel, waarde] of Object.entries(invulwaarden || {})) zet(sleutel, waarde);
     return m;
-  }, [klant, vestigingsplaats, datumactie, voorzitter, notulist, aandeelhouders, invulwaarden]);
+  }, [klant, vestigingsplaats, datumactie, voorzitter, emailVoorzitter, notulist, emailNotulist, aandeelhouders, invulwaarden]);
 
   // Het stuk = vaste kop (Beheer) + het besluit van dit stuk + vaste staart (Beheer). Zo staan de
   // aandeelhouders en het ondertekenblok altijd in de centrale tekst en bewegen ze mee met wat je
@@ -437,7 +447,7 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
           zichtbareSleutels: Object.keys(dossierVeldenUitStuk),
           // …en dit zijn de gegevens die het scherm zelf beheert; die worden bewaard zodat je het
           // stuk later kunt heropenen (vooral de aandeelhoudersnamen — die passen niet in Dynamics).
-          velden: { vestigingsplaats, voorzitter, notulist },
+          velden: { vestigingsplaats, voorzitter, emailVoorzitter, notulist, emailNotulist },
           invulwaarden,
           aandeelhouders,
           // De blokken zoals ze rechts in het voorbeeld staan — de PDF gebruikt exact dezelfde.
@@ -488,7 +498,9 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
     setDatumactie(veiligeStr(r.datum) || vandaagISO());
     setVestigingsplaats(veiligeStr(v.vestigingsplaats));
     setVoorzitter(veiligeStr(v.voorzitter) || veiligeStr(v.directeur));
+    setEmailVoorzitter(veiligeStr(v.emailVoorzitter));
     setNotulist(veiligeStr(v.notulist));
+    setEmailNotulist(veiligeStr(v.emailNotulist));
     if (r.invulwaarden && typeof r.invulwaarden === "object") setInvulwaarden(r.invulwaarden);
     // De dossiervelden terugzetten. Oudere records (van vóór de dossiervelden in dit scherm) hadden
     // directeur/bedrag/percentage/toelichting los in "velden" staan — die nemen we netjes over.
@@ -502,6 +514,70 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
     }));
     setAandeelhouders(Array.isArray(r.aandeelhouders) && r.aandeelhouders.length ? r.aandeelhouders : [{ naam: "", percentage: "100" }]);
     setMelding({ type: "ok", tekst: "Eerder opgestelde notulen teruggehaald — opslaan werkt hetzelfde dossier bij." });
+  }
+
+  /** Het verstuurvenster openen met de tekst uit Beheer, per variant. */
+  function openVersturen(variant) {
+    if (!klant || leeg) return;
+    const cfg = mailCfg || {};
+    const ond = (cfg.ondertekening && typeof cfg.ondertekening === "object") ? cfg.ondertekening : {};
+    const vul = (t) => String(t || "").replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_, k) => {
+      const key = String(k).toLowerCase().replace(/[^a-z0-9]/g, "");
+      if (key === "klantnaam") return veiligeStr(klant.klantnaam);
+      if (key === "datum") return langeDatum(datumactie);
+      if (key === "jaar") return veiligeStr(datumactie).slice(0, 4);
+      return "";
+    });
+    const onderwerp = variant === "ondertekenen" ? (veiligeStr(ond.onderwerp) || veiligeStr(cfg.onderwerp)) : veiligeStr(cfg.onderwerp);
+    const tekst = variant === "ondertekenen" ? (veiligeStr(ond.tekst) || veiligeStr(cfg.tekst)) : veiligeStr(cfg.tekst);
+    setMelding(null);
+    setVerstuurModal({
+      variant,
+      naar: veiligeStr(emailVoorzitter),
+      cc: veiligeStr(emailNotulist),
+      onderwerp: vul(onderwerp) || `Notulen ${veiligeStr(klant.klantnaam)}`,
+      tekst: vul(tekst) || "Bijgaand ontvangt u de notulen.",
+    });
+  }
+
+  async function verstuur() {
+    const m = verstuurModal;
+    if (!m || !klant) return;
+    if (!veiligeStr(m.naar)) { setMelding({ type: "fout", tekst: "Vul het e-mailadres van de ontvanger in." }); return; }
+    setVerstuurBezig(true);
+    try {
+      const res = await fetch("/api/medewerker-notulen-opslaan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          actie: "versturen",
+          variant: m.variant,
+          accountId: klant.accountId,
+          klantnaam: veiligeStr(klant.klantnaam),
+          dossierId: dossierId || undefined,
+          datum: datumactie,
+          naar: veiligeStr(m.naar),
+          cc: veiligeStr(m.cc).split(/[,;]/).map((x) => x.trim()).filter(Boolean),
+          onderwerp: m.onderwerp,
+          tekst: m.tekst,
+          blokken,
+          bestandsnaamBasis: bestandsnaam,
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || `Versturen mislukt (${res.status}).`);
+      if (!levend.current) return;
+      setVerstuurModal(null);
+      if (d.pdfUrl) setPdfUrl(d.pdfUrl);
+      const staart = m.variant === "ondertekenen"
+        ? (d.taak && d.taak.gedaan ? " De cliënt heeft een taak gekregen om te ondertekenen." : ` Let op: de taak kon niet worden aangemaakt${d.taak && d.taak.reden ? ` (${d.taak.reden})` : ""}.`)
+        : "";
+      setMelding({ type: (m.variant === "ondertekenen" && !(d.taak && d.taak.gedaan)) ? "fout" : "ok", tekst: `Notulen verstuurd naar ${veiligeStr(m.naar)}.${staart}` });
+    } catch (e) {
+      if (levend.current) setMelding({ type: "fout", tekst: String((e && e.message) || e) });
+    } finally {
+      if (levend.current) setVerstuurBezig(false);
+    }
   }
 
   async function kopieerTekst() {
@@ -593,10 +669,10 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
                 </div>
               </>
             )}
-            {sjabloonBron === "standaard" && (
-              <div style={{ marginTop: 6, fontSize: 11.5, color: KLEUR.mutedTekst }}>
-                Dit zijn de vijf standaardmodellen uit de code. Wil je ze aanpassen, zet ze dan via
-                Beheer → Notulen (knop “Standaard-notulen toevoegen”).
+            {sjablonen !== null && sjablonen.length === 0 && (
+              <div style={{ marginTop: 6, fontSize: 11.5, color: KLEUR.goud }}>
+                Er zijn nog geen notulenmodellen. Maak ze aan bij Beheer → Notulen — net als de standaardbrieven:
+                een naam, het besluit (punt I) en de invulvelden die erbij horen.
               </div>
             )}
           </div>
@@ -610,7 +686,7 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
                 <input value={vestigingsplaats} onChange={(e) => setVestigingsplaats(e.target.value)} style={input} placeholder="plaats" />
               </div>
               <div style={{ flex: "1 1 160px" }}>
-                <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>Datum vergadering</div>
+                <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>Datum notulen</div>
                 <input type="date" value={datumactie} onChange={(e) => setDatumactie(e.target.value)} style={input} />
               </div>
               <div style={{ flex: "1 1 180px", display: "flex", flexDirection: "column" }}>
@@ -620,12 +696,20 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
                   bronnen={["contact", "klant"]} klanten={klanten} medewerkers={medewerkers} invoerStijl={input}
                 />
               </div>
+              <div style={{ flex: "1 1 200px" }}>
+                <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>E-mail voorzitter</div>
+                <input value={emailVoorzitter} onChange={(e) => setEmailVoorzitter(e.target.value)} style={input} placeholder="naam@bedrijf.nl" />
+              </div>
               <div style={{ flex: "1 1 180px", display: "flex", flexDirection: "column" }}>
                 <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>Notulist</div>
                 <NaamZoeker
                   waarde={notulist} opWaarde={setNotulist} placeholder="zoek of typ een naam…"
                   bronnen={["medewerker", "contact"]} klanten={klanten} medewerkers={medewerkers} invoerStijl={input}
                 />
+              </div>
+              <div style={{ flex: "1 1 200px" }}>
+                <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>E-mail notulist</div>
+                <input value={emailNotulist} onChange={(e) => setEmailNotulist(e.target.value)} style={input} placeholder="naam@activaa.nl" />
               </div>
             </div>
           </div>
@@ -762,6 +846,12 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
               <button style={knop(KLEUR.groen, !!klant && !leeg && !opslaanBezig)} disabled={!klant || leeg || opslaanBezig} onClick={opslaan}>
                 {opslaanBezig ? <Loader2 size={15} className="spin" /> : <Save size={15} />} {opslaanBezig ? "Opslaan…" : (opgeslagenOoit ? "Opnieuw opslaan" : "Opslaan in dossier")}
               </button>
+              <button style={{ ...knopLicht, opacity: klant && !leeg ? 1 : 0.5, cursor: klant && !leeg ? "pointer" : "not-allowed" }} disabled={!klant || leeg} onClick={() => openVersturen("mail")}>
+                <Mail size={15} /> Mailen
+              </button>
+              <button style={{ ...knopLicht, opacity: klant && !leeg ? 1 : 0.5, cursor: klant && !leeg ? "pointer" : "not-allowed" }} disabled={!klant || leeg} onClick={() => openVersturen("ondertekenen")}>
+                <FileSignature size={15} /> Ter ondertekening
+              </button>
               <button style={knop(KLEUR.blauw, !leeg)} disabled={leeg} onClick={afdrukken}><Printer size={15} /> Afdrukken / PDF</button>
               <button style={{ ...knopLicht, opacity: leeg ? 0.5 : 1, cursor: leeg ? "not-allowed" : "pointer" }} disabled={leeg} onClick={kopieerTekst}><Copy size={15} /> Tekst kopiëren</button>
             </div>
@@ -828,6 +918,46 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
           </div>
         </div>
       </div>
+
+      {verstuurModal && (
+        <div onClick={() => !verstuurBezig && setVerstuurModal(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(28,35,33,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 14, padding: 24, width: "100%", maxWidth: 620, maxHeight: "88vh", overflowY: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.2)" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>
+              {verstuurModal.variant === "ondertekenen" ? "Ter ondertekening aanbieden" : "Notulen mailen"}
+            </div>
+            <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 16 }}>
+              {verstuurModal.variant === "ondertekenen"
+                ? "De notulen gaan als PDF mee én de cliënt krijgt een taak om te ondertekenen. Onderwerp en tekst komen uit Beheer → Notulen; hier kun je ze per keer nog aanpassen."
+                : "De notulen gaan als PDF-bijlage mee. Onderwerp en tekst komen uit Beheer → Notulen; hier kun je ze per keer nog aanpassen."}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 12 }}>
+              <div style={{ flex: "1 1 240px" }}>
+                <span style={label}>E-mail ontvanger</span>
+                <input value={verstuurModal.naar} onChange={(e) => setVerstuurModal((h) => ({ ...h, naar: e.target.value }))} style={input} placeholder="naam@bedrijf.nl" />
+              </div>
+              <div style={{ flex: "1 1 200px" }}>
+                <span style={label}>CC (optioneel)</span>
+                <input value={verstuurModal.cc} onChange={(e) => setVerstuurModal((h) => ({ ...h, cc: e.target.value }))} style={input} placeholder="cc@… (komma-gescheiden)" />
+              </div>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <span style={label}>Onderwerp</span>
+              <input value={verstuurModal.onderwerp} onChange={(e) => setVerstuurModal((h) => ({ ...h, onderwerp: e.target.value }))} style={input} />
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <span style={label}>Berichttekst</span>
+              <textarea value={verstuurModal.tekst} onChange={(e) => setVerstuurModal((h) => ({ ...h, tekst: e.target.value }))} rows={8} style={{ ...input, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }} />
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button onClick={() => setVerstuurModal(null)} disabled={verstuurBezig} style={{ ...knopLicht, opacity: verstuurBezig ? 0.6 : 1 }}>Annuleren</button>
+              <button onClick={verstuur} disabled={verstuurBezig || !veiligeStr(verstuurModal.naar)} style={knop(KLEUR.groen, !verstuurBezig && !!veiligeStr(verstuurModal.naar))}>
+                {verstuurBezig ? <Loader2 size={15} className="spin" /> : <Mail size={15} />} {verstuurBezig ? "Versturen…" : "Versturen"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`@keyframes notulenspin{to{transform:rotate(360deg)}} .spin{animation:notulenspin 1s linear infinite}`}</style>
     </div>
