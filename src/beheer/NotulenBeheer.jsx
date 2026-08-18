@@ -1,5 +1,5 @@
 import { Info } from "lucide-react";
-import DossierSjablonenPerSoort, { DossierMailTaakPerSoort, DossierBijlagePerSoort } from "./DossierSjablonenBeheer";
+import DossierSjablonenPerSoort, { DossierMailTaakPerSoort, DossierBijlagePerSoort, NotulenOpslagInstellingen } from "./DossierSjablonenBeheer";
 
 /**
  * Beheer → Notulen — het notulenbeheer als eigen tabblad, net als Brieven.
@@ -35,6 +35,8 @@ export default function NotulenBeheer() {
       <DossierSjablonenPerSoort soort="notulen" />
       <DossierBijlagePerSoort soort="notulen" />
       <DossierMailTaakPerSoort soort="notulen" />
+      {/* Onderaan, want het is de laatste stap: waar het stuk terechtkomt als je klaar bent. */}
+      <NotulenOpslagInstellingen />
     </div>
   );
 }

@@ -86,7 +86,11 @@ async function naarSharepoint({ accountId, submap, bestandsnaam, buffer }) {
   try {
     const appToken = await haalAppGraphToken();
     const map = await resolveFolder(appToken, basisUrl);
-    const doelId = await ensureFolderPath(appToken, map.driveId, map.itemId, [submap || SUBMAP_STANDAARD]);
+    // De submap uit Beheer mag een PAD zijn ("0. Correspondentie/0. Uitgaande documenten"): opsplitsen
+    // in losse mapnamen, anders zou Graph één map met een schuine streep in de naam moeten maken — en
+    // dat kan niet. Ontbrekende tussenmappen worden aangemaakt (ensureFolderPath).
+    const segmenten = String(submap || SUBMAP_STANDAARD).split("/").map((s) => s.trim()).filter(Boolean);
+    const doelId = await ensureFolderPath(appToken, map.driveId, map.itemId, segmenten.length ? segmenten : [SUBMAP_STANDAARD]);
     const geupload = await uploadBestand(appToken, map.driveId, doelId, bestandsnaam, buffer, PDF_TYPE);
     return { gedaan: true, url: (geupload && geupload.webUrl) || "" };
   } catch (e) {

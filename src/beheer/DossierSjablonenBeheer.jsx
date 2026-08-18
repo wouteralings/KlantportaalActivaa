@@ -43,6 +43,13 @@ const VASTE_PLAATSHOUDERS = [
   { key: "datum", label: "Datum van vandaag" },
 ];
 
+// Alleen bij notulen: de naam van het gekozen notulenmodel, zodat je die in de vaste tekst of in het
+// besluit kunt gebruiken ("Notulen inzake {{naamnotulen}}"). Bij het opstellen wordt hij ingevuld met
+// het model dat de medewerker daar kiest.
+const NOTULEN_PLAATSHOUDERS = [
+  { key: "naamnotulen", label: "Naam van de notulen (het gekozen model)" },
+];
+
 /** Sleutel uit een label: kleine letters, alleen a-z0-9 — zelfde regel als bij de standaardbrieven. */
 function slug(v) { return String(v || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, ""); }
 
@@ -244,6 +251,7 @@ export default function DossierSjablonenPerSoort({ soort }) {
   // chips staan omdat ze gewoon in de Dynamics-catalogus zitten; dat maakte de lijst onleesbaar.
   const plaatshouders = [
     ...VASTE_PLAATSHOUDERS,
+    ...(isNotulen ? NOTULEN_PLAATSHOUDERS : []),
     ...(catalogus || [])
       .filter((v) => v && v.key && !String(v.key).startsWith("__"))
       .filter((v) => !(isNotulen && /aandeelhouder/i.test(String(v.key))))
@@ -303,6 +311,26 @@ export default function DossierSjablonenPerSoort({ soort }) {
             rows={10}
             style={{ ...invoerStijl, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }}
           />
+        </div>
+        {/* De merge-velden horen ook hier: sinds de vaste tekst een eigen hoofdstuk is, staan de
+            chips van de modellen in een andere kaart en zou je ze in de kop/staart niet meer kunnen
+            aanklikken. Klikken voegt in op de cursor in het veld waar je het laatst stond. */}
+        <div style={{ marginTop: 14 }}>
+          <span style={labelStijl}>Merge-velden — klik om in te voegen</span>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {plaatshouders.map((p) => (
+              <button
+                key={p.key}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()} /* focus op de tekstarea behouden */
+                onClick={() => voegIn(`{{${p.key}}}`)}
+                title={p.label}
+                style={{ border: `1px solid ${KLEUR.rand}`, background: "#F7F8F6", color: KLEUR.tekst, borderRadius: 999, padding: "4px 10px", fontSize: 11.5, fontWeight: 600, cursor: "pointer" }}
+              >
+                {"{{" + p.key + "}}"}
+              </button>
+            ))}
+          </div>
         </div>
         {/* "Standaard voorzitter en notulist" stond hier; op verzoek uit het beheerscherm
             gehaald. Het voorstel blijft ongewijzigd werken: in "Notulen opstellen" is de
@@ -1168,5 +1196,95 @@ export function DossierMailTaakPerSoort({ soort }) {
         </div>
       </div>
     </>
+  );
+}
+
+/**
+ * Beheer → Notulen → "Opslaan in klantdossier" (onderaan de pagina).
+ *
+ * Eén instelling: de submap onder de SharePoint-map van de cliënt waarin de notulen belanden. Elke
+ * opgestelde notulen wordt ALTIJD als PDF in die map gezet — bij "Opslaan in dossier", bij "Mailen"
+ * en bij "Ter ondertekening". Er is dus bewust geen aan/uit-schakelaar: een notulen zonder stuk in
+ * het dossier is geen notulen. De link naar dat bestand komt op het notulendossier (URL dossier) en
+ * in het notulenlogboek te staan.
+ *
+ * Slaat op als instellingen.notulenMap — dezelfde sleutel die api/medewerker-notulen-opslaan leest.
+ * Dat is bewust een ándere instelling dan de submap bij "Bijlage-dropzone" (notulenBijlageMap): die
+ * gaat over losse bestanden die je in het dossier sleept, niet over het notulenstuk zelf.
+ */
+export function NotulenOpslagInstellingen() {
+  const STANDAARD = "Notulen";
+  const [map, setMap] = useState("");
+  const [geladen, setGeladen] = useState(false);
+  const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
+  const [fout, setFout] = useState("");
+
+  useEffect(() => {
+    let actief = true;
+    fetch("/api/beheer-instellingen")
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((inst) => {
+        if (!actief) return;
+        setMap(typeof inst.notulenMap === "string" ? inst.notulenMap : "");
+        setGeladen(true);
+      })
+      .catch(() => { if (actief) { setFout("De instellingen konden niet worden geladen."); setGeladen(true); } });
+    return () => { actief = false; };
+  }, []);
+
+  async function opslaan() {
+    setStatus("bezig"); setFout("");
+    try {
+      const res = await fetch("/api/beheer-instellingen", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notulenMap: map.trim() || STANDAARD }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Opslaan mislukt.");
+      setStatus("opgeslagen"); setTimeout(() => setStatus("rust"), 2500);
+    } catch (e) { setStatus("fout"); setFout(String(e.message || e)); }
+  }
+
+  return (
+    <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, background: "#fff", padding: "16px 16px 18px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+        <FileText size={16} color={KLEUR.blauw} />
+        <span style={{ fontSize: 14, fontWeight: 700, color: KLEUR.tekst }}>Opslaan in klantdossier</span>
+      </div>
+      <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 12, maxWidth: 680 }}>
+        Notulen worden <strong>altijd als PDF</strong> in de SharePoint-map van de cliënt gezet — bij
+        Opslaan, bij Mailen én bij Ter ondertekening. Hieronder bepaal je in welke submap. De link naar
+        het bestand komt op het notulendossier en in het notulenlogboek te staan.
+      </div>
+      {!geladen ? (
+        <div style={{ fontSize: 13, color: KLEUR.mutedTekst }}>Instellingen laden…</div>
+      ) : (
+        <>
+          <span style={veldLabel}>SharePoint-submap</span>
+          <input
+            value={map}
+            onChange={(e) => { setMap(e.target.value); setStatus("rust"); }}
+            placeholder={STANDAARD}
+            style={{ ...witInvoer, maxWidth: 460 }}
+          />
+          <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4, maxWidth: 680 }}>
+            Pad onder de SharePoint-map van de cliënt. Meerdere niveaus mag, gescheiden met een schuine
+            streep — bijvoorbeeld <code style={{ background: "#F7F8F6", padding: "1px 4px", borderRadius: 4, border: `1px solid ${KLEUR.rand}` }}>0. Correspondentie/0. Uitgaande documenten</code>.
+            Bestaat een map nog niet, dan wordt hij aangemaakt. Leeg = “{STANDAARD}”.
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 14 }}>
+            <button
+              onClick={opslaan}
+              disabled={status === "bezig"}
+              style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: status === "bezig" ? "#9DB4A5" : KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: status === "bezig" ? "default" : "pointer" }}
+            >
+              <Save size={14} /> {status === "bezig" ? "Opslaan…" : "Opslaan"}
+            </button>
+            {status === "opgeslagen" && <span style={{ fontSize: 12.5, color: KLEUR.groen }}>Opgeslagen.</span>}
+            {(status === "fout" || fout) && <span style={{ fontSize: 12.5, color: KLEUR.rood }}>{fout || "Opslaan mislukt."}</span>}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
