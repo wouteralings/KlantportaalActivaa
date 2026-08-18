@@ -3417,13 +3417,21 @@ function DossierVoorbeeldModal({ dossier, soortLabel, periodeTekst, catalogus, v
   const gekozen = sjablonen.find((s) => s.id === gekozenId) || sjablonen[0] || null;
 
   const mergeWaarden = bouwMergeWaarden({ dossier, periodeTekst, catalogus, veldenState, picklistOpties, lookupNamen });
-  const tekst = gekozen ? vulSjabloonIn(gekozen.tekst, mergeWaarden) : "";
+  // De vaste kop en staart uit Beheer gelden voor álle stukken van deze soort en staan om de tekst
+  // van het gekozen model heen. Zijn ze niet ingesteld, dan is het stuk gewoon de modeltekst — net
+  // als voorheen.
+  const vasteKop = String((sjabloon && sjabloon.kop) || "");
+  const vasteStaart = String((sjabloon && sjabloon.staart) || "");
+  const ruweTekst = gekozen
+    ? [vasteKop.replace(/\s+$/, ""), String(gekozen.tekst || "").trim(), vasteStaart.replace(/^\s+/, "")].filter((d) => d.trim()).join("\n\n")
+    : "";
+  const tekst = vulSjabloonIn(ruweTekst, mergeWaarden);
   // Lichte opmaak (titel, koppen, opsommingen, ondertekenblok) — zie documentOpmaak.js. Scherm en
   // afdruk gebruiken dezelfde blokken, dus wat je ziet is wat je print.
   const blokken = ontleedDocument(tekst);
-  const eigenKop = heeftEigenKop(gekozen ? gekozen.tekst : "");
+  const eigenKop = heeftEigenKop(ruweTekst);
   const subkop = `${soortLabel}${periodeTekst ? " · " + periodeTekst : ""}`;
-  const leeg = !gekozen || !String(gekozen.tekst || "").trim();
+  const leeg = !ruweTekst.trim();
 
   const afdrukken = () => {
     if (leeg) return;
@@ -3530,7 +3538,7 @@ function DossierVoorbeeldModal({ dossier, soortLabel, periodeTekst, catalogus, v
             {leeg ? (
               <div style={{ color: KLEUR.mutedTekst, fontStyle: "italic" }}>
                 {sjablonen.length === 0
-                  ? "Er zijn nog geen voorbeeld-sjablonen ingesteld voor deze soort. Stel ze in via Beheer → Dossiers → “Voorbeelddocumenten”."
+                  ? "Er zijn nog geen voorbeeld-sjablonen ingesteld voor deze soort. Stel ze in via Beheer → Dividend → “Voorbeelddocumenten”."
                   : "Dit sjabloon heeft nog geen tekst."}
               </div>
             ) : (

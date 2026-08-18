@@ -4,8 +4,11 @@ import DossierSjablonenPerSoort, { DossierMailTaakPerSoort } from "./DossierSjab
 
 // Soorten met een voorbeeld-documentmodule (blanco A4 in het dossier) — het bijbehorende
 // "Voorbeelddocumenten"-blok komt onder de indelingskaart van die soort te hangen (zie de export
-// onderaan). Vooralsnog alleen notulen en dividenduitkering (op verzoek van Wouter).
-const SOORTEN_MET_SJABLONEN = new Set(["notulen", "dividend"]);
+// onderaan). Leeg: notulen en dividend hebben inmiddels een eigen tabblad in het beheerdersportaal
+// (Beheer → Notulen / Beheer → Dividend), waar de vaste tekst, de modellen, de bijlage en de mail bij
+// elkaar staan. Hier blijft alleen de VELDINDELING van het dossier over — dat gaat over het dossier,
+// niet over het stuk. De set blijft staan zodat een volgende soort er zo weer in kan.
+const SOORTEN_MET_SJABLONEN = new Set([]);
 
 /** Zelfde palet als de rest van het beheerdersportaal (bewust hier herhaald, zie bijv.
  *  ContractenTypesBeheer.jsx — deze bestanden staan bewust op zichzelf). */
@@ -1635,9 +1638,9 @@ function SoortIndelingPaneel({ soort, onderaan }) {
         </div>
       )}
 
-      {/* Notulen/dividend: dezelfde geblokte layout als de IB/VPB-"aangifte versturen"-blokken, maar dan
-          voor de bijlage-mail (<soort>Mail) en de klant-taak (<soort>Taak). Op dezelfde plek in het paneel. */}
-      {(soort === "notulen" || soort === "dividend") && <DossierMailTaakPerSoort soort={soort} />}
+      {/* De mail- en taakinstellingen van notulen en dividend stonden hier; die zijn verhuisd naar hun
+          eigen tabblad (Beheer → Notulen / Beheer → Dividend), samen met de vaste tekst en de modellen.
+          In dit paneel blijft alleen de veldindeling van het dossier over. */}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 18 }}>
         {(secties || []).map((sectie, sectieIndex) => {

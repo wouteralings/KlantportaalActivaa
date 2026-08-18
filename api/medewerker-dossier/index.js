@@ -148,15 +148,22 @@ async function gekoppeldeLijstIdVoorDossier(onderwerpId) {
  *  vorm { standaard, perSoort } (die wordt naar de sjablonen-lijst gemigreerd). Best-effort: zonder
  *  (leesbare) instellingen gewoon leeg — dat mag het openen van het dossier niet blokkeren. */
 async function haalSjabloonVoor(soortKey) {
-  if (soortKey !== "notulen" && soortKey !== "dividend") return { sjablonen: [] };
+  if (soortKey !== "notulen" && soortKey !== "dividend") return { sjablonen: [], kop: "", staart: "" };
   try {
     const { dossierSjablonen } = await haalInstellingen();
     const eigen = dossierSjablonen && dossierSjablonen[soortKey];
+    // De vaste kop en staart gelden voor álle stukken van deze soort (Beheer → Notulen / Dividend →
+    // "Vaste tekst"). Het voorbeeldscherm zet ze om het gekozen model heen; leeg = niets ervoor of
+    // erna, precies zoals het vóór deze instelling werkte.
+    const kop = eigen && typeof eigen.kop === "string" ? eigen.kop : "";
+    const staart = eigen && typeof eigen.staart === "string" ? eigen.staart : "";
     if (eigen && Array.isArray(eigen.sjablonen)) {
       const sjablonen = eigen.sjablonen
         .filter((s) => s && (s.naam != null || s.tekst != null))
+        // Op inactief gezet in Beheer → niet meer aanbieden. Alles wat er al stond telt als actief.
+        .filter((s) => s.actief !== false)
         .map((s, i) => ({ id: s.id || `s${i}`, naam: String(s.naam || "Naamloos sjabloon"), tekst: String(s.tekst || "") }));
-      return { sjablonen };
+      return { sjablonen, kop, staart };
     }
     // Terugwaartse compat: oude vorm { standaard, perSoort } → één of meer sjablonen.
     const sjablonen = [];
@@ -164,9 +171,9 @@ async function haalSjabloonVoor(soortKey) {
     if (eigen && eigen.perSoort && typeof eigen.perSoort === "object") {
       for (const [k, v] of Object.entries(eigen.perSoort)) if (v && String(v).trim()) sjablonen.push({ id: `soort_${k}`, naam: `Soort ${k}`, tekst: String(v) });
     }
-    return { sjablonen };
+    return { sjablonen, kop, staart };
   } catch {
-    return { sjablonen: [] };
+    return { sjablonen: [], kop: "", staart: "" };
   }
 }
 

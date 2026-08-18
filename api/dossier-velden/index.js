@@ -69,6 +69,10 @@ async function haalSjablonenVoor(soortKey) {
     if (eigen && Array.isArray(eigen.sjablonen)) {
       const sjablonen = eigen.sjablonen
         .filter((s) => s && (s.naam != null || s.tekst != null || s.besluit != null))
+        // Op inactief gezet in Beheer → dan hoort het model niet meer in de keuzelijst bij het
+        // opstellen. Alles wat er al stond telt als actief (actief !== false), dus bestaande
+        // instellingen veranderen niet.
+        .filter((s) => s.actief !== false)
         .map((s, i) => ({
           id: s.id || `s${i}`,
           naam: String(s.naam || "Naamloos sjabloon"),

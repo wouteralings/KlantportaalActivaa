@@ -12,6 +12,7 @@ import ContractenDossierInstellingen from "./ContractenDossierInstellingen";
 import ContractenMailInstellingen from "./ContractenMailInstellingen";
 import BrievenBeheer from "./BrievenBeheer";
 import NotulenBeheer from "./NotulenBeheer";
+import DividendBeheer from "./DividendBeheer";
 import BrievenAfzenderInstellingen from "./BrievenAfzenderInstellingen";
 import GastaccountsOverzicht from "./GastaccountsOverzicht";
 import RollenBeheer from "./RollenBeheer";
@@ -226,7 +227,10 @@ function StandaardartikelFormulierRij({ form, setForm, bezig, onOpslaan, onAnnul
  * "Notulen" stond eerst onder Dossiers en hoort inhoudelijk bij Brieven — mag je één van beide zien,
  * dan zie je Notulen ook. In Rollen & toegang is het daarna gewoon apart aan/uit te zetten.
  */
-const BEHEER_TAB_ERFT_VAN = { notulen: ["dossiers", "brieven"] };
+// Nieuwe tabs erven hun zichtbaarheid van het tabblad waar ze uit zijn losgetrokken: wie Dossiers of
+// Brieven mocht zien, ziet Notulen en Dividend dus ook — anders zou een bestaande rol na de splitsing
+// ineens iets kwijt zijn dat hij eerder wél kon.
+const BEHEER_TAB_ERFT_VAN = { notulen: ["dossiers", "brieven"], dividend: ["dossiers"] };
 
 export default function BeheerPortaal() {
   const [status, setStatus] = useState("laden"); // laden | nietIngelogd | geenRol | klaar
@@ -1601,6 +1605,7 @@ export default function BeheerPortaal() {
           ["offertes", "Offertes"],
           ["brieven", "Brieven"],
           ["notulen", "Notulen"],
+          ["dividend", "Dividend"],
           ["aanleveren", "Uitvraag"],
           ["uren", "Uren"],
           ["dossiers", "Dossiers"],
@@ -3589,6 +3594,7 @@ export default function BeheerPortaal() {
           staart, de modellen met hun besluit en kolommen, de standaard voorzitter/notulist, plus de
           bijlage- en mailinstellingen van de soort Notulen. */}
       {tab === "notulen" && <NotulenBeheer />}
+      {tab === "dividend" && <DividendBeheer />}
 
     </div>
   );

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileText, Save, ChevronDown, ChevronRight, Plus, Trash2, ArrowUp, ArrowDown, Info, X, Search } from "lucide-react";
+import { FileText, Save, ChevronDown, ChevronRight, Plus, Trash2, ArrowUp, ArrowDown, Info, X, Search, CheckCircle2, XCircle } from "lucide-react";
 import { ROMP, STAART, steltNotulenSamen, haalBesluitUitTekst } from "./notulenSjablonen";
 import { AantalKiezer, AANTAL_STANDAARD } from "./AantalKiezer";
 
@@ -76,6 +76,10 @@ function naarLijst(eigen) {
         // De vrije invulvelden (velddefinities hieronder) die bij dít model horen — net als
         // "Invulvelden bij deze brief" bij de standaardbrieven.
         invulvelden: Array.isArray(s.invulvelden) ? s.invulvelden.map(String) : [],
+        // Actief/inactief, net als bij de standaardbrieven: een inactief model verdwijnt uit de
+        // keuzelijst bij het opstellen, maar blijft hier staan en bestaande stukken blijven werken.
+        // Alles wat er al stond telt als actief (actief !== false).
+        actief: s.actief !== false,
       }));
   }
   const lijst = [];
@@ -150,10 +154,13 @@ export default function DossierSjablonenPerSoort({ soort }) {
   }, [soort]);
 
   const isNotulen = soort === "notulen";
+  // Notulen én dividend werken met een vaste kop en staart die voor álle stukken van die soort
+  // gelden; alleen bij notulen zit daar ook nog het besluit-blok (punt I) tussen.
+  const heeftVasteTekst = soort === "notulen" || soort === "dividend";
 
   const toggleKaart = (id) => setOpenIds((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const zet = (id, key, waarde) => setSjablonen((lijst) => lijst.map((s) => (s.id === id ? { ...s, [key]: waarde } : s)));
-  const nieuw = () => { const id = nieuwSjabloonId(); setSjablonen((lijst) => [...lijst, { id, naam: "Nieuw sjabloon", tekst: "", besluit: "", velden: [], invulvelden: [] }]); setOpenIds((s) => new Set([...s, id])); };
+  const nieuw = () => { const id = nieuwSjabloonId(); setSjablonen((lijst) => [...lijst, { id, naam: "Nieuw sjabloon", tekst: "", besluit: "", velden: [], invulvelden: [], actief: true }]); setOpenIds((s) => new Set([...s, id])); };
   const verwijder = (id) => { setSjablonen((lijst) => lijst.filter((s) => s.id !== id)); setOpenIds((s) => { const n = new Set(s); n.delete(id); return n; }); };
   const verplaats = (id, richting) => setSjablonen((lijst) => {
     const i = lijst.findIndex((s) => s.id === id); const j = i + richting;
@@ -224,7 +231,7 @@ export default function DossierSjablonenPerSoort({ soort }) {
         const tekst = isNotulen && besluit.trim()
           ? steltNotulenSamen({ kop, besluit, staart })
           : String(s.tekst || "");
-        return { id: s.id, naam: String(s.naam || "").trim() || "Naamloos sjabloon", tekst, besluit, velden: Array.isArray(s.velden) ? s.velden : [], invulvelden: Array.isArray(s.invulvelden) ? s.invulvelden : [] };
+        return { id: s.id, naam: String(s.naam || "").trim() || "Naamloos sjabloon", tekst, besluit, velden: Array.isArray(s.velden) ? s.velden : [], invulvelden: Array.isArray(s.invulvelden) ? s.invulvelden : [], actief: s.actief !== false };
       });
       const velddefsSchoon = velddefinities
         .map((v) => ({
@@ -234,7 +241,14 @@ export default function DossierSjablonenPerSoort({ soort }) {
           opties: (v.opties || []).map((o) => ({ sleutel: slug(o.sleutel || o.label), label: String(o.label || "").trim(), tekst: String(o.tekst || "") })),
         }))
         .filter((v) => v.sleutel);
-      const nieuweAlle = { ...alle, [soort]: isNotulen ? { sjablonen: schoon, kop, staart, standaard, velddefinities: velddefsSchoon } : { sjablonen: schoon } };
+      // Kop en staart horen bij notulen én dividend; de invulvelden en de standaard voorzitter/notulist
+      // zijn notulen-eigen en laten we bij dividend weg.
+      const nieuweAlle = {
+        ...alle,
+        [soort]: heeftVasteTekst
+          ? { sjablonen: schoon, kop, staart, ...(isNotulen ? { standaard, velddefinities: velddefsSchoon } : {}) }
+          : { sjablonen: schoon },
+      };
       const res = await fetch("/api/beheer-instellingen", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dossierSjablonen: nieuweAlle }) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || "Opslaan mislukt.");
@@ -271,11 +285,15 @@ export default function DossierSjablonenPerSoort({ soort }) {
   const vasteTekstBlok = (
     <>
         <div style={{ fontSize: 12, color: KLEUR.subtekst, margin: "12px 0" }}>
-          Pas je dit aan, dan verandert het in één keer voor alle notulen. Houd de merge-velden staan:
-          <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>{"{{aandeelhouders}}"}</code>
-          vult de aandeelhouders met naam en aandeel in, en
-          <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>[ondertekening] Voorzitter | {"{{directeur}}"}</code>
-          laat het ondertekenblok meelopen met wie je bij het opstellen invult. Zet er een
+          Pas je dit aan, dan verandert het in één keer voor alle {soortLabel.toLowerCase()}. De kop komt
+          vóór en de staart ná de tekst van het gekozen model. Houd de merge-velden staan:
+          {isNotulen && (<>
+            <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>{"{{aandeelhouders}}"}</code>
+            vult de aandeelhouders met naam en aandeel in, en
+            <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>[ondertekening] Voorzitter | {"{{directeur}}"}</code>
+            laat het ondertekenblok meelopen met wie je bij het opstellen invult.{" "}
+          </>)}
+          Zet er een
           vraagteken in —
           <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>{"{{toelichting?}}"}</code>
           — dan is dat stukje optioneel: is het veld in het dossier leeg, dan komt er niets te
@@ -284,13 +302,13 @@ export default function DossierSjablonenPerSoort({ soort }) {
         </div>
         <div style={{ marginBottom: 12 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <span style={labelStijl}>Kop — tot en met “…de navolgende besluiten heeft genomen:”</span>
-            {String(kop || "").trim() !== "" && (
+            <span style={labelStijl}>{isNotulen ? "Kop — tot en met “…de navolgende besluiten heeft genomen:”" : "Kop — boven de tekst van het model"}</span>
+            {isNotulen && String(kop || "").trim() !== "" && (
               <button onClick={() => setKop("")} style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 11.5, fontWeight: 600, cursor: "pointer", padding: 0, marginBottom: 5 }}>Standaardtekst herstellen</button>
             )}
           </div>
           <textarea
-            value={kop || ROMP}
+            value={isNotulen ? (kop || ROMP) : kop}
             onChange={(e) => setKop(e.target.value)}
             onFocus={(e) => { actiefRef.current = { el: e.target, id: "__kop", veld: "kop" }; }}
             rows={10}
@@ -299,13 +317,13 @@ export default function DossierSjablonenPerSoort({ soort }) {
         </div>
         <div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <span style={labelStijl}>Staart — toelichting, besluit, sluiting en ondertekening</span>
-            {String(staart || "").trim() !== "" && (
+            <span style={labelStijl}>{isNotulen ? "Staart — toelichting, besluit, sluiting en ondertekening" : "Staart — onder de tekst van het model"}</span>
+            {isNotulen && String(staart || "").trim() !== "" && (
               <button onClick={() => setStaart("")} style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 11.5, fontWeight: 600, cursor: "pointer", padding: 0, marginBottom: 5 }}>Standaardtekst herstellen</button>
             )}
           </div>
           <textarea
-            value={staart || STAART}
+            value={isNotulen ? (staart || STAART) : staart}
             onChange={(e) => setStaart(e.target.value)}
             onFocus={(e) => { actiefRef.current = { el: e.target, id: "__staart", veld: "staart" }; }}
             rows={10}
@@ -348,7 +366,7 @@ export default function DossierSjablonenPerSoort({ soort }) {
         modellen, maar het is een eigen onderwerp — daarom een eigen kaart, met een eigen Opslaan.
         (Opslaan schrijft altijd het hele notulenblok weg, dus vanuit welke van de twee kaarten je op
         Opslaan drukt maakt niet uit; alles gaat mee.) */}
-    {isNotulen && (
+    {heeftVasteTekst && (
       <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, overflow: "hidden", background: "#fff" }}>
         <button
           onClick={() => setVasteTekstOpen((o) => !o)}
@@ -356,9 +374,9 @@ export default function DossierSjablonenPerSoort({ soort }) {
         >
           {vasteTekstOpen ? <ChevronDown size={16} color={KLEUR.mutedTekst} /> : <ChevronRight size={16} color={KLEUR.mutedTekst} />}
           <FileText size={16} color={KLEUR.blauw} />
-          <span style={{ fontSize: 14, fontWeight: 700, color: KLEUR.tekst }}>Vaste tekst voor alle notulen</span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: KLEUR.tekst }}>Vaste tekst voor alle {soortLabel.toLowerCase()}</span>
           <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>
-            kop en staart{String(kop || "").trim() || String(staart || "").trim() ? " · aangepast" : " · standaardtekst"}
+            kop en staart{String(kop || "").trim() || String(staart || "").trim() ? " · aangepast" : (isNotulen ? " · standaardtekst" : " · nog leeg")}
           </span>
         </button>
         {vasteTekstOpen && (
@@ -407,7 +425,7 @@ export default function DossierSjablonenPerSoort({ soort }) {
               medewerker welk sjabloon hij als voorbeeld (blanco A4) opent. Merge-velden zoals
               <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>{"{{klantnaam}}"}</code>
               worden dan met de dossiergegevens ingevuld. Klik een veld in een sjabloon aan om het op de cursor in te voegen.
-              {isNotulen && <> De <strong>vaste tekst</strong> (kop en staart) staat in het hoofdstuk hierboven.</>}
+              {heeftVasteTekst && <> De <strong>vaste tekst</strong> (kop en staart) staat in het hoofdstuk hierboven.</>}
             </div>
           </div>
 
@@ -449,11 +467,23 @@ export default function DossierSjablonenPerSoort({ soort }) {
                 const omhoogUit = !magSchuiven || i === 0;
                 const omlaagUit = !magSchuiven || i === sjablonen.length - 1;
                 return (
-                  <div key={s.id} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: "#FbFcFa" }}>
+                  <div key={s.id} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden", background: s.actief === false ? "#F7F7F5" : "#fff" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: s.actief === false ? "#F2F2F0" : "#FbFcFa" }}>
                       <button onClick={() => toggleKaart(s.id)} style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", flex: 1, textAlign: "left", padding: 0 }}>
                         {isOpen ? <ChevronDown size={15} color={KLEUR.mutedTekst} /> : <ChevronRight size={15} color={KLEUR.mutedTekst} />}
-                        <span style={{ fontSize: 13.5, fontWeight: 700, color: KLEUR.tekst }}>{s.naam || "Naamloos sjabloon"}</span>
+                        <span style={{ fontSize: 13.5, fontWeight: 700, color: s.actief === false ? KLEUR.mutedTekst : KLEUR.tekst }}>{s.naam || "Naamloos sjabloon"}</span>
+                        {s.actief === false && <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>· inactief</span>}
+                      </button>
+                      {/* Actief/inactief, net als bij de standaardbrieven: een inactief model staat niet
+                          meer in de keuzelijst bij het opstellen, maar blijft hier bewaard en stukken die
+                          er al mee gemaakt zijn veranderen niet. Zo hoef je een model niet te verwijderen
+                          als je het even niet gebruikt. */}
+                      <button
+                        onClick={() => zet(s.id, "actief", s.actief === false)}
+                        title={s.actief === false ? "Nu inactief — klik om weer te activeren" : "Nu actief — klik om te deactiveren"}
+                        style={{ display: "inline-flex", alignItems: "center", gap: 5, border: `1px solid ${KLEUR.rand}`, background: "#fff", borderRadius: 7, padding: "5px 9px", fontSize: 11.5, fontWeight: 600, color: s.actief === false ? KLEUR.mutedTekst : KLEUR.groen, cursor: "pointer" }}
+                      >
+                        {s.actief === false ? <XCircle size={13} /> : <CheckCircle2 size={13} />} {s.actief === false ? "Inactief" : "Actief"}
                       </button>
                       <button onClick={() => verplaats(s.id, -1)} disabled={omhoogUit} title={magSchuiven ? "Omhoog" : "Wis eerst het zoekveld om de volgorde aan te passen"} style={{ background: "none", border: "none", cursor: omhoogUit ? "default" : "pointer", opacity: omhoogUit ? 0.35 : 1, padding: 2 }}><ArrowUp size={15} color={KLEUR.mutedTekst} /></button>
                       <button onClick={() => verplaats(s.id, 1)} disabled={omlaagUit} title={magSchuiven ? "Omlaag" : "Wis eerst het zoekveld om de volgorde aan te passen"} style={{ background: "none", border: "none", cursor: omlaagUit ? "default" : "pointer", opacity: omlaagUit ? 0.35 : 1, padding: 2 }}><ArrowDown size={15} color={KLEUR.mutedTekst} /></button>
