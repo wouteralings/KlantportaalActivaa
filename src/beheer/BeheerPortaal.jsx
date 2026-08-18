@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import OffertetoolApp from "../medewerker/offertes/OffertetoolApp";
 import UitvraagBeheer from "./UitvraagBeheer";
 import UrenTarievenBeheer from "./UrenTarievenBeheer";
@@ -34,6 +34,12 @@ const KLEUR = {
   amberBg: "#FDF4E3",
   amberRand: "#EBD9B4",
 };
+
+// Sentinel in de keuzelijst "Vervolgtaak" (Beheer → Taken): de vervolgtaak staat AAN, maar er wordt
+// geen soort meegegeven — Dynamics bepaalt de soort dan zelf. Dat was de oude toestand van
+// vervolgtaakBackoffice=true zonder vervolgtaakSoort; met de keuzelijst blijft die bereikbaar.
+// Bewust geen lege string (dat is "geen vervolgtaak") en geen getal (dat botst met een soortwaarde).
+const VERVOLGTAAK_ZONDER_SOORT = "__zonder_soort__";
 
 // De vier vaste BTW-categorieën (moet overeenkomen met de CHECK-constraint in de database).
 const BTW_CODES = [
@@ -1349,10 +1355,37 @@ export default function BeheerPortaal() {
       // Standaard-urencode: de code waarop uren van taken van deze soort geschreven worden (per taak
       // te overschrijven in het Taken-overzicht). Leeg = geen voorgevulde code.
       if (veld === "standaardUrencode") nieuw.standaardUrencode = String(aan || "").trim();
+      // De vervolgtaak wordt met ÉÉN keuzelijst ingesteld i.p.v. een vinkje + aparte soort-keuze:
+      // kies je een soort, dan staat de vervolgtaak daarmee aan; "— geen vervolgtaak —" zet hem uit.
+      // De sentinel VERVOLGTAAK_ZONDER_SOORT houdt de oude instelling "wel aan, maar geen soort
+      // meegeven" (Dynamics-standaard) bereikbaar — die stond er vóór deze keuzelijst al in.
+      if (veld === "vervolgtaakKeuze") {
+        const keuze = String(aan || "");
+        nieuw.vervolgtaakBackoffice = keuze !== "";
+        nieuw.vervolgtaakSoort = keuze === VERVOLGTAAK_ZONDER_SOORT ? "" : keuze;
+        delete nieuw.vervolgtaakKeuze;
+      }
       return { ...huidig, [key]: nieuw };
     });
     setTaaksoortenOpslaanStatus("idle");
   }, []);
+
+  /**
+   * Per taaksoort: door WELKE andere taaksoorten wordt hij als vervolgtaak aangemaakt? Zodat je op
+   * de rij van de vervolgtaak zelf meteen ziet dat hij niet handmatig ontstaat maar automatisch,
+   * na akkoord/ondertekening van een andere taak. Sleutel = soortwaarde, waarde = lijst met labels.
+   */
+  const vervolgtaakHerkomst = useMemo(() => {
+    const uit = {};
+    for (const [bronKey, cfg] of Object.entries(taaksoortenConfig || {})) {
+      if (!cfg || !cfg.vervolgtaakBackoffice) continue;
+      const doel = String(cfg.vervolgtaakSoort ?? "");
+      if (!doel) continue;
+      const bronLabel = cfg.label || (taaksoortenOpties || []).find((o) => String(o.waarde) === bronKey)?.label || `soort ${bronKey}`;
+      (uit[doel] = uit[doel] || []).push(bronLabel);
+    }
+    return uit;
+  }, [taaksoortenConfig, taaksoortenOpties]);
 
   /**
    * Verplaatst een taaksoort een plek omhoog (-1) of omlaag (+1) in de eigen volgorde. We schrijven
@@ -3148,9 +3181,12 @@ export default function BeheerPortaal() {
             Bepaal per soort taak of klanten hem in het portaal zien, en of ze hem zelf mogen
             goedkeuren. Bij goedkeuren wordt de taak in Dynamics afgerond, met een notitie dat de
             klant akkoord gaf. Soorten die niet zijn aangevinkt blijven voor de klant verborgen.
-            Zet "Vervolgtaak backoffice" aan om na een akkoord (via de akkoord-knop, of via
-            ondertekenen bij "Vereist handtekening") automatisch een interne taak voor backoffice
-            klaar te zetten — bijv. "versturen aangifte" na een geaccordeerde aangifte. Met
+            Bij <strong>Vervolgtaak backoffice</strong> kies je uit de lijst wélke taak er na een akkoord
+            (via de akkoord-knop, of via ondertekenen bij "Vereist handtekening") automatisch voor
+            backoffice wordt klaargezet — bijv. "Versturen aangifte" na een geaccordeerde aangifte.
+            Laat je hem op "— geen vervolgtaak —" staan, dan gebeurt er niets. Bij de gekozen soort
+            zelf verschijnt in de lijst de melding <em>"wordt automatisch aangemaakt na akkoord op …"</em>,
+            zodat je meteen ziet dat die taak niet handmatig ontstaat. Met
             "Std. uren" geef je per soort een standaard-tijd mee die in de planning en bezetting
             meetelt; die is per losse taak te overschrijven in het Taken-overzicht. Met "Toevoegen aan
             Dynamics" breid je de keuzelijst uit met een nieuwe soort. Zet "Bevroren" aan om een soort uit
@@ -3250,7 +3286,7 @@ export default function BeheerPortaal() {
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Zichtbaar</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Mag goedkeuren</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Vereist handtekening</div>
-                <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }}>Vervolgtaak backoffice</div>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }} title="Kies welke taaksoort automatisch als vervolgtaak voor backoffice wordt klaargezet zodra de klant deze taak goedkeurt of ondertekent. Leeg = geen vervolgtaak.">Vervolgtaak backoffice</div>
                 <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.mutedTekst, paddingBottom: 8, borderBottom: `1px solid ${KLEUR.rand}`, textAlign: "center" }} title="Bevroren soorten verdwijnen uit alle keuzelijsten (klantportaal, doorzetten, dossier-taken). Bestaande taken houden hun soort; er wordt niets in Dynamics verwijderd.">Bevroren</div>
                 {filterTaaksoorten(taaksoortenOpties, taaksoortenZoek, taaksoortenConfig, taaksoortRubriekFilter)
                   .slice(0, taaksoortToonAantal)
@@ -3299,6 +3335,26 @@ export default function BeheerPortaal() {
                         )}
                         {cfg.bevroren && <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.rood, background: `${KLEUR.rood}14`, borderRadius: 999, padding: "1px 8px" }}>bevroren</span>}
                       </div>
+                      {/* Deze soort is zélf de vervolgtaak van één of meer andere soorten: dan ontstaat
+                          hij niet handmatig maar automatisch, ná akkoord/ondertekening daarvan. Dat hoort
+                          op de rij van de vervolgtaak te staan — anders zie je alleen bij de bróntaak dat
+                          er iets gekoppeld is en lijkt deze soort ongebruikt. */}
+                      {(vervolgtaakHerkomst[String(optie.waarde)] || []).length > 0 && (
+                        <div
+                          title={`Deze taak wordt automatisch aangemaakt zodra de cliënt een taak van de soort ${vervolgtaakHerkomst[String(optie.waarde)].map((n) => `“${n}”`).join(" of ")} goedkeurt of ondertekent. Je hoeft hem dus niet zelf aan te maken.`}
+                          style={{ display: "inline-flex", alignItems: "flex-start", gap: 5, alignSelf: "flex-start", maxWidth: 420, fontSize: 10.5, fontWeight: 600, lineHeight: 1.45, color: KLEUR.blauw, background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "3px 8px" }}
+                        >
+                          <span aria-hidden="true">↳</span>
+                          <span>
+                            Wordt automatisch aangemaakt na akkoord op{" "}
+                            {vervolgtaakHerkomst[String(optie.waarde)].map((n, i, a) => (
+                              <React.Fragment key={n + i}>
+                                <strong>{n}</strong>{i < a.length - 2 ? ", " : i === a.length - 2 ? " of " : ""}
+                              </React.Fragment>
+                            ))}
+                          </span>
+                        </div>
+                      )}
                         {/* Eigen toelichting: waar is deze soort voor bedoeld? Alleen voor intern gebruik
                             in dit beheerscherm — de cliënt ziet hem niet en Dynamics blijft ongemoeid. */}
                         <input
@@ -3394,13 +3450,30 @@ export default function BeheerPortaal() {
                           style={{ width: 16, height: 16, cursor: "pointer" }}
                         />
                       </div>
+                      {/* Vervolgtaak: één keuzelijst i.p.v. een vinkje + een tweede keuzelijst verderop.
+                          Kies je een soort, dan staat de vervolgtaak aan én ligt meteen vast wélke taak
+                          er ontstaat. "— geen vervolgtaak —" zet hem uit. */}
                       <div style={{ textAlign: "center", padding: "10px 0", borderBottom: rijRand }}>
-                        <input
-                          type="checkbox"
-                          checked={!!cfg.vervolgtaakBackoffice}
-                          onChange={(e) => wijzigTaaksoort(optie.waarde, "vervolgtaakBackoffice", e.target.checked, optie.label)}
-                          style={{ width: 16, height: 16, cursor: "pointer" }}
-                        />
+                        {(() => {
+                          const huidigeKeuze = !cfg.vervolgtaakBackoffice
+                            ? ""
+                            : (cfg.vervolgtaakSoort ? String(cfg.vervolgtaakSoort) : VERVOLGTAAK_ZONDER_SOORT);
+                          return (
+                            <select
+                              value={huidigeKeuze}
+                              onChange={(e) => wijzigTaaksoort(optie.waarde, "vervolgtaakKeuze", e.target.value, optie.label)}
+                              title="Welke taak wordt automatisch klaargezet zodra de klant deze taak goedkeurt of ondertekent?"
+                              style={{ minWidth: 170, maxWidth: 210, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "5px 6px", fontSize: 12.5, background: "#fff", cursor: "pointer", fontWeight: huidigeKeuze ? 600 : 400, color: huidigeKeuze ? KLEUR.tekst : KLEUR.mutedTekst }}
+                            >
+                              <option value="">— geen vervolgtaak —</option>
+                              {taaksoortenOpties
+                                .filter((o) => String(o.waarde) !== String(optie.waarde))
+                                .filter((o) => !taaksoortenConfig[String(o.waarde)]?.bevroren || String(o.waarde) === String(cfg.vervolgtaakSoort ?? ""))
+                                .map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
+                              <option value={VERVOLGTAAK_ZONDER_SOORT}>Wel een taak, zonder soort (Dynamics-standaard)</option>
+                            </select>
+                          );
+                        })()}
                       </div>
                       <div style={{ textAlign: "center", padding: "10px 0", borderBottom: rijRand }} title="Verberg deze soort uit alle keuzelijsten (bevriezen).">
                         <input
@@ -3412,6 +3485,15 @@ export default function BeheerPortaal() {
                       </div>
                       {cfg.vervolgtaakBackoffice && (
                         <div style={{ gridColumn: "1 / -1", display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-start", padding: "0 0 14px", borderBottom: `1px solid ${KLEUR.rand}` }}>
+                          {/* Kop van het detailblok: in één zin wat er straks gebeurt, met de gekozen
+                              vervolgtaak erin — zodat de koppeling ook hier zwart-op-wit staat. */}
+                          <div style={{ flex: "1 1 100%", fontSize: 11.5, color: KLEUR.subtekst, lineHeight: 1.5, background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 10px" }}>
+                            Zodra de cliënt een taak van de soort <strong>{soortNaam[String(optie.waarde)] ?? optie.label}</strong> goedkeurt of ondertekent, zet het portaal automatisch{" "}
+                            {cfg.vervolgtaakSoort
+                              ? <>een taak van de soort <strong>{taaksoortenConfig[String(cfg.vervolgtaakSoort)]?.label || taaksoortenOpties.find((o) => String(o.waarde) === String(cfg.vervolgtaakSoort))?.label || `soort ${cfg.vervolgtaakSoort}`}</strong></>
+                              : <>een taak <strong>zonder soort</strong> (Dynamics-standaard)</>}
+                            {" "}klaar voor backoffice. Is die vervolgtaak niet voor de cliënt bedoeld, zet die soort hierboven dan op <em>niet zichtbaar</em>.
+                          </div>
                           <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: "1 1 300px" }}>
                             <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>Onderwerp vervolgtaak</span>
                             <input
@@ -3421,20 +3503,6 @@ export default function BeheerPortaal() {
                               style={{ boxSizing: "border-box", width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 12.5, background: "#fff" }}
                             />
                             <span style={{ fontSize: 10.5, color: KLEUR.mutedTekst }}>Plaatshouders <code>{"{klant}"}</code> en <code>{"{titel}"}</code> mogen hierin.</span>
-                          </div>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: "1 1 240px" }}>
-                            <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>Soort van de vervolgtaak</span>
-                            <select
-                              value={cfg.vervolgtaakSoort ?? ""}
-                              onChange={(e) => wijzigTaaksoort(optie.waarde, "vervolgtaakSoort", e.target.value, optie.label)}
-                              style={{ boxSizing: "border-box", width: "100%", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "7px 9px", fontSize: 12.5, background: "#fff" }}
-                            >
-                              <option value="">— geen wijziging (Dynamics-standaard) —</option>
-                              {taaksoortenOpties.filter((o) => !taaksoortenConfig[String(o.waarde)]?.bevroren || String(o.waarde) === String(cfg.vervolgtaakSoort ?? "")).map((o) => <option key={o.waarde} value={o.waarde}>{o.label}</option>)}
-                            </select>
-                            <span style={{ fontSize: 10.5, color: KLEUR.mutedTekst }}>
-                              Zet dit ook zelf op "niet zichtbaar" hierboven als de vervolgtaak niet voor de klant is bedoeld.
-                            </span>
                           </div>
                           <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: "1 1 160px" }}>
                             <span style={{ fontSize: 10.5, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".03em" }}>Prioriteit</span>
