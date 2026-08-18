@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Save, ChevronDown, ChevronRight, Plus, Trash2, ArrowUp, ArrowDown, Info, X, Search, CheckCircle2, XCircle } from "lucide-react";
 import { ROMP, STAART, steltNotulenSamen, haalBesluitUitTekst } from "./notulenSjablonen";
 import { AantalKiezer, AANTAL_STANDAARD } from "./AantalKiezer";
+import { isMergeveld } from "./mergevelden";
 
 /** Zelfde palet als de rest van het beheerdersportaal (bewust hier herhaald zodat dit bestand op
  *  zichzelf staat, zie bijv. DossierIndelingBeheer.jsx/BrievenBeheer.jsx). */
@@ -120,6 +121,9 @@ export default function DossierSjablonenPerSoort({ soort }) {
   // Zoeken in de modellen + hoeveel er onder elkaar staan. Bij een handvol sjablonen merk je er niets
   // van; zodra het er tientallen worden scrol je anders eindeloos.
   const [zoek, setZoek] = useState("");
+  // Welke catalogusvelden als merge-veld zijn aangevinkt bij Beheer → Dossiers
+  // (dossierIndeling.<soort>.mergevelden). null = nog nooit ingesteld → de standaard.
+  const [mergevelden, setMergevelden] = useState(null);
   const [toonAantal, setToonAantal] = useState(AANTAL_STANDAARD);
 
   // De laatst gefocuste tekstarea + welk sjabloon dat is — zodat een klik op een merge-veld-chip de
@@ -135,6 +139,10 @@ export default function DossierSjablonenPerSoort({ soort }) {
       .then(([velden, inst]) => {
         if (!actief) return;
         setCatalogus(velden.catalogus || []);
+        // De mergeveld-vinkjes staan bij de INDELING van deze soort (Beheer → Dossiers), niet bij de
+        // sjablonen — daar zet je ze per veld om.
+        const indelingEigen = inst && inst.dossierIndeling && inst.dossierIndeling[soort];
+        setMergevelden(indelingEigen && Array.isArray(indelingEigen.mergevelden) ? indelingEigen.mergevelden : null);
         const eigen = inst && inst.dossierSjablonen && inst.dossierSjablonen[soort];
         setSjablonen(naarLijst(eigen));
         setKop(eigen && typeof eigen.kop === "string" ? eigen.kop : "");
@@ -256,19 +264,16 @@ export default function DossierSjablonenPerSoort({ soort }) {
     } catch (e) { setStatus("fout"); setFout(String(e.message || e)); }
   }
 
-  // Merge-veld-chips: de vaste velden + elk (niet-vast) veld uit de catalogus.
-  //
-  // Bij notulen laten we álle aandeelhouder-velden uit de chips weg (aandeelhouders1..7,
-  // aantalaandeelhouders, kol_aandeelhouder…). Die kolommen worden in "Notulen opstellen" gevuld
-  // vanuit de aandeelhoudersrijen en komen als één blok in het stuk via {{aandeelhouders}} — ze los
-  // in een sjabloon zetten levert alleen maar losse percentages zonder naam op. Ze bleven wel in de
-  // chips staan omdat ze gewoon in de Dynamics-catalogus zitten; dat maakte de lijst onleesbaar.
+  // Merge-veld-chips: de vaste velden + elk veld dat bij Beheer → Dossiers als MERGEVELD is
+  // aangevinkt (het accolade-knopje op de veldregel). Is daar nog nooit iets omgezet, dan geldt de
+  // standaard: alles behalve de aandeelhouder-kolommen — die leveren los alleen kale percentages
+  // zonder naam op. Zie src/beheer/mergevelden.js; de kolommen zelf blijven gewoon bestaan en worden
+  // in het dossier ingevuld, ze zijn alleen niet als sjabloonveld aan te klikken.
   const plaatshouders = [
     ...VASTE_PLAATSHOUDERS,
     ...(isNotulen ? NOTULEN_PLAATSHOUDERS : []),
     ...(catalogus || [])
-      .filter((v) => v && v.key && !String(v.key).startsWith("__"))
-      .filter((v) => !(isNotulen && /aandeelhouder/i.test(String(v.key))))
+      .filter((v) => v && v.key && isMergeveld(v.key, mergevelden))
       .map((v) => ({ key: v.key, label: v.label || v.key })),
   ];
 

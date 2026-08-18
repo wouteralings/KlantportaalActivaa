@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
-import { FolderKanban, Plus, Trash2, ChevronUp, ChevronDown, ChevronRight, X, Eye, EyeOff, Lock, Unlock, Sparkles } from "lucide-react";
+import { FolderKanban, Plus, Trash2, ChevronUp, ChevronDown, ChevronRight, X, Eye, EyeOff, Lock, Unlock, Sparkles, Braces } from "lucide-react";
 import DossierSjablonenPerSoort, { DossierMailTaakPerSoort } from "./DossierSjablonenBeheer";
+import { isMergeveld, standaardMergevelden } from "./mergevelden";
+
+// Soorten met voorbeelddocumenten: alleen daar heeft een "mergeveld"-vinkje zin, want alleen die
+// soorten hebben sjablonen waarin je een {{plaatshouder}} kunt zetten.
+const SOORTEN_MET_MERGEVELDEN = new Set(["notulen", "dividend"]);
 
 // Soorten met een voorbeeld-documentmodule (blanco A4 in het dossier) — het bijbehorende
 // "Voorbeelddocumenten"-blok komt onder de indelingskaart van die soort te hangen (zie de export
@@ -101,7 +106,7 @@ function maakSleutelSlug(tekst) {
 /** Eén regel voor één veld — zowel in een hoofdrubriek (pad = sectieSleutel) als in een
  * subrubriek (pad = "sectieSleutel::subSleutel") — met alle beheeracties: label hernoemen,
  * voorwaarde, alleen-lezen, verbergen, herordenen, verplaatsen en uit de sectie halen. */
-function VeldRij({ veldKey, veld, weergaveLabel, pad, padOpties, index, laatsteIndex, isVerborgen, isAlleenLezen, voorwaarde, conditieVelden, picklistOpties, onZetLabel, onLabelBlur, onZetVoorwaarde, onToggleVerborgen, onToggleAlleenLezen, onOmhoog, onOmlaag, onVerplaats, onVerwijderUitSectie }) {
+function VeldRij({ veldKey, veld, weergaveLabel, pad, padOpties, index, laatsteIndex, isVerborgen, isAlleenLezen, isMergeveld, toonMergeknop, voorwaarde, conditieVelden, picklistOpties, onZetLabel, onLabelBlur, onZetVoorwaarde, onToggleVerborgen, onToggleAlleenLezen, onToggleMergeveld, onOmhoog, onOmlaag, onVerplaats, onVerwijderUitSectie }) {
   // Voorwaarde-editor: een veld kan afhankelijk van de UITKOMST van één of meer andere velden getoond
   // worden. Per veld één of meer "regels" (elk: een ja/nee-veld op Ja/Nee, of een keuzelijst die één van
   // meerdere aangevinkte antwoorden IS / NIET is), gecombineerd met "en" (alle) of "of" (minstens één).
@@ -172,6 +177,19 @@ function VeldRij({ veldKey, veld, weergaveLabel, pad, padOpties, index, laatsteI
               <option key={b.key} value={b.key}>Alleen als: {b.label}{b.type === "picklist" ? " (keuze)" : ""}</option>
             ))}
           </select>
+        )}
+        {/* Mergeveld: mag dit veld als {{plaatshouder}} in de voorbeelddocumenten van deze soort
+            gebruikt worden? Staat alleen bij soorten die sjablonen hebben (notulen/dividend). */}
+        {toonMergeknop && (
+          <button
+            onClick={onToggleMergeveld}
+            title={isMergeveld
+              ? `Nu bruikbaar als {{${veldKey}}} in een sjabloon — klik om uit de merge-velden te halen`
+              : `Nu niet bij de merge-velden — klik om {{${veldKey}}} in sjablonen te kunnen gebruiken`}
+            style={{ background: "none", border: "none", color: isMergeveld ? KLEUR.blauw : KLEUR.rand, cursor: "pointer", padding: 2, display: "flex" }}
+          >
+            <Braces size={14} />
+          </button>
         )}
         <button onClick={onToggleAlleenLezen} title={isAlleenLezen ? "Weer bewerkbaar maken in medewerkersportaal" : "Alleen-lezen maken in medewerkersportaal"} style={{ background: "none", border: "none", color: isAlleenLezen ? KLEUR.goud : KLEUR.subtekst, cursor: "pointer", padding: 2, display: "flex" }}>
           {isAlleenLezen ? <Lock size={14} /> : <Unlock size={14} />}
@@ -290,6 +308,10 @@ function SoortIndelingPaneel({ soort, onderaan }) {
   const [voorwaarden, setVoorwaarden] = useState({}); // { childKey: voorwaarde } — ja/nee-veld óf keuzeveld-uitkomst (zie VeldRij)
   const [picklistOpties, setPicklistOpties] = useState({}); // keuzelijst-opties per veld (key → [{waarde,label}]) voor de voorwaarde-waardekeuze
   const [alleenLezen, setAlleenLezen] = useState([]); // sleutels die wel getoond maar niet bewerkt mogen worden
+  // Welke velden als {{plaatshouder}} in de voorbeelddocumenten van deze soort bruikbaar zijn. null =
+  // nog nooit ingesteld; dan geldt de standaard (alles behalve de aandeelhouder-kolommen, zie
+  // standaardMergevelden). Zodra je één vinkje omzet wordt de hele lijst vastgelegd.
+  const [mergevelden, setMergevelden] = useState(null);
   const [labels, setLabels] = useState({}); // { sleutel: eigen weergavenaam } — overschrijft het standaardlabel
   const [aangepasteVelden, setAangepasteVelden] = useState([]); // zelf aangemaakte extra catalogusvelden (incl. Dynamics-kolom)
   const [onderwerpen, setOnderwerpen] = useState([]); // catalogus uit Beheer → Onderwerpen (Uitvraag dynamisch), voor de koppel-dropdown
@@ -379,6 +401,7 @@ function SoortIndelingPaneel({ soort, onderaan }) {
     setVerborgen(eigen.verborgen || []);
     setVoorwaarden(eigen.voorwaarden || {});
     setAlleenLezen(eigen.alleenLezen || []);
+    setMergevelden(Array.isArray(eigen.mergevelden) ? eigen.mergevelden : null);
     setLabels(eigen.labels || {});
     setAangepasteVelden(eigen.aangepasteVelden || []);
     setOnderwerpId(eigen.onderwerpId || "");
@@ -452,6 +475,7 @@ function SoortIndelingPaneel({ soort, onderaan }) {
     const volgendeVerborgen = overrides.verborgen !== undefined ? overrides.verborgen : verborgen;
     const volgendeVoorwaarden = overrides.voorwaarden !== undefined ? overrides.voorwaarden : voorwaarden;
     const volgendeAlleenLezen = overrides.alleenLezen !== undefined ? overrides.alleenLezen : alleenLezen;
+    const volgendeMergevelden = overrides.mergevelden !== undefined ? overrides.mergevelden : mergevelden;
     const volgendeLabels = overrides.labels !== undefined ? overrides.labels : labels;
     const volgendeAangepasteVelden = overrides.aangepasteVelden !== undefined ? overrides.aangepasteVelden : aangepasteVelden;
     const volgendeOnderwerpId = overrides.onderwerpId !== undefined ? overrides.onderwerpId : onderwerpId;
@@ -469,6 +493,7 @@ function SoortIndelingPaneel({ soort, onderaan }) {
         [soort]: {
           secties: volgendeSecties, verborgen: volgendeVerborgen, voorwaarden: volgendeVoorwaarden,
           alleenLezen: volgendeAlleenLezen, labels: volgendeLabels, aangepasteVelden: volgendeAangepasteVelden,
+          ...(volgendeMergevelden ? { mergevelden: volgendeMergevelden } : {}),
           onderwerpId: volgendeOnderwerpId,
         },
       };
@@ -801,6 +826,16 @@ function SoortIndelingPaneel({ soort, onderaan }) {
     bewaar({ alleenLezen: volgende });
   };
 
+  // Mergeveld: mag dit veld als {{key}} in de voorbeelddocumenten van deze soort gebruikt worden?
+  // De eerste keer dat er een vinkje omgaat leggen we de hele lijst vast (uitgaand van de standaard),
+  // zodat een later in Dynamics toegevoegd veld er niet vanzelf bij komt zonder dat je het ziet.
+  const toggleMergeveld = (key) => {
+    const basis = Array.isArray(mergevelden) ? mergevelden : standaardMergevelden(catalogus || []);
+    const volgende = basis.includes(key) ? basis.filter((k) => k !== key) : [...basis, key];
+    setMergevelden(volgende);
+    bewaar({ mergevelden: volgende });
+  };
+
   // Voorwaarde: "key" alleen tonen in het medewerkersdossier afhankelijk van de uitkomst van een
   // ander veld (ja/nee of keuzelijst — zie VeldRij). "cond" is null/leeg om de voorwaarde weg te halen.
   const zetVoorwaarde = (key, cond) => {
@@ -917,6 +952,8 @@ function SoortIndelingPaneel({ soort, onderaan }) {
     laatsteIndex,
     isVerborgen: verborgen.includes(key),
     isAlleenLezen: alleenLezen.includes(key),
+    isMergeveld: isMergeveld(key, mergevelden),
+    toonMergeknop: SOORTEN_MET_MERGEVELDEN.has(soort) && !String(key).startsWith("__"),
     voorwaarde: voorwaarden[key],
     conditieVelden,
     picklistOpties,
@@ -925,6 +962,7 @@ function SoortIndelingPaneel({ soort, onderaan }) {
     onZetVoorwaarde: (cond) => zetVoorwaarde(key, cond),
     onToggleVerborgen: () => toggleVerborgen(key),
     onToggleAlleenLezen: () => toggleAlleenLezen(key),
+    onToggleMergeveld: () => toggleMergeveld(key),
     onOmhoog: () => verplaatsBinnenGroep(pad, key, -1),
     onOmlaag: () => verplaatsBinnenGroep(pad, key, 1),
     onVerplaats: (doelPad) => verplaatsVeld(key, doelPad),
@@ -960,8 +998,14 @@ function SoortIndelingPaneel({ soort, onderaan }) {
         getoond. Met het slot-icoon maak je een veld alleen-lezen (wel zichtbaar, niet meer te
         bewerken), met het oog-icoon verberg je het helemaal zonder het uit zijn plek te halen, en
         met "Alleen tonen als" laat je een veld pas verschijnen zodra een ander ja/nee-veld op dat
-        dossier "Ja" is (bijv. "Eigen woning schuld" alleen als "Eigen woning" Ja is). Helemaal
-        onderaan kun je ook een volledig nieuw veld aanmaken — dat zet meteen een echte nieuwe
+        dossier "Ja" is (bijv. "Eigen woning schuld" alleen als "Eigen woning" Ja is).
+        {SOORTEN_MET_MERGEVELDEN.has(soort) && (
+          <> Met het <strong>accolade-icoon</strong> bepaal je per veld of het als{" "}
+          <code style={{ background: "#fff", padding: "0 3px", borderRadius: 3, border: `1px solid ${KLEUR.rand}` }}>{"{{veldnaam}}"}</code>{" "}
+          in de voorbeelddocumenten van deze soort te kiezen is; blauw = wel, grijs = niet. Standaard
+          staan alle velden aan, behalve de aandeelhouder-kolommen.</>
+        )}{" "}
+        Helemaal onderaan kun je ook een volledig nieuw veld aanmaken — dat zet meteen een echte nieuwe
         kolom in Dynamics klaar.
       </div>
 
