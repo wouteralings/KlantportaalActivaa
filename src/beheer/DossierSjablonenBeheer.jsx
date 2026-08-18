@@ -229,9 +229,18 @@ export default function DossierSjablonenPerSoort({ soort }) {
   }
 
   // Merge-veld-chips: de vaste velden + elk (niet-vast) veld uit de catalogus.
+  //
+  // Bij notulen laten we álle aandeelhouder-velden uit de chips weg (aandeelhouders1..7,
+  // aantalaandeelhouders, kol_aandeelhouder…). Die kolommen worden in "Notulen opstellen" gevuld
+  // vanuit de aandeelhoudersrijen en komen als één blok in het stuk via {{aandeelhouders}} — ze los
+  // in een sjabloon zetten levert alleen maar losse percentages zonder naam op. Ze bleven wel in de
+  // chips staan omdat ze gewoon in de Dynamics-catalogus zitten; dat maakte de lijst onleesbaar.
   const plaatshouders = [
     ...VASTE_PLAATSHOUDERS,
-    ...(catalogus || []).filter((v) => v && v.key && !String(v.key).startsWith("__")).map((v) => ({ key: v.key, label: v.label || v.key })),
+    ...(catalogus || [])
+      .filter((v) => v && v.key && !String(v.key).startsWith("__"))
+      .filter((v) => !(isNotulen && /aandeelhouder/i.test(String(v.key))))
+      .map((v) => ({ key: v.key, label: v.label || v.key })),
   ];
 
   return (
