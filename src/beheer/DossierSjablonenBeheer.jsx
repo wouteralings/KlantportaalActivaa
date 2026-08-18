@@ -872,7 +872,9 @@ export function DossierMailTaakPerSoort({ soort }) {
       }
       const body = {
         [`${soort}Mail`]: {
-          afzender: mailAfzender.trim(), onderwerp: mailOnderwerp, tekst: mailTekst, perOptie: perOptieSchoon,
+          afzender: mailAfzender.trim(), onderwerp: mailOnderwerp, tekst: mailTekst,
+          // Bij notulen zijn er precies twee mailsoorten; per-optie teksten slaan we daar niet op.
+          perOptie: isNotulen ? {} : perOptieSchoon,
           ...(isNotulen ? { ondertekening: { onderwerp: ondOnderwerp, tekst: ondTekst } } : {}),
         },
       };
@@ -895,7 +897,8 @@ export function DossierMailTaakPerSoort({ soort }) {
       const body = {
         // Standaard-submap van de soort (terugval als een rubriek zelf geen submap invult).
         [`${soort}BijlageMap`]: (submap.trim() || standaardMap),
-        [`${soort}Taak`]: { aan: taakAan, onderwerp: taakOnderwerp.trim(), soort: taakSoort, rubriek: taakRubriek, perOptie: taakPerOptieSchoon },
+        // Bij notulen hoort de taak altijd bij "ter ondertekening": geen aan/uit en geen per-optie.
+        [`${soort}Taak`]: { aan: isNotulen ? true : taakAan, onderwerp: taakOnderwerp.trim(), soort: taakSoort, rubriek: taakRubriek, perOptie: isNotulen ? {} : taakPerOptieSchoon },
       };
       const res = await fetch("/api/beheer-instellingen", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Opslaan mislukt.");
@@ -944,7 +947,9 @@ export function DossierMailTaakPerSoort({ soort }) {
           </div>
         )}
 
-        {keuzeOpties.length > 0 && (
+        {/* Per-optie mailteksten hebben we bij notulen niet: daar zijn precies twee soorten mail —
+            gewoon mailen en ter ondertekening. Bij dividend blijft dit gewoon staan. */}
+        {!isNotulen && keuzeOpties.length > 0 && (
           <div style={{ marginTop: 6, marginBottom: 10 }}>
             <span style={veldLabel}>Mailtekst per {keuzeLabel}</span>
             <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginBottom: 8 }}>
@@ -983,11 +988,22 @@ export function DossierMailTaakPerSoort({ soort }) {
 
       {/* Opslag & taak — versturen */}
       <div style={vakStijl}>
-        <div style={vakTitel}>Opslag & taak — versturen</div>
+        <div style={vakTitel}>{isNotulen ? "Taak bij “ter ondertekening”" : "Opslag & taak — versturen"}</div>
         <div style={vakUitleg}>
-          Waar de gedropte bijlagen van deze soort in het SharePoint-dossier terechtkomen, en de (optionele)
-          taak “voor akkoord” voor de klant. Plaatshouders <code>{"{{klantnaam}}"}</code> en <code>{"{{jaar}}"}</code> mogen in het taak-onderwerp.
+          {isNotulen ? (
+            <>
+              De taak die de cliënt krijgt als je notulen “ter ondertekening” verstuurt. Kies een taaksoort die bij
+              Beheer → Taken op <strong>vereist handtekening</strong> staat — dán verschijnt in het klantportaal de
+              ondertekenknop bij deze taak. Plaatshouder <code>{"{{klantnaam}}"}</code> mag in het onderwerp.
+            </>
+          ) : (
+            <>
+              Waar de gedropte bijlagen van deze soort in het SharePoint-dossier terechtkomen, en de (optionele)
+              taak “voor akkoord” voor de klant. Plaatshouders <code>{"{{klantnaam}}"}</code> en <code>{"{{jaar}}"}</code> mogen in het taak-onderwerp.
+            </>
+          )}
         </div>
+        {!isNotulen && (
         <div style={{ marginBottom: 12 }}>
           <span style={veldLabel}>Submap in het SharePoint-dossier</span>
           <input value={submap} onChange={(e) => { setSubmap(e.target.value); setTaakStatus("rust"); }} placeholder={standaardMap} style={{ ...witInvoer, width: "100%", maxWidth: 420 }} />
@@ -996,15 +1012,19 @@ export function DossierMailTaakPerSoort({ soort }) {
             Een rubriek met een eigen submap gaat hiervóór. Leeg = “{standaardMap}”.
           </div>
         </div>
+        )}
+        {!isNotulen && (
         <label style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: taakAan ? 12 : 0, fontSize: 12.5, fontWeight: 600, color: KLEUR.tekst }}>
           <input type="checkbox" checked={taakAan} onChange={(e) => { setTaakAan(e.target.checked); setTaakStatus("rust"); }} />
           Taak voor de klant aanmaken bij het versturen
         </label>
-        {taakAan && (
+        )}
+        {/* Bij notulen hoort de taak altijd bij "ter ondertekening" — geen aparte aan/uit-schakelaar. */}
+        {(isNotulen || taakAan) && (
           <>
             <div style={{ marginBottom: 10 }}>
               <span style={veldLabel}>Onderwerp van de taak</span>
-              <input value={taakOnderwerp} onChange={(e) => { setTaakOnderwerp(e.target.value); setTaakStatus("rust"); }} placeholder={soort === "notulen" ? "Notulen {{jaar}} ter akkoord" : "Aangifte dividendbelasting {{jaar}} ter akkoord"} style={{ ...witInvoer, width: "100%", maxWidth: 560 }} />
+              <input value={taakOnderwerp} onChange={(e) => { setTaakOnderwerp(e.target.value); setTaakStatus("rust"); }} placeholder={isNotulen ? "Notulen ondertekenen — {{klantnaam}}" : "Aangifte dividendbelasting {{jaar}} ter akkoord"} style={{ ...witInvoer, width: "100%", maxWidth: 560 }} />
               <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 4 }}>Leeg = een standaardonderwerp.</div>
             </div>
             <div style={{ marginBottom: 10 }}>
@@ -1024,7 +1044,7 @@ export function DossierMailTaakPerSoort({ soort }) {
           </>
         )}
 
-        {keuzeOpties.length > 0 && (
+        {!isNotulen && keuzeOpties.length > 0 && (
           <div style={{ marginTop: 6, marginBottom: 12 }}>
             <span style={veldLabel}>Taak per {keuzeLabel}</span>
             <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginBottom: 8 }}>
