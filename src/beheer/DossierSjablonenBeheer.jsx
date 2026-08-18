@@ -90,15 +90,17 @@ export default function DossierSjablonenPerSoort({ soort }) {
   const [staart, setStaart] = useState("");
   // Wie standaard als voorzitter en notulist wordt voorgesteld bij "Notulen opstellen".
   // bron "contact" = de contactpersoon van de cliënt, "medewerker" = de ingelogde medewerker,
-  // "vast" = altijd dezelfde naam (het invulveld ernaast).
+  // "vast" = altijd dezelfde naam. Er zit géén beheerscherm meer op (op verzoek weggehaald): we
+  // lezen de opgeslagen waarde in en schrijven hem onveranderd terug, zodat een eerder ingestelde
+  // vaste naam blijft werken en er niets stilletjes wordt overschreven bij het opslaan.
   const [standaard, setStandaard] = useState({ voorzitterBron: "contact", voorzitterVast: "", notulistBron: "medewerker", notulistVast: "" });
   // Vrije invulvelden voor notulen — precies zoals de "briefvelden" bij de standaardbrieven:
   // [{ sleutel, label, type: "tekst"|"keuze"|"paragraaf", opties: [{ sleutel, label, tekst? }] }].
   // De medewerker vult/kiest ze bij het opstellen; ze vullen {{sleutel}} in de tekst.
   const [velddefinities, setVelddefinities] = useState([]);
   const [openVelddefs, setOpenVelddefs] = useState(() => new Set());
-  // De vaste tekst (kop/staart + standaard voorzitter/notulist) is een lange kaart; standaard
-  // ingeklapt, net als de sjabloonkaarten hieronder.
+  // De vaste tekst (kop en staart) is een lange kaart; standaard ingeklapt, net als de
+  // sjabloonkaarten hieronder.
   const [vasteTekstOpen, setVasteTekstOpen] = useState(false);
   const [openIds, setOpenIds] = useState(() => new Set()); // welke sjabloon-kaarten opengeklapt zijn
   const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
@@ -280,7 +282,7 @@ export default function DossierSjablonenPerSoort({ soort }) {
                 {vasteTekstOpen ? <ChevronDown size={15} color={KLEUR.mutedTekst} /> : <ChevronRight size={15} color={KLEUR.mutedTekst} />}
                 <span style={{ fontSize: 13.5, fontWeight: 700, color: KLEUR.tekst }}>Vaste tekst voor alle notulen</span>
                 <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>
-                  kop en staart{String(kop || "").trim() || String(staart || "").trim() ? " · aangepast" : " · standaardtekst"} · standaard voorzitter en notulist
+                  kop en staart{String(kop || "").trim() || String(staart || "").trim() ? " · aangepast" : " · standaardtekst"}
                 </span>
               </button>
               {vasteTekstOpen && (
@@ -327,52 +329,12 @@ export default function DossierSjablonenPerSoort({ soort }) {
                   style={{ ...invoerStijl, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }}
                 />
               </div>
-              <div style={{ marginTop: 14, borderTop: `1px solid ${KLEUR.rand}`, paddingTop: 12 }}>
-                <span style={labelStijl}>Standaard voorzitter en notulist</span>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-                  <div style={{ flex: "1 1 260px" }}>
-                    <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 4 }}>Voorzitter</div>
-                    <select
-                      value={standaard.voorzitterBron}
-                      onChange={(e) => setStandaard((h) => ({ ...h, voorzitterBron: e.target.value }))}
-                      style={invoerStijl}
-                    >
-                      <option value="contact">De contactpersoon van de cliënt</option>
-                      <option value="vast">Altijd deze naam…</option>
-                    </select>
-                    {standaard.voorzitterBron === "vast" && (
-                      <input
-                        value={standaard.voorzitterVast}
-                        onChange={(e) => setStandaard((h) => ({ ...h, voorzitterVast: e.target.value }))}
-                        placeholder="naam voorzitter"
-                        style={{ ...invoerStijl, marginTop: 6 }}
-                      />
-                    )}
-                  </div>
-                  <div style={{ flex: "1 1 260px" }}>
-                    <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 4 }}>Notulist</div>
-                    <select
-                      value={standaard.notulistBron}
-                      onChange={(e) => setStandaard((h) => ({ ...h, notulistBron: e.target.value }))}
-                      style={invoerStijl}
-                    >
-                      <option value="medewerker">De medewerker die de notulen opstelt</option>
-                      <option value="vast">Altijd deze naam…</option>
-                    </select>
-                    {standaard.notulistBron === "vast" && (
-                      <input
-                        value={standaard.notulistVast}
-                        onChange={(e) => setStandaard((h) => ({ ...h, notulistVast: e.target.value }))}
-                        placeholder="naam notulist"
-                        style={{ ...invoerStijl, marginTop: 6 }}
-                      />
-                    )}
-                  </div>
-                </div>
-                <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 6 }}>
-                  Dit is alleen het voorstel: bij het opstellen kun je er altijd iemand anders bij zoeken.
-                </div>
-              </div>
+              {/* "Standaard voorzitter en notulist" stond hier; op verzoek uit het beheerscherm
+                  gehaald. Het voorstel blijft ongewijzigd werken: in "Notulen opstellen" is de
+                  voorzitter de contactpersoon van de cliënt en de notulist de medewerker die het
+                  stuk opstelt — en beide zijn daar gewoon te veranderen. De opgeslagen instelling
+                  (dossierSjablonen.notulen.standaard) laten we ongemoeid staan, zodat een eerder
+                  ingestelde vaste naam niet stilletjes verdwijnt. */}
               </div>
               )}
             </div>
