@@ -475,6 +475,11 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
     zet("emailvoorzitter", emailVoorzitter);
     zet("emailnotulist", emailNotulist);
     zet("datumnotulen", langeDatum(datumactie));
+    // De naam van het gekozen notulenmodel (bijv. "Agiostorting"), zodat je hem in de vaste tekst of
+    // in het besluit kunt gebruiken — bijv. "Notulen inzake {{naamnotulen}}". Nog geen model gekozen?
+    // Dan blijft hij leeg, net als elk ander merge-veld zonder waarde.
+    zet("naamnotulen", sjabloon && sjabloon.naam);
+    zet("modelnaam", sjabloon && sjabloon.naam);
     zet("aandeelhouders", aandeelhoudersTekst(aandeelhouders));
     // De vrije invulvelden als laatste: die horen bij dít stuk en winnen dus van gelijknamige velden.
     // Een bedrag komt als "€ 100.000" in het stuk en een datum als "17 augustus 2026" — ongeacht hoe
@@ -486,7 +491,7 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
       else zet(sleutel, waarde);
     }
     return m;
-  }, [klant, vestigingsplaats, datumactie, voorzitter, emailVoorzitter, notulist, emailNotulist, aandeelhouders, invulwaarden, velddefinities]);
+  }, [klant, vestigingsplaats, datumactie, voorzitter, emailVoorzitter, notulist, emailNotulist, aandeelhouders, invulwaarden, velddefinities, sjabloon]);
 
   // Het stuk = vaste kop (Beheer) + het besluit van dit stuk + vaste staart (Beheer). Zo staan de
   // aandeelhouders en het ondertekenblok altijd in de centrale tekst en bewegen ze mee met wat je
