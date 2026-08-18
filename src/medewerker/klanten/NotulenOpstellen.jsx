@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Search, X, Printer, Copy, CheckCircle2, AlertTriangle, ArrowLeft, Plus, Trash2, Users, RotateCcw,
   Save, Loader2, FileText, Mail, FileSignature, Lock,
@@ -70,6 +70,69 @@ function bedragTekst(v) {
   if (!Number.isFinite(n)) return ruw;
   const heleEuros = Number.isInteger(n);
   return `€ ${n.toLocaleString("nl-NL", { minimumFractionDigits: heleEuros ? 0 : 2, maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * Wat we van een getikt bedrag BEWAREN: alleen cijfers en hooguit één decimale komma. Zo blijft de
+ * opgeslagen waarde een kaal getal ("100000", "1250,50") — precies wat Dynamics en het logboek
+ * willen — terwijl het scherm er duizendpunten omheen mag zetten.
+ */
+function schoonBedrag(v) {
+  const ruw = String(v == null ? "" : v).replace(/[^\d,.]/g, "").replace(/\./g, "");
+  const [heel, ...rest] = ruw.split(",");
+  return rest.length ? `${heel},${rest.join("").slice(0, 2)}` : heel;
+}
+
+/** Hetzelfde bedrag mét duizendpunten, zoals het in het invoerveld hoort te staan: "100.000". */
+function groepeerBedrag(v) {
+  const schoon = schoonBedrag(v);
+  if (!schoon) return "";
+  const [heel, decimalen] = schoon.split(",");
+  const metPunten = heel ? heel.replace(/\B(?=(\d{3})+(?!\d))/g, ".") : "";
+  return decimalen !== undefined ? `${metPunten},${decimalen}` : metPunten;
+}
+
+/**
+ * Invoerveld voor een bedrag dat tijdens het typen meteen duizendpunten toont ("100.000") maar naar
+ * buiten toe het kale getal doorgeeft. De cursor wordt teruggezet op basis van het aantal ECHTE
+ * tekens vóór de cursor (cijfers en de decimale komma), niet op de tekenpositie — anders springt hij
+ * bij elke duizendpunt die erbij komt. De komma telt bewust mee: laat je die weg, dan belandt de
+ * cursor er vóór en typ je je decimalen achterstevoren in het hele getal.
+ */
+function BedragInvoer({ waarde, onChange, stijl }) {
+  const ref = useRef(null);
+  const tekensVoorCaret = useRef(null);
+  const tekst = groepeerBedrag(waarde);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const doel = tekensVoorCaret.current;
+    if (!el || doel == null) return;
+    tekensVoorCaret.current = null;
+    let pos = 0;
+    let geteld = 0;
+    while (pos < el.value.length && geteld < doel) {
+      if (/[\d,]/.test(el.value[pos])) geteld += 1;
+      pos += 1;
+    }
+    try { el.setSelectionRange(pos, pos); } catch { /* niet elk veldtype ondersteunt dit */ }
+  });
+
+  return (
+    <input
+      ref={ref}
+      value={tekst}
+      onChange={(e) => {
+        const el = e.target;
+        const voor = el.value.slice(0, el.selectionStart == null ? el.value.length : el.selectionStart);
+        tekensVoorCaret.current = (voor.match(/[\d,]/g) || []).length;
+        onChange(schoonBedrag(el.value));
+      }}
+      inputMode="decimal"
+      placeholder="bijv. 100.000"
+      style={stijl}
+    />
+  );
 }
 
 /** De aandeelhoudersregels zoals ze in het "Aanwezig"-blok komen: naam + aandeel, één per regel. */
@@ -196,17 +259,22 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
     return alle.filter((k) => `${k.klantnaam} ${k.klantnummer ?? ""} ${k.groepsnaam ?? ""}`.toLowerCase().includes(t)).slice(0, 12);
   }, [zoek, klanten]);
 
-  // Klantwissel: vestigingsplaats, voorzitter en de eerste aandeelhouder vast voorinvullen — alles
-  // blijft aanpasbaar. De notulist wordt de ingelogde medewerker (die maakt het stuk immers op).
+  // Klantwissel: vestigingsplaats, voorzitter, notulist en de eerste aandeelhouder voorinvullen —
+  // alles blijft gewoon aanpasbaar (beide namen zijn met de zoeklijst te vervangen).
   useEffect(() => {
     if (!klant) return;
     const plaats = veiligeStr(klant.adres && klant.adres.plaats) || veiligeStr(klant.contact && klant.contact.adres && klant.contact.adres.plaats);
     const contactNaam = veiligeStr(klant.contact && klant.contact.naam);
+    const contactMail = veiligeStr(klant.contact && klant.contact.email) || veiligeStr(klant.emailKlant);
     setVestigingsplaats(plaats);
-    // Voorzitter: de contactpersoon van de cliënt, of de vaste naam uit Beheer.
+    // Voorzitter én notulist: allebei standaard de primaire contactpersoon van de cliënt (of de
+    // vaste naam uit Beheer, als die daar ooit is ingesteld). Bij vergaderingen van de cliënt zit
+    // die persoon meestal in beide rollen; wie er echt notuleert kies je gewoon in het scherm.
     const st = opbouw.standaard || {};
     setVoorzitter(st.voorzitterBron === "vast" && veiligeStr(st.voorzitterVast) ? veiligeStr(st.voorzitterVast) : contactNaam);
-    setEmailVoorzitter(veiligeStr(klant.contact && klant.contact.email) || veiligeStr(klant.emailKlant));
+    setEmailVoorzitter(contactMail);
+    setNotulist(st.notulistBron === "vast" && veiligeStr(st.notulistVast) ? veiligeStr(st.notulistVast) : contactNaam);
+    setEmailNotulist(contactMail);
     setAandeelhouders([{ naam: contactNaam, percentage: "100" }]);
     setMelding(null);
     // Een andere cliënt = een ander stuk: de koppeling met het vorige notulendossier loslaten. Het
@@ -227,12 +295,14 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
     return () => { bezig = false; };
   }, [klant]);
 
-  // Notulist: standaard de medewerker die het stuk opstelt, of de vaste naam uit Beheer.
+  // Zonder gekozen cliënt is er nog geen contactpersoon; dan blijft de ingelogde medewerker de
+  // terugval voor de notulist, zodat het veld niet leeg staat. Zodra je een cliënt kiest neemt het
+  // effect hierboven het over met de contactpersoon.
   useEffect(() => {
     const st = opbouw.standaard || {};
     const vast = st.notulistBron === "vast" ? veiligeStr(st.notulistVast) : "";
     if (vast) { setNotulist(vast); return; }
-    if (mijnNaam && !notulist) setNotulist(mijnNaam);
+    if (!klant && mijnNaam && !notulist) setNotulist(mijnNaam);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mijnNaam, opbouw.standaard]);
 
@@ -248,30 +318,46 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
   const autoRef = useRef("");
   // Openen we een bestaand stuk vanuit het logboek? Dan hoort er géén nieuwe rij te ontstaan.
   const openendRef = useRef(!!openStuk);
+  // Het aanmaken van die rij loopt asynchroon. Klikte je vóórdat het antwoord binnen was op Opslaan,
+  // dan ging het stuk zónder dossierId weg, maakte de server een TWEEDE dossier aan, en kwam de
+  // eerste rij er daarna alsnog overheen — resultaat: twee regels in het logboek voor één notulen.
+  // Daarom houden we de lopende aanvraag vast; opslaan() wacht hem eerst af.
+  const aanmakenRef = useRef(null);
+
+  /** De zojuist automatisch aangemaakte, nog lege rij opruimen (best-effort). */
+  function ruimAutoRijOp() {
+    const id = autoRef.current;
+    if (!id) return;
+    autoRef.current = "";
+    fetch("/api/medewerker-notulen-opslaan", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ actie: "verwijderen", dossierId: id }),
+    }).catch(() => { /* opruimen is best-effort */ });
+  }
+
   useEffect(() => {
-    const vorige = autoRef.current;
-    if (vorige) {
-      autoRef.current = "";
-      fetch("/api/medewerker-notulen-opslaan", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ actie: "verwijderen", dossierId: vorige }),
-      }).catch(() => { /* opruimen is best-effort */ });
-    }
+    ruimAutoRijOp();
+    aanmakenRef.current = null;
     if (!klant || !klant.accountId) return;
     if (openendRef.current) { openendRef.current = false; return; } // bestaand stuk: geen nieuwe rij
     let bezig = true;
-    fetch("/api/medewerker-notulen-opslaan", {
+    const bezigMet = fetch("/api/medewerker-notulen-opslaan", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ actie: "aanmaken", accountId: klant.accountId, datum: datumactie }),
     })
       .then(async (r) => ({ ok: r.ok, d: await r.json().catch(() => ({})) }))
       .then(({ ok, d }) => {
-        if (!bezig || !levend.current) return;
-        if (!ok || !d.dossierId) { setMelding({ type: "fout", tekst: `Het notulendossier kon nog niet worden aangemaakt: ${d.error || "onbekende reden"}. Je kunt gewoon doorwerken; bij Opslaan wordt het alsnog aangemaakt.` }); return; }
-        setDossierId(d.dossierId);
+        if (!bezig || !levend.current) return "";
+        if (!ok || !d.dossierId) { setMelding({ type: "fout", tekst: `Het notulendossier kon nog niet worden aangemaakt: ${d.error || "onbekende reden"}. Je kunt gewoon doorwerken; bij Opslaan wordt het alsnog aangemaakt.` }); return ""; }
+        // Is er ondertussen al een stuk heropend (of opgeslagen), dan hóórt deze rij nergens meer bij:
+        // niet alsnog overnemen, maar opruimen. Anders zou het scherm ineens naar een lege rij wijzen.
+        if (!bezig) return "";
+        setDossierId((h) => h || d.dossierId);
         autoRef.current = d.dossierId;
+        return d.dossierId;
       })
-      .catch(() => { /* stil: bij Opslaan wordt het dossier alsnog aangemaakt */ });
+      .catch(() => "" /* stil: bij Opslaan wordt het dossier alsnog aangemaakt */);
+    aanmakenRef.current = bezigMet;
     return () => { bezig = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [klant]);
@@ -328,6 +414,14 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
     }
     return uit;
   }, [voorzitter, emailVoorzitter, emailNotulist, invulwaarden, catalogus, velddefinities]);
+
+  // De regel uit "Eerder opgesteld" waar dit scherm nu aan hangt — die werkt Opslaan bij. Zolang die
+  // er niet is (een gloednieuw stuk) maakt Opslaan juist wél een nieuwe regel; dat onderscheid tonen
+  // we bij de knop, zodat je nooit per ongeluk een tweede regel in het logboek krijgt.
+  const huidigeRegel = useMemo(
+    () => (dossierId ? (eerdere || []).find((r) => String(r.dossierId) === String(dossierId)) || null : null),
+    [eerdere, dossierId],
+  );
 
   // De vrije invulvelden die bij het gekozen model horen (Beheer bepaalt welke), in de volgorde
   // waarin ze in Beheer staan.
@@ -462,17 +556,28 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
    * notulendossier in Dynamics, en de invulgegevens (waaronder de aandeelhoudersnamen) zodat je het
    * later kunt heropenen. Tweede keer opslaan werkt hetzelfde dossier bij.
    */
-  async function opslaan() {
+  async function opslaan({ alsNieuw = false } = {}) {
     if (!klant || leeg) return;
     setOpslaanBezig(true); setMelding(null);
     try {
+      // Eerst de eventueel nog lopende "aanmaken" afwachten: anders slaan we op zónder dossierId,
+      // maakt de server een tweede dossier aan en staan er straks twee regels in het logboek.
+      let doelDossierId = dossierId;
+      if (!alsNieuw && !doelDossierId && aanmakenRef.current) {
+        const gewacht = await aanmakenRef.current.catch(() => "");
+        if (!levend.current) return;
+        if (gewacht) doelDossierId = gewacht;
+      }
+      // "Opslaan als nieuwe notulen": bewust géén dossierId meesturen, dan komt er een nieuw dossier
+      // en een nieuwe regel in het logboek. De rij die het scherm nu vasthoudt blijft ongemoeid.
+      if (alsNieuw) doelDossierId = "";
       const res = await fetch("/api/medewerker-notulen-opslaan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           accountId: klant.accountId,
           klantnaam: veiligeStr(klant.klantnaam),
-          dossierId: dossierId || undefined,
+          dossierId: doelDossierId || undefined,
           modelNaam: veiligeStr(sjabloon && sjabloon.naam),
           datum: datumactie,
           // Naar het notulendossier in Dynamics gaat wat we kúnnen plaatsen: de voorzitter, plus elk
@@ -495,10 +600,13 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || `Opslaan mislukt (${res.status}).`);
       if (!levend.current) return;
-      const nieuw = !dossierId || autoRef.current === dossierId;
+      const nieuw = alsNieuw || !doelDossierId || autoRef.current === doelDossierId;
+      // Sloegen we bewust als NIEUWE notulen op, dan hangt het scherm daarna aan die nieuwe rij; de
+      // oude blijft ongewijzigd in het logboek staan.
       setDossierId(d.dossierId || "");
       setPdfUrl(d.pdfUrl || "");
       autoRef.current = ""; // opgeslagen: deze rij is geen wegwerp-rij meer
+      aanmakenRef.current = null;
       setOpgeslagenOoit(true);
       setMelding(
         d.sharepoint && d.sharepoint.gedaan
@@ -521,9 +629,12 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
   function heropen(r) {
     if (!r) return;
     const v = r.velden || {};
+    // Stond er nog een zojuist automatisch aangemaakte, lege rij klaar? Die is nu overbodig — weg
+    // ermee. Vroeger lieten we alleen de verwijzing los; dan bleef er een leeg notulendossier staan.
+    ruimAutoRijOp();
+    aanmakenRef.current = null;
     setDossierId(r.dossierId || "");
     setPdfUrl(r.pdfUrl || "");
-    autoRef.current = ""; // een bestaand stuk is nooit een wegwerp-rij
     setOpgeslagenOoit(true);
     const model = lijst.find((s) => veiligeStr(s.naam) === veiligeStr(r.modelNaam));
     if (model) setSjabloonId(model.id);
@@ -870,12 +981,10 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
                       </>
                     ) : v.type === "bedrag" ? (
                       <>
-                        <input
-                          value={invulwaarden[v.sleutel] || ""}
-                          onChange={(e) => setInvulwaarden((h) => ({ ...h, [v.sleutel]: e.target.value }))}
-                          inputMode="decimal"
-                          placeholder="bijv. 100000"
-                          style={input}
+                        <BedragInvoer
+                          waarde={invulwaarden[v.sleutel] || ""}
+                          onChange={(nieuw) => setInvulwaarden((h) => ({ ...h, [v.sleutel]: nieuw }))}
+                          stijl={input}
                         />
                         {veiligeStr(invulwaarden[v.sleutel]) && (
                           <div style={{ marginTop: 4, fontSize: 11.5, color: KLEUR.mutedTekst }}>in het stuk: {bedragTekst(invulwaarden[v.sleutel])}</div>
@@ -943,10 +1052,32 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
 
           {/* Acties */}
           <div style={{ borderTop: `1px solid ${KLEUR.rand}`, paddingTop: 14 }}>
+            {/* Waar gaat dit heen? Bij een stuk dat je bewerkt is dat een BESTAANDE regel in het
+                logboek; die willen we zwart-op-wit tonen, want anders is niet te zien of je bijwerkt
+                of iets nieuws maakt. */}
+            {klant && opgeslagenOoit && huidigeRegel && (
+              <div style={{ marginBottom: 10, display: "inline-flex", alignItems: "center", gap: 7, fontSize: 11.5, fontWeight: 600, color: KLEUR.blauw, background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "5px 10px" }}>
+                <RotateCcw size={13} />
+                <span>
+                  Opslaan werkt de bestaande notulen bij: <strong>{veiligeStr(huidigeRegel.modelNaam) || "Notulen"}</strong>
+                  {langeDatum(huidigeRegel.datum) ? ` d.d. ${langeDatum(huidigeRegel.datum)}` : ""} — er komt geen tweede regel in het logboek bij.
+                </span>
+              </div>
+            )}
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <button style={knop(KLEUR.groen, !!klant && !leeg && !opslaanBezig)} disabled={!klant || leeg || opslaanBezig} onClick={opslaan}>
-                {opslaanBezig ? <Loader2 size={15} className="spin" /> : <Save size={15} />} {opslaanBezig ? "Opslaan…" : (opgeslagenOoit ? "Opnieuw opslaan" : "Opslaan in dossier")}
+              <button style={knop(KLEUR.groen, !!klant && !leeg && !opslaanBezig)} disabled={!klant || leeg || opslaanBezig} onClick={() => opslaan()}>
+                {opslaanBezig ? <Loader2 size={15} className="spin" /> : <Save size={15} />} {opslaanBezig ? "Opslaan…" : (opgeslagenOoit ? "Deze notulen bijwerken" : "Opslaan in dossier")}
               </button>
+              {opgeslagenOoit && (
+                <button
+                  style={{ ...knopLicht, opacity: klant && !leeg && !opslaanBezig ? 1 : 0.5, cursor: klant && !leeg && !opslaanBezig ? "pointer" : "not-allowed" }}
+                  disabled={!klant || leeg || opslaanBezig}
+                  onClick={() => opslaan({ alsNieuw: true })}
+                  title="Laat de notulen die je nu bewerkt staan en legt dit stuk vast als een nieuwe notulen, met een eigen regel in het logboek."
+                >
+                  <Plus size={15} /> Opslaan als nieuwe notulen
+                </button>
+              )}
               <button style={{ ...knopLicht, opacity: klant && !leeg ? 1 : 0.5, cursor: klant && !leeg ? "pointer" : "not-allowed" }} disabled={!klant || leeg} onClick={() => openVersturen("mail")}>
                 <Mail size={15} /> Mailen
               </button>
@@ -1197,8 +1328,11 @@ function renderBlok(b, i) {
       return <div key={i} style={{ margin: "0 0 9px 22px" }}>{b.tekst}</div>;
     case "ondertekening":
       return (
+        // Geen "[Handtekening]"-tekst meer boven de stippellijn: dat is een aanwijzing voor de lezer
+        // die in een ondertekend stuk niets te zoeken heeft. De witruimte blijft wel staan, zodat er
+        // ruimte is om te tekenen.
         <div key={i} style={{ marginTop: 34 }}>
-          <div style={{ color: KLEUR.mutedTekst, fontSize: 11, marginBottom: 18 }}>[Handtekening]</div>
+          <div style={{ height: 29 }} />
           <div style={{ letterSpacing: 0.5 }}>…………………………………………….</div>
           {b.naam ? <div style={{ marginTop: 2 }}>{b.naam}</div> : null}
           {b.functie ? <div style={{ fontSize: 12 }}>{b.functie}</div> : null}

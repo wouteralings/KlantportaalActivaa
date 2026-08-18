@@ -154,9 +154,10 @@ async function blokkenNaarPdf(blokken, kop) {
         witruimte(6);
         break;
       case "ondertekening":
+        // Geen "[Handtekening]"-tekst boven de stippellijn (zelfde keuze als in het scherm en bij
+        // afdrukken); alleen de witruimte blijft, zodat er ruimte is om te tekenen.
         witruimte(30);
-        schrijf("[Handtekening]", { size: 9.5, kleur: KLEUR.muted, regelhoogte: 13 });
-        witruimte(16);
+        witruimte(29);
         schrijf(".......................................................", { size: 11, regelhoogte: 15 });
         if (b.naam) schrijf(b.naam, { regelhoogte: 15 });
         if (b.functie) schrijf(b.functie, { size: 10, kleur: KLEUR.subtekst, regelhoogte: 14 });

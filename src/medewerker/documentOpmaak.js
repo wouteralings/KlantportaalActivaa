@@ -121,7 +121,9 @@ export function blokkenNaarHtml(blokken, esc) {
       case "inspring": uit.push(`<p class="inspring">${esc(b.tekst)}</p>`); break;
       case "ondertekening":
         uit.push(
-          `<div class="onderteken"><div class="ondertekenlabel">[Handtekening]</div>` +
+          // Geen "[Handtekening]"-tekst; de lege ondertekenruimte blijft wel staan (.ondertekenlabel
+          // houdt alleen nog de hoogte vast), zodat er in het afgedrukte stuk plek is om te tekenen.
+          `<div class="onderteken"><div class="ondertekenlabel">&nbsp;</div>` +
           `<div class="stippel">…………………………………………….</div>` +
           (b.naam ? `<div class="ondertekennaam">${esc(b.naam)}</div>` : "") +
           (b.functie ? `<div class="ondertekenfunctie">${esc(b.functie)}</div>` : "") +

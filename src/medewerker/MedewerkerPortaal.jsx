@@ -2968,6 +2968,9 @@ function DossierBijlageKaart({ dossier, disabled, extraEmails, soortWaarde, toon
   const [verstuurBezig, setVerstuurBezig] = useState(false);
   const [verstuurFout, setVerstuurFout] = useState("");
   const [verstuurMelding, setVerstuurMelding] = useState("");
+  // De mail wordt niet meer rechtstreeks vanuit de kaart verstuurd maar in een venster nagekeken —
+  // zo gaat er niets de deur uit zonder dat je onderwerp, tekst en bijlage hebt gezien.
+  const [mailVenster, setMailVenster] = useState(false);
   const geInit = useRef(false); // compose-velden éénmalig voorvullen zodra de standaardgegevens binnen zijn
 
   const laad = () => {
@@ -3058,6 +3061,7 @@ function DossierBijlageKaart({ dossier, disabled, extraEmails, soortWaarde, toon
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(`${d.error || `HTTP ${r.status}`}${d.detail ? ` (${d.detail})` : ""}`);
       setVerstuurMelding(`Verstuurd naar ${mailNaar}${mailCc.trim() ? ` (cc: ${mailCc.trim()})` : ""}${mailBijlage ? ` met bijlage “${mailBijlage}”` : " (zonder bijlage)"}.`);
+      setMailVenster(false); // gelukt: het venster mag dicht, de bevestiging staat op de kaart
     } catch (e) { setVerstuurFout(e.message || "Versturen is mislukt."); }
     finally { setVerstuurBezig(false); }
   };
@@ -3125,54 +3129,86 @@ function DossierBijlageKaart({ dossier, disabled, extraEmails, soortWaarde, toon
         </>
       )}
 
-      {/* Versturen naar klant — inline compose (zoals de Brieven-module); bijlage optioneel. Alleen bij
-          soorten mét mailmodule (dividend/notulen); IB/VPB tonen enkel dropzone + snellink (toonMail=false). */}
+      {/* Versturen naar klant — de knop opent een venster waarin je de mail nog nakijkt en aanpast
+          (zelfde werkwijze als bij Brieven en Notulen: niets gaat weg zonder dat je het gezien hebt).
+          Alleen bij soorten mét mailmodule (dividend/notulen); IB/VPB tonen enkel dropzone + snellink. */}
       {toonMail && (
       <div style={{ marginTop: toonUpload ? 16 : 0, paddingTop: toonUpload ? 16 : 0, borderTop: toonUpload ? `1px solid ${KLEUR.rand}` : "none" }}>
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Versturen naar klant</div>
-        <div style={{ marginBottom: 10 }}>
-          <div style={mailLabel}>E-mail ontvanger</div>
-          <input value={mailNaar} onChange={(e) => setMailNaar(e.target.value)} placeholder="naam@bedrijf.nl" style={mailVeld} />
-          {ontvangerOpties.length > 0 && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6, alignItems: "center" }}>
-              <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>Kies:</span>
-              {ontvangerOpties.map((o, i) => (
-                <button key={i} type="button" onClick={() => setMailNaar(o.email)} title={o.email}
-                  style={{ border: `1px solid ${KLEUR.rand}`, background: mailNaar === o.email ? KLEUR.lichtblauw : "#F7F8F6", color: KLEUR.tekst, borderRadius: 999, padding: "3px 9px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
-                  {o.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <div style={{ marginBottom: 10 }}>
-          <div style={mailLabel}>CC (optioneel, komma-gescheiden)</div>
-          <input value={mailCc} onChange={(e) => setMailCc(e.target.value)} placeholder="cc@… (bijv. voorzitter en notulist)" style={mailVeld} />
-        </div>
-        <div style={{ marginBottom: 10 }}>
-          <div style={mailLabel}>Onderwerp</div>
-          <input value={mailOnderwerp} onChange={(e) => setMailOnderwerp(e.target.value)} placeholder="Betreft…" style={mailVeld} />
-        </div>
-        <div style={{ marginBottom: 10 }}>
-          <div style={mailLabel}>Tekst</div>
-          <textarea value={mailTekst} onChange={(e) => setMailTekst(e.target.value)} rows={8} style={{ ...mailVeld, resize: "vertical", lineHeight: 1.5 }} />
-        </div>
-        <div style={{ marginBottom: 12 }}>
-          <div style={mailLabel}>Bijlage (optioneel)</div>
-          <select value={mailBijlage} onChange={(e) => setMailBijlage(e.target.value)} style={{ ...mailVeld, maxWidth: 420, background: "#fff" }}>
-            <option value="">— geen bijlage —</option>
-            {(bestanden || []).map((b, i) => <option key={i} value={b.naam}>{b.naam}</option>)}
-          </select>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Versturen naar klant</div>
+        <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 12, maxWidth: 640 }}>
+          Je krijgt eerst een venster met de ontvanger, het onderwerp, de tekst en de bijlage. Pas daar
+          op “Versturen” gaat de mail écht weg.
         </div>
         {verstuurFout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 10 }}>{verstuurFout}</div>}
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <button onClick={verstuur} disabled={disabled || verstuurBezig || !kanVersturen}
-            style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: disabled || verstuurBezig || !kanVersturen ? "#9DB4A5" : KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: disabled || verstuurBezig || !kanVersturen ? "default" : "pointer" }}>
-            <Mail size={14} /> {verstuurBezig ? "Versturen…" : "Mailen naar klant"}
+          <button onClick={() => { setVerstuurFout(""); setVerstuurMelding(""); setMailVenster(true); }} disabled={disabled || verstuurBezig}
+            style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: disabled || verstuurBezig ? "#9DB4A5" : KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: disabled || verstuurBezig ? "default" : "pointer" }}>
+            <Mail size={14} /> Mailen naar klant
           </button>
           {verstuurMelding && <span style={{ fontSize: 12.5, color: KLEUR.groen }}>{verstuurMelding}</span>}
         </div>
       </div>
+      )}
+
+      {/* Het mailvenster zelf: hier stel je de mail samen en verstuur je hem pas. */}
+      {mailVenster && (
+        <div
+          onClick={() => !verstuurBezig && setMailVenster(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(28,35,33,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 20 }}
+        >
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 14, padding: 24, width: "100%", maxWidth: 600, maxHeight: "85vh", overflowY: "auto" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Mailen naar klant</div>
+            <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 16 }}>
+              Kijk de mail na en pas hem aan waar nodig. De bijlage kies je onderaan.
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <div style={mailLabel}>E-mail ontvanger</div>
+              <input value={mailNaar} onChange={(e) => setMailNaar(e.target.value)} placeholder="naam@bedrijf.nl" style={mailVeld} />
+              {ontvangerOpties.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6, alignItems: "center" }}>
+                  <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>Kies:</span>
+                  {ontvangerOpties.map((o, i) => (
+                    <button key={i} type="button" onClick={() => setMailNaar(o.email)} title={o.email}
+                      style={{ border: `1px solid ${KLEUR.rand}`, background: mailNaar === o.email ? KLEUR.lichtblauw : "#F7F8F6", color: KLEUR.tekst, borderRadius: 999, padding: "3px 9px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <div style={mailLabel}>CC (optioneel, komma-gescheiden)</div>
+              <input value={mailCc} onChange={(e) => setMailCc(e.target.value)} placeholder="cc@… (bijv. voorzitter en notulist)" style={mailVeld} />
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <div style={mailLabel}>Onderwerp</div>
+              <input value={mailOnderwerp} onChange={(e) => setMailOnderwerp(e.target.value)} placeholder="Betreft…" style={mailVeld} />
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <div style={mailLabel}>Tekst</div>
+              <textarea value={mailTekst} onChange={(e) => setMailTekst(e.target.value)} rows={8} style={{ ...mailVeld, resize: "vertical", lineHeight: 1.5 }} />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={mailLabel}>Bijlage (optioneel)</div>
+              <select value={mailBijlage} onChange={(e) => setMailBijlage(e.target.value)} style={{ ...mailVeld, background: "#fff" }}>
+                <option value="">— geen bijlage —</option>
+                {(bestanden || []).map((b, i) => <option key={i} value={b.naam}>{b.naam}</option>)}
+              </select>
+            </div>
+            {verstuurFout && <div style={{ fontSize: 12.5, color: KLEUR.rood, marginBottom: 10 }}>{verstuurFout}</div>}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <button onClick={verstuur} disabled={disabled || verstuurBezig || !kanVersturen}
+                style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: disabled || verstuurBezig || !kanVersturen ? "#9DB4A5" : KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: disabled || verstuurBezig || !kanVersturen ? "default" : "pointer" }}>
+                <Mail size={14} /> {verstuurBezig ? "Versturen…" : "Versturen"}
+              </button>
+              <button onClick={() => setMailVenster(false)} disabled={verstuurBezig}
+                style={{ padding: "9px 16px", background: "#fff", color: KLEUR.blauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: verstuurBezig ? "default" : "pointer" }}>
+                Annuleren
+              </button>
+              {!kanVersturen && <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>Ontvanger, onderwerp en tekst zijn verplicht.</span>}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -3430,8 +3466,10 @@ function DossierVoorbeeldModal({ dossier, soortLabel, periodeTekst, catalogus, v
         return <div key={i} style={{ margin: "0 0 9px 22px" }}>{b.tekst}</div>;
       case "ondertekening":
         return (
+          // Geen "[Handtekening]"-tekst boven de stippellijn — zie NotulenOpstellen.jsx; alleen de
+          // witruimte blijft, zodat er ruimte is om te tekenen.
           <div key={i} style={{ marginTop: 34 }}>
-            <div style={{ color: KLEUR.mutedTekst, fontSize: 11, marginBottom: 18 }}>[Handtekening]</div>
+            <div style={{ height: 29 }} />
             <div style={{ letterSpacing: 0.5 }}>…………………………………………….</div>
             {b.naam ? <div style={{ marginTop: 2 }}>{b.naam}</div> : null}
             {b.functie ? <div style={{ fontSize: 12 }}>{b.functie}</div> : null}
