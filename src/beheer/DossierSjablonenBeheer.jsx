@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
-import { FileText, Save, ChevronDown, ChevronRight, Plus, Trash2, ArrowUp, ArrowDown, Info, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { FileText, Save, ChevronDown, ChevronRight, Plus, Trash2, ArrowUp, ArrowDown, Info, X, Search } from "lucide-react";
 import { ROMP, STAART, steltNotulenSamen, haalBesluitUitTekst } from "./notulenSjablonen";
+import { AantalKiezer, AANTAL_STANDAARD } from "./AantalKiezer";
 
 /** Zelfde palet als de rest van het beheerdersportaal (bewust hier herhaald zodat dit bestand op
  *  zichzelf staat, zie bijv. DossierIndelingBeheer.jsx/BrievenBeheer.jsx). */
@@ -105,6 +106,10 @@ export default function DossierSjablonenPerSoort({ soort }) {
   const [openIds, setOpenIds] = useState(() => new Set()); // welke sjabloon-kaarten opengeklapt zijn
   const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
   const [fout, setFout] = useState("");
+  // Zoeken in de modellen + hoeveel er onder elkaar staan. Bij een handvol sjablonen merk je er niets
+  // van; zodra het er tientallen worden scrol je anders eindeloos.
+  const [zoek, setZoek] = useState("");
+  const [toonAantal, setToonAantal] = useState(AANTAL_STANDAARD);
 
   // De laatst gefocuste tekstarea + welk sjabloon dat is — zodat een klik op een merge-veld-chip de
   // plaatshouder op de cursorpositie in dát sjabloon invoegt.
@@ -245,7 +250,113 @@ export default function DossierSjablonenPerSoort({ soort }) {
       .map((v) => ({ key: v.key, label: v.label || v.key })),
   ];
 
+  // Zoeken op modelnaam. Een leeg zoekveld = de hele lijst; een nieuw (nog naamloos) sjabloon blijft
+  // dan gewoon staan. Wordt er wél gezocht, dan matchen we op de naam.
+  const gefilterdeSjablonen = useMemo(() => {
+    const t = zoek.trim().toLowerCase();
+    if (!t) return sjablonen;
+    return sjablonen.filter((s) => String(s.naam || "").toLowerCase().includes(t));
+  }, [sjablonen, zoek]);
+
+  // Het blok met de kop- en staarttekst, als losse variabele: het hoofdstuk "Vaste tekst voor alle
+  // notulen" toont hem bovenaan, buiten de kaart met de modellen.
+  const vasteTekstBlok = (
+    <>
+        <div style={{ fontSize: 12, color: KLEUR.subtekst, margin: "12px 0" }}>
+          Pas je dit aan, dan verandert het in één keer voor alle notulen. Houd de merge-velden staan:
+          <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>{"{{aandeelhouders}}"}</code>
+          vult de aandeelhouders met naam en aandeel in, en
+          <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>[ondertekening] Voorzitter | {"{{directeur}}"}</code>
+          laat het ondertekenblok meelopen met wie je bij het opstellen invult. Zet er een
+          vraagteken in —
+          <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>{"{{toelichting?}}"}</code>
+          — dan is dat stukje optioneel: is het veld in het dossier leeg, dan komt er niets te
+          staan en verdwijnt die regel uit het stuk (zonder vraagteken zie je de invulplek
+          <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>[EXTRA TOELICHTING]</code>).
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <span style={labelStijl}>Kop — tot en met “…de navolgende besluiten heeft genomen:”</span>
+            {String(kop || "").trim() !== "" && (
+              <button onClick={() => setKop("")} style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 11.5, fontWeight: 600, cursor: "pointer", padding: 0, marginBottom: 5 }}>Standaardtekst herstellen</button>
+            )}
+          </div>
+          <textarea
+            value={kop || ROMP}
+            onChange={(e) => setKop(e.target.value)}
+            onFocus={(e) => { actiefRef.current = { el: e.target, id: "__kop", veld: "kop" }; }}
+            rows={10}
+            style={{ ...invoerStijl, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }}
+          />
+        </div>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <span style={labelStijl}>Staart — toelichting, besluit, sluiting en ondertekening</span>
+            {String(staart || "").trim() !== "" && (
+              <button onClick={() => setStaart("")} style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 11.5, fontWeight: 600, cursor: "pointer", padding: 0, marginBottom: 5 }}>Standaardtekst herstellen</button>
+            )}
+          </div>
+          <textarea
+            value={staart || STAART}
+            onChange={(e) => setStaart(e.target.value)}
+            onFocus={(e) => { actiefRef.current = { el: e.target, id: "__staart", veld: "staart" }; }}
+            rows={10}
+            style={{ ...invoerStijl, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }}
+          />
+        </div>
+        {/* "Standaard voorzitter en notulist" stond hier; op verzoek uit het beheerscherm
+            gehaald. Het voorstel blijft ongewijzigd werken: in "Notulen opstellen" is de
+            voorzitter de contactpersoon van de cliënt en de notulist de medewerker die het
+            stuk opstelt — en beide zijn daar gewoon te veranderen. De opgeslagen instelling
+            (dossierSjablonen.notulen.standaard) laten we ongemoeid staan, zodat een eerder
+            ingestelde vaste naam niet stilletjes verdwijnt. */}
+    </>
+  );
+
   return (
+    <>
+    {/* ── Hoofdstuk 1: de vaste tekst ────────────────────────────────────────────────────────────
+        De kop en de staart gelden voor ÁLLE notulen; ze stonden eerst weggestopt in de kaart met de
+        modellen, maar het is een eigen onderwerp — daarom een eigen kaart, met een eigen Opslaan.
+        (Opslaan schrijft altijd het hele notulenblok weg, dus vanuit welke van de twee kaarten je op
+        Opslaan drukt maakt niet uit; alles gaat mee.) */}
+    {isNotulen && (
+      <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, overflow: "hidden", background: "#fff" }}>
+        <button
+          onClick={() => setVasteTekstOpen((o) => !o)}
+          style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
+        >
+          {vasteTekstOpen ? <ChevronDown size={16} color={KLEUR.mutedTekst} /> : <ChevronRight size={16} color={KLEUR.mutedTekst} />}
+          <FileText size={16} color={KLEUR.blauw} />
+          <span style={{ fontSize: 14, fontWeight: 700, color: KLEUR.tekst }}>Vaste tekst voor alle notulen</span>
+          <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>
+            kop en staart{String(kop || "").trim() || String(staart || "").trim() ? " · aangepast" : " · standaardtekst"}
+          </span>
+        </button>
+        {vasteTekstOpen && (
+          <div style={{ padding: "4px 16px 18px", borderTop: `1px solid ${KLEUR.rand}` }}>
+            {!geladen ? (
+              <div style={{ fontSize: 13, color: KLEUR.mutedTekst, padding: "12px 0" }}>Vaste tekst laden…</div>
+            ) : (<>
+              {vasteTekstBlok}
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 16 }}>
+                <button
+                  onClick={opslaan}
+                  disabled={status === "bezig"}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 16px", background: status === "bezig" ? "#9DB4A5" : KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: status === "bezig" ? "default" : "pointer" }}
+                >
+                  <Save size={14} /> {status === "bezig" ? "Opslaan…" : "Opslaan"}
+                </button>
+                {status === "opgeslagen" && <span style={{ fontSize: 12.5, color: KLEUR.groen }}>Opgeslagen.</span>}
+                {(status === "fout" || fout) && <span style={{ fontSize: 12.5, color: KLEUR.rood }}>{fout || "Opslaan mislukt."}</span>}
+              </div>
+            </>)}
+          </div>
+        )}
+      </div>
+    )}
+
+    {/* ── Hoofdstuk 2: de modellen ──────────────────────────────────────────────────────────── */}
     <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 12, overflow: "hidden", background: "#fff" }}>
       <button
         onClick={() => setOpen((o) => !o)}
@@ -268,74 +379,25 @@ export default function DossierSjablonenPerSoort({ soort }) {
               medewerker welk sjabloon hij als voorbeeld (blanco A4) opent. Merge-velden zoals
               <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>{"{{klantnaam}}"}</code>
               worden dan met de dossiergegevens ingevuld. Klik een veld in een sjabloon aan om het op de cursor in te voegen.
+              {isNotulen && <> De <strong>vaste tekst</strong> (kop en staart) staat in het hoofdstuk hierboven.</>}
             </div>
           </div>
 
-          {/* Notulen: de kop en de staart gelden voor ÁLLE notulen — hier één keer instellen. In de
-              modellen hieronder staat alleen nog het besluit (punt I). */}
-          {isNotulen && geladen && (
-            <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, marginBottom: 14, background: "#FbFcFa", overflow: "hidden" }}>
-              <button
-                onClick={() => setVasteTekstOpen((o) => !o)}
-                style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}
-              >
-                {vasteTekstOpen ? <ChevronDown size={15} color={KLEUR.mutedTekst} /> : <ChevronRight size={15} color={KLEUR.mutedTekst} />}
-                <span style={{ fontSize: 13.5, fontWeight: 700, color: KLEUR.tekst }}>Vaste tekst voor alle notulen</span>
-                <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>
-                  kop en staart{String(kop || "").trim() || String(staart || "").trim() ? " · aangepast" : " · standaardtekst"}
-                </span>
-              </button>
-              {vasteTekstOpen && (
-              <div style={{ padding: "0 12px 12px", borderTop: `1px solid ${KLEUR.rand}` }}>
-              <div style={{ fontSize: 12, color: KLEUR.subtekst, margin: "12px 0" }}>
-                Pas je dit aan, dan verandert het in één keer voor alle notulen. Houd de merge-velden staan:
-                <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>{"{{aandeelhouders}}"}</code>
-                vult de aandeelhouders met naam en aandeel in, en
-                <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>[ondertekening] Voorzitter | {"{{directeur}}"}</code>
-                laat het ondertekenblok meelopen met wie je bij het opstellen invult. Zet er een
-                vraagteken in —
-                <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>{"{{toelichting?}}"}</code>
-                — dan is dat stukje optioneel: is het veld in het dossier leeg, dan komt er niets te
-                staan en verdwijnt die regel uit het stuk (zonder vraagteken zie je de invulplek
-                <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}`, margin: "0 3px" }}>[EXTRA TOELICHTING]</code>).
-              </div>
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                  <span style={labelStijl}>Kop — tot en met “…de navolgende besluiten heeft genomen:”</span>
-                  {String(kop || "").trim() !== "" && (
-                    <button onClick={() => setKop("")} style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 11.5, fontWeight: 600, cursor: "pointer", padding: 0, marginBottom: 5 }}>Standaardtekst herstellen</button>
-                  )}
-                </div>
-                <textarea
-                  value={kop || ROMP}
-                  onChange={(e) => setKop(e.target.value)}
-                  onFocus={(e) => { actiefRef.current = { el: e.target, id: "__kop", veld: "kop" }; }}
-                  rows={10}
-                  style={{ ...invoerStijl, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }}
+          {geladen && sjablonen.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+              <div style={{ position: "relative", flex: "1 1 280px", maxWidth: 420 }}>
+                <Search size={14} color={KLEUR.mutedTekst} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+                <input
+                  value={zoek}
+                  onChange={(e) => setZoek(e.target.value)}
+                  placeholder={`Zoek een ${isNotulen ? "notulenmodel" : "sjabloon"} op naam…`}
+                  style={{ ...invoerStijl, paddingLeft: 30 }}
                 />
               </div>
-              <div>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                  <span style={labelStijl}>Staart — toelichting, besluit, sluiting en ondertekening</span>
-                  {String(staart || "").trim() !== "" && (
-                    <button onClick={() => setStaart("")} style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 11.5, fontWeight: 600, cursor: "pointer", padding: 0, marginBottom: 5 }}>Standaardtekst herstellen</button>
-                  )}
-                </div>
-                <textarea
-                  value={staart || STAART}
-                  onChange={(e) => setStaart(e.target.value)}
-                  onFocus={(e) => { actiefRef.current = { el: e.target, id: "__staart", veld: "staart" }; }}
-                  rows={10}
-                  style={{ ...invoerStijl, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }}
-                />
-              </div>
-              {/* "Standaard voorzitter en notulist" stond hier; op verzoek uit het beheerscherm
-                  gehaald. Het voorstel blijft ongewijzigd werken: in "Notulen opstellen" is de
-                  voorzitter de contactpersoon van de cliënt en de notulist de medewerker die het
-                  stuk opstelt — en beide zijn daar gewoon te veranderen. De opgeslagen instelling
-                  (dossierSjablonen.notulen.standaard) laten we ongemoeid staan, zodat een eerder
-                  ingestelde vaste naam niet stilletjes verdwijnt. */}
-              </div>
+              {zoek.trim() && (
+                <button onClick={() => setZoek("")} style={{ display: "inline-flex", alignItems: "center", gap: 5, border: `1px solid ${KLEUR.rand}`, background: "#fff", color: KLEUR.blauw, borderRadius: 8, padding: "7px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                  <X size={13} /> Wis
+                </button>
               )}
             </div>
           )}
@@ -347,8 +409,17 @@ export default function DossierSjablonenPerSoort({ soort }) {
               {sjablonen.length === 0 && (
                 <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, padding: "2px 0 6px" }}>Nog geen sjablonen. Voeg er hieronder één toe.</div>
               )}
-              {sjablonen.map((s, i) => {
+              {sjablonen.length > 0 && gefilterdeSjablonen.length === 0 && (
+                <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst, padding: "2px 0 6px" }}>Geen sjabloon gevonden op “{zoek.trim()}”.</div>
+              )}
+              {gefilterdeSjablonen.slice(0, toonAantal === Infinity ? undefined : toonAantal).map((s) => {
                 const isOpen = openIds.has(s.id);
+                // Verplaatsen gaat over de plek in de HELE lijst, niet in de gefilterde weergave —
+                // anders zou een pijltje bij een zoekresultaat iets heel anders doen dan je ziet.
+                const i = sjablonen.findIndex((x) => x.id === s.id);
+                const magSchuiven = !zoek.trim();
+                const omhoogUit = !magSchuiven || i === 0;
+                const omlaagUit = !magSchuiven || i === sjablonen.length - 1;
                 return (
                   <div key={s.id} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, overflow: "hidden" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: "#FbFcFa" }}>
@@ -356,8 +427,8 @@ export default function DossierSjablonenPerSoort({ soort }) {
                         {isOpen ? <ChevronDown size={15} color={KLEUR.mutedTekst} /> : <ChevronRight size={15} color={KLEUR.mutedTekst} />}
                         <span style={{ fontSize: 13.5, fontWeight: 700, color: KLEUR.tekst }}>{s.naam || "Naamloos sjabloon"}</span>
                       </button>
-                      <button onClick={() => verplaats(s.id, -1)} disabled={i === 0} title="Omhoog" style={{ background: "none", border: "none", cursor: i === 0 ? "default" : "pointer", opacity: i === 0 ? 0.35 : 1, padding: 2 }}><ArrowUp size={15} color={KLEUR.mutedTekst} /></button>
-                      <button onClick={() => verplaats(s.id, 1)} disabled={i === sjablonen.length - 1} title="Omlaag" style={{ background: "none", border: "none", cursor: i === sjablonen.length - 1 ? "default" : "pointer", opacity: i === sjablonen.length - 1 ? 0.35 : 1, padding: 2 }}><ArrowDown size={15} color={KLEUR.mutedTekst} /></button>
+                      <button onClick={() => verplaats(s.id, -1)} disabled={omhoogUit} title={magSchuiven ? "Omhoog" : "Wis eerst het zoekveld om de volgorde aan te passen"} style={{ background: "none", border: "none", cursor: omhoogUit ? "default" : "pointer", opacity: omhoogUit ? 0.35 : 1, padding: 2 }}><ArrowUp size={15} color={KLEUR.mutedTekst} /></button>
+                      <button onClick={() => verplaats(s.id, 1)} disabled={omlaagUit} title={magSchuiven ? "Omlaag" : "Wis eerst het zoekveld om de volgorde aan te passen"} style={{ background: "none", border: "none", cursor: omlaagUit ? "default" : "pointer", opacity: omlaagUit ? 0.35 : 1, padding: 2 }}><ArrowDown size={15} color={KLEUR.mutedTekst} /></button>
                       <button onClick={() => verwijder(s.id)} title="Verwijderen" style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}><Trash2 size={15} color={KLEUR.rood} /></button>
                     </div>
                     {isOpen && (
@@ -450,6 +521,15 @@ export default function DossierSjablonenPerSoort({ soort }) {
                   </div>
                 );
               })}
+
+              {sjablonen.length > 0 && (
+                <AantalKiezer
+                  aantal={toonAantal}
+                  setAantal={setToonAantal}
+                  totaal={gefilterdeSjablonen.length}
+                  extraTekst={zoek.trim() ? `gezocht op “${zoek.trim()}” (${sjablonen.length} in totaal)` : ""}
+                />
+              )}
 
               {isNotulen && (
                 <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 12, background: "#FbFcFa" }}>
@@ -564,6 +644,7 @@ export default function DossierSjablonenPerSoort({ soort }) {
         </div>
       )}
     </div>
+    </>
   );
 }
 
@@ -890,6 +971,9 @@ export function DossierMailTaakPerSoort({ soort }) {
           Afzenderadres en standaardtekst voor het “Versturen” van een bijlage vanuit het {soort === "notulen" ? "notulen" : "dividend"}-dossier.
           De medewerker ziet dit als voorstel vlak vóór het versturen en kan ontvanger, cc, onderwerp en tekst per keer nog aanpassen.
           Plaatshouders <code>{"{{klantnaam}}"}</code>, <code>{"{{jaar}}"}</code> en <code>{"{{datum}}"}</code> worden bij het versturen ingevuld.
+          Wil je de contactpersoon persoonlijk aanschrijven, gebruik dan <code>{"{{voornaam}}"}</code> — bijvoorbeeld
+          “Beste {"{{voornaam}}"},”. Is er alleen een initiaal bekend (J. de Vries), dan komt de hele naam er te staan.
+          Met <code>{"{{contactpersoon}}"}</code> krijg je de volledige naam.
         </div>
         <div style={{ marginBottom: 10 }}>
           <span style={veldLabel}>Afzender-mailadres</span>

@@ -15,6 +15,7 @@ import NotulenBeheer from "./NotulenBeheer";
 import BrievenAfzenderInstellingen from "./BrievenAfzenderInstellingen";
 import GastaccountsOverzicht from "./GastaccountsOverzicht";
 import RollenBeheer from "./RollenBeheer";
+import { AantalKiezer, AANTAL_STANDAARD } from "./AantalKiezer";
 import ImpersonatieBanner from "../ImpersonatieBanner";
 import { Building2, Loader2, LogOut, ShieldAlert, Upload, CheckCircle2, Trash2, Send, Users, LayoutGrid, ExternalLink, Search, ArrowUp, ArrowDown, HelpCircle, ChevronUp, ChevronDown, Plus, Pencil, Check, X, Clock } from "lucide-react";
 
@@ -57,43 +58,9 @@ const KLANTOVERZICHT_BASIS = [
   ["loonadministratie", "Loonadmin."], ["belastingkantoor", "Belastingkantoor"], ["sharepoint", "SharePoint"], ["status", "Status"],
 ];
 
-// De vaste keuzes voor "hoeveel regels wil ik zien". Overal in het portaal dezelfde reeks, en
-// overal 25 als startwaarde — een beheerscherm opent zo altijd snel, ook bij duizenden regels.
-const AANTAL_KEUZES = [[25, "25"], [50, "50"], [100, "100"], [250, "250"], [500, "500"], [Infinity, "Alle"]];
-const AANTAL_STANDAARD = 25;
-
-/**
- * Regelaantal-kiezer onder een lijst: links "x van y getoond", rechts de keuzeknoppen.
- * Eén component voor alle lijsten in het beheersportaal, zodat ze zich hetzelfde gedragen en er
- * hetzelfde uitzien — en zodat een wijziging aan de reeks niet op zeven plekken hoeft.
- */
-function AantalKiezer({ aantal, setAantal, totaal, extraTekst }) {
-  const getoond = Math.min(aantal === Infinity ? totaal : aantal, totaal);
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
-      <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>
-        {getoond} van {totaal} getoond{extraTekst ? ` · ${extraTekst}` : ""}
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, flexWrap: "wrap" }}>
-        <span style={{ color: KLEUR.mutedTekst }}>Toon:</span>
-        {AANTAL_KEUZES.map(([n, lbl]) => (
-          <button
-            key={lbl}
-            onClick={() => setAantal(n)}
-            style={{
-              padding: "5px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
-              border: `1px solid ${aantal === n ? KLEUR.blauw : KLEUR.rand}`,
-              background: aantal === n ? KLEUR.blauw : "#fff",
-              color: aantal === n ? "#fff" : KLEUR.subtekst,
-            }}
-          >
-            {lbl}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
+// De regelaantal-kiezer (25/50/100/250/500/Alle) staat sinds kort in een eigen bestand, zodat ook
+// beheerschermen buiten dit bestand hem kunnen gebruiken zonder terug te hoeven importeren uit
+// BeheerPortaal (dat zou een kringetje opleveren). Zie src/beheer/AantalKiezer.jsx.
 
 /** Subtiele statusregel voor automatisch opslaan — vervangt de losse "Opslaan"-knop op de
  *  Instellingen-tab (webhooks, wijzigingsformulieren, assistent/reviews/contact, klantoverzicht-kolommen).

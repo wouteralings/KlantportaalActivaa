@@ -149,12 +149,34 @@ function decodeer(bestandBase64) {
   return { buffer };
 }
 
+/**
+ * De VOORNAAM uit de naam van de contactpersoon, om de klant persoonlijk aan te kunnen schrijven
+ * ("Beste Wouter,"). Het eerste woord is de voornaam — behalve als dat een initiaal is ("J. de Vries",
+ * "W.A. Alings"): dan is er geen voornaam bekend en gebruiken we de hele naam, want "Beste J.," leest
+ * als een fout. Zonder contactpersoon valt hij terug op de cliëntnaam, zodat de aanhef nooit leeg is.
+ */
+function voornaamUit(volledigeNaam, klantnaam) {
+  const naam = String(volledigeNaam || "").trim().replace(/\s+/g, " ");
+  if (!naam) return String(klantnaam || "").trim();
+  // "Alings, Wouter" → de voornaam staat achter de komma.
+  if (naam.includes(",")) {
+    const achterKomma = naam.split(",")[1];
+    if (achterKomma && achterKomma.trim()) return voornaamUit(achterKomma.trim(), klantnaam);
+  }
+  const eerste = naam.split(" ")[0];
+  const isInitiaal = eerste.includes(".") || /^[A-Z]{1,3}$/.test(eerste);
+  return isInitiaal ? naam : eerste;
+}
+
 // Plaatshouders in mailonderwerp/-tekst — bewust een kleine, vaste set (server-side gevuld). {{jaar}}
-// wordt als " <jaar>" ingevuld (of leeg), en dubbele spaties opgeschoond.
-function vulMailIn(sjabloon, { klantnaam, jaar, datum }) {
+// wordt als " <jaar>" ingevuld (of leeg), en dubbele spaties opgeschoond. {{voornaam}} is de voornaam
+// van de contactpersoon (zie voornaamUit), {{contactpersoon}} zijn volledige naam.
+function vulMailIn(sjabloon, { klantnaam, jaar, datum, contactpersoon, voornaam }) {
   const jaarDeel = jaar != null && jaar !== "" ? ` ${jaar}` : "";
   return String(sjabloon || "")
     .replace(/\{\{\s*klantnaam\s*\}\}/gi, klantnaam || "")
+    .replace(/\{\{\s*voornaam\s*\}\}/gi, voornaam || "")
+    .replace(/\{\{\s*contactpersoon\s*\}\}/gi, contactpersoon || "")
     .replace(/\{\{\s*jaar\s*\}\}/gi, jaarDeel)
     .replace(/\{\{\s*datum\s*\}\}/gi, datum || "")
     .replace(/[ \t]{2,}/g, " ");
@@ -287,7 +309,14 @@ module.exports = async function (context, req) {
       // meesturen, zodat het "Versturen"-venster meteen voorgevuld is.
       if (dossier) {
         const std = STANDAARD_MAIL_PER_SOORT[soortInst] || STANDAARD_MAIL_PER_SOORT.dividend;
-        const mergeCtx = { klantnaam: dossier.klantnaam || basis.naam, jaar: dossier.jaar, datum: new Date().toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" }) };
+        const contactNaam = (basis.contact && basis.contact.naam) || "";
+        const mergeCtx = {
+          klantnaam: dossier.klantnaam || basis.naam,
+          jaar: dossier.jaar,
+          datum: new Date().toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" }),
+          contactpersoon: contactNaam,
+          voornaam: voornaamUit(contactNaam, dossier.klantnaam || basis.naam),
+        };
         // Per keuzelijst-optie een eigen mailtekst (Beheer → Dossiers, <soort>Mail.perOptie). De frontend
         // kiest op basis van de gekozen "Soort" (soortdividenduitkering/soortnotulen) de bijbehorende
         // tekst; ontbreekt die, dan valt hij terug op de algemene onderwerp/tekst hieronder.
