@@ -153,15 +153,26 @@ async function blokkenNaarPdf(blokken, kop) {
         schrijf(b.tekst, { links: 22, regelhoogte: 17 });
         witruimte(6);
         break;
-      case "ondertekening":
-        // Geen "[Handtekening]"-tekst boven de stippellijn (zelfde keuze als in het scherm en bij
-        // afdrukken); alleen de witruimte blijft, zodat er ruimte is om te tekenen.
+      case "ondertekening": {
+        // Geen "[Handtekening]"-tekst boven de lijn (zelfde keuze als in het scherm en bij afdrukken);
+        // alleen de witruimte blijft, zodat er ruimte is om te tekenen. De ondertekenlijn is een
+        // doorgetrokken streep — geen rij puntjes.
         witruimte(30);
         witruimte(29);
-        schrijf(".......................................................", { size: 11, regelhoogte: 15 });
+        const streepBreedte = 176; // ± 62 mm, gelijk aan het scherm en de afdruk
+        ruimte(15);
+        page.drawLine({
+          start: { x: marge, y: y + 3 },
+          end: { x: marge + streepBreedte, y: y + 3 },
+          thickness: 0.6,
+          color: KLEUR.tekst,
+        });
+        y -= 15;
         if (b.naam) schrijf(b.naam, { regelhoogte: 15 });
+        if (b.namens) schrijf(`handelend namens ${b.namens}`, { size: 10, kleur: KLEUR.subtekst, regelhoogte: 14 });
         if (b.functie) schrijf(b.functie, { size: 10, kleur: KLEUR.subtekst, regelhoogte: 14 });
         break;
+      }
       case "handtekening": {
         // Oudere vorm: twee ondertekenregels naast elkaar.
         witruimte(40);

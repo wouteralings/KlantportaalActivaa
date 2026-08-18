@@ -171,6 +171,10 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
   const [emailVoorzitter, setEmailVoorzitter] = useState("");
   const [notulist, setNotulist] = useState("");
   const [emailNotulist, setEmailNotulist] = useState("");
+  // Tekent iemand namens zijn vennootschap? Dan komt die naam onder hem in het ondertekenblok te
+  // staan ("handelend namens Alings Beheer B.V."). Leeg = gewoon op eigen naam, zoals altijd.
+  const [namensVoorzitter, setNamensVoorzitter] = useState("");
+  const [namensNotulist, setNamensNotulist] = useState("");
   // De mailadressen komen uit het gekozen record en staan daarom op alleen-lezen. Heeft een
   // contactpersoon of medewerker geen adres in Dynamics, dan kun je het veld met "Aanpassen" openzetten
   // — anders zou je hier vast kunnen lopen zonder te kunnen mailen.
@@ -275,6 +279,8 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
     setEmailVoorzitter(contactMail);
     setNotulist(st.notulistBron === "vast" && veiligeStr(st.notulistVast) ? veiligeStr(st.notulistVast) : contactNaam);
     setEmailNotulist(contactMail);
+    // "Handelend namens" is per stuk; bij een andere cliënt hoort dat leeg te staan.
+    setNamensVoorzitter(""); setNamensNotulist("");
     setAandeelhouders([{ naam: contactNaam, percentage: "100" }]);
     setMelding(null);
     // Een andere cliënt = een ander stuk: de koppeling met het vorige notulendossier loslaten. Het
@@ -480,6 +486,8 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
     // Dan blijft hij leeg, net als elk ander merge-veld zonder waarde.
     zet("naamnotulen", sjabloon && sjabloon.naam);
     zet("modelnaam", sjabloon && sjabloon.naam);
+    zet("namensvoorzitter", namensVoorzitter);
+    zet("namensnotulist", namensNotulist);
     zet("aandeelhouders", aandeelhoudersTekst(aandeelhouders));
     // De vrije invulvelden als laatste: die horen bij dít stuk en winnen dus van gelijknamige velden.
     // Een bedrag komt als "€ 100.000" in het stuk en een datum als "17 augustus 2026" — ongeacht hoe
@@ -491,7 +499,7 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
       else zet(sleutel, waarde);
     }
     return m;
-  }, [klant, vestigingsplaats, datumactie, voorzitter, emailVoorzitter, notulist, emailNotulist, aandeelhouders, invulwaarden, velddefinities, sjabloon]);
+  }, [klant, vestigingsplaats, datumactie, voorzitter, emailVoorzitter, notulist, emailNotulist, aandeelhouders, invulwaarden, velddefinities, sjabloon, namensVoorzitter, namensNotulist]);
 
   // Het stuk = vaste kop (Beheer) + het besluit van dit stuk + vaste staart (Beheer). Zo staan de
   // aandeelhouders en het ondertekenblok altijd in de centrale tekst en bewegen ze mee met wat je
@@ -506,7 +514,26 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
       ? sjabloon.tekst
       : steltNotulenSamen({ kop: opbouw.kop, besluit, staart: opbouw.staart });
   const ingevuld = vulSjabloonIn(ruweTekst, mergeWaarden);
-  const blokken = useMemo(() => ontleedDocument(ingevuld), [ingevuld]);
+  /**
+   * De blokken van het stuk. Daarna zetten we "handelend namens" op de juiste ondertekenregel: die
+   * herkennen we aan de FUNCTIE in het blok ("Voorzitter" / "Notulist"), niet aan de naam — voorzitter
+   * en notulist zijn vaak dezelfde persoon, dus op naam matchen zou beide regels dezelfde
+   * vennootschap geven. Zo hoeft de vaste tekst in Beheer niet aangepast te worden; staat er tóch een
+   * derde deel in ([ondertekening] Voorzitter | naam | vennootschap), dan wint dat.
+   */
+  const blokken = useMemo(() => {
+    const rauw = ontleedDocument(ingevuld);
+    const namensVoor = veiligeStr(namensVoorzitter);
+    const namensNot = veiligeStr(namensNotulist);
+    if (!namensVoor && !namensNot) return rauw;
+    return rauw.map((b) => {
+      if (!b || b.type !== "ondertekening" || veiligeStr(b.namens)) return b;
+      const functie = veiligeStr(b.functie).toLowerCase();
+      if (functie.includes("voorzitter") && namensVoor) return { ...b, namens: namensVoor };
+      if (functie.includes("notulist") && namensNot) return { ...b, namens: namensNot };
+      return b;
+    });
+  }, [ingevuld, namensVoorzitter, namensNotulist]);
   const eigenKop = heeftEigenKop(ruweTekst);
   const leeg = !veiligeStr(ruweTekst);
 
@@ -592,7 +619,7 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
           zichtbareSleutels: Object.keys(dossierVeldenUitStuk),
           // …en dit zijn de gegevens die het scherm zelf beheert; die worden bewaard zodat je het
           // stuk later kunt heropenen (vooral de aandeelhoudersnamen — die passen niet in Dynamics).
-          velden: { vestigingsplaats, voorzitter, emailVoorzitter, notulist, emailNotulist },
+          velden: { vestigingsplaats, voorzitter, emailVoorzitter, notulist, emailNotulist, namensVoorzitter, namensNotulist },
           invulwaarden,
           aandeelhouders,
           // De blokken zoals ze rechts in het voorbeeld staan — de PDF gebruikt exact dezelfde.
@@ -652,6 +679,8 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
     setEmailVoorzitter(veiligeStr(v.emailVoorzitter));
     setNotulist(veiligeStr(v.notulist));
     setEmailNotulist(veiligeStr(v.emailNotulist));
+    setNamensVoorzitter(veiligeStr(v.namensVoorzitter));
+    setNamensNotulist(veiligeStr(v.namensNotulist));
     // De invulvelden terugzetten. Let op: dit moet ná het zetten van het model gebeuren én het
     // reset-effect op sjabloonId mag er niet overheen lopen — daarvoor is herstelRef (zie hieronder).
     herstelRef.current = true;
@@ -860,6 +889,16 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
                   placeholder="zoek of typ een naam…"
                   bronnen={["contact", "klant"]} klanten={klanten} medewerkers={medewerkers} invoerStijl={input}
                 />
+                {/* Tekent iemand namens zijn eigen B.V.? Dan zoek je die vennootschap er hier bij; hij
+                    komt onder de naam in het ondertekenblok te staan ("handelend namens …"). Leeg laten
+                    mag altijd — dan blijft het ondertekenblok zoals het was. */}
+                <NamensVeld
+                  waarde={namensVoorzitter}
+                  opWaarde={setNamensVoorzitter}
+                  klanten={klanten}
+                  medewerkers={medewerkers}
+                  invoerStijl={input}
+                />
               </div>
               <div style={{ flex: "1 1 240px" }}>
                 <MailVeldKop
@@ -886,6 +925,13 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
                   opKeuze={(s) => { if (veiligeStr(s.email)) setEmailNotulist(veiligeStr(s.email)); }}
                   placeholder="zoek of typ een naam…"
                   bronnen={["medewerker", "contact"]} klanten={klanten} medewerkers={medewerkers} invoerStijl={input}
+                />
+                <NamensVeld
+                  waarde={namensNotulist}
+                  opWaarde={setNamensNotulist}
+                  klanten={klanten}
+                  medewerkers={medewerkers}
+                  invoerStijl={input}
                 />
               </div>
               <div style={{ flex: "1 1 240px" }}>
@@ -1338,8 +1384,9 @@ function renderBlok(b, i) {
         // ruimte is om te tekenen.
         <div key={i} style={{ marginTop: 34 }}>
           <div style={{ height: 29 }} />
-          <div style={{ letterSpacing: 0.5 }}>…………………………………………….</div>
-          {b.naam ? <div style={{ marginTop: 2 }}>{b.naam}</div> : null}
+          <div style={{ width: 235, borderBottom: `1px solid ${KLEUR.tekst}` }} />
+          {b.naam ? <div style={{ marginTop: 4 }}>{b.naam}</div> : null}
+          {b.namens ? <div style={{ fontSize: 12 }}>handelend namens {b.namens}</div> : null}
           {b.functie ? <div style={{ fontSize: 12 }}>{b.functie}</div> : null}
         </div>
       );
@@ -1374,6 +1421,54 @@ function MailVeldKop({ titel, vrij, opWissel }) {
       >
         {vrij ? "Vastzetten" : "Aanpassen"}
       </button>
+    </div>
+  );
+}
+
+/**
+ * "Handelend namens …" onder de voorzitter of de notulist. Tekent iemand niet voor zichzelf maar
+ * namens zijn vennootschap, dan zoek je die B.V. hier op — zelfde zoeklijst als bij de naam zelf, dus
+ * de schrijfwijze blijft gelijk aan Dynamics. Standaard staat het veld dicht: het is de uitzondering,
+ * en een altijd zichtbaar leeg veld nodigt uit tot vergissingen. Is het al ingevuld (bijv. bij het
+ * heropenen van een stuk), dan staat het meteen open.
+ */
+function NamensVeld({ waarde, opWaarde, klanten, medewerkers, invoerStijl }) {
+  const [open, setOpen] = useState(!!veiligeStr(waarde));
+  // Een heropend stuk vult de waarde ná de eerste render; dan hoort het veld alsnog open te staan.
+  useEffect(() => { if (veiligeStr(waarde)) setOpen(true); }, [waarde]);
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        style={{ alignSelf: "flex-start", marginTop: 5, background: "none", border: "none", padding: 0, color: KLEUR.blauw, fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+      >
+        + handelend namens…
+      </button>
+    );
+  }
+  return (
+    <div style={{ marginTop: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, marginBottom: 3 }}>
+        <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>Handelend namens</span>
+        <button
+          type="button"
+          onClick={() => { opWaarde(""); setOpen(false); }}
+          style={{ background: "none", border: "none", padding: 0, color: KLEUR.blauw, fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+        >
+          Weghalen
+        </button>
+      </div>
+      <NaamZoeker
+        waarde={waarde}
+        opWaarde={opWaarde}
+        placeholder="zoek de B.V. of typ een naam…"
+        bronnen={["klant", "contact"]}
+        klanten={klanten}
+        medewerkers={medewerkers}
+        invoerStijl={invoerStijl}
+      />
     </div>
   );
 }

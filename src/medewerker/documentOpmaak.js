@@ -49,13 +49,14 @@ export function ontleedDocument(tekst) {
     if ((m = /^##\s+(.*)$/.exec(kaal))) { sluitAlinea(); blokken.push({ type: "kop", tekst: m[1] }); continue; }
     if ((m = /^#\s+(.*)$/.exec(kaal))) { sluitAlinea(); blokken.push({ type: "titel", tekst: m[1] }); continue; }
     if ((m = /^\[midden\]\s*(.*)$/i.exec(kaal))) { sluitAlinea(); blokken.push({ type: "midden", tekst: m[1] }); continue; }
-    // [ondertekening] Voorzitter | {{directeur}}  → één ondertekenblok: "[Handtekening]", een
-    // stippellijn, de naam en daaronder de functie. Meerdere regels = meerdere blokken onder elkaar,
-    // precies zoals in de Word-modellen.
+    // [ondertekening] Voorzitter | {{directeur}} | {{namensvoorzitter}}  → één ondertekenblok:
+    // ondertekenruimte, een streep, de naam, eventueel "handelend namens <vennootschap>" en daaronder
+    // de functie. Het derde deel is optioneel — laat je het weg of blijft het leeg, dan komt die regel
+    // er niet. Meerdere regels = meerdere blokken onder elkaar, precies zoals in de Word-modellen.
     if ((m = /^\[ondertekening\]\s*(.*)$/i.exec(kaal))) {
       sluitAlinea();
       const delen = m[1].split("|").map((s) => s.trim());
-      blokken.push({ type: "ondertekening", functie: delen[0] || "", naam: delen[1] || "" });
+      blokken.push({ type: "ondertekening", functie: delen[0] || "", naam: delen[1] || "", namens: delen[2] || "" });
       continue;
     }
     // Oudere vorm: twee namen naast elkaar. Blijft werken voor bestaande sjablonen.
@@ -123,9 +124,11 @@ export function blokkenNaarHtml(blokken, esc) {
         uit.push(
           // Geen "[Handtekening]"-tekst; de lege ondertekenruimte blijft wel staan (.ondertekenlabel
           // houdt alleen nog de hoogte vast), zodat er in het afgedrukte stuk plek is om te tekenen.
+          // De ondertekenlijn is een doorgetrokken streep (border), geen rij puntjes.
           `<div class="onderteken"><div class="ondertekenlabel">&nbsp;</div>` +
-          `<div class="stippel">…………………………………………….</div>` +
+          `<div class="streep"></div>` +
           (b.naam ? `<div class="ondertekennaam">${esc(b.naam)}</div>` : "") +
+          (b.namens ? `<div class="ondertekennamens">handelend namens ${esc(b.namens)}</div>` : "") +
           (b.functie ? `<div class="ondertekenfunctie">${esc(b.functie)}</div>` : "") +
           `</div>`,
         );
@@ -159,8 +162,10 @@ hr { border: none; border-top: 1px solid #1C2321; margin: 14px 0 }
 .punt .merk { flex: 0 0 auto; min-width: 18px }
 .onderteken { margin-top: 34px; page-break-inside: avoid }
 .ondertekenlabel { color: #8A9089; font-size: 9.5pt; margin-bottom: 18px }
+.streep { width: 62mm; border-bottom: 0.4pt solid #1C2321 }
 .stippel { letter-spacing: 0.5px }
-.ondertekennaam { margin-top: 2px }
+.ondertekennaam { margin-top: 4px }
+.ondertekennamens { font-size: 10pt }
 .ondertekenfunctie { font-size: 10pt }
 .hand { display: flex; gap: 40px; margin-top: 46px; page-break-inside: avoid }
 .handkolom { flex: 1 1 0; min-width: 0 }

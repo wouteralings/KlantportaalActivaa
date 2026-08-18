@@ -3470,8 +3470,9 @@ function DossierVoorbeeldModal({ dossier, soortLabel, periodeTekst, catalogus, v
           // witruimte blijft, zodat er ruimte is om te tekenen.
           <div key={i} style={{ marginTop: 34 }}>
             <div style={{ height: 29 }} />
-            <div style={{ letterSpacing: 0.5 }}>…………………………………………….</div>
-            {b.naam ? <div style={{ marginTop: 2 }}>{b.naam}</div> : null}
+            <div style={{ width: 235, borderBottom: `1px solid ${KLEUR.tekst}` }} />
+            {b.naam ? <div style={{ marginTop: 4 }}>{b.naam}</div> : null}
+            {b.namens ? <div style={{ fontSize: 12 }}>handelend namens {b.namens}</div> : null}
             {b.functie ? <div style={{ fontSize: 12 }}>{b.functie}</div> : null}
           </div>
         );
