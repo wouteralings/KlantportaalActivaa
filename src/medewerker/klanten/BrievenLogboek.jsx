@@ -36,7 +36,10 @@ const KOLOMMEN_STANDAARD_VERBORGEN = []; // alle kolommen standaard zichtbaar
 const kolomVan = (key) => KOLOMMEN.find((c) => c.key === key);
 const alleKeys = KOLOMMEN.map((c) => c.key);
 
-export default function BrievenLogboek({ onNieuweBrief, isBeheerder = false }) {
+export default function BrievenLogboek({ onNieuweBrief, isBeheerder = false, magVerwijderen = null }) {
+  // Wie mag verwijderen komt uit Beheer → Rollen & toegang (subtabblad "brieven"). Is dat recht
+  // niet doorgegeven (oudere aanroep), dan valt hij terug op het oude gedrag: alleen beheerders.
+  const magWeg = magVerwijderen === null ? isBeheerder : (magVerwijderen || isBeheerder);
   const [brieven, setBrieven] = useState(null); // null = laden
   const [klantMap, setKlantMap] = useState(null); // accountId(lowercase) → klant (voor "Mijn cliënten")
   const [fout, setFout] = useState("");
@@ -75,16 +78,21 @@ export default function BrievenLogboek({ onNieuweBrief, isBeheerder = false }) {
     }
   }
 
-  /** Alleen voor beheerders: de regel uit het logboek halen. De PDF blijft in SharePoint staan. */
+  /** De regel uit het logboek halen én de PDF uit de SharePoint-map van de cliënt verwijderen. */
   async function verwijderRegel(brief) {
     const naam = veiligeStr(brief.betreft) || veiligeStr(brief.sjabloonnaam) || "deze brief";
-    if (typeof window !== "undefined" && !window.confirm(`"${naam}" uit het brievenlogboek verwijderen?\n\nDe brief zelf blijft in de SharePoint-map van de cliënt staan; alleen de vermelding hier verdwijnt.`)) return;
+    if (typeof window !== "undefined" && !window.confirm(`"${naam}" verwijderen?\n\nDe regel verdwijnt uit het logboek ÉN het bestand wordt uit de SharePoint-map van de cliënt verwijderd.\n\nDit kan niet ongedaan gemaakt worden.`)) return;
     setVerwijderBezig(brief.id); setVerwijderFout("");
     try {
       const res = await fetch(`/api/brief-log?id=${encodeURIComponent(brief.id)}`, { method: "DELETE" });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || `Verwijderen mislukt (${res.status}).`);
       setBrieven((lijst) => (lijst || []).filter((x) => x.id !== brief.id));
+      // De regel is weg; lukte het opruimen in SharePoint niet, dan zeggen we dát erbij — anders denk
+      // je dat het bestand ook verdwenen is terwijl het er nog staat.
+      if (d.sharepoint && d.sharepoint.gedaan === false) {
+        setVerwijderFout(`De regel is verwijderd, maar het bestand staat nog in SharePoint: ${d.sharepoint.reden || "onbekende reden"}`);
+      }
     } catch (e) {
       setVerwijderFout(String((e && e.message) || e));
     } finally {
@@ -433,11 +441,11 @@ export default function BrievenLogboek({ onNieuweBrief, isBeheerder = false }) {
                           </button>
                         </>
                       ) : null}
-                      {isBeheerder && (
+                      {magWeg && (
                         <button
                           onClick={() => verwijderRegel(b)}
                           disabled={verwijderBezig === b.id}
-                          title="Uit het logboek verwijderen (de brief blijft in SharePoint staan)"
+                          title="Verwijderen: regel uit het logboek én bestand uit SharePoint"
                           style={{ ...knopLicht, padding: "5px 9px", marginLeft: 6, color: KLEUR.rood, borderColor: "#F0C9C9" }}
                         >
                           {verwijderBezig === b.id ? <Loader2 size={13} className="spin" /> : <Trash2 size={13} />}

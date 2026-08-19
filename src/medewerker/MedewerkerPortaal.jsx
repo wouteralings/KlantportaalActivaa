@@ -30,11 +30,11 @@ import { normaliseerSleutel, vulSjabloonIn, menselijkeVeldwaarde, bouwMergeWaard
  * Brieven-tab: start op het brievenlogboek (alle verstuurde brieven, filterbaar). Via "Nieuwe brief"
  * ga je naar het opstel-scherm; "Terug naar overzicht" brengt je weer bij het logboek.
  */
-function BrievenTab({ isBeheerder = false }) {
+function BrievenTab({ isBeheerder = false, magVerwijderen = null }) {
   const [briefView, setBriefView] = useState("logboek");
   return briefView === "opstellen"
     ? <BrievenOverzicht onTerug={() => setBriefView("logboek")} />
-    : <BrievenLogboek onNieuweBrief={() => setBriefView("opstellen")} isBeheerder={isBeheerder} />;
+    : <BrievenLogboek onNieuweBrief={() => setBriefView("opstellen")} isBeheerder={isBeheerder} magVerwijderen={magVerwijderen} />;
 }
 import NogInTeRichten from "./klanten/NogInTeRichten";
 import Logboek from "./klanten/Logboek";
@@ -1769,7 +1769,7 @@ function KlantenModule({ magContracten = false, isBeheerder = false, magPlanning
       <div style={{ paddingTop: 24 }}>
         {sub === "klanten" && <KlantOverzicht magPlanning={magPlanning} magBulkVerwijderen={subRechten ? subRechten.bulk("klanten") : isBeheerder} />}
         {sub === "contactpersonen" && <ContactpersonenOverzicht magBulkVerwijderen={subRechten ? subRechten.bulk("contactpersonen") : isBeheerder} magSubVerwijderen={subRechten ? subRechten.verwijderen("contactpersonen") : true} />}
-        {sub === "brieven" && <BrievenTab isBeheerder={isBeheerder} />}
+        {sub === "brieven" && <BrievenTab isBeheerder={isBeheerder} magVerwijderen={subRechten ? subRechten.verwijderen("brieven") : null} />}
         {sub === "contracten" && (magContracten || isBeheerder) && <ContractenOverzicht />}
         {sub === "notulen" && <NotulenTab isBeheerder={isBeheerder} magVerwijderen={subRechten ? subRechten.verwijderen("notulen") : null} />}
         {sub === "dividend" && <DividendTab isBeheerder={isBeheerder} magVerwijderen={subRechten ? subRechten.verwijderen("dividend") : null} />}

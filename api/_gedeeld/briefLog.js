@@ -87,10 +87,22 @@ async function haalBrievenVoorKlant(accountId) {
     .sort((a, b) => String(b.verzondenOp).localeCompare(String(a.verzondenOp)));
 }
 
+/** Eén briefregel op id (of null). Nodig om bij het verwijderen te weten welk bestand in SharePoint
+ *  bij deze brief hoort. */
+async function haalBrief(id) {
+  if (!id) return null;
+  try {
+    const brieven = await haalAlleBrieven();
+    return brieven.find((b) => String(b.id) === String(id)) || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Verwijdert één brief uit het logboek (op id). Alleen de LOGREGEL verdwijnt — de PDF blijft in de
- * SharePoint-map van de cliënt staan; dat is het dossier van de klant en daar hoort het portaal niet
- * ongevraagd in te snijden. Geeft true als er echt iets is verwijderd.
+ * Verwijdert één brief uit het logboek (op id). Alleen de LOGREGEL verdwijnt hier — het opruimen van
+ * de PDF in SharePoint doet de aanroeper (api/brief-log), zodat het logboek zelf niets van Graph hoeft
+ * te weten. Geeft true als er echt iets is verwijderd.
  */
 async function verwijderBrief(id) {
   const brieven = await haalAlleBrieven();
@@ -100,4 +112,4 @@ async function verwijderBrief(id) {
   return true;
 }
 
-module.exports = { haalAlleBrieven, voegBriefToe, haalBrievenVoorKlant, verwijderBrief };
+module.exports = { haalAlleBrieven, voegBriefToe, haalBrievenVoorKlant, haalBrief, verwijderBrief };
