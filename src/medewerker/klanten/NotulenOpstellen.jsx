@@ -141,9 +141,13 @@ function aandeelhoudersTekst(rijen) {
     .map((r) => {
       const naam = veiligeStr(r.naam);
       const pct = percentageTekst(r.percentage);
-      if (!naam && !pct) return "";
-      if (!pct) return naam;
-      return `${naam || "—"} — ${pct}%`;
+      // Zit deze aandeelhouder er namens een vennootschap, dan komt dat achter de naam: "J. Jansen,
+      // handelend namens Jansen Beheer B.V. — 50%". Zo blijft het percentage achteraan staan.
+      const namens = veiligeStr(r.namens);
+      const wie = namens ? `${naam || "—"}, handelend namens ${namens}` : naam;
+      if (!naam && !pct && !namens) return "";
+      if (!pct) return wie;
+      return `${wie || "—"} — ${pct}%`;
     })
     .filter(Boolean)
     .join("\n");
@@ -171,10 +175,6 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
   const [emailVoorzitter, setEmailVoorzitter] = useState("");
   const [notulist, setNotulist] = useState("");
   const [emailNotulist, setEmailNotulist] = useState("");
-  // Tekent iemand namens zijn vennootschap? Dan komt die naam onder hem in het ondertekenblok te
-  // staan ("handelend namens Alings Beheer B.V."). Leeg = gewoon op eigen naam, zoals altijd.
-  const [namensVoorzitter, setNamensVoorzitter] = useState("");
-  const [namensNotulist, setNamensNotulist] = useState("");
   // De mailadressen komen uit het gekozen record en staan daarom op alleen-lezen. Heeft een
   // contactpersoon of medewerker geen adres in Dynamics, dan kun je het veld met "Aanpassen" openzetten
   // — anders zou je hier vast kunnen lopen zonder te kunnen mailen.
@@ -279,8 +279,6 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
     setEmailVoorzitter(contactMail);
     setNotulist(st.notulistBron === "vast" && veiligeStr(st.notulistVast) ? veiligeStr(st.notulistVast) : contactNaam);
     setEmailNotulist(contactMail);
-    // "Handelend namens" is per stuk; bij een andere cliënt hoort dat leeg te staan.
-    setNamensVoorzitter(""); setNamensNotulist("");
     setAandeelhouders([{ naam: contactNaam, percentage: "100" }]);
     setMelding(null);
     // Een andere cliënt = een ander stuk: de koppeling met het vorige notulendossier loslaten. Het
@@ -486,8 +484,6 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
     // Dan blijft hij leeg, net als elk ander merge-veld zonder waarde.
     zet("naamnotulen", sjabloon && sjabloon.naam);
     zet("modelnaam", sjabloon && sjabloon.naam);
-    zet("namensvoorzitter", namensVoorzitter);
-    zet("namensnotulist", namensNotulist);
     zet("aandeelhouders", aandeelhoudersTekst(aandeelhouders));
     // De vrije invulvelden als laatste: die horen bij dít stuk en winnen dus van gelijknamige velden.
     // Een bedrag komt als "€ 100.000" in het stuk en een datum als "17 augustus 2026" — ongeacht hoe
@@ -499,7 +495,7 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
       else zet(sleutel, waarde);
     }
     return m;
-  }, [klant, vestigingsplaats, datumactie, voorzitter, emailVoorzitter, notulist, emailNotulist, aandeelhouders, invulwaarden, velddefinities, sjabloon, namensVoorzitter, namensNotulist]);
+  }, [klant, vestigingsplaats, datumactie, voorzitter, emailVoorzitter, notulist, emailNotulist, aandeelhouders, invulwaarden, velddefinities, sjabloon]);
 
   // Het stuk = vaste kop (Beheer) + het besluit van dit stuk + vaste staart (Beheer). Zo staan de
   // aandeelhouders en het ondertekenblok altijd in de centrale tekst en bewegen ze mee met wat je
@@ -514,26 +510,7 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
       ? sjabloon.tekst
       : steltNotulenSamen({ kop: opbouw.kop, besluit, staart: opbouw.staart });
   const ingevuld = vulSjabloonIn(ruweTekst, mergeWaarden);
-  /**
-   * De blokken van het stuk. Daarna zetten we "handelend namens" op de juiste ondertekenregel: die
-   * herkennen we aan de FUNCTIE in het blok ("Voorzitter" / "Notulist"), niet aan de naam — voorzitter
-   * en notulist zijn vaak dezelfde persoon, dus op naam matchen zou beide regels dezelfde
-   * vennootschap geven. Zo hoeft de vaste tekst in Beheer niet aangepast te worden; staat er tóch een
-   * derde deel in ([ondertekening] Voorzitter | naam | vennootschap), dan wint dat.
-   */
-  const blokken = useMemo(() => {
-    const rauw = ontleedDocument(ingevuld);
-    const namensVoor = veiligeStr(namensVoorzitter);
-    const namensNot = veiligeStr(namensNotulist);
-    if (!namensVoor && !namensNot) return rauw;
-    return rauw.map((b) => {
-      if (!b || b.type !== "ondertekening" || veiligeStr(b.namens)) return b;
-      const functie = veiligeStr(b.functie).toLowerCase();
-      if (functie.includes("voorzitter") && namensVoor) return { ...b, namens: namensVoor };
-      if (functie.includes("notulist") && namensNot) return { ...b, namens: namensNot };
-      return b;
-    });
-  }, [ingevuld, namensVoorzitter, namensNotulist]);
+  const blokken = useMemo(() => ontleedDocument(ingevuld), [ingevuld]);
   const eigenKop = heeftEigenKop(ruweTekst);
   const leeg = !veiligeStr(ruweTekst);
 
@@ -619,7 +596,7 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
           zichtbareSleutels: Object.keys(dossierVeldenUitStuk),
           // …en dit zijn de gegevens die het scherm zelf beheert; die worden bewaard zodat je het
           // stuk later kunt heropenen (vooral de aandeelhoudersnamen — die passen niet in Dynamics).
-          velden: { vestigingsplaats, voorzitter, emailVoorzitter, notulist, emailNotulist, namensVoorzitter, namensNotulist },
+          velden: { vestigingsplaats, voorzitter, emailVoorzitter, notulist, emailNotulist },
           invulwaarden,
           aandeelhouders,
           // De blokken zoals ze rechts in het voorbeeld staan — de PDF gebruikt exact dezelfde.
@@ -679,8 +656,6 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
     setEmailVoorzitter(veiligeStr(v.emailVoorzitter));
     setNotulist(veiligeStr(v.notulist));
     setEmailNotulist(veiligeStr(v.emailNotulist));
-    setNamensVoorzitter(veiligeStr(v.namensVoorzitter));
-    setNamensNotulist(veiligeStr(v.namensNotulist));
     // De invulvelden terugzetten. Let op: dit moet ná het zetten van het model gebeuren én het
     // reset-effect op sjabloonId mag er niet overheen lopen — daarvoor is herstelRef (zie hieronder).
     herstelRef.current = true;
@@ -889,16 +864,6 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
                   placeholder="zoek of typ een naam…"
                   bronnen={["contact", "klant"]} klanten={klanten} medewerkers={medewerkers} invoerStijl={input}
                 />
-                {/* Tekent iemand namens zijn eigen B.V.? Dan zoek je die vennootschap er hier bij; hij
-                    komt onder de naam in het ondertekenblok te staan ("handelend namens …"). Leeg laten
-                    mag altijd — dan blijft het ondertekenblok zoals het was. */}
-                <NamensVeld
-                  waarde={namensVoorzitter}
-                  opWaarde={setNamensVoorzitter}
-                  klanten={klanten}
-                  medewerkers={medewerkers}
-                  invoerStijl={input}
-                />
               </div>
               <div style={{ flex: "1 1 240px" }}>
                 <MailVeldKop
@@ -925,13 +890,6 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
                   opKeuze={(s) => { if (veiligeStr(s.email)) setEmailNotulist(veiligeStr(s.email)); }}
                   placeholder="zoek of typ een naam…"
                   bronnen={["medewerker", "contact"]} klanten={klanten} medewerkers={medewerkers} invoerStijl={input}
-                />
-                <NamensVeld
-                  waarde={namensNotulist}
-                  opWaarde={setNamensNotulist}
-                  klanten={klanten}
-                  medewerkers={medewerkers}
-                  invoerStijl={input}
                 />
               </div>
               <div style={{ flex: "1 1 240px" }}>
@@ -963,29 +921,42 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {aandeelhouders.map((r, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <NaamZoeker
-                    waarde={r.naam}
-                    opWaarde={(v) => zetAandeelhouder(i, "naam", v)}
-                    placeholder={`Aandeelhouder ${i + 1} — zoek of typ een naam…`}
-                    bronnen={["klant", "contact"]}
-                    klanten={klanten}
-                    medewerkers={medewerkers}
-                    invoerStijl={{ ...input, flex: "1 1 auto" }}
-                  />
-                  <div style={{ position: "relative", flex: "0 0 110px" }}>
-                    <input
-                      value={r.percentage}
-                      onChange={(e) => zetAandeelhouder(i, "percentage", e.target.value)}
-                      placeholder="aandeel"
-                      inputMode="decimal"
-                      style={{ ...input, paddingRight: 26, textAlign: "right" }}
+                <div key={i} style={{ display: "flex", flexDirection: "column" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <NaamZoeker
+                      waarde={r.naam}
+                      opWaarde={(v) => zetAandeelhouder(i, "naam", v)}
+                      placeholder={`Aandeelhouder ${i + 1} — zoek of typ een naam…`}
+                      bronnen={["klant", "contact"]}
+                      klanten={klanten}
+                      medewerkers={medewerkers}
+                      invoerStijl={{ ...input, flex: "1 1 auto" }}
                     />
-                    <span style={{ position: "absolute", right: 9, top: "50%", transform: "translateY(-50%)", fontSize: 12.5, color: KLEUR.mutedTekst }}>%</span>
+                    <div style={{ position: "relative", flex: "0 0 110px" }}>
+                      <input
+                        value={r.percentage}
+                        onChange={(e) => zetAandeelhouder(i, "percentage", e.target.value)}
+                        placeholder="aandeel"
+                        inputMode="decimal"
+                        style={{ ...input, paddingRight: 26, textAlign: "right" }}
+                      />
+                      <span style={{ position: "absolute", right: 9, top: "50%", transform: "translateY(-50%)", fontSize: 12.5, color: KLEUR.mutedTekst }}>%</span>
+                    </div>
+                    <button onClick={() => verwijderAandeelhouder(i)} title="Rij verwijderen" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, flexShrink: 0, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, color: KLEUR.subtekst, cursor: "pointer" }}>
+                      <Trash2 size={14} />
+                    </button>
                   </div>
-                  <button onClick={() => verwijderAandeelhouder(i)} title="Rij verwijderen" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, flexShrink: 0, background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8, color: KLEUR.subtekst, cursor: "pointer" }}>
-                    <Trash2 size={14} />
-                  </button>
+                  {/* Zit deze aandeelhouder er namens een vennootschap? Dan zoek je die er hier bij;
+                      hij komt achter de naam in het "Aanwezig"-blok te staan. */}
+                  <div style={{ paddingRight: 152 }}>
+                    <NamensVeld
+                      waarde={r.namens || ""}
+                      opWaarde={(v) => zetAandeelhouder(i, "namens", v)}
+                      klanten={klanten}
+                      medewerkers={medewerkers}
+                      invoerStijl={input}
+                    />
+                  </div>
                 </div>
               ))}
             </div>
@@ -1426,11 +1397,14 @@ function MailVeldKop({ titel, vrij, opWissel }) {
 }
 
 /**
- * "Handelend namens …" onder de voorzitter of de notulist. Tekent iemand niet voor zichzelf maar
+ * "Handelend namens …" bij een aandeelhouder. Zit iemand niet voor zichzelf in de vergadering maar
  * namens zijn vennootschap, dan zoek je die B.V. hier op — zelfde zoeklijst als bij de naam zelf, dus
- * de schrijfwijze blijft gelijk aan Dynamics. Standaard staat het veld dicht: het is de uitzondering,
- * en een altijd zichtbaar leeg veld nodigt uit tot vergissingen. Is het al ingevuld (bijv. bij het
- * heropenen van een stuk), dan staat het meteen open.
+ * de schrijfwijze blijft gelijk aan Dynamics. In het "Aanwezig"-blok komt dat achter de naam te staan:
+ * "J. Jansen, handelend namens Jansen Beheer B.V. — 50%".
+ *
+ * Standaard staat het veld dicht: het is de uitzondering, en een altijd zichtbaar leeg veld per rij
+ * maakt de lijst onleesbaar. Is het al ingevuld (bijv. bij het heropenen van een stuk), dan staat het
+ * meteen open.
  */
 function NamensVeld({ waarde, opWaarde, klanten, medewerkers, invoerStijl }) {
   const [open, setOpen] = useState(!!veiligeStr(waarde));
