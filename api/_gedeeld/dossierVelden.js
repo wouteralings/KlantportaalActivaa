@@ -235,7 +235,10 @@ const SECTIE_VOLGORDE_STANDAARD = ["algemeen", "boxi", "boxii", "boxiii", "revie
 const DIVIDEND_VELDEN = [
   // Algemeen
   { key: "soortdividenduitkering", veld: "cr283_soortdividenduitkering", type: "picklist", label: "Soort dividenduitkering", sectie: "algemeen" },
-  { key: "datumdividend", veld: "cr283_datumdividend", type: "datetime", label: "Datum dividend", sectie: "algemeen" },
+  // De datum van het stuk = de datum van de notulen van de vergadering waarin de uitkering is
+  // besloten. De Dynamics-kolom heet cr283_datumdividend (en is ook de periode van het dossier);
+  // alleen het label volgt hoe het stuk heet. Een eigen label in Beheer → Dossiers gaat hier vóór.
+  { key: "datumdividend", veld: "cr283_datumdividend", type: "datetime", label: "Datum notulen", sectie: "algemeen" },
   { key: "bedragdividenduitkering", veld: "cr283_bedragdividenduitkering", type: "integer", label: "Bedrag dividenduitkering", sectie: "algemeen" },
   { key: "uitkeringstest", veld: "cr283_uitkeringstest", type: "boolean", label: "Uitkeringstest uitgevoerd", sectie: "algemeen" },
   { key: "urlpermanentdossier", veld: "cr283_urlpermanentdossier", type: "vast-url", label: "URL permanent dossier", sectie: "algemeen" },

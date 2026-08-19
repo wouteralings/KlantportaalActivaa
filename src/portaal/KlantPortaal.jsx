@@ -1637,7 +1637,7 @@ function DocumentViewer({ url, driveId, itemId, formaat, titel }) {
 // leest de SWA-sessie (zelfde cookie-gebaseerde auth als elke andere /api/*-aanroep), dus zonder
 // apart MSAL-token nodig (in tegenstelling tot DocumentViewer/document-inhoud, dat écht de eigen
 // SharePoint-rechten van de klant gebruikt).
-function TaakDocumentViewer({ taakId, titel }) {
+function TaakDocumentViewer({ taakId, titel, index = 0 }) {
   // De iframe wijst RECHTSTREEKS naar de proxy /api/taken-document (dezelfde URL als de knop
   // "Openen" hierboven). Dat is een eigen, same-origin route (géén SharePoint-iframe, dus geen
   // 'frame-ancestors'-blokkade) die het bestand met Content-Disposition: inline teruggeeft — de
@@ -1645,9 +1645,72 @@ function TaakDocumentViewer({ taakId, titel }) {
   // maar dat kon mislukken (blob/CORS/timing) terwijl "Openen" met exact dezelfde URL wél werkte;
   // rechtstreeks in de iframe laden haalt dat verschil weg. Lukt het toch niet, dan blijft de knop
   // "Openen" (nieuw tabblad) altijd als terugval beschikbaar.
-  const src = `/api/taken-document?taakId=${encodeURIComponent(taakId)}`;
+  const src = `/api/taken-document?taakId=${encodeURIComponent(taakId)}&index=${encodeURIComponent(index || 0)}`;
   return (
     <iframe title={titel} src={src} style={{ width: "100%", height: 460, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, background: "#fff" }} />
+  );
+}
+
+/**
+ * De documenten die bij één taak horen: het stuk zelf en — als die er is — de bijlage (bij een
+ * dividendstuk bijvoorbeeld de aangifte dividendbelasting). Je ziet ze allemaal staan met hun naam,
+ * je kiest welke je in het kader bekijkt, en elk document is ook los in een nieuw tabblad te openen.
+ * Eén document = gewoon "Bekijk document" met het kader eronder, precies zoals het was.
+ */
+function TaakDocumenten({ taak }) {
+  // Terugval voor een taak van vóór deze wijziging (alleen heeftDocument, nog geen namenlijst).
+  const documenten = (Array.isArray(taak.documenten) && taak.documenten.length)
+    ? taak.documenten
+    : [{ index: 0, naam: "Document" }];
+  const meerdere = documenten.length > 1;
+  const [gekozen, setGekozen] = useState(0);
+  const actief = documenten[Math.min(gekozen, documenten.length - 1)] || documenten[0];
+  const linkNaar = (i) => `/api/taken-document?taakId=${encodeURIComponent(taak.id)}&index=${encodeURIComponent(i)}`;
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 6 }}>
+        {meerdere ? `Bekijk documenten (${documenten.length})` : "Bekijk document"}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+        {documenten.map((d) => {
+          const isActief = d.index === actief.index;
+          return (
+            <div
+              key={d.index}
+              style={{
+                display: "flex", alignItems: "center", gap: 10, padding: "8px 10px",
+                border: `1px solid ${isActief && meerdere ? KLEUR.blauw : KLEUR.rand}`,
+                background: isActief && meerdere ? KLEUR.lichtblauw : "#fff",
+                borderRadius: 8,
+              }}
+            >
+              <FileText size={14} style={{ flexShrink: 0, color: KLEUR.blauw }} />
+              <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {d.naam}
+              </div>
+              {meerdere && !isActief && (
+                <button
+                  onClick={() => setGekozen(d.index)}
+                  style={{ flexShrink: 0, padding: "5px 10px", background: "#fff", color: KLEUR.blauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                >
+                  Bekijken
+                </button>
+              )}
+              <a
+                href={linkNaar(d.index)}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0, fontSize: 12, fontWeight: 600, color: KLEUR.blauw, textDecoration: "none" }}
+              >
+                <ExternalLink size={12} /> Openen
+              </a>
+            </div>
+          );
+        })}
+      </div>
+      <TaakDocumentViewer taakId={taak.id} index={actief.index} titel={`${taak.titel} — ${actief.naam}`} />
+    </div>
   );
 }
 
@@ -2404,15 +2467,7 @@ function TabTaken({ data, gebruiker, onAkkoord, onNietAkkoord, onOndertekenen, o
                   )}
 
                   {taak.heeftDocument && open && (
-                    <div style={{ marginTop: 12 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: KLEUR.subtekst }}>Document</div>
-                        <a href={`/api/taken-document?taakId=${encodeURIComponent(taak.id)}`} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: KLEUR.blauw, textDecoration: "none" }}>
-                          <ExternalLink size={12} /> Openen
-                        </a>
-                      </div>
-                      <TaakDocumentViewer taakId={taak.id} titel={taak.titel} />
-                    </div>
+                    <TaakDocumenten taak={taak} />
                   )}
 
                   {taak.vereistHandtekening && open && afwijzenId !== taak.id && !alleenLezen && (

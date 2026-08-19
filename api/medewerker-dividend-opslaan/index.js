@@ -38,6 +38,7 @@ const { logGebeurtenis } = require("../_gedeeld/klantlog");
 const { magSubVerwijderen } = require("../_gedeeld/rollenConfig");
 const { verstuurMailMetBijlage } = require("../_gedeeld/mail");
 const { haalNavigatieNaam } = require("../_gedeeld/dossiers");
+const { splitsDocumentLinks, voegDocumentLinksSamen } = require("../_gedeeld/taakDocumenten");
 
 const SHAREPOINT_VELD = process.env.DYNAMICS_KLANT_SHAREPOINT_VELD || "cr283_sharepoint";
 // Taakvelden — zelfde Application Settings als _gedeeld/vervolgtaak.js en api/taken.
@@ -260,7 +261,7 @@ async function maakOndertekentaak({ context, resource, token, accountId, klantna
       const n = Number(cfg.rubriek);
       if (Number.isFinite(n)) body[TAAK_RUBRIEK_VELD] = n;
     }
-    if (TAAK_DOCUMENT_VELD && documentUrl) body[TAAK_DOCUMENT_VELD] = String(documentUrl).slice(0, 2000);
+    if (TAAK_DOCUMENT_VELD && documentUrl) body[TAAK_DOCUMENT_VELD] = voegDocumentLinksSamen(splitsDocumentLinks(documentUrl));
     const res = await fetch(`${resource}/api/data/v9.2/tasks`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json", "OData-MaxVersion": "4.0", "OData-Version": "4.0" },
@@ -495,9 +496,10 @@ module.exports = async function (context, req) {
         bestanden: [{ naam: bestandsnaam, buffer: pdf, contentType: PDF_TYPE }, ...(aangifte ? [aangifte] : [])],
       });
 
-      // Ter ondertekening: ÉÉN TAAK PER DOCUMENT. Een taak kan maar naar één document verwijzen (de
-      // documentkolom op Task), dus met een aangifte erbij krijgt de cliënt twee taken — en moet hij
-      // dus ook beide stukken tekenen. Lukt er één niet, dan melden we dat en blijft de rest staan.
+      // Ter ondertekening: ÉÉN TAAK PER DOCUMENT — elk stuk wordt apart getekend, dus met een aangifte
+      // erbij krijgt de cliënt twee taken. Aan élke taak hangen wél béide documenten: eerst het stuk
+      // dat bij die taak getekend wordt, daarna de rest als meekijk-materiaal. Zo ziet de cliënt bij
+      // het tekenen van de notulen ook de aangifte staan, en andersom (zie api/_gedeeld/taakDocumenten.js).
       let taak = { gedaan: false, reden: "" };
       let taken = [];
       if (variant === "ondertekenen") {
@@ -509,12 +511,14 @@ module.exports = async function (context, req) {
           teTekenen.push({ label: "aangifte dividendbelasting", url: (aangifteUrl && aangifteUrl.url) || "" });
         }
         for (const doc of teTekenen) {
+          // Eigen document eerst, de andere erachteraan — die volgorde bepaalt wat er getekend wordt.
+          const andere = teTekenen.filter((d) => d !== doc).map((d) => d.url);
           const res = await maakOndertekentaak({
             context, resource, token, accountId, klantnaam: klantnaamMail, cfg: taakCfg,
             onderwerp: doc.label
               ? `${basisOnderwerpTaak || `Dividendstuk ondertekenen — ${veiligeStr(klantnaamMail)}`} — ${doc.label}`
               : basisOnderwerpTaak,
-            documentUrl: doc.url,
+            documentUrl: voegDocumentLinksSamen([doc.url, ...andere]),
           });
           taken.push({ label: doc.label || "dividendstuk", ...res });
         }

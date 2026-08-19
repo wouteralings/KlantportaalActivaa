@@ -6,9 +6,11 @@
  * "Correspondentie" van het SharePoint-klantdossier staat, waar de klant zelf geen (en ook geen
  * OBO-)toegang toe heeft — de enige poort is deze route, met de toegangscontrole hieronder.
  *
- * GET ?taakId=<task-guid>
+ * GET ?taakId=<task-guid>&index=<0-based, optioneel>
  *   → 200 met de PDF/documentinhoud (inline), of 403/404 als de taak niet bij de ingelogde
  *     cliënt hoort, niet zichtbaar is (Beheer → Taken), of geen documentlink heeft.
+ *     Draagt de taak meerdere documenten (stuk + bijlage, zie api/_gedeeld/taakDocumenten.js), dan
+ *     kiest `index` welke; zonder index krijg je het eerste.
  *
  * Toegangscontrole (in deze volgorde):
  *   1. herleidAccounts(req, token) — welke Dynamics-accounts horen bij de ingelogde cliënt.
@@ -23,6 +25,7 @@ const { haalDynamicsToken, herleidAccounts } = require("../_gedeeld/identiteit")
 const { haalInstellingen } = require("../_gedeeld/instellingen");
 const { resolveFolder } = require("../_gedeeld/sharepointUpload");
 const { haalAppGraphToken } = require("../_gedeeld/graphApp");
+const { splitsDocumentLinks } = require("../_gedeeld/taakDocumenten");
 
 const DOCUMENT_VELD = process.env.DYNAMICS_TAAK_DOCUMENT_VELD || "";
 const SOORT_VELD = process.env.DYNAMICS_TAAK_SOORT_VELD || "";
@@ -71,8 +74,14 @@ module.exports = async function (context, req) {
       if (!zichtbaar) { context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Deze taak is niet zichtbaar." } }; return; }
     }
 
-    const documentUrl = taak[DOCUMENT_VELD];
-    if (!documentUrl) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Geen document bij deze taak." } }; return; }
+    // Eén taak kan meerdere documenten dragen (stuk + bijlage, bijv. notulen + aangifte
+    // dividendbelasting). ?index= kiest welke; zonder index krijg je het eerste — precies wat
+    // bestaande links deden toen er nog maar één document per taak was.
+    const links = splitsDocumentLinks(taak[DOCUMENT_VELD]);
+    if (links.length === 0) { context.res = { status: 404, headers: { "Content-Type": "application/json" }, body: { error: "Geen document bij deze taak." } }; return; }
+    const gevraagd = Number((req.query && req.query.index) || 0);
+    const index = Number.isInteger(gevraagd) && gevraagd >= 0 && gevraagd < links.length ? gevraagd : 0;
+    const documentUrl = links[index];
 
     const appToken = await haalAppGraphToken();
     const item = await resolveFolder(appToken, documentUrl);

@@ -956,7 +956,10 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
                 <input value={vestigingsplaats} onChange={(e) => setVestigingsplaats(e.target.value)} style={input} placeholder="plaats" />
               </div>
               <div style={{ flex: "1 1 160px" }}>
-                <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>Datum dividend</div>
+                {/* Het stuk is een notulen van de vergadering, dus dit is de datum van de notulen —
+                    zelfde veld en zelfde plek als bij Notulen opstellen. In Dynamics blijft die datum
+                    in de periodekolom cr283_datumdividend staan; dat is de periode van het dossier. */}
+                <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>Datum notulen</div>
                 <input type="date" value={datumactie} onChange={(e) => setDatumactie(e.target.value)} style={input} />
               </div>
             </div>

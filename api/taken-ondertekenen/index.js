@@ -6,6 +6,7 @@ const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/
 const { maakVervolgtaak } = require("../_gedeeld/vervolgtaak");
 const dossierTaakketen = require("../_gedeeld/dossierTaakketen");
 const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
+const { splitsDocumentLinks } = require("../_gedeeld/taakDocumenten");
 
 // Submap onder de SharePoint-basismap (cr283_sharepoint) van de klant waarin het ondertekenings-
 // bewijs terechtkomt — geldt voor ELKE taak die een handtekening vereist (vereistHandtekening),
@@ -64,7 +65,7 @@ async function resolveOuderMap(graphToken, url) {
 }
 
 /** Bouwt de bewijs-PDF met naam, e-mail, toelichting, de getekende krabbel, tijdstip en IP. */
-async function maakBewijsPdf({ taaktitel, documentUrl, naam, email, toelichting, stempel, ip, handtekeningDataUrl }) {
+async function maakBewijsPdf({ taaktitel, documentUrl, meegeleverd, naam, email, toelichting, stempel, ip, handtekeningDataUrl }) {
   const doc = await PDFDocument.create();
   const page = doc.addPage([595, 842]);
   const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -82,6 +83,10 @@ async function maakBewijsPdf({ taaktitel, documentUrl, naam, email, toelichting,
   tekst("Taak", { size: 9, f: bold, kleur: rgb(0.36, 0.38, 0.35) });
   tekst(taaktitel || "(taak)");
   if (documentUrl) { tekst("Document", { size: 9, f: bold, kleur: rgb(0.36, 0.38, 0.35) }); tekst(documentUrl, { size: 9 }); }
+  if (Array.isArray(meegeleverd) && meegeleverd.length) {
+    tekst("Meegeleverd", { size: 9, f: bold, kleur: rgb(0.36, 0.38, 0.35) });
+    for (const link of meegeleverd) tekst(link, { size: 9 });
+  }
   y -= 6;
   tekst("Naam", { size: 9, f: bold, kleur: rgb(0.36, 0.38, 0.35) }); tekst(naam);
   tekst("E-mailadres", { size: 9, f: bold, kleur: rgb(0.36, 0.38, 0.35) }); tekst(email || "-");
@@ -150,11 +155,15 @@ module.exports = async function (context, req) {
     const account = accounts.find((a) => a.accountId === accountId) || {};
     const stempel = new Date().toLocaleString("nl-NL", { timeZone: "Europe/Amsterdam" });
     const ip = clientIp(req);
-    const documentUrl = DOCUMENT_VELD ? taak[DOCUMENT_VELD] || "" : "";
+    // Eén taak kan meerdere documenten dragen (stuk + bijlage). Ondertekend wordt het EERSTE — dat is
+    // het stuk van deze taak — en dat bepaalt ook in welke SharePoint-map het bewijs terechtkomt. De
+    // rest noemen we in het bewijs, zodat zwart-op-wit staat wat de cliënt voor zich had.
+    const documentLinks = DOCUMENT_VELD ? splitsDocumentLinks(taak[DOCUMENT_VELD]) : [];
+    const documentUrl = documentLinks[0] || "";
 
     // Bewijs-PDF genereren.
     const pdf = await maakBewijsPdf({
-      taaktitel: taak.subject, documentUrl, naam, email: opgegevenEmail || email,
+      taaktitel: taak.subject, documentUrl, meegeleverd: documentLinks.slice(1), naam, email: opgegevenEmail || email,
       toelichting, stempel, ip, handtekeningDataUrl,
     });
     const datumKort = new Date().toLocaleDateString("nl-NL").replace(/\//g, "-");

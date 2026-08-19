@@ -3,6 +3,7 @@ const { haalInstellingen } = require("../_gedeeld/instellingen");
 const { voegAkkoordToe, haalAkkoordenVoorEmail } = require("../_gedeeld/taakakkoorden");
 const { webhookMetId } = require("../_gedeeld/webhook");
 const { maakVervolgtaak } = require("../_gedeeld/vervolgtaak");
+const { splitsDocumentLinks, documentNaamUitUrl } = require("../_gedeeld/taakDocumenten");
 const dossierTaakketen = require("../_gedeeld/dossierTaakketen");
 
 // Verbergt de onzichtbare "[dossier-ref: ...]"-koppeling die api/medewerker-aangifte-versturen in
@@ -126,6 +127,8 @@ async function haalZichtbareTaken(resource, token, accounts, soortConfig) {
       if (!isNaN(start.getTime()) && start > new Date()) continue;
     }
 
+    const taakDocumenten = DOCUMENT_VELD ? splitsDocumentLinks(rij[DOCUMENT_VELD]) : [];
+
     groep.taken.push({
       id: rij.activityid,
       titel: rij.subject || "(geen titel)",
@@ -137,10 +140,15 @@ async function haalZichtbareTaken(resource, token, accounts, soortConfig) {
       vereistHandtekening: soortConfig.vereistHandtekening.has(String(soortWaarde)),
       uploadLink: UPLOADLINK_VELD ? rij[UPLOADLINK_VELD] || null : null,
       uploadVerloopt: VERLOOPDATUM_VELD ? rij[VERLOOPDATUM_VELD] || null : null,
-      // Alleen JÁ/NEE naar de klant — nooit de SharePoint-url zelf. Het portaal toont het stuk via de
-      // eigen proxy /api/taken-document, die de link server-side uit Dynamics leest en het bestand
-      // app-only ophaalt; de cliënt heeft namelijk zelf geen SharePoint-rechten op die map.
-      heeftDocument: !!(DOCUMENT_VELD && rij[DOCUMENT_VELD]),
+      // Alleen de NAMEN naar de klant — nooit de SharePoint-urls zelf. Het portaal toont elk stuk via
+      // de eigen proxy /api/taken-document?index=…, die de link server-side uit Dynamics leest en het
+      // bestand app-only ophaalt; de cliënt heeft namelijk zelf geen SharePoint-rechten op die map.
+      // Meerdere links in de kolom = stuk + bijlage(n), bijv. notulen + aangifte dividendbelasting.
+      heeftDocument: taakDocumenten.length > 0,
+      documenten: taakDocumenten.map((link, i) => ({
+        index: i,
+        naam: documentNaamUitUrl(link, i === 0 ? "Document" : `Bijlage ${i}`),
+      })),
     });
   }
 

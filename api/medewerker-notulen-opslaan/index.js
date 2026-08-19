@@ -34,6 +34,7 @@ const { logGebeurtenis } = require("../_gedeeld/klantlog");
 const { magSubVerwijderen } = require("../_gedeeld/rollenConfig");
 const { verstuurMailMetBijlage } = require("../_gedeeld/mail");
 const { haalNavigatieNaam } = require("../_gedeeld/dossiers");
+const { splitsDocumentLinks, voegDocumentLinksSamen } = require("../_gedeeld/taakDocumenten");
 
 const SHAREPOINT_VELD = process.env.DYNAMICS_KLANT_SHAREPOINT_VELD || "cr283_sharepoint";
 // Taakvelden — zelfde Application Settings als _gedeeld/vervolgtaak.js en api/taken.
@@ -208,7 +209,7 @@ async function maakOndertekentaak({ context, resource, token, accountId, klantna
       const n = Number(cfg.rubriek);
       if (Number.isFinite(n)) body[TAAK_RUBRIEK_VELD] = n;
     }
-    if (TAAK_DOCUMENT_VELD && documentUrl) body[TAAK_DOCUMENT_VELD] = String(documentUrl).slice(0, 2000);
+    if (TAAK_DOCUMENT_VELD && documentUrl) body[TAAK_DOCUMENT_VELD] = voegDocumentLinksSamen(splitsDocumentLinks(documentUrl));
     const res = await fetch(`${resource}/api/data/v9.2/tasks`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json", "OData-MaxVersion": "4.0", "OData-Version": "4.0" },
