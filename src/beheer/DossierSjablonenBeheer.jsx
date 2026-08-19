@@ -254,7 +254,7 @@ export default function DossierSjablonenPerSoort({ soort }) {
       const nieuweAlle = {
         ...alle,
         [soort]: heeftVasteTekst
-          ? { sjablonen: schoon, kop, staart, ...(isNotulen ? { standaard, velddefinities: velddefsSchoon } : {}) }
+          ? { sjablonen: schoon, kop, staart, velddefinities: velddefsSchoon, ...(isNotulen ? { standaard } : {}) }
           : { sjablonen: schoon },
       };
       const res = await fetch("/api/beheer-instellingen", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dossierSjablonen: nieuweAlle }) });
@@ -536,7 +536,7 @@ export default function DossierSjablonenPerSoort({ soort }) {
                             />
                           </div>
                         )}
-                        {isNotulen && velddefinities.length > 0 && (
+                        {heeftVasteTekst && velddefinities.length > 0 && (
                           <div style={{ marginBottom: 12 }}>
                             <span style={labelStijl}>Invulvelden bij dit model</span>
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -594,15 +594,15 @@ export default function DossierSjablonenPerSoort({ soort }) {
                 />
               )}
 
-              {isNotulen && (
+              {heeftVasteTekst && (
                 <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, padding: 12, background: "#FbFcFa" }}>
                   <div style={{ fontSize: 13.5, fontWeight: 700, color: KLEUR.tekst, marginBottom: 4 }}>Invulvelden ({velddefinities.length})</div>
                   <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 12 }}>
-                    Een vaste set velden die je per notulenmodel aanzet — precies zoals bij de standaardbrieven.
+                    Een vaste set velden die je per model aanzet — precies zoals bij de standaardbrieven.
                     Een <strong>bedrag</strong> komt in het stuk als € 100.000 en een <strong>datum</strong> als 17 augustus 2026,
                     hoe je het ook intikt.
                     De medewerker vult of kiest ze bij het opstellen; ze vullen <code style={{ background: "#fff", padding: "1px 5px", borderRadius: 4, border: `1px solid ${KLEUR.rand}` }}>{"{{sleutel}}"}</code> in de tekst.
-                    Deze velden staan los van de Dynamics-kolommen: ze horen bij het stuk, niet bij het dossier.
+                    Heeft een invulveld dezelfde sleutel als een Dynamics-kolom van deze soort, dan wordt de waarde bij het opslaan óók in die kolom gezet; anders hoort het veld alleen bij het stuk.
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {velddefinities.map((v, i) => {
@@ -1235,20 +1235,24 @@ export function DossierMailTaakPerSoort({ soort }) {
 }
 
 /**
- * Beheer → Notulen → "Opslaan in klantdossier" (onderaan de pagina).
+ * Beheer → Notulen / Dividend → "Opslaan in klantdossier" (onderaan de pagina).
  *
- * Eén instelling: de submap onder de SharePoint-map van de cliënt waarin de notulen belanden. Elke
- * opgestelde notulen wordt ALTIJD als PDF in die map gezet — bij "Opslaan in dossier", bij "Mailen"
- * en bij "Ter ondertekening". Er is dus bewust geen aan/uit-schakelaar: een notulen zonder stuk in
- * het dossier is geen notulen. De link naar dat bestand komt op het notulendossier (URL dossier) en
- * in het notulenlogboek te staan.
+ * Eén instelling: de submap onder de SharePoint-map van de cliënt waarin de opgestelde stukken van
+ * deze soort belanden. Elk stuk wordt ALTIJD als PDF in die map gezet — bij "Opslaan in dossier",
+ * bij "Mailen" en bij "Ter ondertekening". Er is dus bewust geen aan/uit-schakelaar: een stuk dat
+ * niet in het dossier belandt heeft geen zin. De link naar dat bestand komt op het dossier (URL
+ * dossier) en in het logboek te staan.
  *
- * Slaat op als instellingen.notulenMap — dezelfde sleutel die api/medewerker-notulen-opslaan leest.
- * Dat is bewust een ándere instelling dan de submap bij "Bijlage-dropzone" (notulenBijlageMap): die
- * gaat over losse bestanden die je in het dossier sleept, niet over het notulenstuk zelf.
+ * Slaat op als instellingen.<soort>Map — dezelfde sleutel die api/medewerker-<soort>-opslaan leest.
+ * Dat is bewust een ándere instelling dan de submap bij "Bijlage-dropzone" (<soort>BijlageMap): die
+ * gaat over losse bestanden die je in het dossier sleept, niet over het opgestelde stuk zelf.
  */
-export function NotulenOpslagInstellingen() {
-  const STANDAARD = "Notulen";
+export function StukOpslagInstellingen({ soort = "notulen" }) {
+  const isNotulen = soort === "notulen";
+  const STANDAARD = isNotulen ? "Notulen" : "Dividenduitkeringen";
+  const SLEUTEL = `${soort}Map`;
+  const woord = isNotulen ? "Notulen" : "Dividendstukken";
+  const logboek = isNotulen ? "notulenlogboek" : "dividendlogboek";
   const [map, setMap] = useState("");
   const [geladen, setGeladen] = useState(false);
   const [status, setStatus] = useState("rust"); // rust | bezig | opgeslagen | fout
@@ -1260,12 +1264,13 @@ export function NotulenOpslagInstellingen() {
       .then((r) => (r.ok ? r.json() : {}))
       .then((inst) => {
         if (!actief) return;
-        setMap(typeof inst.notulenMap === "string" ? inst.notulenMap : "");
+        setMap(typeof inst[SLEUTEL] === "string" ? inst[SLEUTEL] : "");
         setGeladen(true);
       })
       .catch(() => { if (actief) { setFout("De instellingen konden niet worden geladen."); setGeladen(true); } });
     return () => { actief = false; };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [soort]);
 
   async function opslaan() {
     setStatus("bezig"); setFout("");
@@ -1273,7 +1278,7 @@ export function NotulenOpslagInstellingen() {
       const res = await fetch("/api/beheer-instellingen", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notulenMap: map.trim() || STANDAARD }),
+        body: JSON.stringify({ [SLEUTEL]: map.trim() || STANDAARD }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Opslaan mislukt.");
       setStatus("opgeslagen"); setTimeout(() => setStatus("rust"), 2500);
@@ -1287,9 +1292,9 @@ export function NotulenOpslagInstellingen() {
         <span style={{ fontSize: 14, fontWeight: 700, color: KLEUR.tekst }}>Opslaan in klantdossier</span>
       </div>
       <div style={{ fontSize: 12.5, color: KLEUR.subtekst, marginBottom: 12, maxWidth: 680 }}>
-        Notulen worden <strong>altijd als PDF</strong> in de SharePoint-map van de cliënt gezet — bij
+        {woord} worden <strong>altijd als PDF</strong> in de SharePoint-map van de cliënt gezet — bij
         Opslaan, bij Mailen én bij Ter ondertekening. Hieronder bepaal je in welke submap. De link naar
-        het bestand komt op het notulendossier en in het notulenlogboek te staan.
+        het bestand komt op het dossier en in het {logboek} te staan.
       </div>
       {!geladen ? (
         <div style={{ fontSize: 13, color: KLEUR.mutedTekst }}>Instellingen laden…</div>
@@ -1322,4 +1327,9 @@ export function NotulenOpslagInstellingen() {
       )}
     </div>
   );
+}
+
+/** Oude naam, zodat Beheer → Notulen ongewijzigd kan blijven doorverwijzen. */
+export function NotulenOpslagInstellingen() {
+  return <StukOpslagInstellingen soort="notulen" />;
 }

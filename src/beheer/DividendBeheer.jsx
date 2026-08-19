@@ -1,5 +1,5 @@
 import { Info } from "lucide-react";
-import DossierSjablonenPerSoort, { DossierMailTaakPerSoort, DossierBijlagePerSoort } from "./DossierSjablonenBeheer";
+import DossierSjablonenPerSoort, { DossierMailTaakPerSoort, DossierBijlagePerSoort, StukOpslagInstellingen } from "./DossierSjablonenBeheer";
 
 /**
  * Beheer → Dividend — het dividendbeheer als eigen tabblad, net als Brieven en Notulen.
@@ -26,7 +26,9 @@ export default function DividendBeheer() {
         <Info size={15} color={KLEUR.blauw} style={{ flexShrink: 0, marginTop: 1 }} />
         <div>
           Hier stel je in hoe een dividendstuk eruitziet en hoe het naar de cliënt gaat. De medewerker
-          opent het voorbeeld vanuit het dividenddossier in het medewerkersportaal. De{" "}
+          maakt het stuk in het medewerkersportaal onder <strong>Klantoverzicht → Dividenduitkeringen →
+          Opgestelde stukken → Nieuw dividendstuk</strong>; bij opslaan gaat de PDF naar de SharePoint-map
+          van de cliënt en komen de gegevens in het dividenddossier. De{" "}
           <strong>veldindeling</strong> van dat dossier (rubrieken, verborgen velden, “alleen tonen als”,
           review) staat bij <strong>Beheer → Dossiers</strong> — daar verandert niets aan.
         </div>
@@ -35,6 +37,8 @@ export default function DividendBeheer() {
       <DossierSjablonenPerSoort soort="dividend" />
       <DossierBijlagePerSoort soort="dividend" />
       <DossierMailTaakPerSoort soort="dividend" />
+      {/* Onderaan, want het is de laatste stap: waar het stuk terechtkomt als je klaar bent. */}
+      <StukOpslagInstellingen soort="dividend" />
     </div>
   );
 }

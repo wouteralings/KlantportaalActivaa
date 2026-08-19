@@ -20,6 +20,8 @@ import BrievenOverzicht from "./klanten/BrievenOverzicht";
 import BrievenLogboek from "./klanten/BrievenLogboek";
 import NotulenOpstellen from "./klanten/NotulenOpstellen";
 import NotulenLogboek from "./klanten/NotulenLogboek";
+import DividendOpstellen from "./klanten/DividendOpstellen";
+import DividendLogboek from "./klanten/DividendLogboek";
 import ImpersonatieBanner from "../ImpersonatieBanner";
 import { VeldInvoer } from "./dossierVeldInvoer";
 import { normaliseerSleutel, vulSjabloonIn, menselijkeVeldwaarde, bouwMergeWaarden } from "./dossierMerge";
@@ -1770,7 +1772,8 @@ function KlantenModule({ magContracten = false, isBeheerder = false, magPlanning
         {sub === "brieven" && <BrievenTab isBeheerder={isBeheerder} />}
         {sub === "contracten" && (magContracten || isBeheerder) && <ContractenOverzicht />}
         {sub === "notulen" && <NotulenTab isBeheerder={isBeheerder} />}
-        {(sub === "ib" || sub === "vpb" || sub === "dividend") && <MedewerkerDossiers soort={sub} magVerwijderenRubriek={subRechten ? subRechten.verwijderen(sub) : true} magBulkVerwijderen={subRechten ? subRechten.bulk(sub) : isBeheerder} />}
+        {sub === "dividend" && <DividendTab isBeheerder={isBeheerder} magVerwijderenRubriek={subRechten ? subRechten.verwijderen("dividend") : true} magBulkVerwijderen={subRechten ? subRechten.bulk("dividend") : isBeheerder} />}
+        {(sub === "ib" || sub === "vpb") && <MedewerkerDossiers soort={sub} magVerwijderenRubriek={subRechten ? subRechten.verwijderen(sub) : true} magBulkVerwijderen={subRechten ? subRechten.bulk(sub) : isBeheerder} />}
         {sub === "lonen" && <NogInTeRichten titel={actief.label} watKomtEr={actief.watKomtEr} />}
       </div>
     </div>
@@ -1807,6 +1810,66 @@ function NotulenTab({ isBeheerder = false }) {
       onNieuweNotulen={() => { setOpenStuk(null); setView("opstellen"); }}
       onBewerken={(stuk) => { setOpenStuk(stuk); setView("opstellen"); }}
     />
+  );
+}
+
+/**
+ * Dividend-sub-tab: anders dan bij notulen blijft het DOSSIEROVERZICHT hier gewoon bestaan — dat gaat
+ * over de dividenddossiers in Dynamics. Daarnaast zijn er twee weergaven bij gekomen: het logboek met
+ * de in het portaal opgestelde stukken, en het opstelscherm zelf. Je wisselt er bovenin tussen.
+ */
+function DividendTab({ isBeheerder = false, magVerwijderenRubriek = true, magBulkVerwijderen = false }) {
+  const [view, setView] = useState("dossiers"); // dossiers | logboek | opstellen
+  const [openStuk, setOpenStuk] = useState(null);
+  // Komt er een doorklik naar een dividenddossier binnen (#dossier=dividend:<id>), dan terug naar het
+  // dossieroverzicht zodat dat dossier gewoon opent.
+  useEffect(() => luisterNaarDossierHash(({ soort }) => { if (soort === "dividend") setView("dossiers"); }), []);
+
+  if (view === "opstellen") {
+    return (
+      <DividendOpstellen
+        openStuk={openStuk}
+        onTerug={() => { setOpenStuk(null); setView(openStuk ? "logboek" : "dossiers"); }}
+      />
+    );
+  }
+
+  const knop = (k, tekst) => (
+    <button
+      key={k}
+      onClick={() => setView(k)}
+      style={{
+        padding: "7px 13px", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+        border: `1px solid ${view === k ? KLEUR.blauw : KLEUR.rand}`,
+        background: view === k ? KLEUR.blauw : "#fff",
+        color: view === k ? "#fff" : KLEUR.subtekst,
+      }}
+    >
+      {tekst}
+    </button>
+  );
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+        {knop("dossiers", "Dossiers")}
+        {knop("logboek", "Opgestelde stukken")}
+      </div>
+      {view === "logboek" ? (
+        <DividendLogboek
+          isBeheerder={isBeheerder}
+          onNieuwStuk={() => { setOpenStuk(null); setView("opstellen"); }}
+          onBewerken={(stuk) => { setOpenStuk(stuk); setView("opstellen"); }}
+        />
+      ) : (
+        <MedewerkerDossiers
+          soort="dividend"
+          magVerwijderenRubriek={magVerwijderenRubriek}
+          magBulkVerwijderen={magBulkVerwijderen}
+          onNieuw={() => { setOpenStuk(null); setView("opstellen"); }}
+        />
+      )}
+    </div>
   );
 }
 

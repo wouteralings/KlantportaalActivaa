@@ -378,6 +378,13 @@
       ]
     },
     {
+      "route": "/api/medewerker-dividend-opslaan",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
       "route": "/api/medewerker-aangifte-ontvanger",
       "allowedRoles": [
         "beheerder",
