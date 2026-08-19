@@ -107,7 +107,12 @@ async function bewaar(record) {
     tekst: record.tekst != null ? String(record.tekst) : (bestaand.tekst || ""),
     // Het tussenstuk van dít stuk — kop en staart komen uit Beheer en gelden voor alle
     // dividendstukken, dus alleen dit hoeft per stuk bewaard te worden om het te kunnen heropenen.
-    besluit: record.besluit != null ? String(record.besluit) : (bestaand.besluit || ""),
+    tussenstuk: record.tussenstuk != null ? String(record.tussenstuk) : (bestaand.tussenstuk || ""),
+    // Is er dividendbelasting verschuldigd, en zo ja: de aangifte die erbij hoort ({ naam, url }).
+    // Die link laat het logboek als snellink zien en maakt het mogelijk om het stuk later opnieuw te
+    // mailen zonder het bestand opnieuw te slepen.
+    dividendbelasting: record.dividendbelasting === true ? true : (record.dividendbelasting === false ? false : !!bestaand.dividendbelasting),
+    aangifte: record.aangifte !== undefined ? record.aangifte : (bestaand.aangifte || null),
     pdfUrl: record.pdfUrl || bestaand.pdfUrl || "",
     bestandsnaam: record.bestandsnaam || bestaand.bestandsnaam || "",
     // Laatste verzending (mail of ter ondertekening) — voor het logboek.

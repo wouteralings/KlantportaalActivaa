@@ -31,7 +31,7 @@ const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = req
 const { SOORTEN, haalEenDossier, maakDossier, werkDossierBij, verwijderDossier, metAangepasteVelden } = require("../_gedeeld/dossiers");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
 const { haalAppGraphToken } = require("../_gedeeld/graphApp");
-const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/sharepointUpload");
+const { resolveFolder, ensureFolderPath, uploadBestand, haalBestandViaUrl } = require("../_gedeeld/sharepointUpload");
 const { blokkenNaarPdf } = require("../_gedeeld/notulenRenderer");
 const { haalAlles, haalVoorDossier, haalVoorKlant, bewaar, verwijder } = require("../_gedeeld/dividendStore");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
@@ -68,10 +68,14 @@ function getal(v) {
 }
 
 /**
- * Zet het stuk in de SharePoint-map van de cliënt. De doelmap wordt ALTIJD server-side uit Dynamics
- * gehaald (cr283_sharepoint op de account) — zelfde beveiliging als bij /api/brieven.
+ * Zet één of meer bestanden in de SharePoint-map van de cliënt. De doelmap wordt ALTIJD server-side
+ * uit Dynamics gehaald (cr283_sharepoint op de account) — zelfde beveiliging als bij /api/brieven.
+ *
+ * "bestanden" is [{ naam, buffer, contentType? }]; het eerste bestand is het stuk zelf, daarna komt
+ * eventueel de aangifte dividendbelasting. Ze gaan naar DEZELFDE map, zodat de twee documenten in het
+ * dossier bij elkaar blijven staan. Geeft { gedaan, reden, url (van het eerste bestand), urls }.
  */
-async function naarSharepoint({ accountId, submap, bestandsnaam, buffer }) {
+async function naarSharepoint({ accountId, submap, bestanden }) {
   const resource = process.env.DYNAMICS_RESOURCE_URL;
   if (!resource) return { gedaan: false, reden: "Dynamics-koppeling is nog niet geconfigureerd." };
 
@@ -95,14 +99,58 @@ async function naarSharepoint({ accountId, submap, bestandsnaam, buffer }) {
     // dat kan niet. Ontbrekende tussenmappen worden aangemaakt (ensureFolderPath).
     const segmenten = String(submap || SUBMAP_STANDAARD).split("/").map((s) => s.trim()).filter(Boolean);
     const doelId = await ensureFolderPath(appToken, map.driveId, map.itemId, segmenten.length ? segmenten : [SUBMAP_STANDAARD]);
-    const geupload = await uploadBestand(appToken, map.driveId, doelId, bestandsnaam, buffer, PDF_TYPE);
-    return { gedaan: true, url: (geupload && geupload.webUrl) || "" };
+    const urls = [];
+    for (const b of (bestanden || [])) {
+      if (!b || !b.naam || !b.buffer) continue;
+      const geupload = await uploadBestand(appToken, map.driveId, doelId, b.naam, b.buffer, b.contentType || PDF_TYPE);
+      urls.push({ naam: b.naam, url: (geupload && geupload.webUrl) || "" });
+    }
+    return { gedaan: urls.length > 0, url: (urls[0] && urls[0].url) || "", urls };
   } catch (e) {
     const reden = e && e.code === "APP_TOKEN_MISLUKT"
       ? "Kon geen app-toegang tot SharePoint krijgen (Graph-applicatiepermissie/admin-consent controleren)."
       : String(e.message || e);
     return { gedaan: false, reden };
   }
+}
+
+/**
+ * De aangifte dividendbelasting die bij dit stuk hoort, als { naam, buffer, contentType } of null.
+ *
+ * Twee wegen: het scherm stuurt het gesleepte bestand mee (dataUrl) — dat is het geval zolang het stuk
+ * open staat — of, bij een heropend stuk, is alleen de SharePoint-link nog bekend en halen we de bytes
+ * daar op. Zo blijft "mailen" ook werken op een stuk dat je morgen weer openklapt.
+ */
+async function haalAangifte(body, bewaard, context) {
+  const meegestuurd = body && body.aangifte && typeof body.aangifte === "object" ? body.aangifte : null;
+  const dataUrl = meegestuurd ? veiligeStr(meegestuurd.dataUrl) : "";
+  if (dataUrl) {
+    const komma = dataUrl.indexOf(",");
+    const basis64 = komma >= 0 ? dataUrl.slice(komma + 1) : dataUrl;
+    const type = (dataUrl.match(/^data:([^;,]+)/) || [])[1] || PDF_TYPE;
+    try {
+      return { naam: veiligeBestandsnaamVrij(meegestuurd.naam) || "Aangifte dividendbelasting.pdf", buffer: Buffer.from(basis64, "base64"), contentType: type };
+    } catch (e) {
+      if (context && context.log) context.log.error("Aangifte uit de browser kon niet worden gelezen:", e);
+      return null;
+    }
+  }
+  const bewaardeUrl = bewaard && bewaard.aangifte && veiligeStr(bewaard.aangifte.url);
+  if (!bewaardeUrl) return null;
+  try {
+    const appToken = await haalAppGraphToken();
+    const uit = await haalBestandViaUrl(appToken, bewaardeUrl);
+    return { naam: veiligeStr(bewaard.aangifte.naam) || uit.naam, buffer: uit.buffer, contentType: uit.contentType };
+  } catch (e) {
+    if (context && context.log) context.log.error("Aangifte kon niet uit SharePoint worden gehaald:", e);
+    return null;
+  }
+}
+
+/** Bestandsnaam schoonmaken maar de eigen extensie behouden (de aangifte is niet altijd een PDF). */
+function veiligeBestandsnaamVrij(naam) {
+  const schoon = veiligeStr(naam).replace(/[\\/:*?"<>|#%]+/g, "-").replace(/\s+/g, " ").slice(0, 160);
+  return schoon.replace(/^\.+/, "");
 }
 
 /** De dividend-soort met de door Beheer zelf aangemaakte extra velden erbij. */
@@ -395,16 +443,49 @@ module.exports = async function (context, req) {
       const pdf = await blokkenNaarPdf(blokken, null);
       const bestandsnaam = veiligeBestandsnaam(body.bestandsnaamBasis || `Dividenduitkering${klantnaamMail ? " - " + klantnaamMail : ""}${datumMail ? " - " + datumMail : ""}`);
       const submap = await haalSubmap();
-      const sharepoint = await naarSharepoint({ accountId, submap, bestandsnaam, buffer: pdf });
+      // Is er dividendbelasting verschuldigd, dan hóórt de aangifte erbij — hij gaat als tweede bijlage
+      // mee en komt in dezelfde SharePoint-map. Ontbreekt hij, dan sturen we niets: liever een duidelijke
+      // melding dan een halve verzending naar de cliënt.
+      const bewaard = await haalVoorDossier(veiligeStr(body.dossierId));
+      const aangifte = await haalAangifte(body, bewaard, context);
+      if (body.dividendbelasting === true && !aangifte) {
+        context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Er is dividendbelasting verschuldigd, maar de aangifte dividendbelasting ontbreekt. Sleep die eerst in het vak bij het stuk." } };
+        return;
+      }
+      const sharepoint = await naarSharepoint({
+        accountId, submap,
+        bestanden: [{ naam: bestandsnaam, buffer: pdf, contentType: PDF_TYPE }, ...(aangifte ? [aangifte] : [])],
+      });
 
+      // Ter ondertekening: ÉÉN TAAK PER DOCUMENT. Een taak kan maar naar één document verwijzen (de
+      // documentkolom op Task), dus met een aangifte erbij krijgt de cliënt twee taken — en moet hij
+      // dus ook beide stukken tekenen. Lukt er één niet, dan melden we dat en blijft de rest staan.
       let taak = { gedaan: false, reden: "" };
+      let taken = [];
       if (variant === "ondertekenen") {
         const token = await haalDynamicsToken();
-        taak = await maakOndertekentaak({
-          context, resource, token, accountId, klantnaam: klantnaamMail, cfg: taakCfg,
-          onderwerp: vulMailIn(veiligeStr(taakCfg.onderwerp), plaatshouders),
-          documentUrl: sharepoint.url || "",
-        });
+        const basisOnderwerpTaak = vulMailIn(veiligeStr(taakCfg.onderwerp), plaatshouders);
+        const teTekenen = [{ label: "", url: sharepoint.url || "" }];
+        if (aangifte) {
+          const aangifteUrl = (sharepoint.urls || []).find((u) => u.naam === aangifte.naam);
+          teTekenen.push({ label: "aangifte dividendbelasting", url: (aangifteUrl && aangifteUrl.url) || "" });
+        }
+        for (const doc of teTekenen) {
+          const res = await maakOndertekentaak({
+            context, resource, token, accountId, klantnaam: klantnaamMail, cfg: taakCfg,
+            onderwerp: doc.label
+              ? `${basisOnderwerpTaak || `Dividendstuk ondertekenen — ${veiligeStr(klantnaamMail)}`} — ${doc.label}`
+              : basisOnderwerpTaak,
+            documentUrl: doc.url,
+          });
+          taken.push({ label: doc.label || "dividendstuk", ...res });
+        }
+        // Samengevat resultaat voor het scherm: alleen "gedaan" als álle taken er staan.
+        taak = {
+          gedaan: taken.length > 0 && taken.every((t) => t.gedaan),
+          reden: taken.filter((t) => !t.gedaan).map((t) => `${t.label}: ${t.reden || "onbekende reden"}`).join("; "),
+          aantal: taken.length,
+        };
       }
 
       const mail = await verstuurMailMetBijlage({
@@ -412,7 +493,12 @@ module.exports = async function (context, req) {
         cc: Array.isArray(body.cc) ? body.cc : (veiligeStr(body.cc) ? [veiligeStr(body.cc)] : []),
         onderwerp,
         html: alsHtml(tekst),
-        bijlagen: [{ naam: bestandsnaam, contentType: PDF_TYPE, inhoud: pdf }],
+        bijlagen: [
+          { naam: bestandsnaam, contentType: PDF_TYPE, inhoud: pdf },
+          // De aangifte dividendbelasting gaat als tweede bijlage mee — de cliënt krijgt de twee
+          // stukken dus in één mail, zoals afgesproken.
+          ...(aangifte ? [{ naam: aangifte.naam, contentType: aangifte.contentType || PDF_TYPE, inhoud: aangifte.buffer }] : []),
+        ],
         afzender: veiligeStr(mailCfg.afzender),
       });
 
@@ -423,7 +509,10 @@ module.exports = async function (context, req) {
             dossierId: veiligeStr(body.dossierId),
             accountId, klantnaam: klantnaamMail,
             pdfUrl: sharepoint.url || "",
-            verstuurd: { op: new Date().toISOString(), variant, naar, onderwerp, taakGedaan: taak.gedaan === true },
+            verstuurd: { op: new Date().toISOString(), variant, naar, onderwerp, taakGedaan: taak.gedaan === true, aantalTaken: taken.length || 0, metAangifte: !!aangifte },
+            aangifte: aangifte
+              ? { naam: aangifte.naam, url: ((sharepoint.urls || []).find((u) => u.naam === aangifte.naam) || {}).url || (bewaard && bewaard.aangifte && bewaard.aangifte.url) || "" }
+              : (bewaard && bewaard.aangifte) || null,
           });
         } catch (e) {
           if (context.log) context.log.error("Verstuurgegevens bewaren mislukt:", e);
@@ -475,6 +564,16 @@ module.exports = async function (context, req) {
       context.res = { status: 500, headers: { "Content-Type": "application/json" }, body: { error: "De dividend-dossiersoort is niet gevonden." } };
       return;
     }
+    // Was er al eens opgeslagen op dit dossier? Dan weten we van de vorige keer welke aangifte erbij
+    // hoort — nodig als het scherm de bytes niet opnieuw meestuurt (heropend stuk).
+    const bestaandRecord = await haalVoorDossier(veiligeStr(body.dossierId));
+    // Dividendbelasting verschuldigd zonder aangifte erbij: dat is de fout die we willen vóórkomen.
+    // Server-side afdwingen, niet alleen in het scherm — zo kan het ook niet per ongeluk via een
+    // herhaald verzoek langs de controle glippen.
+    if (body.dividendbelasting === true && !(body.aangifte && veiligeStr(body.aangifte.dataUrl)) && !(bestaandRecord && bestaandRecord.aangifte && bestaandRecord.aangifte.url)) {
+      context.res = { status: 400, headers: { "Content-Type": "application/json" }, body: { error: "Er is dividendbelasting verschuldigd, maar de aangifte dividendbelasting ontbreekt. Sleep die eerst in het vak bij het stuk." } };
+      return;
+    }
     const token = await haalDynamicsToken();
 
     // 1. Dossier: bestaand bijwerken (opnieuw opslaan) of een nieuw dividenddossier aanmaken.
@@ -496,11 +595,20 @@ module.exports = async function (context, req) {
       });
     }
 
-    // 2. PDF renderen en in de SharePoint-map van de cliënt zetten.
+    // 2. PDF renderen en in de SharePoint-map van de cliënt zetten — samen met de aangifte
+    //    dividendbelasting als die erbij hoort, zodat de twee stukken in dezelfde map staan.
     const pdf = await blokkenNaarPdf(blokken, null);
     const bestandsnaam = veiligeBestandsnaam(body.bestandsnaamBasis || `${modelNaam}${klantnaam ? " - " + klantnaam : ""}${datum ? " - " + datum : ""}`);
     const submap = await haalSubmap();
-    const sharepoint = await naarSharepoint({ accountId, submap, bestandsnaam, buffer: pdf });
+    const aangifte = await haalAangifte(body, bestaandRecord, context);
+    const sharepoint = await naarSharepoint({
+      accountId, submap,
+      bestanden: [{ naam: bestandsnaam, buffer: pdf, contentType: PDF_TYPE }, ...(aangifte ? [aangifte] : [])],
+    });
+    const aangifteUrl = aangifte
+      ? (((sharepoint.urls || []).find((u) => u.naam === aangifte.naam) || {}).url
+         || (bestaandRecord && bestaandRecord.aangifte && bestaandRecord.aangifte.url) || "")
+      : "";
 
     // 3. De link naar het stuk op het dossier zetten (URL dossier — cr283_urldossier).
     if (sharepoint.gedaan && sharepoint.url) {
@@ -521,9 +629,13 @@ module.exports = async function (context, req) {
         invulwaarden: body.invulwaarden || {},
         aandeelhouders: Array.isArray(body.aandeelhouders) ? body.aandeelhouders : [],
         tekst: veiligeStr(body.tekst),
-        besluit: veiligeStr(body.besluit),
+        tussenstuk: veiligeStr(body.tussenstuk),
         pdfUrl: sharepoint.url || "",
         bestandsnaam,
+        // De aangifte dividendbelasting die bij dit stuk hoort: naam + link, zodat het logboek hem als
+        // snellink kan tonen en een later "mailen" hem alsnog uit SharePoint kan ophalen.
+        dividendbelasting: body.dividendbelasting === true,
+        aangifte: aangifte ? { naam: aangifte.naam, url: aangifteUrl } : ((bestaandRecord && bestaandRecord.aangifte) || null),
         opgesteldDoor: email || "",
       });
     } catch (e) {

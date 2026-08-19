@@ -190,6 +190,16 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
   // — anders zou je hier vast kunnen lopen zonder te kunnen mailen.
   const [mailVrij, setMailVrij] = useState({ voorzitter: false, notulist: false });
   const [aandeelhouders, setAandeelhouders] = useState([{ naam: "", percentage: "100" }]);
+  // Is er dividendbelasting verschuldigd? Zo ja, dan hoort de aangifte dividendbelasting bij dit stuk:
+  // hij gaat mee als tweede PDF in de mail, komt in dezelfde SharePoint-map en moet ook ondertekend
+  // worden. Zonder dat bestand laat het scherm je niet opslaan of versturen.
+  const [dividendbelasting, setDividendbelasting] = useState(false);
+  // { naam, dataUrl, grootte } zolang het stuk open staat; { naam, url } bij een heropend stuk (dan
+  // heeft de browser de bytes niet meer, alleen de link — de server haalt hem dan uit SharePoint).
+  const [aangifte, setAangifte] = useState(null);
+  const [aangifteSleep, setAangifteSleep] = useState(false);
+  const [aangifteFout, setAangifteFout] = useState("");
+  const aangifteInputRef = useRef(null);
 
   // De veldencatalogus van de soort Dividenduitkering — alleen nog om te herkennen wélk invulveld toevallig
   // een Dynamics-kolom is (dan schrijven we die waarde ook naar het dividenddossier weg).
@@ -291,6 +301,8 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
     setEmailNotulist(contactMail);
     // "Handelend namens" is per stuk; bij een andere cliënt hoort dat leeg te staan.
     setNamensVoorzitter(""); setNamensNotulist("");
+    // Ook de dividendbelasting-keuze en de aangifte horen bij één stuk.
+    setDividendbelasting(false); setAangifte(null); setAangifteFout("");
     setAandeelhouders([{ naam: contactNaam, percentage: "100" }]);
     setMelding(null);
     // Een andere cliënt = een ander stuk: de koppeling met het vorige dividenddossier loslaten. Het
@@ -404,6 +416,29 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openStuk, klanten, lijst]);
 
+  /** Het gesleepte bestand inlezen als data-URL, zodat het met het stuk mee kan naar de server. */
+  function leesAangifte(bestand) {
+    setAangifteFout("");
+    if (!bestand) return;
+    // 15 MB is de grens die we ook bij de bijlage-dropzone in het dossier aanhouden.
+    if (bestand.size > 15 * 1024 * 1024) { setAangifteFout("Dit bestand is groter dan 15 MB."); return; }
+    const lezer = new FileReader();
+    lezer.onload = () => setAangifte({ naam: bestand.name, dataUrl: String(lezer.result), grootte: bestand.size });
+    lezer.onerror = () => setAangifteFout("Het bestand kon niet worden gelezen.");
+    lezer.readAsDataURL(bestand);
+  }
+
+  /**
+   * Mag dit stuk de deur uit? Staat dividendbelasting op Ja, dan hoort de aangifte erbij — anders
+   * krijg je een melding in plaats van een halve verzending. Geeft true als het door mag.
+   */
+  function aangifteInOrde() {
+    if (!dividendbelasting) return true;
+    if (aangifte && (veiligeStr(aangifte.dataUrl) || veiligeStr(aangifte.url))) return true;
+    setMelding({ type: "fout", tekst: "Je hebt aangegeven dat er dividendbelasting verschuldigd is. Sleep dan eerst de aangifte dividendbelasting in het vak hieronder — die gaat als tweede PDF mee naar de cliënt en in het dossier." });
+    return false;
+  }
+
   /**
    * Wat er van dit stuk naar het dividenddossier in Dynamics gaat. Dit scherm toont geen dossiervelden
    * meer (zoals een brief die ook niet toont): de voorzitter gaat mee als "Directeur", en verder elk
@@ -416,6 +451,8 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
     if (veiligeStr(voorzitter)) uit.directeur = veiligeStr(voorzitter);
     if (veiligeStr(emailVoorzitter)) uit.emailvoorzitter = veiligeStr(emailVoorzitter);
     if (veiligeStr(emailNotulist)) uit.emailnotulist = veiligeStr(emailNotulist);
+    // Ja/nee-kolom cr283_dividendbelasting — altijd meesturen, ook bij Nee, zodat het dossier klopt.
+    uit.dividendbelasting = !!dividendbelasting;
     for (const [sleutel, waarde] of Object.entries(invulwaarden || {})) {
       const def = catalogus.find((v) => v && v.key === sleutel && v.type !== "lookup" && !String(v.key).startsWith("__"));
       if (!def) continue;
@@ -430,7 +467,7 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
       uit[sleutel] = waarde;
     }
     return uit;
-  }, [voorzitter, emailVoorzitter, emailNotulist, invulwaarden, catalogus, velddefinities]);
+  }, [voorzitter, emailVoorzitter, emailNotulist, invulwaarden, catalogus, velddefinities, dividendbelasting]);
 
   // De regel uit "Eerder opgesteld" waar dit scherm nu aan hangt — die werkt Opslaan bij. Zolang die
   // er niet is (een gloednieuw stuk) maakt Opslaan juist wél een nieuwe regel; dat onderscheid tonen
@@ -501,6 +538,7 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
     zet("modelnaam", sjabloon && sjabloon.naam);
     zet("namensvoorzitter", namensVoorzitter);
     zet("namensnotulist", namensNotulist);
+    zet("dividendbelasting", dividendbelasting ? "Ja" : "Nee");
     zet("aandeelhouders", aandeelhoudersTekst(aandeelhouders));
     // De vrije invulvelden als laatste: die horen bij dít stuk en winnen dus van gelijknamige velden.
     // Een bedrag komt als "€ 100.000" in het stuk en een datum als "17 augustus 2026" — ongeacht hoe
@@ -512,7 +550,7 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
       else zet(sleutel, waarde);
     }
     return m;
-  }, [klant, vestigingsplaats, datumactie, voorzitter, emailVoorzitter, notulist, emailNotulist, aandeelhouders, invulwaarden, velddefinities, sjabloon, namensVoorzitter, namensNotulist]);
+  }, [klant, vestigingsplaats, datumactie, voorzitter, emailVoorzitter, notulist, emailNotulist, aandeelhouders, invulwaarden, velddefinities, sjabloon, namensVoorzitter, namensNotulist, dividendbelasting]);
 
   // Het stuk = vaste kop (Beheer) + het tussenstuk van dit stuk + vaste staart (Beheer). Zo staan de
   // aandeelhouders en het ondertekenblok altijd in de centrale tekst en bewegen ze mee met wat je
@@ -598,6 +636,7 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
    */
   async function opslaan({ alsNieuw = false } = {}) {
     if (!klant || leeg) return;
+    if (!aangifteInOrde()) return;
     setOpslaanBezig(true); setMelding(null);
     try {
       // Eerst de eventueel nog lopende "aanmaken" afwachten: anders slaan we op zónder dossierId,
@@ -630,6 +669,11 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
           velden: { vestigingsplaats, voorzitter, emailVoorzitter, notulist, emailNotulist, namensVoorzitter, namensNotulist },
           invulwaarden,
           aandeelhouders,
+          // Dividendbelasting + de aangifte die erbij hoort. Zit het bestand nog in het scherm, dan
+          // gaat het als data-URL mee; bij een heropend stuk is alleen de link bekend en haalt de
+          // server het zelf uit SharePoint.
+          dividendbelasting,
+          aangifte: aangifte ? { naam: aangifte.naam, dataUrl: aangifte.dataUrl || "", url: aangifte.url || "" } : null,
           // De blokken zoals ze rechts in het voorbeeld staan — de PDF gebruikt exact dezelfde.
           blokken,
           tekst: ruweTekst,
@@ -688,6 +732,9 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
     setEmailNotulist(veiligeStr(v.emailNotulist));
     setNamensVoorzitter(veiligeStr(v.namensVoorzitter));
     setNamensNotulist(veiligeStr(v.namensNotulist));
+    setDividendbelasting(r.dividendbelasting === true);
+    setAangifte(r.aangifte && veiligeStr(r.aangifte.url) ? { naam: veiligeStr(r.aangifte.naam) || "Aangifte dividendbelasting", url: veiligeStr(r.aangifte.url) } : null);
+    setAangifteFout("");
     // De invulvelden terugzetten. Let op: dit moet ná het zetten van het model gebeuren én het
     // reset-effect op sjabloonId mag er niet overheen lopen — daarvoor is herstelRef (zie hieronder).
     herstelRef.current = true;
@@ -710,6 +757,7 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
 
   /** Het verstuurvenster openen met de tekst uit Beheer, per variant. */
   function openVersturen(variant) {
+    if (!aangifteInOrde()) return;
     if (!klant || leeg) return;
     const cfg = mailCfg || {};
     const ond = (cfg.ondertekening && typeof cfg.ondertekening === "object") ? cfg.ondertekening : {};
@@ -754,6 +802,9 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
           tekst: m.tekst,
           blokken,
           bestandsnaamBasis: bestandsnaam,
+          // De aangifte gaat als tweede bijlage mee en krijgt bij "ter ondertekening" zijn eigen taak.
+          dividendbelasting,
+          aangifte: aangifte ? { naam: aangifte.naam, dataUrl: aangifte.dataUrl || "", url: aangifte.url || "" } : null,
         }),
       });
       const d = await res.json().catch(() => ({}));
@@ -761,9 +812,14 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
       if (!levend.current) return;
       setVerstuurModal(null);
       if (d.pdfUrl) setPdfUrl(d.pdfUrl);
+      const aantalTaken = (d.taak && d.taak.aantal) || 0;
       const staart = m.variant === "ondertekenen"
-        ? (d.taak && d.taak.gedaan ? " De cliënt heeft een taak gekregen om te ondertekenen." : ` Let op: de taak kon niet worden aangemaakt${d.taak && d.taak.reden ? ` (${d.taak.reden})` : ""}.`)
-        : "";
+        ? (d.taak && d.taak.gedaan
+            ? (aantalTaken > 1
+                ? ` De cliënt heeft ${aantalTaken} taken gekregen — één per document, dus hij tekent ze allebei.`
+                : " De cliënt heeft een taak gekregen om te ondertekenen.")
+            : ` Let op: de taak kon niet worden aangemaakt${d.taak && d.taak.reden ? ` (${d.taak.reden})` : ""}.`)
+        : (aangifte ? " De aangifte dividendbelasting is als tweede bijlage meegestuurd." : "");
       setMelding({ type: (m.variant === "ondertekenen" && !(d.taak && d.taak.gedaan)) ? "fout" : "ok", tekst: `Dividendstuk verstuurd naar ${veiligeStr(m.naar)}.${staart}` });
     } catch (e) {
       if (levend.current) setMelding({ type: "fout", tekst: String((e && e.message) || e) });
@@ -957,6 +1013,75 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
                 />
               </div>
             </div>
+          </div>
+
+          {/* Dividendbelasting + de aangifte die erbij hoort. Staat de schakelaar op Ja, dan is het
+              sleepvak verplicht: dat bestand gaat als tweede PDF mee naar de cliënt, komt in dezelfde
+              SharePoint-map als het stuk, en krijgt bij "ter ondertekening" zijn eigen taak. */}
+          <div>
+            <span style={label}>Dividendbelasting</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              {[[false, "Nee"], [true, "Ja"]].map(([waarde, tekst]) => (
+                <button
+                  key={tekst}
+                  type="button"
+                  onClick={() => { setDividendbelasting(waarde); if (!waarde) setAangifteFout(""); }}
+                  style={{
+                    padding: "7px 14px", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+                    border: `1px solid ${dividendbelasting === waarde ? KLEUR.blauw : KLEUR.rand}`,
+                    background: dividendbelasting === waarde ? KLEUR.blauw : "#fff",
+                    color: dividendbelasting === waarde ? "#fff" : KLEUR.subtekst,
+                  }}
+                >
+                  {tekst}
+                </button>
+              ))}
+              <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>verschuldigd over deze uitkering</span>
+            </div>
+
+            {dividendbelasting && (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>Aangifte dividendbelasting</div>
+                {aangifte ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "9px 12px", background: "#fff" }}>
+                    <FileText size={15} color={KLEUR.blauw} style={{ flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {veiligeStr(aangifte.url) ? (
+                        <a href={aangifte.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12.5, fontWeight: 600, color: KLEUR.blauw, textDecoration: "none", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{aangifte.naam}</a>
+                      ) : (
+                        <div style={{ fontSize: 12.5, fontWeight: 600, color: KLEUR.tekst, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{aangifte.naam}</div>
+                      )}
+                      <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>
+                        {veiligeStr(aangifte.url) ? "staat al in het dossier" : "gaat mee bij opslaan en versturen"}
+                        {aangifte.grootte ? ` · ${Math.max(1, Math.round(aangifte.grootte / 1024))} KB` : ""}
+                      </div>
+                    </div>
+                    <button onClick={() => { setAangifte(null); setAangifteFout(""); }} style={{ ...knopLicht, padding: "6px 10px" }}><X size={13} /> Vervangen</button>
+                  </div>
+                ) : (
+                  <div
+                    onDragOver={(e) => { e.preventDefault(); setAangifteSleep(true); }}
+                    onDragLeave={() => setAangifteSleep(false)}
+                    onDrop={(e) => { e.preventDefault(); setAangifteSleep(false); leesAangifte(e.dataTransfer.files && e.dataTransfer.files[0]); }}
+                    onClick={() => aangifteInputRef.current && aangifteInputRef.current.click()}
+                    style={{
+                      border: `1.5px dashed ${aangifteSleep ? KLEUR.blauw : KLEUR.rand}`, borderRadius: 10, padding: "18px 14px",
+                      textAlign: "center", cursor: "pointer", background: aangifteSleep ? KLEUR.lichtblauw : "#FAFBF9",
+                      display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
+                    }}
+                  >
+                    <div style={{ fontSize: 12.5, fontWeight: 600, color: KLEUR.tekst }}>Sleep de aangifte hierheen, of klik om te kiezen</div>
+                    <div style={{ fontSize: 11, color: KLEUR.mutedTekst }}>PDF · max. 15 MB · gaat als tweede bijlage mee</div>
+                    <input ref={aangifteInputRef} type="file" accept="application/pdf,.pdf" onChange={(e) => { leesAangifte(e.target.files && e.target.files[0]); e.target.value = ""; }} style={{ display: "none" }} />
+                  </div>
+                )}
+                {aangifteFout && <div style={{ fontSize: 12, color: KLEUR.rood, marginTop: 6 }}>{aangifteFout}</div>}
+                <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 6 }}>
+                  Zonder dit bestand kun je het stuk niet opslaan of versturen. Bij “ter ondertekening”
+                  krijgt de cliënt twee taken — één per document — zodat hij ze allebei tekent.
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Aandeelhouders */}

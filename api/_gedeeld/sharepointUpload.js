@@ -79,4 +79,30 @@ async function uploadBestand(token, driveId, folderId, bestandsnaam, buffer, con
   return res.json();
 }
 
-module.exports = { resolveFolder, ensureFolderPath, uploadBestand };
+/**
+ * Haalt de INHOUD van een bestand op via zijn SharePoint-webUrl (zoals uploadBestand die teruggeeft
+ * en zoals wij hem in de logboeken bewaren). Geeft { buffer, naam, contentType }.
+ *
+ * Nodig om een eerder geüpload bestand later nog als mailbijlage mee te kunnen sturen: heropen je een
+ * opgeslagen stuk, dan heeft de browser de bytes niet meer — alleen de link. Zelfde share-notatie als
+ * resolveFolder, dus ook hier is een app-token met Files.Read(Write).All genoeg.
+ */
+async function haalBestandViaUrl(token, bestandUrl) {
+  const enc = encodeShareUrl(bestandUrl);
+  const meta = await fetch(`${GRAPH}/shares/${enc}/driveItem?$select=id,name,file,parentReference`, {
+    headers: graphHeaders(token),
+  });
+  if (!meta.ok) throw new Error(`Bestand niet gevonden in SharePoint (${meta.status}): ${await meta.text()}`);
+  const item = await meta.json();
+  const driveId = item.parentReference?.driveId;
+  if (!driveId || !item.id) throw new Error("Kon driveId/itemId van het SharePoint-bestand niet bepalen.");
+  const inhoud = await fetch(`${GRAPH}/drives/${driveId}/items/${item.id}/content`, { headers: graphHeaders(token) });
+  if (!inhoud.ok) throw new Error(`Downloaden uit SharePoint mislukt (${inhoud.status}).`);
+  return {
+    buffer: Buffer.from(await inhoud.arrayBuffer()),
+    naam: item.name || "bijlage",
+    contentType: (item.file && item.file.mimeType) || "application/octet-stream",
+  };
+}
+
+module.exports = { resolveFolder, ensureFolderPath, uploadBestand, haalBestandViaUrl };
