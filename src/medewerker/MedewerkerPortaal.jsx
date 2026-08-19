@@ -1771,8 +1771,8 @@ function KlantenModule({ magContracten = false, isBeheerder = false, magPlanning
         {sub === "contactpersonen" && <ContactpersonenOverzicht magBulkVerwijderen={subRechten ? subRechten.bulk("contactpersonen") : isBeheerder} magSubVerwijderen={subRechten ? subRechten.verwijderen("contactpersonen") : true} />}
         {sub === "brieven" && <BrievenTab isBeheerder={isBeheerder} />}
         {sub === "contracten" && (magContracten || isBeheerder) && <ContractenOverzicht />}
-        {sub === "notulen" && <NotulenTab isBeheerder={isBeheerder} />}
-        {sub === "dividend" && <DividendTab isBeheerder={isBeheerder} />}
+        {sub === "notulen" && <NotulenTab isBeheerder={isBeheerder} magVerwijderen={subRechten ? subRechten.verwijderen("notulen") : null} />}
+        {sub === "dividend" && <DividendTab isBeheerder={isBeheerder} magVerwijderen={subRechten ? subRechten.verwijderen("dividend") : null} />}
         {(sub === "ib" || sub === "vpb") && <MedewerkerDossiers soort={sub} magVerwijderenRubriek={subRechten ? subRechten.verwijderen(sub) : true} magBulkVerwijderen={subRechten ? subRechten.bulk(sub) : isBeheerder} />}
         {sub === "lonen" && <NogInTeRichten titel={actief.label} watKomtEr={actief.watKomtEr} />}
       </div>
@@ -1787,7 +1787,7 @@ function KlantenModule({ magContracten = false, isBeheerder = false, magPlanning
  * opslaan. Komt er ondertussen een doorklik naar een notulendossier binnen (#dossier=notulen:<id>),
  * dan springen we terug naar het overzicht zodat dat dossier gewoon opent.
  */
-function NotulenTab({ isBeheerder = false }) {
+function NotulenTab({ isBeheerder = false, magVerwijderen = null }) {
   const [view, setView] = useState("overzicht"); // overzicht | logboek | opstellen
   const [openStuk, setOpenStuk] = useState(null); // een stuk uit het logboek dat we openen
   useEffect(() => luisterNaarDossierHash(({ soort }) => { if (soort === "notulen") setView("overzicht"); }), []);
@@ -1807,6 +1807,7 @@ function NotulenTab({ isBeheerder = false }) {
   return (
     <NotulenLogboek
       isBeheerder={isBeheerder}
+      magVerwijderen={magVerwijderen}
       onNieuweNotulen={() => { setOpenStuk(null); setView("opstellen"); }}
       onBewerken={(stuk) => { setOpenStuk(stuk); setView("opstellen"); }}
     />
@@ -1820,7 +1821,7 @@ function NotulenTab({ isBeheerder = false }) {
  * link naar het stuk staat in het logboek. Komt er een doorklik naar een dividenddossier binnen
  * (#dossier=dividend:<id>), dan springen we terug uit het opstelscherm zodat dat dossier opent.
  */
-function DividendTab({ isBeheerder = false }) {
+function DividendTab({ isBeheerder = false, magVerwijderen = null }) {
   const [view, setView] = useState("overzicht"); // overzicht | logboek | opstellen
   const [openStuk, setOpenStuk] = useState(null); // een stuk uit het logboek dat we openen
   useEffect(() => luisterNaarDossierHash(({ soort }) => { if (soort === "dividend") setView("overzicht"); }), []);
@@ -1837,6 +1838,7 @@ function DividendTab({ isBeheerder = false }) {
   return (
     <DividendLogboek
       isBeheerder={isBeheerder}
+      magVerwijderen={magVerwijderen}
       onNieuwStuk={() => { setOpenStuk(null); setView("opstellen"); }}
       onBewerken={(stuk) => { setOpenStuk(stuk); setView("opstellen"); }}
     />

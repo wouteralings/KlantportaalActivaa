@@ -105,4 +105,31 @@ async function haalBestandViaUrl(token, bestandUrl) {
   };
 }
 
-module.exports = { resolveFolder, ensureFolderPath, uploadBestand, haalBestandViaUrl };
+/**
+ * Verwijdert een bestand in SharePoint via zijn webUrl. Gebruikt door het verwijderen van een regel uit
+ * een logboek: het stuk hoort dan ook uit het dossier van de cliënt te verdwijnen.
+ *
+ * Geeft { gedaan, reden }. Bestaat het bestand al niet meer (404), dan noemen we dat gedaan — het doel
+ * is bereikt. Alle andere fouten komen als reden terug; de aanroeper beslist wat dat betekent.
+ */
+async function verwijderBestandViaUrl(token, bestandUrl) {
+  try {
+    const enc = encodeShareUrl(bestandUrl);
+    const meta = await fetch(`${GRAPH}/shares/${enc}/driveItem?$select=id,name,parentReference`, {
+      headers: graphHeaders(token),
+    });
+    if (meta.status === 404) return { gedaan: true, reden: "Bestand bestond al niet meer." };
+    if (!meta.ok) return { gedaan: false, reden: `Bestand niet gevonden in SharePoint (${meta.status}).` };
+    const item = await meta.json();
+    const driveId = item.parentReference?.driveId;
+    if (!driveId || !item.id) return { gedaan: false, reden: "Kon driveId/itemId van het bestand niet bepalen." };
+    const weg = await fetch(`${GRAPH}/drives/${driveId}/items/${item.id}`, { method: "DELETE", headers: graphHeaders(token) });
+    // 204 = weg, 404 = was al weg.
+    if (weg.status === 204 || weg.status === 404) return { gedaan: true, reden: "" };
+    return { gedaan: false, reden: `Verwijderen uit SharePoint mislukt (${weg.status}).` };
+  } catch (e) {
+    return { gedaan: false, reden: String((e && e.message) || e) };
+  }
+}
+
+module.exports = { resolveFolder, ensureFolderPath, uploadBestand, haalBestandViaUrl, verwijderBestandViaUrl };

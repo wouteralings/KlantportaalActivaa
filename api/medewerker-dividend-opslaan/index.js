@@ -31,10 +31,11 @@ const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = req
 const { SOORTEN, haalEenDossier, maakDossier, werkDossierBij, verwijderDossier, metAangepasteVelden } = require("../_gedeeld/dossiers");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
 const { haalAppGraphToken } = require("../_gedeeld/graphApp");
-const { resolveFolder, ensureFolderPath, uploadBestand, haalBestandViaUrl } = require("../_gedeeld/sharepointUpload");
+const { resolveFolder, ensureFolderPath, uploadBestand, verwijderBestandViaUrl, haalBestandViaUrl } = require("../_gedeeld/sharepointUpload");
 const { blokkenNaarPdf } = require("../_gedeeld/notulenRenderer");
 const { haalAlles, haalVoorDossier, haalVoorKlant, bewaar, verwijder } = require("../_gedeeld/dividendStore");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
+const { magSubVerwijderen } = require("../_gedeeld/rollenConfig");
 const { verstuurMailMetBijlage } = require("../_gedeeld/mail");
 const { haalNavigatieNaam } = require("../_gedeeld/dossiers");
 
@@ -374,12 +375,21 @@ module.exports = async function (context, req) {
     return;
   }
 
-  // ── actie "logboek-verwijderen": een regel uit het dividendlogboek halen (alleen beheerder) ─────
-  // Het stuk in SharePoint en het dividenddossier in Dynamics blijven staan; alleen de vermelding in
-  // het overzicht verdwijnt — zelfde afspraak als bij het brievenlogboek.
+  // ── actie "logboek-verwijderen": een regel uit het logboek halen ───────────────────────────────
+  // Wie dit mag stel je in bij Beheer → Rollen & toegang: de Verwijderen-schakelaar op de subpagina
+  // "klantoverzicht.dividend" (dezelfde bron die het verwijderen van dossiers en contactpersonen al
+  // gebruikt). Een beheerder (Azure-rol) mag altijd.
+  //
+  // Anders dan voorheen gaat het STUK IN SHAREPOINT nu mee de deur uit — dat was het verzoek: een regel
+  // weghalen zonder het bestand op te ruimen laat losse documenten in het dossier van de cliënt achter.
+  // Het dossier in Dynamics blijft wél staan: dat is de administratie, en die snijden we niet ongevraagd
+  // aan. Het opruimen van het bestand is best-effort: lukt het niet, dan verdwijnt de regel toch en
+  // krijgt de medewerker de reden te zien — anders zit je met een regel die je niet meer kwijt kunt.
   if (actie === "logboek-verwijderen") {
-    if (!rollen.includes("beheerder")) {
-      context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Alleen een beheerder kan dividendstukken uit het logboek verwijderen." } };
+    const email = haalEmailUitPrincipal(req);
+    const mag = rollen.includes("beheerder") || (await magSubVerwijderen(email, "klantoverzicht.dividend").catch(() => false));
+    if (!mag) {
+      context.res = { status: 403, headers: { "Content-Type": "application/json" }, body: { error: "Je mag dividendstukken niet uit het logboek verwijderen. Dit recht staat bij Beheer → Rollen & toegang, met de Verwijderen-schakelaar op de subpagina." } };
       return;
     }
     const teVerwijderen = veiligeStr(body.dossierId);
@@ -388,8 +398,36 @@ module.exports = async function (context, req) {
       return;
     }
     try {
+      const record = await haalVoorDossier(teVerwijderen);
+      // Alle bestanden die bij dit stuk horen: het stuk zelf en (bij dividend) de aangifte.
+      const links = [];
+      if (record && veiligeStr(record.pdfUrl)) links.push({ wat: "het stuk", url: veiligeStr(record.pdfUrl) });
+      if (record && record.aangifte && veiligeStr(record.aangifte.url)) links.push({ wat: "de aangifte dividendbelasting", url: veiligeStr(record.aangifte.url) });
+      const sharepoint = { gedaan: links.length === 0, reden: "", aantal: 0 };
+      if (links.length) {
+        try {
+          const appToken = await haalAppGraphToken();
+          const uitkomsten = [];
+          for (const l of links) uitkomsten.push({ ...l, ...(await verwijderBestandViaUrl(appToken, l.url)) });
+          sharepoint.aantal = uitkomsten.filter((u) => u.gedaan).length;
+          sharepoint.gedaan = uitkomsten.every((u) => u.gedaan);
+          sharepoint.reden = uitkomsten.filter((u) => !u.gedaan).map((u) => `${u.wat}: ${u.reden}`).join("; ");
+        } catch (e) {
+          sharepoint.gedaan = false;
+          sharepoint.reden = String((e && e.message) || e);
+          if (context.log) context.log.error("Bestand(en) uit SharePoint verwijderen mislukt:", e);
+        }
+      }
       const gedaan = await verwijder(teVerwijderen);
-      context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, gedaan } };
+      await logGebeurtenis({
+        door: email || "onbekend",
+        actie: "dossier",
+        accountId: (record && record.accountId) || "",
+        accountIds: (record && record.accountId) ? [record.accountId] : [],
+        klantnaam: (record && record.klantnaam) || "",
+        tekst: `Regel uit het dividend-logboek verwijderd${sharepoint.aantal ? ` (${sharepoint.aantal} bestand(en) uit SharePoint verwijderd)` : ""}${sharepoint.gedaan ? "" : ` — let op: ${sharepoint.reden}`}.`,
+      }).catch(() => {});
+      context.res = { headers: { "Content-Type": "application/json" }, body: { ok: true, gedaan, sharepoint } };
     } catch (err) {
       if (context.log) context.log.error(err);
       context.res = { status: 500, headers: { "Content-Type": "application/json" }, body: { error: "Kon het dividendstuk niet uit het logboek verwijderen.", detail: String((err && err.message) || err) } };

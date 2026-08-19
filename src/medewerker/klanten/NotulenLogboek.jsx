@@ -29,7 +29,10 @@ function tijdstip(iso) {
   try { return new Date(iso).toLocaleString("nl-NL", { dateStyle: "short", timeStyle: "short" }); } catch { return ""; }
 }
 
-export default function NotulenLogboek({ onNieuweNotulen, onBewerken, isBeheerder = false }) {
+export default function NotulenLogboek({ onNieuweNotulen, onBewerken, isBeheerder = false, magVerwijderen = null }) {
+  // Wie mag verwijderen komt uit Beheer → Rollen & toegang (de Verwijderen-schakelaar op deze
+  // subpagina). Niets meegegeven = terugvallen op "alleen een beheerder", zoals het was.
+  const magWeg = magVerwijderen === null ? isBeheerder : (magVerwijderen || isBeheerder);
   const [notulen, setNotulen] = useState(null); // null = laden
   const [fout, setFout] = useState("");
   const [bezig, setBezig] = useState(false);
@@ -84,7 +87,7 @@ export default function NotulenLogboek({ onNieuweNotulen, onBewerken, isBeheerde
 
   async function verwijderRegel(n) {
     const naam = `${veiligeStr(n.modelNaam) || "Notulen"} — ${veiligeStr(n.klantnaam)}`;
-    if (typeof window !== "undefined" && !window.confirm(`"${naam}" uit het notulenlogboek verwijderen?\n\nHet stuk in SharePoint en het notulendossier in Dynamics blijven staan; alleen de vermelding hier verdwijnt.`)) return;
+    if (typeof window !== "undefined" && !window.confirm(`"${naam}" verwijderen?\n\nDe regel verdwijnt uit het logboek ÉN het bestand wordt uit de SharePoint-map van de cliënt verwijderd.\n\nHet notulendossier in Dynamics blijft staan — dat is de administratie.\n\nDit kan niet ongedaan gemaakt worden.`)) return;
     setVerwijderBezig(n.dossierId); setFout("");
     try {
       const res = await fetch("/api/medewerker-notulen-opslaan", {
@@ -94,6 +97,11 @@ export default function NotulenLogboek({ onNieuweNotulen, onBewerken, isBeheerde
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || `Verwijderen mislukt (${res.status}).`);
       setNotulen((lijst) => (lijst || []).filter((x) => x.dossierId !== n.dossierId));
+      // De regel is weg; lukte het opruimen in SharePoint niet, dan zeggen we dát erbij — anders denk
+      // je dat het bestand ook verdwenen is terwijl het er nog staat.
+      if (d.sharepoint && d.sharepoint.gedaan === false) {
+        setFout(`De regel is verwijderd, maar het bestand staat nog in SharePoint: ${d.sharepoint.reden || "onbekende reden"}`);
+      }
     } catch (e) {
       setFout(String((e && e.message) || e));
     } finally {
@@ -187,7 +195,7 @@ export default function NotulenLogboek({ onNieuweNotulen, onBewerken, isBeheerde
                           <Pencil size={13} /> Bewerken
                         </button>
                       )}
-                      {isBeheerder && (
+                      {magWeg && (
                         <button
                           onClick={() => verwijderRegel(n)}
                           disabled={verwijderBezig === n.dossierId}
