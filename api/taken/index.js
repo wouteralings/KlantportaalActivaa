@@ -137,7 +137,10 @@ async function haalZichtbareTaken(resource, token, accounts, soortConfig) {
       vereistHandtekening: soortConfig.vereistHandtekening.has(String(soortWaarde)),
       uploadLink: UPLOADLINK_VELD ? rij[UPLOADLINK_VELD] || null : null,
       uploadVerloopt: VERLOOPDATUM_VELD ? rij[VERLOOPDATUM_VELD] || null : null,
-      documentUrl: DOCUMENT_VELD ? rij[DOCUMENT_VELD] || null : null,
+      // Alleen JÁ/NEE naar de klant — nooit de SharePoint-url zelf. Het portaal toont het stuk via de
+      // eigen proxy /api/taken-document, die de link server-side uit Dynamics leest en het bestand
+      // app-only ophaalt; de cliënt heeft namelijk zelf geen SharePoint-rechten op die map.
+      heeftDocument: !!(DOCUMENT_VELD && rij[DOCUMENT_VELD]),
     });
   }
 

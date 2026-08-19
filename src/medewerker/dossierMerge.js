@@ -37,6 +37,9 @@ export function vulSjabloonIn(tekst, waarden) {
  *  gekoppelde-relatienaam (lookup), nette datum en getallen met duizendtalscheiding. */
 export function menselijkeVeldwaarde(veldDef, waarde, picklistOpties, lookupNamen) {
   if (waarde === null || waarde === undefined || waarde === "") return veldDef.type === "boolean" ? "Nee" : "";
+  // Vangnet: een échte true/false mag nooit als "true"/"false" in een stuk belanden, ook niet als het
+  // veld in de catalogus (nog) een ander type heeft dan "boolean".
+  if (typeof waarde === "boolean") return waarde ? "Ja" : "Nee";
   switch (veldDef.type) {
     case "boolean": return waarde ? "Ja" : "Nee";
     case "picklist": {

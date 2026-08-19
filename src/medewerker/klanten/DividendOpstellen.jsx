@@ -36,6 +36,13 @@ const KLEUR = {
 };
 
 function veiligeStr(v) { return String(v == null ? "" : v).trim(); }
+// Ja/nee-waarde als tekst voor in het stuk. Een ja/nee-invulveld houdt een echte true/false vast; die
+// mag nooit als "true"/"false" in een notulentekst belanden. Ook "ja"/"waar"/"1" tellen als ja, zodat
+// een veld dat ooit als tekst is ingevuld hetzelfde leest.
+function jaNee(v) {
+  if (typeof v === "boolean") return v ? "Ja" : "Nee";
+  return /^(ja|true|waar|1|x)$/i.test(String(v == null ? "" : v).trim()) ? "Ja" : "Nee";
+}
 
 function langeDatum(iso) {
   if (!iso) return "";
@@ -565,8 +572,6 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
     zet("naammodel", sjabloon && sjabloon.naam);
     zet("naamnotulen", sjabloon && sjabloon.naam);
     zet("modelnaam", sjabloon && sjabloon.naam);
-    zet("dividendbelasting", dividendbelasting ? "Ja" : "Nee");
-    zet("uitkeringstest", uitkeringstest ? "Ja" : "Nee");
     zet("aandeelhouders", aandeelhoudersTekst(aandeelhouders));
     // De vrije invulvelden als laatste: die horen bij dít stuk en winnen dus van gelijknamige velden.
     // Een bedrag komt als "€ 100.000" in het stuk en een datum als "17 augustus 2026" — ongeacht hoe
@@ -575,8 +580,15 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
       const def = velddefinities.find((v) => v && String(v.sleutel) === sleutel);
       if (def && def.type === "bedrag") zet(sleutel, bedragTekst(waarde));
       else if (def && def.type === "datum") zet(sleutel, langeDatum(waarde));
+      // Een ja/nee-veld houdt een échte true/false vast. Zo doorgeven zou letterlijk "false" in het
+      // stuk zetten; in een notulentekst hoort natuurlijk "Ja" of "Nee" te staan.
+      else if (typeof waarde === "boolean" || (def && def.type === "boolean")) zet(sleutel, jaNee(waarde));
       else zet(sleutel, waarde);
     }
+    // De twee schakelaars van dít scherm als laatste: die winnen altijd van een gelijknamig invulveld,
+    // zodat {{uitkeringstest}} en {{dividendbelasting}} volgen wat je hierboven hebt aangeklikt.
+    zet("dividendbelasting", jaNee(dividendbelasting));
+    zet("uitkeringstest", jaNee(uitkeringstest));
     return m;
   }, [klant, vestigingsplaats, datumactie, voorzitter, emailVoorzitter, notulist, emailNotulist, aandeelhouders, invulwaarden, velddefinities, sjabloon, dividendbelasting, uitkeringstest]);
 

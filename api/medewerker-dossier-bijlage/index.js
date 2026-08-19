@@ -424,6 +424,13 @@ module.exports = async function (context, req) {
               body: JSON.stringify(taakBody),
             });
             if (!taakRes.ok) throw new Error(`Aanmaken taak mislukt (${taakRes.status}): ${await taakRes.text()}`);
+            // Zonder documentlink op de taak ziet de cliënt straks alleen een regel met een
+            // onderwerp — hij geeft dan akkoord op iets wat hij niet kan inzien. Melden dus.
+            if (!TAAK_DOCUMENT_VELD) {
+              taakWaarschuwing = "De taak is aangemaakt, maar Application Setting DYNAMICS_TAAK_DOCUMENT_VELD is niet ingesteld — de cliënt kan het stuk dan niet vanuit de taak inzien.";
+            } else if (!documentUrl) {
+              taakWaarschuwing = "De taak is aangemaakt, maar er hangt geen document aan — de cliënt ziet alleen de taakregel en kan het stuk niet inzien.";
+            }
           } catch (e) {
             context.log.error("medewerker-dossier-bijlage: klant-taak aanmaken mislukt (mail is al verstuurd):", e);
             taakWaarschuwing = "De mail is verstuurd, maar het aanmaken van de klant-taak is mislukt: " + String(e.message || e);

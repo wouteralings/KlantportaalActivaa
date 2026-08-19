@@ -39,6 +39,13 @@ const KLEUR = {
 };
 
 function veiligeStr(v) { return String(v == null ? "" : v).trim(); }
+// Ja/nee-waarde als tekst voor in het stuk. Een ja/nee-invulveld houdt een echte true/false vast; die
+// mag nooit als "true"/"false" in een notulentekst belanden. Ook "ja"/"waar"/"1" tellen als ja, zodat
+// een veld dat ooit als tekst is ingevuld hetzelfde leest.
+function jaNee(v) {
+  if (typeof v === "boolean") return v ? "Ja" : "Nee";
+  return /^(ja|true|waar|1|x)$/i.test(String(v == null ? "" : v).trim()) ? "Ja" : "Nee";
+}
 
 function langeDatum(iso) {
   if (!iso) return "";
@@ -519,6 +526,9 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
       const def = velddefinities.find((v) => v && String(v.sleutel) === sleutel);
       if (def && def.type === "bedrag") zet(sleutel, bedragTekst(waarde));
       else if (def && def.type === "datum") zet(sleutel, langeDatum(waarde));
+      // Een ja/nee-veld houdt een échte true/false vast. Zo doorgeven zou letterlijk "false" in het
+      // stuk zetten; in een notulentekst hoort natuurlijk "Ja" of "Nee" te staan.
+      else if (typeof waarde === "boolean" || (def && def.type === "boolean")) zet(sleutel, jaNee(waarde));
       else zet(sleutel, waarde);
     }
     return m;
