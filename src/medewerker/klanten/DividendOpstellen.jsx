@@ -194,6 +194,9 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
   // hij gaat mee als tweede PDF in de mail, komt in dezelfde SharePoint-map en moet ook ondertekend
   // worden. Zonder dat bestand laat het scherm je niet opslaan of versturen.
   const [dividendbelasting, setDividendbelasting] = useState(false);
+  // Heeft het bestuur de uitkeringstest (art. 2:216 lid 2 BW) uitgevoerd? Een echte ja/nee, want de
+  // Dynamics-kolom cr283_uitkeringstest is een ja/nee-kolom — dat mag geen tekstveld worden.
+  const [uitkeringstest, setUitkeringstest] = useState(false);
   // { naam, dataUrl, grootte } zolang het stuk open staat; { naam, url } bij een heropend stuk (dan
   // heeft de browser de bytes niet meer, alleen de link — de server haalt hem dan uit SharePoint).
   const [aangifte, setAangifte] = useState(null);
@@ -300,7 +303,7 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
     setNotulist(st.notulistBron === "vast" && veiligeStr(st.notulistVast) ? veiligeStr(st.notulistVast) : contactNaam);
     setEmailNotulist(contactMail);
     // Ook de dividendbelasting-keuze en de aangifte horen bij één stuk.
-    setDividendbelasting(false); setAangifte(null); setAangifteFout("");
+    setDividendbelasting(false); setAangifte(null); setAangifteFout(""); setUitkeringstest(false);
     setAandeelhouders([{ naam: contactNaam, percentage: "100" }]);
     setMelding(null);
     // Een andere cliënt = een ander stuk: de koppeling met het vorige dividenddossier loslaten. Het
@@ -451,12 +454,19 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
     if (veiligeStr(emailNotulist)) uit.emailnotulist = veiligeStr(emailNotulist);
     // Ja/nee-kolom cr283_dividendbelasting — altijd meesturen, ook bij Nee, zodat het dossier klopt.
     uit.dividendbelasting = !!dividendbelasting;
+    uit.uitkeringstest = !!uitkeringstest;
     for (const [sleutel, waarde] of Object.entries(invulwaarden || {})) {
       const def = catalogus.find((v) => v && v.key === sleutel && v.type !== "lookup" && !String(v.key).startsWith("__"));
       if (!def) continue;
       if (waarde === undefined || waarde === null || String(waarde).trim() === "") continue;
       // Naar Dynamics gaat de kále waarde: een getalkolom wil 100000, niet "€ 100.000".
       const eigen = velddefinities.find((v) => v && String(v.sleutel) === sleutel);
+      // Ja/nee-kolom: hier moet een echte true/false naartoe. Zou de tekst zo doorgaan, dan wordt élke
+      // niet-lege waarde "waar" — ook het woord "Nee" — en zet je de kolom dus precies verkeerd.
+      if (def.type === "boolean") {
+        uit[sleutel] = /^(ja|true|waar|1|x)$/i.test(String(waarde).trim());
+        continue;
+      }
       if (eigen && eigen.type === "bedrag") {
         const n = Number(String(waarde).replace(/[€\s]/g, "").replace(/\.(?=\d{3}(\D|$))/g, "").replace(",", "."));
         uit[sleutel] = Number.isFinite(n) ? n : waarde;
@@ -465,7 +475,7 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
       uit[sleutel] = waarde;
     }
     return uit;
-  }, [voorzitter, emailVoorzitter, emailNotulist, invulwaarden, catalogus, velddefinities, dividendbelasting]);
+  }, [voorzitter, emailVoorzitter, emailNotulist, invulwaarden, catalogus, velddefinities, dividendbelasting, uitkeringstest]);
 
   // De regel uit "Eerder opgesteld" waar dit scherm nu aan hangt — die werkt Opslaan bij. Zolang die
   // er niet is (een gloednieuw stuk) maakt Opslaan juist wél een nieuwe regel; dat onderscheid tonen
@@ -535,6 +545,7 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
     zet("naamnotulen", sjabloon && sjabloon.naam);
     zet("modelnaam", sjabloon && sjabloon.naam);
     zet("dividendbelasting", dividendbelasting ? "Ja" : "Nee");
+    zet("uitkeringstest", uitkeringstest ? "Ja" : "Nee");
     zet("aandeelhouders", aandeelhoudersTekst(aandeelhouders));
     // De vrije invulvelden als laatste: die horen bij dít stuk en winnen dus van gelijknamige velden.
     // Een bedrag komt als "€ 100.000" in het stuk en een datum als "17 augustus 2026" — ongeacht hoe
@@ -546,7 +557,7 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
       else zet(sleutel, waarde);
     }
     return m;
-  }, [klant, vestigingsplaats, datumactie, voorzitter, emailVoorzitter, notulist, emailNotulist, aandeelhouders, invulwaarden, velddefinities, sjabloon, dividendbelasting]);
+  }, [klant, vestigingsplaats, datumactie, voorzitter, emailVoorzitter, notulist, emailNotulist, aandeelhouders, invulwaarden, velddefinities, sjabloon, dividendbelasting, uitkeringstest]);
 
   // Het stuk = vaste kop (Beheer) + het tussenstuk van dit stuk + vaste staart (Beheer). Zo staan de
   // aandeelhouders en het ondertekenblok altijd in de centrale tekst en bewegen ze mee met wat je
@@ -650,6 +661,7 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
           // gaat het als data-URL mee; bij een heropend stuk is alleen de link bekend en haalt de
           // server het zelf uit SharePoint.
           dividendbelasting,
+          uitkeringstest,
           aangifte: aangifte ? { naam: aangifte.naam, dataUrl: aangifte.dataUrl || "", url: aangifte.url || "" } : null,
           // De blokken zoals ze rechts in het voorbeeld staan — de PDF gebruikt exact dezelfde.
           blokken,
@@ -708,6 +720,7 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
     setNotulist(veiligeStr(v.notulist));
     setEmailNotulist(veiligeStr(v.emailNotulist));
     setDividendbelasting(r.dividendbelasting === true);
+    setUitkeringstest(r.uitkeringstest === true);
     setAangifte(r.aangifte && veiligeStr(r.aangifte.url) ? { naam: veiligeStr(r.aangifte.naam) || "Aangifte dividendbelasting", url: veiligeStr(r.aangifte.url) } : null);
     setAangifteFout("");
     // De invulvelden terugzetten. Let op: dit moet ná het zetten van het model gebeuren én het
@@ -779,6 +792,7 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
           bestandsnaamBasis: bestandsnaam,
           // De aangifte gaat als tweede bijlage mee en krijgt bij "ter ondertekening" zijn eigen taak.
           dividendbelasting,
+          uitkeringstest,
           aangifte: aangifte ? { naam: aangifte.naam, dataUrl: aangifte.dataUrl || "", url: aangifte.url || "" } : null,
         }),
       });
@@ -976,6 +990,34 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
           {/* Dividendbelasting + de aangifte die erbij hoort. Staat de schakelaar op Ja, dan is het
               sleepvak verplicht: dat bestand gaat als tweede PDF mee naar de cliënt, komt in dezelfde
               SharePoint-map als het stuk, en krijgt bij "ter ondertekening" zijn eigen taak. */}
+          {/* Uitkeringstest: echte ja/nee, dus een schakelaar en geen invulveld. Een invulveld met deze
+              sleutel zou als tekst naar de ja/nee-kolom cr283_uitkeringstest gaan, en daar wordt élke
+              niet-lege tekst "waar" — ook "Nee". */}
+          <div>
+            <span style={label}>Uitkeringstest</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              {[[false, "Nee"], [true, "Ja"]].map(([waarde, tekst]) => (
+                <button
+                  key={tekst}
+                  type="button"
+                  onClick={() => setUitkeringstest(waarde)}
+                  style={{
+                    padding: "7px 14px", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+                    border: `1px solid ${uitkeringstest === waarde ? KLEUR.blauw : KLEUR.rand}`,
+                    background: uitkeringstest === waarde ? KLEUR.blauw : "#fff",
+                    color: uitkeringstest === waarde ? "#fff" : KLEUR.subtekst,
+                  }}
+                >
+                  {tekst}
+                </button>
+              ))}
+              <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>uitgevoerd door het bestuur (art. 2:216 lid 2 BW)</span>
+            </div>
+            <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 5 }}>
+              Komt in het stuk als <code>{"{{uitkeringstest}}"}</code> — “Ja” of “Nee” — en gaat als ja/nee naar het dossier.
+            </div>
+          </div>
+
           <div>
             <span style={label}>Dividendbelasting</span>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>

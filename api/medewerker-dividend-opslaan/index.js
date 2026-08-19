@@ -635,6 +635,7 @@ module.exports = async function (context, req) {
         // De aangifte dividendbelasting die bij dit stuk hoort: naam + link, zodat het logboek hem als
         // snellink kan tonen en een later "mailen" hem alsnog uit SharePoint kan ophalen.
         dividendbelasting: body.dividendbelasting === true,
+        uitkeringstest: body.uitkeringstest === true,
         aangifte: aangifte ? { naam: aangifte.naam, url: aangifteUrl } : ((bestaandRecord && bestaandRecord.aangifte) || null),
         opgesteldDoor: email || "",
       });

@@ -409,6 +409,12 @@ export default function NotulenOpstellen({ onTerug, openStuk = null }) {
       if (waarde === undefined || waarde === null || String(waarde).trim() === "") continue;
       // Naar Dynamics gaat de kále waarde: een getalkolom wil 100000, niet "€ 100.000".
       const eigen = velddefinities.find((v) => v && String(v.sleutel) === sleutel);
+      // Ja/nee-kolom: hier moet een echte true/false naartoe. Zou de tekst zo doorgaan, dan wordt élke
+      // niet-lege waarde "waar" — ook het woord "Nee" — en zet je de kolom dus precies verkeerd.
+      if (def.type === "boolean") {
+        uit[sleutel] = /^(ja|true|waar|1|x)$/i.test(String(waarde).trim());
+        continue;
+      }
       if (eigen && eigen.type === "bedrag") {
         const n = Number(String(waarde).replace(/[€\s]/g, "").replace(/\.(?=\d{3}(\D|$))/g, "").replace(",", "."));
         uit[sleutel] = Number.isFinite(n) ? n : waarde;

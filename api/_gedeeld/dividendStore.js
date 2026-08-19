@@ -112,6 +112,7 @@ async function bewaar(record) {
     // Die link laat het logboek als snellink zien en maakt het mogelijk om het stuk later opnieuw te
     // mailen zonder het bestand opnieuw te slepen.
     dividendbelasting: record.dividendbelasting === true ? true : (record.dividendbelasting === false ? false : !!bestaand.dividendbelasting),
+    uitkeringstest: record.uitkeringstest === true ? true : (record.uitkeringstest === false ? false : !!bestaand.uitkeringstest),
     aangifte: record.aangifte !== undefined ? record.aangifte : (bestaand.aangifte || null),
     pdfUrl: record.pdfUrl || bestaand.pdfUrl || "",
     bestandsnaam: record.bestandsnaam || bestaand.bestandsnaam || "",
