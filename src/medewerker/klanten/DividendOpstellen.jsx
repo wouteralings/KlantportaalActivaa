@@ -404,6 +404,12 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
 
   // Vanuit het dividendlogboek geopend ("Bewerken"): de juiste cliënt kiezen en het stuk terughalen.
   const geopendRef = useRef(false);
+  // Het stuk dat nog teruggezet moet worden zodra de cliënt-voorvulling geweest is. Dit ging eerder via
+  // een setTimeout, maar dat is een gok: React verwerkt een setState uit een effect in een eigen taak,
+  // en die kwam soms ná de timeout — dan overschreef de voorvulling het net herstelde stuk en stond er
+  // weer één aandeelhouder van 100%. Nu hangt het herstel aan het effect hieronder, dat ná het
+  // voorvul-effect is gedeclareerd en dus binnen dezelfde commit gegarandeerd later loopt.
+  const teHerstellenRef = useRef(null);
   useEffect(() => {
     if (!openStuk || geopendRef.current) return;
     if (!Array.isArray(klanten) || !lijst.length) return; // wachten tot cliënten én modellen er zijn
@@ -411,11 +417,26 @@ export default function DividendOpstellen({ onTerug, openStuk = null }) {
     if (!k) return;
     geopendRef.current = true;
     openendRef.current = true; // de klantwissel hieronder mag geen nieuwe rij aanmaken
+    if (klant && String(klant.accountId) === String(k.accountId)) {
+      // Deze cliënt stond al ingesteld: setKlant verandert dan niets, dus het effect hieronder komt
+      // niet langs — meteen zelf herstellen.
+      heropen(openStuk);
+      return;
+    }
+    teHerstellenRef.current = openStuk;
     setKlant(k);
-    // Na het zetten van de cliënt worden de velden voorgevuld; daarna pas het stuk terugzetten.
-    setTimeout(() => { if (levend.current) heropen(openStuk); }, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openStuk, klanten, lijst]);
+
+  // Herstel ná de voorvulling: dit effect hangt aan dezelfde [klant] als het voorvul-effect en staat
+  // verder naar beneden in het bestand, dus React draait hem daarna.
+  useEffect(() => {
+    const stuk = teHerstellenRef.current;
+    if (!stuk || !klant) return;
+    teHerstellenRef.current = null;
+    heropen(stuk);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [klant]);
 
   /** Het gesleepte bestand inlezen als data-URL, zodat het met het stuk mee kan naar de server. */
   function leesAangifte(bestand) {
