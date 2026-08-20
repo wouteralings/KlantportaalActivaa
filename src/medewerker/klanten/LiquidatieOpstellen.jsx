@@ -202,6 +202,17 @@ function adresRegel(adres) {
   return delen.join(", ");
 }
 
+/**
+ * De gekozen optie-index van een keuzevraag, of null als er niets gekozen is. Apart, omdat
+ * `Number("")` gewoon 0 oplevert: zonder deze controle zou "niets gekozen" niet te onderscheiden
+ * zijn van "de eerste optie gekozen".
+ */
+function gekozenOptie(waarde) {
+  if (waarde === undefined || waarde === null || waarde === "") return null;
+  const n = Number(waarde);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
+
 export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
   const { mijnNaam } = useMijnNaam();
 
@@ -256,6 +267,10 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
   const [formulierMeesturen, setFormulierMeesturen] = useState(true);
   const [kvknummer, setKvknummer] = useState("");
   const [bewaarder, setBewaarder] = useState("");
+  // Naam- en adresgegevens van de gekozen bewaarder, voor het KvK-formulier (dat vraagt achternaam,
+  // voornamen en woonadres apart). Leeg zodra je een naam intikt die niet uit de zoeklijst komt —
+  // dan hoort er ook geen adres bij dat we niet kennen.
+  const [bewaarderGegevens, setBewaarderGegevens] = useState(null);
   // De datum van de vergadering staat los van de datum van ontbinding (datumactie).
   const [datumnotulen, setDatumnotulen] = useState("");
   const [opbouw, setOpbouw] = useState({ kop: "", staart: "", standaard: null });
@@ -353,8 +368,14 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
     setAandeelhouders([{ naam: contactNaam, percentage: "100" }]);
     setCijfers({}); setDatumnotulen(""); setFormulier({});
     // De bewaarder van boeken en bescheiden is standaard de primaire contactpersoon van de cliënt —
-    // in de praktijk bewaart die de administratie. Blijft gewoon aanpasbaar.
+    // in de praktijk bewaart die de administratie. Blijft gewoon aanpasbaar via het zoekveld.
     setBewaarder(contactNaam);
+    const c = klant.contact || {};
+    setBewaarderGegevens(contactNaam ? {
+      achternaam: [veiligeStr(c.tussenvoegsel), veiligeStr(c.achternaam)].filter(Boolean).join(" ") || contactNaam,
+      voornaam: veiligeStr(c.voornaam),
+      adres: adresRegel(c.adres),
+    } : null);
     // Het KvK-nummer komt van de klantkaart (Dynamics) en wordt hier niet gewijzigd — zo kan er in
     // een liquidatiestuk of op het KvK-formulier nooit een ander nummer staan dan in de administratie.
     setKvknummer(veiligeStr(klant.kvk));
@@ -686,19 +707,15 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
     email: veiligeStr(emailVoorzitter),
     telefoon: veiligeStr(klant && klant.contact && klant.contact.telefoon),
     vandaag: vandaagISO(),
-    // Het formulier vraagt de bewaarder apart uit: achternaam, voornamen en woonadres. Die komen van
-    // de primaire contactpersoon, maar alléén zolang de bewaarder ook echt die persoon is — heb je
-    // daar een andere naam ingevuld, dan zou het adres van de contactpersoon er niet bij horen.
-    // Let op de klant-check: zonder gekozen cliënt zijn bewaarder én contactnaam allebei leeg, en dan
-    // zou de vergelijking kloppen terwijl er niets is om uit te lezen.
-    ...(klant && klant.contact && veiligeStr(bewaarder) && veiligeStr(bewaarder) === veiligeStr(klant.contact.naam)
-      ? {
-        bewaarderAchternaam: [veiligeStr(klant.contact.tussenvoegsel), veiligeStr(klant.contact.achternaam)].filter(Boolean).join(" "),
-        bewaarderVoornaam: veiligeStr(klant.contact.voornaam),
-        bewaarderAdres: adresRegel(klant.contact.adres),
-      }
-      : {}),
-  }), [klant, vestigingsplaats, kvknummer, datumactie, bewaarder, voorzitter, emailVoorzitter]);
+    // Het formulier vraagt de bewaarder apart uit: achternaam, voornamen en woonadres. Die komen mee
+    // zodra je 'm uit het zoekveld kiest. Tik je een naam die niet in de lijst staat, dan hebben we
+    // geen adres — en dan hoort er ook geen adres van iemand anders op het formulier te belanden.
+    ...(bewaarderGegevens ? {
+      bewaarderAchternaam: bewaarderGegevens.achternaam,
+      bewaarderVoornaam: bewaarderGegevens.voornaam,
+      bewaarderAdres: bewaarderGegevens.adres,
+    } : {}),
+  }), [klant, vestigingsplaats, kvknummer, datumactie, bewaarder, bewaarderGegevens, voorzitter, emailVoorzitter]);
 
   // Voorvullen zonder ooit een ingetikt antwoord te overschrijven — vandaar vulVoor() en niet gewoon
   // een merge. Loopt live mee: pas je de datum van ontbinding aan, dan volgt het formulier.
@@ -1144,10 +1161,24 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
                   placeholder={klant ? "niet ingevuld op de klantkaart" : "kies eerst een cliënt"}
                 />
               </div>
-              <div style={{ flex: "1 1 220px" }}>
-                {/* Besluit III — hoeft geen relatie in Dynamics te zijn, dus gewoon een naam. */}
+              <div style={{ flex: "1 1 240px", display: "flex", flexDirection: "column" }}>
+                {/* Besluit III. Zoekveld op contactpersonen en cliënten — de bewaarder is meestal de
+                    contactpersoon zelf, maar het kan ook een andere relatie of een BV zijn. Een naam
+                    die nergens in Dynamics staat mag je gewoon intikken; het veld dwingt niets af. */}
                 <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>Bewaarder van de administratie</div>
-                <input value={bewaarder} onChange={(e) => setBewaarder(e.target.value)} style={input} placeholder="naam" />
+                <NaamZoeker
+                  waarde={bewaarder}
+                  opWaarde={(v) => { setBewaarder(v); setBewaarderGegevens(null); }}
+                  // Kies je iemand uit de lijst, dan nemen we z'n naam- en adresgegevens over voor het
+                  // KvK-formulier — dat vraagt achternaam, voornamen en woonadres apart uit.
+                  opKeuze={(s) => setBewaarderGegevens({
+                    achternaam: [veiligeStr(s.tussenvoegsel), veiligeStr(s.achternaam)].filter(Boolean).join(" ") || veiligeStr(s.naam),
+                    voornaam: veiligeStr(s.voornaam),
+                    adres: adresRegel(s.adres),
+                  })}
+                  placeholder="zoek of typ een naam…"
+                  bronnen={["contact", "klant"]} klanten={klanten} medewerkers={medewerkers} invoerStijl={input}
+                />
               </div>
             </div>
 
@@ -1478,20 +1509,27 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
                               </div>
                             ) : v.type === "keuze" ? (
                               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                                {v.opties.map((optie, i) => (
-                                  <button
-                                    key={optie}
-                                    onClick={() => zetFormulier(v.id, Number(waarde) === i ? "" : i)}
-                                    style={{
-                                      padding: "6px 11px", borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: "pointer",
-                                      border: `1px solid ${Number(waarde) === i ? KLEUR.blauw : KLEUR.rand}`,
-                                      background: Number(waarde) === i ? KLEUR.blauw : "#fff",
-                                      color: Number(waarde) === i ? "#fff" : KLEUR.subtekst,
-                                    }}
-                                  >
-                                    {optie}
-                                  </button>
-                                ))}
+                                {v.opties.map((optie, i) => {
+                                  // Bewust NIET Number(waarde) === i: Number("") is 0, dus een
+                                  // leeggemaakte vraag zou de eerste optie als gekozen tonen terwijl
+                                  // er niets bewaard is — en dan zou het formulier iets melden wat je
+                                  // nooit hebt aangeklikt.
+                                  const gekozen = gekozenOptie(waarde) === i;
+                                  return (
+                                    <button
+                                      key={optie}
+                                      onClick={() => zetFormulier(v.id, gekozen ? "" : i)}
+                                      style={{
+                                        padding: "6px 11px", borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                                        border: `1px solid ${gekozen ? KLEUR.blauw : KLEUR.rand}`,
+                                        background: gekozen ? KLEUR.blauw : "#fff",
+                                        color: gekozen ? "#fff" : KLEUR.subtekst,
+                                      }}
+                                    >
+                                      {optie}
+                                    </button>
+                                  );
+                                })}
                               </div>
                             ) : v.type === "vink" ? (
                               <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12.5, cursor: "pointer" }}>
@@ -1715,6 +1753,19 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
             )}
           </div>
 
+          {/* Zonder vaste tekst zie je alleen het besluit staan — dan lijkt het stuk "niet goed", terwijl
+              er simpelweg nog niets in Beheer is ingevuld. Dat zeggen we er hier bij. */}
+          {sjabloon && (!veiligeStr(opbouw.kop) || !veiligeStr(opbouw.staart)) && (
+            <div style={{ display: "flex", gap: 8, marginTop: 8, padding: "9px 11px", background: "#FFFBEB", border: `1px solid ${KLEUR.goud}55`, borderRadius: 8, fontSize: 12, color: KLEUR.tekst }}>
+              <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1, color: KLEUR.goud }} />
+              <span>
+                De vaste {!veiligeStr(opbouw.kop) && !veiligeStr(opbouw.staart) ? "kop en staart staan" : !veiligeStr(opbouw.kop) ? "kop staat" : "staart staat"} nog niet
+                in <strong>Beheer → Liquidatiestukken</strong>. Daardoor zie je hier alleen de besluiten, zonder de aanhef
+                met de aanwezigen en zonder de sluiting en ondertekening.
+              </span>
+            </div>
+          )}
+
           <div style={{ marginTop: 8, fontSize: 11.5, color: KLEUR.mutedTekst }}>
             Nog niet ingevulde gegevens staan als <strong>[INVULPLEK]</strong> in het stuk, net als in de Word-modellen.
             De drie documenten gaan als losse bijlagen naar de cliënt.
@@ -1851,6 +1902,11 @@ function NaamZoeker({ waarde, opWaarde, opKeuze, placeholder, bronnen, klanten, 
           // Het adres van de contactpersoon van die cliënt, anders het algemene klantadres — zodat het
           // e-mailveld ernaast automatisch gevuld kan worden.
           email: veiligeStr(k.contact && k.contact.email) || veiligeStr(k.emailKlant),
+          // Naam- en adresdelen van de contactpersoon, voor velden die die apart uitvragen.
+          voornaam: veiligeStr(k.contact && k.contact.voornaam),
+          tussenvoegsel: veiligeStr(k.contact && k.contact.tussenvoegsel),
+          achternaam: veiligeStr(k.contact && k.contact.achternaam),
+          adres: (k.contact && k.contact.adres) || k.adres || null,
           sub: [veiligeStr(k.klantnummer) && `nr ${veiligeStr(k.klantnummer)}`, veiligeStr(k.groepsnaam)].filter(Boolean).join("  ·  "),
         });
         if (uit.length >= 8) break;
@@ -1864,7 +1920,12 @@ function NaamZoeker({ waarde, opWaarde, opKeuze, placeholder, bronnen, klanten, 
       }
     }
     for (const c of contacten) {
-      uit.push({ sleutel: `c-${c.id}`, naam: veiligeStr(c.naam), soort: "Contactpersoon", email: veiligeStr(c.email), sub: veiligeStr(c.email) });
+      uit.push({
+        sleutel: `c-${c.id}`, naam: veiligeStr(c.naam), soort: "Contactpersoon", email: veiligeStr(c.email),
+        voornaam: veiligeStr(c.voornaam), tussenvoegsel: veiligeStr(c.tussenvoegsel), achternaam: veiligeStr(c.achternaam),
+        adres: c.adres || null,
+        sub: veiligeStr(c.email),
+      });
       if (uit.length >= 24) break;
     }
     // Dezelfde naam uit twee bronnen (cliënt én contactpersoon) maar één keer tonen.
@@ -1923,6 +1984,39 @@ function renderBlok(b, i) {
         <div key={i} style={{ display: "flex", gap: 8, margin: "0 0 5px 10px" }}>
           <span style={{ flex: "0 0 auto", minWidth: 18 }}>{b.merk}</span>
           <span>{b.tekst}</span>
+        </div>
+      );
+    // Balans en resultatenrekening: twee kolommen, bedrag rechts, streep boven een totaal — dezelfde
+    // opmaak als in de PDF (zie api/_gedeeld/notulenRenderer.js) en in de afdruk (documentOpmaak.js).
+    // Zonder deze twee gevallen zou het cijferdeel in het voorbeeld leeg blijven terwijl het in de
+    // PDF wél staat, en dan controleer je iets anders dan wat je verstuurt.
+    case "tabel":
+      return (
+        <div key={i} style={{ marginBottom: 10 }}>
+          {b.titel && <div style={{ fontWeight: 700, margin: "12px 0 3px" }}>{b.titel}</div>}
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <tbody>
+              {(b.regels || []).map((r, j) => (
+                <tr key={j}>
+                  <td style={{ padding: r.zwaar ? "4px 0 2px" : "2px 0", verticalAlign: "top", fontWeight: r.zwaar ? 700 : 400, borderTop: r.zwaar ? `1px solid ${KLEUR.tekst}` : "none" }}>
+                    {r.label}
+                  </td>
+                  <td style={{ padding: r.zwaar ? "4px 0 2px" : "2px 0", textAlign: "right", whiteSpace: "nowrap", width: "42%", fontWeight: r.zwaar ? 700 : 400, borderTop: r.zwaar ? `1px solid ${KLEUR.tekst}` : "none" }}>
+                    {r.bedrag}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    // Pagina-einde: in het voorbeeld een zichtbare scheiding, zodat je ziet waar het blad breekt.
+    case "paginaeinde":
+      return (
+        <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, margin: "18px 0" }}>
+          <div style={{ flex: 1, borderTop: `1px dashed ${KLEUR.rand}` }} />
+          <span style={{ fontSize: 10, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".04em" }}>nieuwe pagina</span>
+          <div style={{ flex: 1, borderTop: `1px dashed ${KLEUR.rand}` }} />
         </div>
       );
     case "inspring":

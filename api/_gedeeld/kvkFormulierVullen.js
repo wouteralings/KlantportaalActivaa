@@ -100,6 +100,10 @@ async function vulFormulier17a(antwoorden) {
     }
 
     if (vraag.type === "keuze") {
+      // Let op: Number("") is 0, en 0 is een geldige optie-index. Zonder deze controle zou een vraag
+      // die je hebt leeggelaten of weer uitgeklikt stilletjes het EERSTE hokje aankruisen — en dan
+      // meldt het formulier bijvoorbeeld "geen baten" terwijl je dat nooit hebt aangegeven.
+      if (waarde === undefined || waarde === null || waarde === "") continue;
       const keuze = Number(waarde);
       if (!Number.isInteger(keuze) || keuze < 0) continue;
       // Vraag 5.3 zit in de PDF als twee losse velden; die krijgen elk hun eigen behandeling.
