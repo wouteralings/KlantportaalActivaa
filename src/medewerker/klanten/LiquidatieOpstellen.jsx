@@ -174,6 +174,33 @@ function aandeelhoudersTekst(rijen) {
     .join("\n");
 }
 
+/**
+ * Het woonadres van een contactpersoon als één regel: "Dorpsstraat 1a, 7511 AA Enschede". Alleen wat
+ * gevuld is komt mee, dus een ontbrekend huisnummer of een lege postcode levert geen losse komma's op.
+ * Zo staat het adres in het KvK-formulier zoals je het op een envelop zou schrijven.
+ */
+function adresRegel(adres) {
+  const a = adres || {};
+  const straat = [veiligeStr(a.straat), [veiligeStr(a.huisnummer), veiligeStr(a.toevoeging)].filter(Boolean).join("")]
+    .filter(Boolean).join(" ");
+  const plaats = [veiligeStr(a.postcode), veiligeStr(a.plaats)].filter(Boolean).join(" ");
+  const land = veiligeStr(a.land);
+  // Nederland laten we weg: dat is de standaard en het maakt de regel alleen langer.
+  const delen = [straat, plaats, /^(nederland|the netherlands|nl)$/i.test(land) ? "" : land].filter(Boolean);
+  return delen.join(", ");
+}
+
+/**
+ * De gekozen optie-index van een keuzevraag, of null als er niets gekozen is. Apart, omdat
+ * `Number("")` gewoon 0 oplevert: zonder deze controle zou "niets gekozen" niet te onderscheiden
+ * zijn van "de eerste optie gekozen".
+ */
+function gekozenOptie(waarde) {
+  if (waarde === undefined || waarde === null || waarde === "") return null;
+  const n = Number(waarde);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
+
 export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
   const { mijnNaam } = useMijnNaam();
 
