@@ -42,6 +42,7 @@ const { magSubVerwijderen } = require("../_gedeeld/rollenConfig");
 const { verstuurMailMetBijlage } = require("../_gedeeld/mail");
 const { haalNavigatieNaam } = require("../_gedeeld/dossiers");
 const { splitsDocumentLinks, voegDocumentLinksSamen } = require("../_gedeeld/taakDocumenten");
+const { vulFormulier17a, bestandsnaamVoor: formulierBestandsnaam } = require("../_gedeeld/kvkFormulierVullen");
 
 const SHAREPOINT_VELD = process.env.DYNAMICS_KLANT_SHAREPOINT_VELD || "cr283_sharepoint";
 // Taakvelden — zelfde Application Settings als _gedeeld/vervolgtaak.js en api/taken.
@@ -366,10 +367,10 @@ module.exports = async function (context, req) {
     }
     try {
       const record = await haalVoorDossier(teVerwijderen);
-      // Alle bestanden die bij dit stuk horen: het stuk zelf en (bij dividend) de aangifte.
+      // Alle bestanden die bij dit stuk horen: de notulen én het losse ontbindingsrapport.
       const links = [];
-      if (record && veiligeStr(record.pdfUrl)) links.push({ wat: "het stuk", url: veiligeStr(record.pdfUrl) });
-      if (record && record.aangifte && veiligeStr(record.aangifte.url)) links.push({ wat: "de aangifte dividendbelasting", url: veiligeStr(record.aangifte.url) });
+      if (record && veiligeStr(record.pdfUrl)) links.push({ wat: "de notulen", url: veiligeStr(record.pdfUrl) });
+      if (record && veiligeStr(record.rapportUrl)) links.push({ wat: "het ontbindingsrapport", url: veiligeStr(record.rapportUrl) });
       const sharepoint = { gedaan: links.length === 0, reden: "", aantal: 0 };
       if (links.length) {
         try {
@@ -446,18 +447,69 @@ module.exports = async function (context, req) {
       // Het stuk renderen en (opnieuw) in de SharePoint-map van de cliënt zetten, zodat de mail en de
       // taak naar hetzelfde document verwijzen als het logboek.
       const pdf = await blokkenNaarPdf(blokken, null);
-      const bestandsnaam = veiligeBestandsnaam(body.bestandsnaamBasis || `Ontbindingsrapport${klantnaamMail ? " - " + klantnaamMail : ""}${datumMail ? " - " + datumMail : ""}`);
+      const bestandsnaam = veiligeBestandsnaam(body.bestandsnaamBasis || `Notulen ontbinding${klantnaamMail ? " - " + klantnaamMail : ""}${datumMail ? " - " + datumMail : ""}`);
       const submap = await haalSubmap();
       const sharepoint = await naarSharepoint({ accountId, submap, bestandsnaam, buffer: pdf });
 
+      // Het ontbindingsrapport (balans + resultatenrekening) is een EIGEN document met een eigen
+      // ondertekening. Alleen maken als er cijferblokken meekomen; zonder cijfers is er geen rapport.
+      const rapportBlokken = Array.isArray(body.rapportBlokken) ? body.rapportBlokken : [];
+      let rapport = null;
+      if (rapportBlokken.length) {
+        const rpdf = await blokkenNaarPdf(rapportBlokken, null);
+        const rnaam = veiligeBestandsnaam(`Ontbindingsrapport${klantnaamMail ? " - " + klantnaamMail : ""}${datumMail ? " - " + datumMail : ""}`);
+        const rsp = await naarSharepoint({ accountId, submap, bestandsnaam: rnaam, buffer: rpdf });
+        rapport = { bestandsnaam: rnaam, pdf: rpdf, sharepoint: rsp };
+      }
+
+      // Ter ondertekening: één taak per te tekenen document (de notulen en, als die er is, het
+      // ontbindingsrapport). Aan elke taak hangen álle documentlinks — eigen stuk eerst — zodat de
+      // cliënt bij het tekenen ook het andere document kan inzien. Het KvK-formulier zit hier bewust
+      // NIET bij: dat moet met pen getekend en per post naar KvK.
       let taak = { gedaan: false, reden: "" };
+      let taken = [];
       if (variant === "ondertekenen") {
         const token = await haalDynamicsToken();
-        taak = await maakOndertekentaak({
-          context, resource, token, accountId, klantnaam: klantnaamMail, cfg: taakCfg,
-          onderwerp: vulMailIn(veiligeStr(taakCfg.onderwerp), plaatshouders),
-          documentUrl: sharepoint.url || "",
-        });
+        const basisOnderwerpTaak = vulMailIn(veiligeStr(taakCfg.onderwerp), plaatshouders);
+        const teTekenen = [{ label: "", url: sharepoint.url || "" }];
+        if (rapport) teTekenen.push({ label: "ontbindingsrapport", url: (rapport.sharepoint && rapport.sharepoint.url) || "" });
+        for (const doc of teTekenen) {
+          const andere = teTekenen.filter((d) => d !== doc).map((d) => d.url);
+          const res = await maakOndertekentaak({
+            context, resource, token, accountId, klantnaam: klantnaamMail, cfg: taakCfg,
+            onderwerp: doc.label
+              ? `${basisOnderwerpTaak || `Liquidatiestuk ondertekenen — ${veiligeStr(klantnaamMail)}`} — ${doc.label}`
+              : basisOnderwerpTaak,
+            documentUrl: voegDocumentLinksSamen([doc.url, ...andere]),
+          });
+          taken.push({ label: doc.label || "notulen ontbinding", ...res });
+        }
+        taak = {
+          gedaan: taken.length > 0 && taken.every((t) => t.gedaan),
+          reden: taken.filter((t) => !t.gedaan).map((t) => `${t.label}: ${t.reden || "onbekende reden"}`).join("; "),
+          aantal: taken.length,
+        };
+      }
+
+      // Het KvK-formulier 17a als tweede bijlage, als daarom gevraagd is en er antwoorden zijn.
+      // Best-effort: mislukt het vullen, dan gaat het stuk gewoon de deur uit en zeggen we erbij dat
+      // het formulier er niet bij zat — een mail die helemaal niet vertrekt is erger.
+      const bijlagen = [{ naam: bestandsnaam, contentType: PDF_TYPE, inhoud: pdf }];
+      if (rapport) bijlagen.push({ naam: rapport.bestandsnaam, contentType: PDF_TYPE, inhoud: rapport.pdf });
+      const formulierAntwoorden = (body.formulier && typeof body.formulier === "object") ? body.formulier : null;
+      let formulier = { gedaan: false, reden: "" };
+      if (body.formulierMeesturen === true && formulierAntwoorden && Object.keys(formulierAntwoorden).length) {
+        try {
+          const fpdf = await vulFormulier17a(formulierAntwoorden);
+          const fnaam = formulierBestandsnaam(klantnaamMail, datumMail || "");
+          bijlagen.push({ naam: fnaam, contentType: PDF_TYPE, inhoud: fpdf });
+          // Ook in het dossier zetten, naast het stuk zelf — dan staat het compleet bij elkaar.
+          const fsp = await naarSharepoint({ accountId, submap, bestandsnaam: fnaam, buffer: fpdf });
+          formulier = { gedaan: true, bestandsnaam: fnaam, sharepoint: fsp };
+        } catch (e) {
+          if (context.log) context.log.error("KvK-formulier bij de mail voegen mislukt:", e);
+          formulier = { gedaan: false, reden: String((e && e.message) || e) };
+        }
       }
 
       const mail = await verstuurMailMetBijlage({
@@ -465,7 +517,7 @@ module.exports = async function (context, req) {
         cc: Array.isArray(body.cc) ? body.cc : (veiligeStr(body.cc) ? [veiligeStr(body.cc)] : []),
         onderwerp,
         html: alsHtml(tekst),
-        bijlagen: [{ naam: bestandsnaam, contentType: PDF_TYPE, inhoud: pdf }],
+        bijlagen,
         afzender: veiligeStr(mailCfg.afzender),
       });
 
@@ -476,7 +528,7 @@ module.exports = async function (context, req) {
             dossierId: veiligeStr(body.dossierId),
             accountId, klantnaam: klantnaamMail,
             pdfUrl: sharepoint.url || "",
-            verstuurd: { op: new Date().toISOString(), variant, naar, onderwerp, taakGedaan: taak.gedaan === true },
+            verstuurd: { op: new Date().toISOString(), variant, naar, onderwerp, taakGedaan: taak.gedaan === true, formulierMee: formulier.gedaan === true },
           });
         } catch (e) {
           if (context.log) context.log.error("Verstuurgegevens bewaren mislukt:", e);
@@ -499,6 +551,8 @@ module.exports = async function (context, req) {
           pdfUrl: sharepoint.url || "",
           sharepoint: { gedaan: !!sharepoint.gedaan, reden: sharepoint.reden || "" },
           taak,
+          formulier,
+          rapport: rapport ? { bestandsnaam: rapport.bestandsnaam, sharepoint: rapport.sharepoint } : null,
         },
       };
     } catch (err) {
@@ -553,11 +607,27 @@ module.exports = async function (context, req) {
       });
     }
 
-    // 2. PDF renderen en in de SharePoint-map van de cliënt zetten.
+    // 2. PDF renderen en in de SharePoint-map van de cliënt zetten. De notulen en het
+    //    ontbindingsrapport zijn losse documenten en krijgen dus ook los een bestand.
     const pdf = await blokkenNaarPdf(blokken, null);
     const bestandsnaam = veiligeBestandsnaam(body.bestandsnaamBasis || `${modelNaam}${klantnaam ? " - " + klantnaam : ""}${datum ? " - " + datum : ""}`);
     const submap = await haalSubmap();
     const sharepoint = await naarSharepoint({ accountId, submap, bestandsnaam, buffer: pdf });
+
+    const rapportBlokken = Array.isArray(body.rapportBlokken) ? body.rapportBlokken : [];
+    let rapport = null;
+    if (rapportBlokken.length) {
+      try {
+        const rpdf = await blokkenNaarPdf(rapportBlokken, null);
+        const rnaam = veiligeBestandsnaam(`Ontbindingsrapport${klantnaam ? " - " + klantnaam : ""}${datum ? " - " + datum : ""}`);
+        const rsp = await naarSharepoint({ accountId, submap, bestandsnaam: rnaam, buffer: rpdf });
+        rapport = { bestandsnaam: rnaam, url: rsp.url || "", gedaan: !!rsp.gedaan, reden: rsp.reden || "" };
+      } catch (e) {
+        // Best-effort: het rapport is een tweede document; mislukt dat, dan staan de notulen er wél.
+        if (context.log) context.log.error("Ontbindingsrapport opslaan mislukt:", e);
+        rapport = { gedaan: false, reden: String((e && e.message) || e) };
+      }
+    }
 
     // 3. De link naar het stuk op het dossier zetten (URL dossier — cr283_urlliquidatiestukken).
     if (sharepoint.gedaan && sharepoint.url) {
@@ -583,6 +653,8 @@ module.exports = async function (context, req) {
         besluit: veiligeStr(body.besluit),
         pdfUrl: sharepoint.url || "",
         bestandsnaam,
+        rapportUrl: (rapport && rapport.url) || "",
+        rapportBestandsnaam: (rapport && rapport.bestandsnaam) || "",
         opgesteldDoor: email || "",
       });
     } catch (e) {
@@ -602,7 +674,12 @@ module.exports = async function (context, req) {
 
     context.res = {
       headers: { "Content-Type": "application/json" },
-      body: { ok: true, dossierId, dossier, pdfUrl: sharepoint.url || "", sharepoint: { gedaan: !!sharepoint.gedaan, reden: sharepoint.reden || "" } },
+      body: {
+        ok: true, dossierId, dossier,
+        pdfUrl: sharepoint.url || "",
+        sharepoint: { gedaan: !!sharepoint.gedaan, reden: sharepoint.reden || "" },
+        rapport,
+      },
     };
   } catch (err) {
     if (err && err.message === "MISSING_CONFIG") {

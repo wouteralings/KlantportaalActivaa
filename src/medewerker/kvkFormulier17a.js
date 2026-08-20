@@ -21,6 +21,10 @@
  *             hokjes in de PDF; we kiezen op INDEX en niet op naam, want de namen in het PDF-veld
  *             bevatten escapes en verminkte tekens (bijv. "be#91indiging") waar je niet op wilt matchen.
  *   keuzes  → meerdere losse aankruisvelden die tegelijk aan mogen staan (vraag 3.3).
+ *
+ * `gekoppeld` markeert een vraag die elders in het opstelscherm al gesteld wordt. Die tonen we
+ * alleen-lezen, met de bron erbij — anders zou je dezelfde ontbindingsdatum of dezelfde bewaarder
+ * twee keer invullen en kan het formulier gaan afwijken van het stuk.
  */
 
 /** Prefill-sleutels: waar een antwoord vandaan komt als we het al weten. */
@@ -30,6 +34,9 @@ export const BRON = {
   KVK: "kvknummer",
   DATUM_ONTBINDING: "datumontbinding",
   BEWAARDER: "bewaarder",
+  BEWAARDER_ACHTERNAAM: "bewaarderAchternaam",
+  BEWAARDER_VOORNAAM: "bewaarderVoornaam",
+  BEWAARDER_ADRES: "bewaarderAdres",
   ONDERTEKENAAR: "ondertekenaar",
   EMAIL: "email",
   TELEFOON: "telefoon",
@@ -60,9 +67,9 @@ export const SECTIES = [
     sleutel: "1",
     titel: "1 · Gegevens van de rechtspersoon",
     vragen: [
-      { id: "1.1.1", type: "tekst", vraag: "Naam van de rechtspersoon", pdf: "1.1.1_naam", bron: BRON.KLANTNAAM, verplicht: true },
-      { id: "1.1.2", type: "tekst", vraag: "Vestigingsplaats", pdf: "1.1.2_vestigingsplaats", bron: BRON.VESTIGINGSPLAATS, verplicht: true },
-      { id: "1.1.3", type: "tekst", vraag: "KVK-nummer", pdf: "1.1.3_KVK", bron: BRON.KVK, verplicht: true },
+      { id: "1.1.1", type: "tekst", vraag: "Naam van de rechtspersoon", pdf: "1.1.1_naam", bron: BRON.KLANTNAAM, verplicht: true, gekoppeld: "de gekozen cliënt" },
+      { id: "1.1.2", type: "tekst", vraag: "Vestigingsplaats", pdf: "1.1.2_vestigingsplaats", bron: BRON.VESTIGINGSPLAATS, verplicht: true, gekoppeld: "“Gevestigd te” hierboven" },
+      { id: "1.1.3", type: "tekst", vraag: "KVK-nummer", pdf: "1.1.3_KVK", bron: BRON.KVK, verplicht: true, gekoppeld: "de klantkaart" },
     ],
   },
   {
@@ -71,6 +78,7 @@ export const SECTIES = [
     vragen: [
       {
         id: "2.1.1", type: "datum", vraag: "Datum van ontbinding", pdf: "2.1.1", bron: BRON.DATUM_ONTBINDING, verplicht: true,
+        gekoppeld: "“Datum ontbinding” hierboven",
         hulp: "Een datum vóór het ontbindingsbesluit mag niet van de wet.",
       },
     ],
@@ -124,11 +132,11 @@ export const SECTIES = [
         pdf: "4.1.1_bewaarder", opties: ["Een natuurlijk persoon", "Een samenwerkingsverband of rechtspersoon"], verplicht: true,
         hulp: "De bewaarder houdt de administratie tot zeven jaar na het einde. Het adres komt openbaar in het Handelsregister.",
       },
-      { id: "4.1.2", type: "tekst", vraag: "Bewaarder — achternaam", pdf: "4.1.2_achternaam", toon: bewaarderPersoon, bron: BRON.BEWAARDER, verplicht: true },
-      { id: "4.1.3", type: "tekst", vraag: "Bewaarder — voornamen (voluit)", pdf: "4.1.3_voornaam", toon: bewaarderPersoon, verplicht: true },
-      { id: "4.1.4", type: "memo", vraag: "Bewaarder — woonadres", pdf: "4.1.4_adres", toon: bewaarderPersoon, verplicht: true },
+      { id: "4.1.2", type: "tekst", vraag: "Bewaarder — achternaam", pdf: "4.1.2_achternaam", toon: bewaarderPersoon, bron: BRON.BEWAARDER_ACHTERNAAM, verplicht: true, gekoppeld: "“Bewaarder van de administratie” hierboven" },
+      { id: "4.1.3", type: "tekst", vraag: "Bewaarder — voornamen (voluit)", pdf: "4.1.3_voornaam", toon: bewaarderPersoon, bron: BRON.BEWAARDER_VOORNAAM, verplicht: true },
+      { id: "4.1.4", type: "memo", vraag: "Bewaarder — woonadres", pdf: "4.1.4_adres", toon: bewaarderPersoon, bron: BRON.BEWAARDER_ADRES, verplicht: true },
 
-      { id: "4.1.5", type: "tekst", vraag: "Naam van het samenwerkingsverband of de rechtspersoon", pdf: "4.1.5_naam", toon: bewaarderOrg, bron: BRON.BEWAARDER, verplicht: true },
+      { id: "4.1.5", type: "tekst", vraag: "Naam van het samenwerkingsverband of de rechtspersoon", pdf: "4.1.5_naam", toon: bewaarderOrg, bron: BRON.BEWAARDER, verplicht: true, gekoppeld: "“Bewaarder van de administratie” hierboven" },
       { id: "4.2", type: "keuze", vraag: "Heeft die organisatie een KVK-nummer?", pdf: "4.2_vestiging", opties: ["Ja", "Nee"], toon: bewaarderOrg, verplicht: true },
       { id: "4.2.1", type: "tekst", vraag: "KVK-nummer van de bewaarder", pdf: "4.2.1_KVK", toon: bewaarderNL, verplicht: true },
       { id: "4.2.3", type: "tekst", vraag: "Naam van het buitenlandse register en het land", pdf: "4.2.3_naam", toon: bewaarderBuitenland, verplicht: true },
@@ -164,7 +172,7 @@ export const SECTIES = [
     titel: "6 · Ondertekenen",
     vragen: [
       {
-        id: "6.1.1", type: "tekst", vraag: "Achternaam en voorletter(s) van wie tekent", pdf: "6.1.1_achternaam", bron: BRON.ONDERTEKENAAR, verplicht: true,
+        id: "6.1.1", type: "tekst", vraag: "Achternaam en voorletter(s) van wie tekent", pdf: "6.1.1_achternaam", bron: BRON.ONDERTEKENAAR, verplicht: true, gekoppeld: "de voorzitter hierboven",
         hulp: "Alleen een bestuurder, een notaris of iemand met volmacht mag tekenen. KvK wil een kopie van een geldig identiteitsbewijs.",
       },
       { id: "6.1.2", type: "tekst", vraag: "E-mailadres", pdf: "6.1.2_email", bron: BRON.EMAIL, verplicht: true },
@@ -238,6 +246,9 @@ export function vulVoor(antwoorden, context) {
     [BRON.KVK]: c.kvknummer,
     [BRON.DATUM_ONTBINDING]: c.datumontbinding,
     [BRON.BEWAARDER]: c.bewaarder,
+    [BRON.BEWAARDER_ACHTERNAAM]: c.bewaarderAchternaam,
+    [BRON.BEWAARDER_VOORNAAM]: c.bewaarderVoornaam,
+    [BRON.BEWAARDER_ADRES]: c.bewaarderAdres,
     [BRON.ONDERTEKENAAR]: c.ondertekenaar,
     [BRON.EMAIL]: c.email,
     [BRON.TELEFOON]: c.telefoon,

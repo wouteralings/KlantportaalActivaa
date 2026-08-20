@@ -122,6 +122,9 @@ async function bewaar(record) {
     besluit: record.besluit != null ? String(record.besluit) : (bestaand.besluit || ""),
     pdfUrl: record.pdfUrl || bestaand.pdfUrl || "",
     bestandsnaam: record.bestandsnaam || bestaand.bestandsnaam || "",
+    // Het ontbindingsrapport is een tweede, los document; ook daarvan houden we de link bij.
+    rapportUrl: record.rapportUrl || bestaand.rapportUrl || "",
+    rapportBestandsnaam: record.rapportBestandsnaam || bestaand.rapportBestandsnaam || "",
     // Laatste verzending (mail of ter ondertekening) — voor het logboek.
     verstuurd: record.verstuurd || bestaand.verstuurd || null,
     opgesteldOp: new Date().toISOString(),

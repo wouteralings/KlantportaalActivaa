@@ -186,6 +186,22 @@ function steltStukSamen({ kop, besluit, staart }) {
   return `${k}${k ? "\n" : ""}${b ? b + "\n\n" : ""}${st}`;
 }
 
+/**
+ * Het woonadres van een contactpersoon als één regel: "Dorpsstraat 1a, 7511 AA Enschede". Alleen wat
+ * gevuld is komt mee, dus een ontbrekend huisnummer of een lege postcode levert geen losse komma's op.
+ * Zo staat het adres in het KvK-formulier zoals je het op een envelop zou schrijven.
+ */
+function adresRegel(adres) {
+  const a = adres || {};
+  const straat = [veiligeStr(a.straat), [veiligeStr(a.huisnummer), veiligeStr(a.toevoeging)].filter(Boolean).join("")]
+    .filter(Boolean).join(" ");
+  const plaats = [veiligeStr(a.postcode), veiligeStr(a.plaats)].filter(Boolean).join(" ");
+  const land = veiligeStr(a.land);
+  // Nederland laten we weg: dat is de standaard en het maakt de regel alleen langer.
+  const delen = [straat, plaats, /^(nederland|the netherlands|nl)$/i.test(land) ? "" : land].filter(Boolean);
+  return delen.join(", ");
+}
+
 export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
   const { mijnNaam } = useMijnNaam();
 
@@ -229,6 +245,15 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
   const [formulier, setFormulier] = useState({});
   const [formulierOpen, setFormulierOpen] = useState(false);
   const [formulierBezig, setFormulierBezig] = useState(false);
+  // Live voorbeeld van het ingevulde KvK-formulier, onder het stuk in de rechterkolom. Uitgeklapt
+  // laadt hij zichzelf opnieuw zodra je een antwoord aanpast (met een korte pauze, anders zou elke
+  // toetsaanslag een PDF-bouw op de server veroorzaken).
+  const [formulierVoorbeeldOpen, setFormulierVoorbeeldOpen] = useState(false);
+  const [formulierVoorbeeldUrl, setFormulierVoorbeeldUrl] = useState("");
+  const [formulierVoorbeeldBezig, setFormulierVoorbeeldBezig] = useState(false);
+  const [formulierVoorbeeldFout, setFormulierVoorbeeldFout] = useState("");
+  // Wel/niet meesturen bij mailen. Standaard aan: het formulier hoort bij de stukken.
+  const [formulierMeesturen, setFormulierMeesturen] = useState(true);
   const [kvknummer, setKvknummer] = useState("");
   const [bewaarder, setBewaarder] = useState("");
   // De datum van de vergadering staat los van de datum van ontbinding (datumactie).
@@ -326,7 +351,10 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
     setNotulist(st.notulistBron === "vast" && veiligeStr(st.notulistVast) ? veiligeStr(st.notulistVast) : contactNaam);
     setEmailNotulist(contactMail);
     setAandeelhouders([{ naam: contactNaam, percentage: "100" }]);
-    setCijfers({}); setBewaarder(""); setDatumnotulen(""); setFormulier({});
+    setCijfers({}); setDatumnotulen(""); setFormulier({});
+    // De bewaarder van boeken en bescheiden is standaard de primaire contactpersoon van de cliënt —
+    // in de praktijk bewaart die de administratie. Blijft gewoon aanpasbaar.
+    setBewaarder(contactNaam);
     // Het KvK-nummer komt van de klantkaart (Dynamics) en wordt hier niet gewijzigd — zo kan er in
     // een liquidatiestuk of op het KvK-formulier nooit een ander nummer staan dan in de administratie.
     setKvknummer(veiligeStr(klant.kvk));
@@ -630,7 +658,10 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
     ];
   }, [cijfersIngevuld, berekend, klant, kvknummer, datumactie, datumnotulen, voorzitter]);
 
-  const blokken = useMemo(() => [...ontleedDocument(ingevuld), ...cijferBlokken], [ingevuld, cijferBlokken]);
+  // De notulen zijn één document en het ontbindingsrapport (de cijfers) een tweede — losse PDF's, met
+  // elk hun eigen ondertekening. Ze gaan samen naar de cliënt, maar zijn apart te bewaren, te tekenen
+  // en te archiveren. Het voorbeeld hiernaast toont ze onder elkaar, met een scheiding ertussen.
+  const blokken = useMemo(() => ontleedDocument(ingevuld), [ingevuld]);
   const eigenKop = heeftEigenKop(ruweTekst);
   const leeg = !veiligeStr(ruweTekst);
 
@@ -653,7 +684,20 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
     bewaarder: veiligeStr(bewaarder),
     ondertekenaar: veiligeStr(voorzitter),
     email: veiligeStr(emailVoorzitter),
+    telefoon: veiligeStr(klant && klant.contact && klant.contact.telefoon),
     vandaag: vandaagISO(),
+    // Het formulier vraagt de bewaarder apart uit: achternaam, voornamen en woonadres. Die komen van
+    // de primaire contactpersoon, maar alléén zolang de bewaarder ook echt die persoon is — heb je
+    // daar een andere naam ingevuld, dan zou het adres van de contactpersoon er niet bij horen.
+    // Let op de klant-check: zonder gekozen cliënt zijn bewaarder én contactnaam allebei leeg, en dan
+    // zou de vergelijking kloppen terwijl er niets is om uit te lezen.
+    ...(klant && klant.contact && veiligeStr(bewaarder) && veiligeStr(bewaarder) === veiligeStr(klant.contact.naam)
+      ? {
+        bewaarderAchternaam: [veiligeStr(klant.contact.tussenvoegsel), veiligeStr(klant.contact.achternaam)].filter(Boolean).join(" "),
+        bewaarderVoornaam: veiligeStr(klant.contact.voornaam),
+        bewaarderAdres: adresRegel(klant.contact.adres),
+      }
+      : {}),
   }), [klant, vestigingsplaats, kvknummer, datumactie, bewaarder, voorzitter, emailVoorzitter]);
 
   // Voorvullen zonder ooit een ingetikt antwoord te overschrijven — vandaar vulVoor() en niet gewoon
@@ -700,6 +744,39 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
     }
   }
 
+  /**
+   * Het voorbeeld verversen zodra er iets verandert — maar pas 900 ms nadat je bent gestopt met
+   * typen. De vorige blob-URL geven we netjes vrij; anders houdt de browser elke tussenversie vast.
+   */
+  useEffect(() => {
+    if (!formulierVoorbeeldOpen || !klant) return undefined;
+    let levendig = true;
+    setFormulierVoorbeeldBezig(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/medewerker-liquidatie-formulier", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ antwoorden: formulierAntwoorden, klantnaam: veiligeStr(klant.klantnaam), datum: veiligeStr(datumactie) }),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(d.error || `Voorbeeld maken mislukt (${res.status}).`);
+        if (!levendig) return;
+        const bytes = Uint8Array.from(atob(d.pdf), (c) => c.charCodeAt(0));
+        const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+        setFormulierVoorbeeldUrl((oud) => { if (oud) URL.revokeObjectURL(oud); return url; });
+        setFormulierVoorbeeldFout("");
+      } catch (e) {
+        if (levendig) setFormulierVoorbeeldFout(String((e && e.message) || e));
+      } finally {
+        if (levendig) setFormulierVoorbeeldBezig(false);
+      }
+    }, 900);
+    return () => { levendig = false; clearTimeout(timer); };
+  }, [formulierVoorbeeldOpen, klant, formulierAntwoorden, datumactie]);
+
+  // De laatste blob-URL vrijgeven als het scherm sluit.
+  useEffect(() => () => { if (formulierVoorbeeldUrl) URL.revokeObjectURL(formulierVoorbeeldUrl); }, [formulierVoorbeeldUrl]);
+
   function zetAandeelhouder(i, veld, waarde) {
     setAandeelhouders((rijen) => rijen.map((r, j) => (j === i ? { ...r, [veld]: waarde } : r)));
   }
@@ -733,7 +810,7 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
       : `<div class="kop-klant">${esc(klant ? klant.klantnaam : "—")}</div><div class="kop-sub">${esc(subkop)}</div>`;
     w.document.write(
       `<!doctype html><html lang="nl"><head><meta charset="utf-8"><title>${esc(bestandsnaam)}</title>` +
-      `<style>${AFDRUK_CSS}</style></head><body>${kopHtml}${blokkenNaarHtml(blokken, esc)}</body></html>`
+      `<style>${AFDRUK_CSS}</style></head><body>${kopHtml}${blokkenNaarHtml([...blokken, ...cijferBlokken], esc)}</body></html>`
     );
     w.document.close();
     w.focus();
@@ -788,6 +865,7 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
           bewaarder,
           cijfers,
           formulier,
+          rapportBlokken: cijferBlokken,
           bestandsnaamBasis: bestandsnaam,
         }),
       });
@@ -888,6 +966,9 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
       cc: veiligeStr(emailNotulist),
       onderwerp: vul(onderwerp) || `Liquidatiestukken ${veiligeStr(klant.klantnaam)}`,
       tekst: vul(tekst) || "Bijgaand ontvangt u de liquidatiestukken.",
+      // Standaard gaan de stukken die er zijn ook mee; per keer aan of uit te zetten in het venster.
+      rapportMee: cijferBlokken.length > 0,
+      formulierMee: formulierMist.length === 0 && Object.keys(formulier).length > 0,
     });
   }
 
@@ -912,6 +993,11 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
           onderwerp: m.onderwerp,
           tekst: m.tekst,
           blokken,
+          // Het ontbindingsrapport en het KvK-formulier gaan als eigen bijlage mee — losse documenten,
+          // zodat de cliënt ze apart kan bewaren en tekenen.
+          rapportBlokken: m.rapportMee ? cijferBlokken : [],
+          formulier: formulierAntwoorden,
+          formulierMeesturen: !!m.formulierMee,
           bestandsnaamBasis: bestandsnaam,
         }),
       });
@@ -1379,7 +1465,18 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
                               {v.verplicht && <span style={{ color: leegVerplicht ? KLEUR.goud : KLEUR.mutedTekst }}> *</span>}
                             </div>
 
-                            {v.type === "keuze" ? (
+                            {v.gekoppeld ? (
+                              // Deze vraag wordt hierboven in het scherm al gesteld. Twee keer
+                              // invullen zou betekenen dat het formulier van het stuk kan gaan
+                              // afwijken, dus laten we hem hier alleen zien.
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "#F7F8F6", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
+                                <Lock size={12} color={KLEUR.mutedTekst} style={{ flexShrink: 0 }} />
+                                <span style={{ fontSize: 12.5, color: veiligeStr(waarde) ? KLEUR.tekst : KLEUR.mutedTekst }}>
+                                  {v.type === "datum" ? (langeDatum(waarde) || "nog niet ingevuld") : (veiligeStr(waarde) || "nog niet ingevuld")}
+                                </span>
+                                <span style={{ marginLeft: "auto", fontSize: 11, color: KLEUR.mutedTekst, whiteSpace: "nowrap" }}>uit {v.gekoppeld}</span>
+                              </div>
+                            ) : v.type === "keuze" ? (
                               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                                 {v.opties.map((optie, i) => (
                                   <button
@@ -1564,9 +1661,63 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
                 blokken.map(renderBlok)
               )}
             </div>
+
+            {/* Het ontbindingsrapport is een eigen document, dus ook een eigen vel in het voorbeeld. */}
+            {cijferBlokken.length > 0 && (
+              <>
+                <div style={{ textAlign: "center", fontSize: 11, fontWeight: 700, color: KLEUR.mutedTekst, textTransform: "uppercase", letterSpacing: ".05em", margin: "18px 0 10px" }}>
+                  Tweede document — ontbindingsrapport
+                </div>
+                <div style={{ background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 4, boxShadow: "0 6px 24px rgba(0,0,0,0.08)", margin: "0 auto", maxWidth: 620, minHeight: "calc(620px * 1.414)", padding: "56px 60px", boxSizing: "border-box", color: KLEUR.tekst, fontFamily: "Helvetica, Arial, sans-serif", fontSize: 12.5, lineHeight: 1.55 }}>
+                  {cijferBlokken.map(renderBlok)}
+                </div>
+              </>
+            )}
           </div>
+
+          {/* Derde document: het KvK-formulier. Uitklappen laadt de écht gevulde PDF, zodat je kunt
+              controleren wat er straks op papier staat — dus niet een namaak-weergave. */}
+          <div style={{ marginTop: 12 }}>
+            <button
+              onClick={() => setFormulierVoorbeeldOpen((v) => !v)}
+              disabled={!klant}
+              aria-expanded={formulierVoorbeeldOpen}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, width: "100%",
+                padding: "10px 12px", background: "#fff", border: `1px solid ${KLEUR.rand}`, borderRadius: 8,
+                cursor: klant ? "pointer" : "not-allowed", textAlign: "left", opacity: klant ? 1 : 0.6,
+              }}
+            >
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12.5, fontWeight: 700, color: KLEUR.tekst }}>
+                <FileText size={14} color={KLEUR.blauw} /> Derde document — KvK-formulier 17a
+              </span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                {formulierVoorbeeldOpen && formulierVoorbeeldBezig && <Loader2 size={13} className="spin" color={KLEUR.mutedTekst} />}
+                <ChevronDown size={15} style={{ transform: formulierVoorbeeldOpen ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform .15s", color: KLEUR.mutedTekst }} />
+              </span>
+            </button>
+            {formulierVoorbeeldOpen && (
+              <div style={{ marginTop: 8 }}>
+                {formulierVoorbeeldFout ? (
+                  <div style={{ display: "flex", gap: 8, padding: "9px 11px", background: "#FDF2F2", border: `1px solid ${KLEUR.rood}`, borderRadius: 8, fontSize: 12, color: KLEUR.rood }}>
+                    <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} /> <span>{formulierVoorbeeldFout}</span>
+                  </div>
+                ) : formulierVoorbeeldUrl ? (
+                  <iframe
+                    title="KvK-formulier 17a"
+                    src={formulierVoorbeeldUrl}
+                    style={{ width: "100%", height: 620, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, background: "#fff" }}
+                  />
+                ) : (
+                  <div style={{ fontSize: 12, color: KLEUR.mutedTekst, padding: "10px 2px" }}>Formulier ophalen…</div>
+                )}
+              </div>
+            )}
+          </div>
+
           <div style={{ marginTop: 8, fontSize: 11.5, color: KLEUR.mutedTekst }}>
             Nog niet ingevulde gegevens staan als <strong>[INVULPLEK]</strong> in het stuk, net als in de Word-modellen.
+            De drie documenten gaan als losse bijlagen naar de cliënt.
           </div>
         </div>
       </div>
@@ -1583,6 +1734,36 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
                 ? "Het stuk gaat als PDF mee én de cliënt krijgt een taak om te ondertekenen. Onderwerp en tekst komen uit Beheer → Liquidatiestukken; hier kun je ze per keer nog aanpassen."
                 : "Het stuk gaat als PDF-bijlage mee. Onderwerp en tekst komen uit Beheer → Liquidatiestukken; hier kun je ze per keer nog aanpassen."}
             </div>
+            {/* Wat gaat er mee? De notulen altijd; het rapport en het KvK-formulier alleen als ze er zijn. */}
+            <div style={{ marginBottom: 14, padding: "10px 12px", background: "#FAFBF9", border: `1px solid ${KLEUR.rand}`, borderRadius: 8 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 6 }}>Bijlagen</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.mutedTekst }}>
+                  <input type="checkbox" checked readOnly style={{ width: 15, height: 15 }} />
+                  Notulen ontbinding (gaat altijd mee)
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: cijferBlokken.length ? KLEUR.tekst : KLEUR.mutedTekst, cursor: cijferBlokken.length ? "pointer" : "default" }}>
+                  <input
+                    type="checkbox"
+                    checked={!!verstuurModal.rapportMee && cijferBlokken.length > 0}
+                    disabled={!cijferBlokken.length}
+                    onChange={(e) => setVerstuurModal((h) => ({ ...h, rapportMee: e.target.checked }))}
+                    style={{ width: 15, height: 15 }}
+                  />
+                  Ontbindingsrapport (balans en resultatenrekening){cijferBlokken.length ? "" : " — nog geen cijfers ingevuld"}
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: KLEUR.tekst, cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={!!verstuurModal.formulierMee}
+                    onChange={(e) => setVerstuurModal((h) => ({ ...h, formulierMee: e.target.checked }))}
+                    style={{ width: 15, height: 15 }}
+                  />
+                  KvK-formulier 17a{formulierMist.length ? ` — let op: ${formulierMist.length} verplichte vraag/vragen nog leeg` : ""}
+                </label>
+              </div>
+            </div>
+
             <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 12 }}>
               <div style={{ flex: "1 1 240px" }}>
                 <span style={label}>E-mail ontvanger</span>
