@@ -378,6 +378,13 @@
       ]
     },
     {
+      "route": "/api/medewerker-liquidatie-opslaan",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
       "route": "/api/medewerker-dividend-opslaan",
       "allowedRoles": [
         "beheerder",

@@ -8,6 +8,9 @@
  * Blokvormen (allemaal { type, ... }):
  *   titel | kop | kopje | midden | lijn | punt {merk,tekst} | inspring | alinea {tekst,naPunt}
  *   ondertekening {functie,naam} | handtekening {namen:[]}
+ *   tabel {titel, regels:[{label,bedrag,zwaar}]} — twee kolommen, bedrag rechts uitgelijnd; bedoeld
+ *     voor de balans en de resultatenrekening van een liquidatiestuk (ontbindingsrapport).
+ *   paginaeinde — dwingt de rest naar een nieuwe pagina (het cijferdeel begint op een eigen blad).
  *
  * De maatvoering spiegelt AFDRUK_CSS in documentOpmaak.js (A4, 20 mm marge, 11 pt tekst).
  * Bewust géén afhankelijkheid van briefRenderer.js: dat bestand gaat over de briefhuisstijl
@@ -153,6 +156,43 @@ async function blokkenNaarPdf(blokken, kop) {
         schrijf(b.tekst, { links: 22, regelhoogte: 17 });
         witruimte(6);
         break;
+      case "paginaeinde":
+        // Alleen een nieuwe pagina beginnen als er al iets op deze staat — anders krijg je een leeg blad.
+        if (y < boven) nieuwePagina();
+        break;
+      case "tabel": {
+        const regels = Array.isArray(b.regels) ? b.regels : [];
+        if (b.titel) { witruimte(8); schrijf(b.titel, { size: 11, f: bold, regelhoogte: 16 }); witruimte(3); }
+        const bedragKolom = 120;
+        const labelBreedte = inhoudBreedte - bedragKolom - 12;
+        for (const r of regels) {
+          const zwaar = !!(r && r.zwaar);
+          const f = zwaar ? bold : font;
+          const label = pdfVeilig((r && r.label) || "");
+          const bedrag = pdfVeilig((r && r.bedrag) || "");
+          const labelRegels = wrapTekst(label, f, 11, labelBreedte);
+          ruimte(zwaar ? 22 : 16);
+          // Boven een totaal een dunne streep over de bedragkolom — zoals in het rapport.
+          if (zwaar) {
+            page.drawLine({
+              start: { x: BREEDTE - marge - bedragKolom, y: y + 13 },
+              end: { x: BREEDTE - marge, y: y + 13 },
+              thickness: 0.6,
+              color: KLEUR.rand,
+            });
+          }
+          labelRegels.forEach((tekstregel, i) => {
+            if (i > 0) { ruimte(16); y -= 16; }
+            page.drawText(tekstregel, { x: marge, y, size: 11, font: f, color: KLEUR.tekst });
+          });
+          // Bedrag rechts uitgelijnd tegen de rechtermarge.
+          const breedteBedrag = f.widthOfTextAtSize(bedrag, 11);
+          page.drawText(bedrag, { x: BREEDTE - marge - breedteBedrag, y, size: 11, font: f, color: KLEUR.tekst });
+          y -= 16;
+        }
+        witruimte(6);
+        break;
+      }
       case "ondertekening": {
         // Geen "[Handtekening]"-tekst boven de lijn (zelfde keuze als in het scherm en bij afdrukken);
         // alleen de witruimte blijft, zodat er ruimte is om te tekenen. De ondertekenlijn is een

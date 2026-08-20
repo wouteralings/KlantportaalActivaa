@@ -149,7 +149,7 @@ async function gekoppeldeLijstIdVoorDossier(onderwerpId) {
  *  vorm { standaard, perSoort } (die wordt naar de sjablonen-lijst gemigreerd). Best-effort: zonder
  *  (leesbare) instellingen gewoon leeg — dat mag het openen van het dossier niet blokkeren. */
 async function haalSjabloonVoor(soortKey) {
-  if (soortKey !== "notulen" && soortKey !== "dividend") return { sjablonen: [], kop: "", staart: "" };
+  if (soortKey !== "notulen" && soortKey !== "dividend" && soortKey !== "liquidatie") return { sjablonen: [], kop: "", staart: "" };
   try {
     const { dossierSjablonen } = await haalInstellingen();
     const eigen = dossierSjablonen && dossierSjablonen[soortKey];

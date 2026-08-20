@@ -40,7 +40,7 @@ function standaardIndelingVoor(soort) {
  *  vorm en dezelfde terugwaartse compatibiliteit als haalSjabloonVoor() in api/medewerker-dossier.
  *  Best-effort: onleesbare of ontbrekende instellingen leveren een lege lijst, nooit een fout. */
 async function haalSjablonenVoor(soortKey) {
-  if (soortKey !== "notulen" && soortKey !== "dividend") return { sjablonen: [], kop: "", staart: "", standaard: null, velddefinities: [] };
+  if (soortKey !== "notulen" && soortKey !== "dividend" && soortKey !== "liquidatie") return { sjablonen: [], kop: "", staart: "", standaard: null, velddefinities: [] };
   try {
     const { dossierSjablonen } = await haalInstellingen();
     const eigen = dossierSjablonen && dossierSjablonen[soortKey];

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload, Lightbulb, Binoculars, BookOpen, FileSignature, Printer, UserCheck, Clock } from "lucide-react";
+import { Users, Loader2, LogOut, ShieldAlert, CheckCircle2, XCircle, Search, LayoutGrid, Building2, Star, Mail, Eye, FileText, Coins, Wallet, Plus, Trash2, ChevronRight, ChevronUp, ChevronDown, ArrowLeft, Lock, Copy, X, ExternalLink, Upload, Lightbulb, Binoculars, BookOpen, FileSignature, Printer, UserCheck, Clock, Landmark } from "lucide-react";
 import { startMeekijken } from "../meekijken";
 import { luisterNaarDossierHash, wisDossierHash } from "./dossierNavigatie";
 import { ontleedDocument, heeftEigenKop, blokkenNaarHtml, AFDRUK_CSS } from "./documentOpmaak";
@@ -22,6 +22,8 @@ import NotulenOpstellen from "./klanten/NotulenOpstellen";
 import NotulenLogboek from "./klanten/NotulenLogboek";
 import DividendOpstellen from "./klanten/DividendOpstellen";
 import DividendLogboek from "./klanten/DividendLogboek";
+import LiquidatieOpstellen from "./klanten/LiquidatieOpstellen";
+import LiquidatieLogboek from "./klanten/LiquidatieLogboek";
 import ImpersonatieBanner from "../ImpersonatieBanner";
 import { VeldInvoer } from "./dossierVeldInvoer";
 import { normaliseerSleutel, vulSjabloonIn, menselijkeVeldwaarde, bouwMergeWaarden } from "./dossierMerge";
@@ -1690,6 +1692,7 @@ const KLANTEN_SUBTABS = [
   { key: "vpb", label: "Vennootschapsbelasting", icon: Building2, watKomtEr: "Per cliënt de vennootschapsbelasting-aangiftes: jaar, status, behandelaar en deadline, inclusief fiscale eenheden waar die van toepassing zijn." },
   { key: "dividend", label: "Dividenduitkeringen", icon: Coins, watKomtEr: "Per cliënt de dividenduitkeringen: datum, uitgekeerd dividend, status en behandelaar." },
   { key: "notulen", label: "Notulen", icon: BookOpen, watKomtEr: "Per cliënt de notulen (aandeelhouders-/directiebesluiten): datum, soort, status en behandelaar." },
+  { key: "liquidatie", label: "Liquidatiestukken", icon: Landmark, watKomtEr: "Per cliënt de liquidatiestukken (ontbindingsrapport): notulen van de AvA plus balans en resultatenrekening." },
   { key: "lonen", label: "Lonen", icon: Wallet, watKomtEr: "De loonadministratie per cliënt: aangifteperiode, status, verantwoordelijke loonadministratie en aantal werknemers." },
 ];
 
@@ -1773,6 +1776,7 @@ function KlantenModule({ magContracten = false, isBeheerder = false, magPlanning
         {sub === "contracten" && (magContracten || isBeheerder) && <ContractenOverzicht />}
         {sub === "notulen" && <NotulenTab isBeheerder={isBeheerder} magVerwijderen={subRechten ? subRechten.verwijderen("notulen") : null} />}
         {sub === "dividend" && <DividendTab isBeheerder={isBeheerder} magVerwijderen={subRechten ? subRechten.verwijderen("dividend") : null} />}
+        {sub === "liquidatie" && <LiquidatieTab isBeheerder={isBeheerder} magVerwijderen={subRechten ? subRechten.verwijderen("liquidatie") : null} />}
         {(sub === "ib" || sub === "vpb") && <MedewerkerDossiers soort={sub} magVerwijderenRubriek={subRechten ? subRechten.verwijderen(sub) : true} magBulkVerwijderen={subRechten ? subRechten.bulk(sub) : isBeheerder} />}
         {sub === "lonen" && <NogInTeRichten titel={actief.label} watKomtEr={actief.watKomtEr} />}
       </div>
@@ -1845,6 +1849,37 @@ function DividendTab({ isBeheerder = false, magVerwijderen = null }) {
   );
 }
 
+/**
+ * Liquidatie-sub-tab — zelfde opbouw als Notulen en Dividend: alleen het logboek, met de groene knop
+ * naar het opstelscherm. Een liquidatiestuk (ontbindingsrapport) is iets wat je opmaakt; het
+ * liquidatiedossier in Dynamics ontstaat vanzelf bij het opstellen en de link naar het stuk staat in
+ * het logboek. Komt er een doorklik naar een liquidatiedossier binnen (#dossier=liquidatie:<id>), dan
+ * springen we terug uit het opstelscherm zodat dat dossier opent.
+ */
+function LiquidatieTab({ isBeheerder = false, magVerwijderen = null }) {
+  const [view, setView] = useState("overzicht"); // overzicht | logboek | opstellen
+  const [openStuk, setOpenStuk] = useState(null);
+  useEffect(() => luisterNaarDossierHash(({ soort }) => { if (soort === "liquidatie") setView("overzicht"); }), []);
+
+  if (view === "opstellen") {
+    return (
+      <LiquidatieOpstellen
+        openStuk={openStuk}
+        onTerug={() => { setOpenStuk(null); setView(openStuk ? "logboek" : "overzicht"); }}
+      />
+    );
+  }
+
+  return (
+    <LiquidatieLogboek
+      isBeheerder={isBeheerder}
+      magVerwijderen={magVerwijderen}
+      onNieuwStuk={() => { setOpenStuk(null); setView("opstellen"); }}
+      onBewerken={(stuk) => { setOpenStuk(stuk); setView("opstellen"); }}
+    />
+  );
+}
+
 /* ── Fiscale dossiers voor de medewerker (Inkomstenbelasting / Vennootschapsbelasting) ──
    Eén lijst per soort over alle cliënten, uit /api/medewerker-dossiers (deelt de query met de
    klantweergave via api/_gedeeld/dossiers.js). Read-only overzicht: jaar/boekjaar, status,
@@ -1886,7 +1921,7 @@ function dossierKolommen(periodeLabel, periode, extraKolommen, soort) {
   ];
   // Notulen: het opgemaakte stuk staat als link op het dossier (URL dossier / cr283_urlnotulen).
   // Handig om vanuit het overzicht meteen de PDF in SharePoint te openen — zie ook het notulenlogboek.
-  if (soort === "notulen") {
+  if (soort === "notulen" || soort === "liquidatie") {
     basis.push({ key: "stuk", label: "Stuk", cel: (d) => (d.urlDossier ? "Openen" : ""), soort: "link", geenSort: true, geenFilter: true });
   }
   const extra = (extraKolommen || []).filter((c) => c && c.veld).map((c) => ({
@@ -1945,7 +1980,7 @@ function NieuwDossierModal({ soort, soortLabel, periodeLabel, dossiers, vasteBro
   const [partner, setPartner] = useState(null); // { id, naam }
   const [partnerSituatie, setPartnerSituatie] = useState(""); // "" | "gehuwd" | "samenwonend" — bepaalt de verplichte gezinssituatie bij een fiscaal partner
   // Periode-type per soort: de meeste soorten werken met een jaar; Notulen met een datum.
-  const periodeType = soort === "notulen" ? "datum" : "jaar";
+  const periodeType = (soort === "notulen" || soort === "liquidatie") ? "datum" : "jaar";
   const isFiscaal = soort === "ib" || soort === "vpb";
   const [jaar, setJaar] = useState(() => (vasteBron && vasteBron.jaar != null ? String(Number(vasteBron.jaar) + 1) : ""));
   const [datum, setDatum] = useState(() => {
@@ -2223,7 +2258,7 @@ function MedewerkerDossiers({ soort, magVerwijderenRubriek = true, magBulkVerwij
     return () => { actief = false; };
   }, [soort]);
 
-  const periodeLabel = soort === "vpb" ? "Boekjaar" : soort === "notulen" ? "Datum" : "Jaar";
+  const periodeLabel = soort === "vpb" ? "Boekjaar" : (soort === "notulen" || soort === "liquidatie") ? "Datum" : "Jaar";
   const periode = (d) =>
     soort === "notulen"
       ? formatteerDossierDatum(d.begindatum)
@@ -2632,12 +2667,12 @@ function MedewerkerDossiers({ soort, magVerwijderenRubriek = true, magBulkVerwij
             Filters wissen
           </button>
         )}
-        {(soort === "ib" || soort === "vpb" || soort === "dividend" || soort === "notulen") && (
+        {(soort === "ib" || soort === "vpb" || soort === "dividend" || soort === "notulen" || soort === "liquidatie") && (
           <button
             onClick={() => (onNieuw ? onNieuw() : setNieuwOpen(true))}
             style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "#2E7D46", color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
           >
-            <Plus size={14} /> {soort === "notulen" ? "Nieuwe notulen" : `Nieuwe ${soortLabelText}`}
+            <Plus size={14} /> {soort === "notulen" ? "Nieuwe notulen" : soort === "liquidatie" ? "Nieuw liquidatiestuk" : `Nieuwe ${soortLabelText}`}
           </button>
         )}
       </div>

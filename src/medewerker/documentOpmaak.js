@@ -120,6 +120,17 @@ export function blokkenNaarHtml(blokken, esc) {
       case "lijn": uit.push(`<hr>`); break;
       case "punt": uit.push(`<div class="punt"><span class="merk">${esc(b.merk)}</span><span>${esc(b.tekst)}</span></div>`); break;
       case "inspring": uit.push(`<p class="inspring">${esc(b.tekst)}</p>`); break;
+      case "paginaeinde": uit.push(`<div class="paginaeinde"></div>`); break;
+      case "tabel":
+        uit.push(
+          (b.titel ? `<h3>${esc(b.titel)}</h3>` : "") +
+          `<table class="cijfers">` +
+          (b.regels || [])
+            .map((r) => `<tr${r.zwaar ? ' class="zwaar"' : ""}><td>${esc(r.label || "")}</td><td class="bedrag">${esc(r.bedrag || "")}</td></tr>`)
+            .join("") +
+          `</table>`,
+        );
+        break;
       case "ondertekening":
         uit.push(
           // Geen "[Handtekening]"-tekst; de lege ondertekenruimte blijft wel staan (.ondertekenlabel
@@ -171,6 +182,11 @@ hr { border: none; border-top: 1px solid #1C2321; margin: 14px 0 }
 .handkolom { flex: 1 1 0; min-width: 0 }
 .lijntje { border-bottom: 1px solid #1C2321; height: 34px }
 .handnaam { font-size: 10pt; margin-top: 4px }
+.paginaeinde { page-break-before: always; break-before: page; height: 0 }
+table.cijfers { width: 100%; border-collapse: collapse; margin: 0 0 10px }
+table.cijfers td { padding: 2px 0; vertical-align: top }
+table.cijfers td.bedrag { text-align: right; white-space: nowrap; width: 42mm }
+table.cijfers tr.zwaar td { font-weight: 700; border-top: 0.4pt solid #1C2321; padding-top: 4px }
 .kop-klant { font-size: 13pt; font-weight: 700; margin: 0 0 2px }
 .kop-sub { color: #5B6259; font-size: 10pt; margin-bottom: 24px }
 `;

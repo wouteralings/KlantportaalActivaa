@@ -164,7 +164,9 @@ export default function DossierSjablonenPerSoort({ soort }) {
   const isNotulen = soort === "notulen";
   // Notulen én dividend werken met een vaste kop en staart die voor álle stukken van die soort
   // gelden; alleen bij notulen zit daar ook nog het besluit-blok (punt I) tussen.
-  const heeftVasteTekst = soort === "notulen" || soort === "dividend";
+  // Notulen, dividend én liquidatie zijn "stukken": ze hebben een vaste kop en staart uit Beheer
+  // met per model alleen het middenstuk. IB/VPB niet — daar is het sjabloon één geheel.
+  const heeftVasteTekst = soort === "notulen" || soort === "dividend" || soort === "liquidatie";
 
   const toggleKaart = (id) => setOpenIds((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const zet = (id, key, waarde) => setSjablonen((lijst) => lijst.map((s) => (s.id === id ? { ...s, [key]: waarde } : s)));
@@ -903,10 +905,10 @@ export function DossierMailTaakPerSoort({ soort }) {
   // Notulen én dividend zijn STUKKEN die je in het portaal opmaakt en op twee manieren verstuurt:
   // gewoon mailen, of ter ondertekening aanbieden via een taak. Ze krijgen daarom precies hetzelfde,
   // uitgeklede blok: alleen die twee mailteksten plus de taak die bij "ter ondertekening" hoort.
-  const isStuk = soort === "notulen" || soort === "dividend";
-  const stukWoord = isNotulen ? "notulen" : "dividendstukken";
-  const keuzeLabel = isNotulen ? "Soort notulen" : "wel/geen dividendbelasting";
-  const woord = isNotulen ? "notulen" : "dividendbelasting";
+  const isStuk = soort === "notulen" || soort === "dividend" || soort === "liquidatie";
+  const stukWoord = isNotulen ? "notulen" : soort === "liquidatie" ? "liquidatiestukken" : "dividendstukken";
+  const keuzeLabel = isNotulen ? "Soort notulen" : soort === "liquidatie" ? "Soort liquidatie" : "wel/geen dividendbelasting";
+  const woord = isNotulen ? "notulen" : soort === "liquidatie" ? "liquidatiestukken" : "dividendbelasting";
   const [geladen, setGeladen] = useState(false);
   const [fout, setFout] = useState("");
   const [mailAfzender, setMailAfzender] = useState("");
@@ -950,7 +952,14 @@ export function DossierMailTaakPerSoort({ soort }) {
     ])
       .then(([velden, inst, taaksoortenData, taakrubriekenData]) => {
         if (!actief) return;
-        setKeuzeOpties(isNotulen ? ((velden.picklistOpties && velden.picklistOpties.soortnotulen) || []) : DIVIDENDBELASTING_OPTIES);
+        // De keuzelijst waarop je een aparte mail/taak per optie kunt zetten: bij notulen "Soort
+        // notulen", bij liquidatie "Soort" (gewone/turbo liquidatie), bij dividend wel/geen
+        // dividendbelasting.
+        setKeuzeOpties(
+          isNotulen ? ((velden.picklistOpties && velden.picklistOpties.soortnotulen) || [])
+            : soort === "liquidatie" ? ((velden.picklistOpties && velden.picklistOpties.soort) || [])
+            : DIVIDENDBELASTING_OPTIES,
+        );
         const dm = (inst && inst[`${soort}Mail`] && typeof inst[`${soort}Mail`] === "object") ? inst[`${soort}Mail`] : {};
         setMailAfzender(typeof dm.afzender === "string" ? dm.afzender : "");
         setMailOnderwerp(typeof dm.onderwerp === "string" ? dm.onderwerp : "");

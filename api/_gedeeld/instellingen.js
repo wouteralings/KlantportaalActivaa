@@ -228,6 +228,7 @@ function resolveBijlageConfig(instellingen, soortKey) {
   }
   if (soortKey === "dividend") return { aan: true, trigger: "dividendbelasting", map: legacyMap || standaardMap, bestandsnaam: "" };
   if (soortKey === "notulen") return { aan: true, trigger: "", map: legacyMap || standaardMap, bestandsnaam: "" };
+  if (soortKey === "liquidatie") return { aan: true, trigger: "", map: legacyMap || standaardMap, bestandsnaam: "" };
   return { aan: false, trigger: "", map: standaardMap, bestandsnaam: "" };
 }
 
