@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Search, RefreshCw, Loader2, FileText, AlertTriangle, Plus, Link2, Trash2, Check, Pencil } from "lucide-react";
+import StukStatus from "./StukStatus";
 
 /**
  * Liquidatielogboek — medewerkersportaal → Klantoverzicht → Liquidatiestukken → tabblad "Logboek".
@@ -159,6 +160,7 @@ export default function LiquidatieLogboek({ onNieuwStuk, onBewerken, isBeheerder
                   <th style={th}>Datum</th>
                   <th style={th}>Cliënt</th>
                   <th style={th}>Model</th>
+                  <th style={th}>Status</th>
                   <th style={th}>Aandeelhouders</th>
                   <th style={th}>Opgesteld door</th>
                   <th style={{ ...th, textAlign: "right" }} />
@@ -173,6 +175,7 @@ export default function LiquidatieLogboek({ onNieuwStuk, onBewerken, isBeheerder
                     </td>
                     <td style={{ ...td, fontWeight: 600 }}>{veiligeStr(n.klantnaam) || "—"}</td>
                     <td style={td}>{veiligeStr(n.modelNaam) || "—"}</td>
+                    <td style={td}><StukStatus record={n} /></td>
                     <td style={{ ...td, fontSize: 12, color: KLEUR.subtekst }}>
                       {(n.aandeelhouders || []).filter((a) => veiligeStr(a.naam)).map((a, i) => (
                         <div key={i}>{veiligeStr(a.naam)}{veiligeStr(a.percentage) ? ` — ${veiligeStr(a.percentage)}%` : ""}</div>

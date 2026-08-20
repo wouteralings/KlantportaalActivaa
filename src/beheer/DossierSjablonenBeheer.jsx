@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Save, ChevronDown, ChevronRight, Plus, Trash2, ArrowUp, ArrowDown, Info, X, Search, CheckCircle2, XCircle } from "lucide-react";
 import { ROMP, STAART, steltNotulenSamen, haalBesluitUitTekst } from "./notulenSjablonen";
+import { LIQUIDATIE_KOP, LIQUIDATIE_STAART, LIQUIDATIE_BESLUIT_TURBO } from "./liquidatieSjablonen";
 import { AantalKiezer, AANTAL_STANDAARD } from "./AantalKiezer";
 import { isMergeveld } from "./mergevelden";
 
@@ -70,6 +71,21 @@ const LIQUIDATIE_PLAATSHOUDERS = [
 
 /** Sleutel uit een label: kleine letters, alleen a-z0-9 — zelfde regel als bij de standaardbrieven. */
 function slug(v) { return String(v || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, ""); }
+
+/**
+ * De standaardtekst van een soort: wat het opstelscherm gebruikt zolang hier niets is ingevuld.
+ * Alleen notulen en liquidatiestukken hebben er een; bij de rest blijft het veld gewoon leeg.
+ */
+function standaardKop(soort) {
+  if (soort === "notulen") return ROMP;
+  if (soort === "liquidatie") return LIQUIDATIE_KOP;
+  return "";
+}
+function standaardStaart(soort) {
+  if (soort === "notulen") return STAART;
+  if (soort === "liquidatie") return LIQUIDATIE_STAART;
+  return "";
+}
 
 let sjabloonTeller = 0;
 function nieuwSjabloonId() { sjabloonTeller += 1; return `sjabloon_${sjabloonTeller}_${(typeof performance !== "undefined" && performance.now ? Math.floor(performance.now()) : sjabloonTeller)}`; }
@@ -218,8 +234,8 @@ export default function DossierSjablonenPerSoort({ soort }) {
   }));
 
   const huidigeTekst = (id, veld) => {
-    if (id === "__kop") return kop || ROMP;
-    if (id === "__staart") return staart || STAART;
+    if (id === "__kop") return kop || standaardKop(soort);
+    if (id === "__staart") return staart || standaardStaart(soort);
     const s = sjablonen.find((x) => x.id === id);
     return s ? String(s[veld || "tekst"] || "") : "";
   };
@@ -326,13 +342,13 @@ export default function DossierSjablonenPerSoort({ soort }) {
         </div>
         <div style={{ marginBottom: 12 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <span style={labelStijl}>{isNotulen ? "Kop — tot en met “…de navolgende besluiten heeft genomen:”" : "Kop — boven de tekst van het model"}</span>
-            {isNotulen && String(kop || "").trim() !== "" && (
+            <span style={labelStijl}>{standaardKop(soort) ? "Kop — tot en met “…de navolgende besluiten heeft genomen:”" : "Kop — boven de tekst van het model"}</span>
+            {standaardKop(soort) && String(kop || "").trim() !== "" && (
               <button onClick={() => setKop("")} style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 11.5, fontWeight: 600, cursor: "pointer", padding: 0, marginBottom: 5 }}>Standaardtekst herstellen</button>
             )}
           </div>
           <textarea
-            value={isNotulen ? (kop || ROMP) : kop}
+            value={kop || standaardKop(soort)}
             onChange={(e) => setKop(e.target.value)}
             onFocus={(e) => { actiefRef.current = { el: e.target, id: "__kop", veld: "kop" }; }}
             rows={10}
@@ -341,13 +357,13 @@ export default function DossierSjablonenPerSoort({ soort }) {
         </div>
         <div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <span style={labelStijl}>{isNotulen ? "Staart — toelichting, besluit, sluiting en ondertekening" : "Staart — onder de tekst van het model"}</span>
-            {isNotulen && String(staart || "").trim() !== "" && (
+            <span style={labelStijl}>{standaardStaart(soort) ? "Staart — toelichting, besluit, sluiting en ondertekening" : "Staart — onder de tekst van het model"}</span>
+            {standaardStaart(soort) && String(staart || "").trim() !== "" && (
               <button onClick={() => setStaart("")} style={{ background: "none", border: "none", color: KLEUR.blauw, fontSize: 11.5, fontWeight: 600, cursor: "pointer", padding: 0, marginBottom: 5 }}>Standaardtekst herstellen</button>
             )}
           </div>
           <textarea
-            value={isNotulen ? (staart || STAART) : staart}
+            value={staart || standaardStaart(soort)}
             onChange={(e) => setStaart(e.target.value)}
             onFocus={(e) => { actiefRef.current = { el: e.target, id: "__staart", veld: "staart" }; }}
             rows={10}
@@ -400,7 +416,7 @@ export default function DossierSjablonenPerSoort({ soort }) {
           <FileText size={16} color={KLEUR.blauw} />
           <span style={{ fontSize: 14, fontWeight: 700, color: KLEUR.tekst }}>Vaste tekst voor alle {soortLabel.toLowerCase()}</span>
           <span style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>
-            kop en staart{String(kop || "").trim() || String(staart || "").trim() ? " · aangepast" : (isNotulen ? " · standaardtekst" : " · nog leeg")}
+            kop en staart{String(kop || "").trim() || String(staart || "").trim() ? " · aangepast" : (standaardKop(soort) ? " · standaardtekst" : " · nog leeg")}
           </span>
         </button>
         {vasteTekstOpen && (

@@ -13,7 +13,9 @@ const KLEUR = {
   blauw: "#1C5D8C", tekst: "#1C2321", subtekst: "#5B6259", mutedTekst: "#8A9089",
   rand: "#E2E4DF", lichtblauw: "#EAF2F8", rood: "#B23B3B", groen: "#2E7D46", goud: "#B98237",
 };
-const ACTIE_LABEL = { mail: "Gemaild", dossier: "In dossier", backoffice: "Backoffice" };
+// Wat er met een brief gebeurd is. Zelfde drie toestanden als bij de stukken (notulen, dividend,
+// liquidatie): alleen opgemaakt, gemaild, of doorgezet naar de backoffice.
+const ACTIE_LABEL = { mail: "Gemaild", dossier: "Opgemaakt — in dossier", backoffice: "Naar backoffice" };
 const SCHERM = "brieven-log"; // eigen namespace voor opgeslagen weergaven (zie api/_gedeeld/weergaven.js)
 
 function veiligeStr(v) { return String(v == null ? "" : v).trim(); }
@@ -29,7 +31,7 @@ const KOLOMMEN = [
   { key: "klantnummer", label: "Cliëntnr.", cel: (b) => veiligeStr(b.klantnummer) },
   { key: "onderwerp", label: "Onderwerp", cel: (b) => veiligeStr(b.betreft) || veiligeStr(b.sjabloonnaam) },
   { key: "ontvanger", label: "Ontvanger", cel: (b) => veiligeStr(b.ontvangerNaam) || veiligeStr(b.naar) },
-  { key: "wijze", label: "Wijze", cel: (b) => ACTIE_LABEL[b.actie] || veiligeStr(b.actie) },
+  { key: "wijze", label: "Status", cel: (b) => ACTIE_LABEL[b.actie] || veiligeStr(b.actie) },
   { key: "door", label: "Door", cel: (b) => veiligeStr(b.medewerker) },
 ];
 const KOLOMMEN_STANDAARD_VERBORGEN = []; // alle kolommen standaard zichtbaar

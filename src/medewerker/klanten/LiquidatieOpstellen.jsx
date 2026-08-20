@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Search, X, Printer, Copy, CheckCircle2, AlertTriangle, ArrowLeft, Plus, Trash2, Users, RotateCcw, ChevronDown,
-  Save, Loader2, FileText, Mail, FileSignature, Lock,
+  Save, Loader2, FileText, Mail, FileSignature, Lock, Info,
 } from "lucide-react";
 import { ontleedDocument, heeftEigenKop, blokkenNaarHtml, AFDRUK_CSS } from "../documentOpmaak";
 import { haalBesluitUitTekst } from "../../beheer/notulenSjablonen";
+import { steltLiquidatieSamen as steltStukSamen, LIQUIDATIE_KOP, LIQUIDATIE_STAART } from "../../beheer/liquidatieSjablonen";
 import { zichtbareSecties as formulierSecties, ontbrekend as formulierOntbrekend, vulVoor as formulierVulVoor } from "../kvkFormulier17a";
 import { BALANS_ACTIVA, BALANS_PASSIVA, RESULTAAT, berekenCijfers, balansVerschil, bedragTekst as cijferTekst, INVULSLEUTELS } from "../liquidatieCijfers";
 import { useMijnNaam } from "../MijnFilter";
@@ -171,46 +172,6 @@ function aandeelhoudersTekst(rijen) {
     })
     .filter(Boolean)
     .join("\n");
-}
-
-/**
- * Het stuk = vaste kop (Beheer) + de besluiten van dít stuk + vaste staart (Beheer). Bewust een
- * eigen versie in plaats van steltNotulenSamen(): die valt terug op de notulen-standaardteksten en
- * dat zijn niet de teksten van een ontbindingsrapport. Staat er in Beheer nog niets, dan blijft het
- * betreffende deel gewoon leeg — je ziet dan meteen dat het nog ingevuld moet worden.
- */
-function steltStukSamen({ kop, besluit, staart }) {
-  const k = String(kop == null ? "" : kop).replace(/\s+$/, "");
-  const st = String(staart == null ? "" : staart).replace(/^\s+/, "");
-  const b = String(besluit == null ? "" : besluit).trim();
-  return `${k}${k ? "\n" : ""}${b ? b + "\n\n" : ""}${st}`;
-}
-
-/**
- * Het woonadres van een contactpersoon als één regel: "Dorpsstraat 1a, 7511 AA Enschede". Alleen wat
- * gevuld is komt mee, dus een ontbrekend huisnummer of een lege postcode levert geen losse komma's op.
- * Zo staat het adres in het KvK-formulier zoals je het op een envelop zou schrijven.
- */
-function adresRegel(adres) {
-  const a = adres || {};
-  const straat = [veiligeStr(a.straat), [veiligeStr(a.huisnummer), veiligeStr(a.toevoeging)].filter(Boolean).join("")]
-    .filter(Boolean).join(" ");
-  const plaats = [veiligeStr(a.postcode), veiligeStr(a.plaats)].filter(Boolean).join(" ");
-  const land = veiligeStr(a.land);
-  // Nederland laten we weg: dat is de standaard en het maakt de regel alleen langer.
-  const delen = [straat, plaats, /^(nederland|the netherlands|nl)$/i.test(land) ? "" : land].filter(Boolean);
-  return delen.join(", ");
-}
-
-/**
- * De gekozen optie-index van een keuzevraag, of null als er niets gekozen is. Apart, omdat
- * `Number("")` gewoon 0 oplevert: zonder deze controle zou "niets gekozen" niet te onderscheiden
- * zijn van "de eerste optie gekozen".
- */
-function gekozenOptie(waarde) {
-  if (waarde === undefined || waarde === null || waarde === "") return null;
-  const n = Number(waarde);
-  return Number.isInteger(n) && n >= 0 ? n : null;
 }
 
 export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
@@ -1753,15 +1714,15 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
             )}
           </div>
 
-          {/* Zonder vaste tekst zie je alleen het besluit staan — dan lijkt het stuk "niet goed", terwijl
-              er simpelweg nog niets in Beheer is ingevuld. Dat zeggen we er hier bij. */}
+          {/* Staat er in Beheer nog niets, dan gebruikt het stuk de standaardtekst. Dat melden we, want
+              anders vraag je je af waar die aanhef vandaan komt — en of je hem mag aanpassen. */}
           {sjabloon && (!veiligeStr(opbouw.kop) || !veiligeStr(opbouw.staart)) && (
-            <div style={{ display: "flex", gap: 8, marginTop: 8, padding: "9px 11px", background: "#FFFBEB", border: `1px solid ${KLEUR.goud}55`, borderRadius: 8, fontSize: 12, color: KLEUR.tekst }}>
-              <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1, color: KLEUR.goud }} />
+            <div style={{ display: "flex", gap: 8, marginTop: 8, padding: "9px 11px", background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, borderRadius: 8, fontSize: 12, color: KLEUR.subtekst }}>
+              <Info size={14} style={{ flexShrink: 0, marginTop: 1, color: KLEUR.blauw }} />
               <span>
-                De vaste {!veiligeStr(opbouw.kop) && !veiligeStr(opbouw.staart) ? "kop en staart staan" : !veiligeStr(opbouw.kop) ? "kop staat" : "staart staat"} nog niet
-                in <strong>Beheer → Liquidatiestukken</strong>. Daardoor zie je hier alleen de besluiten, zonder de aanhef
-                met de aanwezigen en zonder de sluiting en ondertekening.
+                De vaste {!veiligeStr(opbouw.kop) && !veiligeStr(opbouw.staart) ? "kop en staart komen" : !veiligeStr(opbouw.kop) ? "kop komt" : "staart komt"} uit
+                de standaardtekst. Wil je een andere aanhef of ondertekening, pas die dan aan bij{" "}
+                <strong>Beheer → Liquidatiestukken</strong>; dat geldt dan voor alle liquidatiestukken.
               </span>
             </div>
           )}
