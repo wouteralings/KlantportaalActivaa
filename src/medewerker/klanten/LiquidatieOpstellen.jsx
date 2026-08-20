@@ -201,6 +201,20 @@ function gekozenOptie(waarde) {
   return Number.isInteger(n) && n >= 0 ? n : null;
 }
 
+/**
+ * Het middenstuk van een model. Nieuwe modellen hebben dat als `besluit`; oudere staan nog als één
+ * lap tekst opgeslagen. Dan proberen we het besluit eruit te knippen, en lukt dát niet, dan nemen we
+ * de hele tekst als besluit — zo komen de vaste kop en staart er alsnog omheen te staan in plaats van
+ * dat het stuk zonder aanhef en ondertekening in beeld komt.
+ */
+function besluitUitModel(model) {
+  if (!model) return "";
+  const eigen = veiligeStr(model.besluit);
+  if (eigen) return eigen;
+  const tekst = veiligeStr(model.tekst);
+  return haalBesluitUitTekst(tekst) || tekst;
+}
+
 export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
   const { mijnNaam } = useMijnNaam();
 
@@ -625,12 +639,13 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
   //
   // Terugval voor een model dat nog als één lap tekst in Beheer staat (geen besluit-blok): dan tonen
   // we die tekst ongewijzigd — er verdwijnt nooit iets, en het scherm meldt het hieronder.
+  // Een model dat nog als één lap tekst is opgeslagen wordt bij het kiezen omgezet naar een besluit
+  // (zie besluitUitModel). We tonen dat alleen nog als opmerking; het stuk zelf krijgt altijd de vaste
+  // kop en staart, precies zoals bij notulen.
   const modelOngesplitst = !!sjabloon && !veiligeStr(sjabloon.besluit) && !!veiligeStr(sjabloon.tekst);
   const ruweTekst = !sjabloon
     ? ""
-    : modelOngesplitst && !veiligeStr(besluit)
-      ? sjabloon.tekst
-      : steltStukSamen({ kop: opbouw.kop, besluit, staart: opbouw.staart });
+    : steltStukSamen({ kop: opbouw.kop, besluit, staart: opbouw.staart });
   const ingevuld = vulSjabloonIn(ruweTekst, mergeWaarden);
   const berekend = useMemo(() => berekenCijfers(cijfers), [cijfers]);
   // "Ingevuld" = er staat érgens een bedrag, óók als dat 0 is. Alles-nihil moet immers een
@@ -917,7 +932,7 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
     if (model) setSjabloonId(model.id);
     // Het besluit van dat stuk terug; oudere records hadden alleen de volledige tekst — daar halen we
     // het besluit dan uit, zodat je 'm gewoon verder kunt bewerken.
-    setBesluit(veiligeStr(r.besluit) || haalBesluitUitTekst(r.tekst || "") || (model ? veiligeStr(model.besluit) : ""));
+    setBesluit(veiligeStr(r.besluit) || haalBesluitUitTekst(r.tekst || "") || (model ? besluitUitModel(model) : ""));
     setDatumactie(veiligeStr(r.datum) || vandaagISO());
     setVestigingsplaats(veiligeStr(v.vestigingsplaats));
     setVoorzitter(veiligeStr(v.voorzitter) || veiligeStr(v.directeur));
@@ -1104,7 +1119,7 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
                   {gefilterdeSjablonen.length === 0 ? (
                     <div style={{ padding: "10px 12px", fontSize: 12.5, color: KLEUR.mutedTekst }}>{sjablonen === null ? "Modellen laden…" : "Geen modellen gevonden."}</div>
                   ) : gefilterdeSjablonen.map((s) => (
-                    <button key={s.id} onClick={() => { setSjabloonId(s.id); setSjabloonZoek(""); setBesluit(veiligeStr(s.besluit) || haalBesluitUitTekst(s.tekst)); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", border: "none", borderBottom: `1px solid ${KLEUR.rand}`, background: "#fff", cursor: "pointer" }}>
+                    <button key={s.id} onClick={() => { setSjabloonId(s.id); setSjabloonZoek(""); setBesluit(besluitUitModel(s)); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", border: "none", borderBottom: `1px solid ${KLEUR.rand}`, background: "#fff", cursor: "pointer" }}>
                       <span style={{ fontSize: 13, fontWeight: 600, color: KLEUR.tekst }}>{veiligeStr(s.naam)}</span>
                     </button>
                   ))}
@@ -1573,7 +1588,7 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
               onChange={(e) => setBesluit(e.target.value)}
               disabled={!sjabloon}
               rows={8}
-              placeholder={sjabloon ? "I. Dividenduitkering\n> Per {{datumactie}} wordt er in totaal € {{bedrag}} dividend uitgekeerd…" : "Kies eerst een liquidatiemodel."}
+              placeholder={sjabloon ? "I. Ontbinding van de Vennootschap\n> De Vennootschap wordt ontbonden met ingang van {{datumontbinding}}…" : "Kies eerst een liquidatiemodel."}
               style={{ ...input, resize: "vertical", minHeight: 150, lineHeight: 1.5, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12, background: sjabloon ? "#fff" : "#F7F8F6" }}
             />
             <div style={{ marginTop: 6, fontSize: 11.5, color: KLEUR.mutedTekst }}>

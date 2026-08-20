@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Save, ChevronDown, ChevronRight, Plus, Trash2, ArrowUp, ArrowDown, Info, X, Search, CheckCircle2, XCircle } from "lucide-react";
 import { ROMP, STAART, steltNotulenSamen, haalBesluitUitTekst } from "./notulenSjablonen";
-import { LIQUIDATIE_KOP, LIQUIDATIE_STAART, LIQUIDATIE_BESLUIT_TURBO } from "./liquidatieSjablonen";
+import { LIQUIDATIE_KOP, LIQUIDATIE_STAART, LIQUIDATIE_BESLUIT_TURBO, steltLiquidatieSamen } from "./liquidatieSjablonen";
 import { AantalKiezer, AANTAL_STANDAARD } from "./AantalKiezer";
 import { isMergeveld } from "./mergevelden";
 
@@ -76,6 +76,19 @@ function slug(v) { return String(v || "").toLowerCase().normalize("NFD").replace
  * De standaardtekst van een soort: wat het opstelscherm gebruikt zolang hier niets is ingevuld.
  * Alleen notulen en liquidatiestukken hebben er een; bij de rest blijft het veld gewoon leeg.
  */
+/**
+ * Kop + besluit + staart aan elkaar, met de terugval die bij de soort hoort. Voor dividend is er geen
+ * eigen standaardtekst; daar blijft een lege kop of staart gewoon leeg.
+ */
+function samenstellen(soort, { kop, besluit, staart }) {
+  if (soort === "liquidatie") return steltLiquidatieSamen({ kop, besluit, staart });
+  if (soort === "notulen") return steltNotulenSamen({ kop, besluit, staart });
+  const k = String(kop == null ? "" : kop).replace(/\s+$/, "");
+  const st = String(staart == null ? "" : staart).replace(/^\s+/, "");
+  const b = String(besluit == null ? "" : besluit).trim();
+  return `${k}${k ? "\n" : ""}${b ? b + "\n\n" : ""}${st}`;
+}
+
 function standaardKop(soort) {
   if (soort === "notulen") return ROMP;
   if (soort === "liquidatie") return LIQUIDATIE_KOP;
@@ -271,8 +284,12 @@ export default function DossierSjablonenPerSoort({ soort }) {
       // hier alleen nog de kop, de staart en per model het besluit onderhoudt.
       const schoon = sjablonen.map((s) => {
         const besluit = String(s.besluit || "");
-        const tekst = isNotulen && besluit.trim()
-          ? steltNotulenSamen({ kop, besluit, staart })
+        // De opgeslagen "tekst" is het complete stuk (kop + besluit + staart). Dat houdt de
+        // Voorbeeld-knop in het dossier werkend, die de volledige tekst gebruikt. Bij een soort met
+        // vaste kop/staart stellen we die hier samen — met dezelfde terugval op de standaardtekst als
+        // het opstelscherm, zodat beide hetzelfde stuk opleveren.
+        const tekst = heeftVasteTekst && besluit.trim()
+          ? samenstellen(soort, { kop, besluit, staart })
           : String(s.tekst || "");
         return { id: s.id, naam: String(s.naam || "").trim() || "Naamloos sjabloon", tekst, besluit, velden: Array.isArray(s.velden) ? s.velden : [], invulvelden: Array.isArray(s.invulvelden) ? s.invulvelden : [], actief: s.actief !== false };
       });
@@ -535,9 +552,13 @@ export default function DossierSjablonenPerSoort({ soort }) {
                           <span style={labelStijl}>Naam</span>
                           <input value={s.naam} onChange={(e) => zet(s.id, "naam", e.target.value)} placeholder="Bijv. Standaard notulen AvA" style={invoerStijl} />
                         </div>
-                        {isNotulen ? (
+                        {heeftVasteTekst ? (
                           <div style={{ marginBottom: 10 }}>
-                            <span style={labelStijl}>Besluit — punt I van dit model</span>
+                            {/* Soorten met een vaste kop en staart (notulen, dividend, liquidatie) hebben
+                                per model alléén het middenstuk nodig. Vroeg je hier de volledige tekst,
+                                dan zou het opstelscherm die tekst ongewijzigd tonen en kop en staart
+                                overslaan — precies de reden dat een liquidatiestuk zonder aanhef opkwam. */}
+                            <span style={labelStijl}>Besluit — het middenstuk van dit model</span>
                             <textarea
                               value={s.besluit || ""}
                               onChange={(e) => zet(s.id, "besluit", e.target.value)}
@@ -547,8 +568,8 @@ export default function DossierSjablonenPerSoort({ soort }) {
                               style={{ ...invoerStijl, resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }}
                             />
                             <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4 }}>
-                              Alleen dit stukje verschilt per model; de kop en de staart hierboven gelden voor alle notulen.
-                              Bij het opstellen van een notulen is dit besluit nog per stuk aan te passen.
+                              Alleen dit stukje verschilt per model; de kop en de staart hierboven gelden voor álle stukken
+                              van deze soort. Bij het opstellen is dit besluit nog per stuk aan te passen.
                             </div>
                             {!String(s.besluit || "").trim() && String(s.tekst || "").trim() && (
                               <div style={{ fontSize: 11.5, color: KLEUR.goud, marginTop: 6 }}>
