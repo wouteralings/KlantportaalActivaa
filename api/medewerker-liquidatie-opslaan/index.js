@@ -574,6 +574,7 @@ module.exports = async function (context, req) {
       await bewaar({
         dossierId, accountId, klantnaam, modelNaam, datum,
         datumnotulen, kvknummer, bewaarder, cijfers,
+        formulier: (body.formulier && typeof body.formulier === "object") ? body.formulier : {},
         velden: body.velden || {},
         dossierVelden: body.dossierVelden || {},
         invulwaarden: body.invulwaarden || {},

@@ -113,6 +113,9 @@ async function bewaar(record) {
     // Balans + resultatenrekening zoals ingetikt (sleutel → bedrag). De totalen worden altijd
     // herrekend, nooit bewaard als losse waarheid — zie _gedeeld/liquidatieCijfers.js.
     cijfers: record.cijfers && typeof record.cijfers === "object" ? record.cijfers : (bestaand.cijfers || {}),
+    // Antwoorden op KvK-formulier 17a (vraag-id → waarde), zodat het formulier bij heropenen nog
+    // ingevuld is en je 'm opnieuw kunt afdrukken zonder alles over te tikken.
+    formulier: record.formulier && typeof record.formulier === "object" ? record.formulier : (bestaand.formulier || {}),
     tekst: record.tekst != null ? String(record.tekst) : (bestaand.tekst || ""),
     // Het tussenstuk (de besluiten) van dít stuk — kop en staart komen uit Beheer en gelden voor
     // alle liquidatiestukken, dus alleen dit hoeft per stuk bewaard te worden.

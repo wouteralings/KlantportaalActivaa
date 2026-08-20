@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  Search, X, Printer, Copy, CheckCircle2, AlertTriangle, ArrowLeft, Plus, Trash2, Users, RotateCcw,
+  Search, X, Printer, Copy, CheckCircle2, AlertTriangle, ArrowLeft, Plus, Trash2, Users, RotateCcw, ChevronDown,
   Save, Loader2, FileText, Mail, FileSignature, Lock,
 } from "lucide-react";
 import { ontleedDocument, heeftEigenKop, blokkenNaarHtml, AFDRUK_CSS } from "../documentOpmaak";
 import { haalBesluitUitTekst } from "../../beheer/notulenSjablonen";
+import { zichtbareSecties as formulierSecties, ontbrekend as formulierOntbrekend, vulVoor as formulierVulVoor } from "../kvkFormulier17a";
 import { BALANS_ACTIVA, BALANS_PASSIVA, RESULTAAT, berekenCijfers, balansVerschil, bedragTekst as cijferTekst, INVULSLEUTELS } from "../liquidatieCijfers";
 import { useMijnNaam } from "../MijnFilter";
 import { normaliseerSleutel, vulSjabloonIn, bouwMergeWaarden } from "../dossierMerge";
@@ -81,29 +82,40 @@ function bedragTekst(v) {
 }
 
 /**
- * Wat we van een getikt bedrag BEWAREN: alleen cijfers en hooguit één decimale komma. Zo blijft de
- * opgeslagen waarde een kaal getal ("100000", "1250,50") — precies wat Dynamics en het logboek
- * willen — terwijl het scherm er duizendpunten omheen mag zetten.
+ * Wat we van een getikt bedrag BEWAREN: een eventueel minteken vooraan, cijfers, en hooguit één
+ * decimale komma. Zo blijft de opgeslagen waarde een kaal getal ("100000", "-2500", "1250,50") —
+ * precies wat Dynamics en het logboek willen — terwijl het scherm er duizendpunten omheen mag zetten.
+ *
+ * Negatieve bedragen moeten kunnen: op een balans staat een overige reserve regelmatig negatief, en
+ * financiële baten en lasten zijn vaker last dan bate. Het minteken telt alleen vooraan; een streepje
+ * midden in een getal is een typefout en verdwijnt.
  */
 function schoonBedrag(v) {
-  const ruw = String(v == null ? "" : v).replace(/[^\d,.]/g, "").replace(/\./g, "");
+  const ingetikt = String(v == null ? "" : v);
+  const negatief = /^\s*-/.test(ingetikt);
+  const ruw = ingetikt.replace(/[^\d,.]/g, "").replace(/\./g, "");
   const [heel, ...rest] = ruw.split(",");
-  return rest.length ? `${heel},${rest.join("").slice(0, 2)}` : heel;
+  const zonderTeken = rest.length ? `${heel},${rest.join("").slice(0, 2)}` : heel;
+  // Het losse minteken blijft bewaard terwijl je typt — anders kun je "-" niet als eerste teken
+  // intikken (het veld zou dan meteen weer leeg zijn). Rekenkundig telt "-" als 0.
+  return negatief ? `-${zonderTeken}` : zonderTeken;
 }
 
 /** Hetzelfde bedrag mét duizendpunten, zoals het in het invoerveld hoort te staan: "100.000". */
 function groepeerBedrag(v) {
   const schoon = schoonBedrag(v);
   if (!schoon) return "";
-  const [heel, decimalen] = schoon.split(",");
+  const negatief = schoon.startsWith("-");
+  const [heel, decimalen] = schoon.replace(/^-/, "").split(",");
   const metPunten = heel ? heel.replace(/\B(?=(\d{3})+(?!\d))/g, ".") : "";
-  return decimalen !== undefined ? `${metPunten},${decimalen}` : metPunten;
+  const uit = decimalen !== undefined ? `${metPunten},${decimalen}` : metPunten;
+  return negatief ? `-${uit}` : uit;
 }
 
 /**
  * Invoerveld voor een bedrag dat tijdens het typen meteen duizendpunten toont ("100.000") maar naar
  * buiten toe het kale getal doorgeeft. De cursor wordt teruggezet op basis van het aantal ECHTE
- * tekens vóór de cursor (cijfers en de decimale komma), niet op de tekenpositie — anders springt hij
+ * tekens vóór de cursor (het minteken, de cijfers en de decimale komma), niet op de tekenpositie — anders springt hij
  * bij elke duizendpunt die erbij komt. De komma telt bewust mee: laat je die weg, dan belandt de
  * cursor er vóór en typ je je decimalen achterstevoren in het hele getal.
  */
@@ -120,7 +132,7 @@ function BedragInvoer({ waarde, onChange, stijl }) {
     let pos = 0;
     let geteld = 0;
     while (pos < el.value.length && geteld < doel) {
-      if (/[\d,]/.test(el.value[pos])) geteld += 1;
+      if (/[\d,-]/.test(el.value[pos])) geteld += 1;
       pos += 1;
     }
     try { el.setSelectionRange(pos, pos); } catch { /* niet elk veldtype ondersteunt dit */ }
@@ -133,7 +145,7 @@ function BedragInvoer({ waarde, onChange, stijl }) {
       onChange={(e) => {
         const el = e.target;
         const voor = el.value.slice(0, el.selectionStart == null ? el.value.length : el.selectionStart);
-        tekensVoorCaret.current = (voor.match(/[\d,]/g) || []).length;
+        tekensVoorCaret.current = (voor.match(/[\d,-]/g) || []).length;
         onChange(schoonBedrag(el.value));
       }}
       inputMode="decimal"
@@ -212,6 +224,11 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
   // De cijfers van het ontbindingsrapport: alleen wat je zelf intikt (sleutel → tekst). De totalen
   // rekenen we uit met liquidatieCijfers.js, hier én op de server — nooit twee waarheden.
   const [cijfers, setCijfers] = useState({});
+  // Antwoorden op KvK-formulier 17a (vraag-id → waarde). Wat we al weten vullen we voor; de rest
+  // vraagt het scherm. Zie _gedeeld/kvkFormulier17a.js voor de vragen en de skip-logica.
+  const [formulier, setFormulier] = useState({});
+  const [formulierOpen, setFormulierOpen] = useState(false);
+  const [formulierBezig, setFormulierBezig] = useState(false);
   const [kvknummer, setKvknummer] = useState("");
   const [bewaarder, setBewaarder] = useState("");
   // De datum van de vergadering staat los van de datum van ontbinding (datumactie).
@@ -309,7 +326,10 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
     setNotulist(st.notulistBron === "vast" && veiligeStr(st.notulistVast) ? veiligeStr(st.notulistVast) : contactNaam);
     setEmailNotulist(contactMail);
     setAandeelhouders([{ naam: contactNaam, percentage: "100" }]);
-    setCijfers({}); setKvknummer(""); setBewaarder(""); setDatumnotulen("");
+    setCijfers({}); setBewaarder(""); setDatumnotulen(""); setFormulier({});
+    // Het KvK-nummer komt van de klantkaart (Dynamics) en wordt hier niet gewijzigd — zo kan er in
+    // een liquidatiestuk of op het KvK-formulier nooit een ander nummer staan dan in de administratie.
+    setKvknummer(veiligeStr(klant.kvk));
     setMelding(null);
     // Een andere cliënt = een ander stuk: de koppeling met het vorige liquidatiedossier loslaten. Het
     // effect hieronder maakt meteen een nieuwe rij aan en zet dossierId opnieuw.
@@ -576,7 +596,9 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
       : steltStukSamen({ kop: opbouw.kop, besluit, staart: opbouw.staart });
   const ingevuld = vulSjabloonIn(ruweTekst, mergeWaarden);
   const berekend = useMemo(() => berekenCijfers(cijfers), [cijfers]);
-  const cijfersIngevuld = useMemo(() => INVULSLEUTELS.some((k) => veiligeStr(cijfers[k])), [cijfers]);
+  // "Ingevuld" = er staat érgens een bedrag, óók als dat 0 is. Alles-nihil moet immers een
+  // cijferdeel met € 0 opleveren; alleen een écht leeg formulier laat het cijferdeel weg.
+  const cijfersIngevuld = useMemo(() => INVULSLEUTELS.some((k) => /\d/.test(veiligeStr(cijfers[k]))), [cijfers]);
   const balansScheef = cijfersIngevuld ? balansVerschil(cijfers) : 0;
 
   /**
@@ -617,6 +639,66 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
     return t + (Number.isFinite(n) ? n : 0);
   }, 0);
   const aandeelIngevuld = aandeelhouders.some((r) => veiligeStr(r.percentage));
+
+/**
+   * KvK-formulier 17a. De antwoorden die we al weten komen uit de klantkaart en dit scherm: naam,
+   * vestigingsplaats, KvK-nummer, datum van ontbinding, de bewaarder en wie ondertekent. De rest
+   * vraagt de vragenlijst hieronder, met dezelfde "ga naar"-sprongen als op papier.
+   */
+  const formulierContext = useMemo(() => ({
+    klantnaam: veiligeStr(klant && klant.klantnaam),
+    vestigingsplaats: veiligeStr(vestigingsplaats),
+    kvknummer: veiligeStr(kvknummer),
+    datumontbinding: veiligeStr(datumactie),
+    bewaarder: veiligeStr(bewaarder),
+    ondertekenaar: veiligeStr(voorzitter),
+    email: veiligeStr(emailVoorzitter),
+    vandaag: vandaagISO(),
+  }), [klant, vestigingsplaats, kvknummer, datumactie, bewaarder, voorzitter, emailVoorzitter]);
+
+  // Voorvullen zonder ooit een ingetikt antwoord te overschrijven — vandaar vulVoor() en niet gewoon
+  // een merge. Loopt live mee: pas je de datum van ontbinding aan, dan volgt het formulier.
+  const formulierAntwoorden = useMemo(() => formulierVulVoor(formulier, formulierContext), [formulier, formulierContext]);
+  const formulierVragen = useMemo(() => formulierSecties(formulierAntwoorden), [formulierAntwoorden]);
+  const formulierMist = useMemo(() => formulierOntbrekend(formulierAntwoorden), [formulierAntwoorden]);
+
+  function zetFormulier(id, waarde) {
+    setFormulier((f) => ({ ...f, [id]: waarde }));
+  }
+
+  /** Het ingevulde formulier ophalen als PDF en meteen openen, klaar om af te drukken. */
+  async function maakFormulier(opslaan) {
+    if (!klant) { setMelding({ type: "fout", tekst: "Kies eerst een cliënt." }); return; }
+    setFormulierBezig(true);
+    try {
+      const res = await fetch("/api/medewerker-liquidatie-formulier", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          antwoorden: formulierAntwoorden,
+          accountId: klant.accountId,
+          klantnaam: veiligeStr(klant.klantnaam),
+          datum: veiligeStr(datumactie),
+          opslaan: !!opslaan,
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || `Formulier maken mislukt (${res.status}).`);
+      // Base64 → blob → nieuw tabblad. Zo kun je 'm bekijken, afdrukken en opslaan waar je wilt.
+      const bytes = Uint8Array.from(atob(d.pdf), (c) => c.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+      if (typeof window !== "undefined") window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      const spStaart = d.sharepoint
+        ? (d.sharepoint.gedaan ? " Het staat ook in de SharePoint-map van de cliënt." : ` Let op: opslaan in SharePoint lukte niet (${d.sharepoint.reden || "onbekende reden"}).`)
+        : "";
+      const mistStaart = (d.ontbrekend || []).length ? ` ${d.ontbrekend.length} verplichte vraag/vragen staan nog leeg — vul die met pen in.` : "";
+      setMelding({ type: d.sharepoint && !d.sharepoint.gedaan ? "fout" : "ok", tekst: `KvK-formulier 17a klaar.${spStaart}${mistStaart}` });
+    } catch (e) {
+      setMelding({ type: "fout", tekst: String((e && e.message) || e) });
+    } finally {
+      setFormulierBezig(false);
+    }
+  }
 
   function zetAandeelhouder(i, veld, waarde) {
     setAandeelhouders((rijen) => rijen.map((r, j) => (j === i ? { ...r, [veld]: waarde } : r)));
@@ -705,6 +787,7 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
           kvknummer,
           bewaarder,
           cijfers,
+          formulier,
           bestandsnaamBasis: bestandsnaam,
         }),
       });
@@ -776,9 +859,11 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
     setInvulwaarden({ ...oudeWaarden, ...bewaardeInvul });
     setAandeelhouders(Array.isArray(r.aandeelhouders) && r.aandeelhouders.length ? r.aandeelhouders : [{ naam: "", percentage: "100" }]);
     setDatumnotulen(veiligeStr(r.datumnotulen).slice(0, 10));
-    setKvknummer(veiligeStr(r.kvknummer));
+    // KvK komt van de klantkaart; alleen als die leeg is valt hij terug op wat er bewaard was.
+    setKvknummer((k) => veiligeStr(k) || veiligeStr(r.kvknummer));
     setBewaarder(veiligeStr(r.bewaarder));
     setCijfers(r.cijfers && typeof r.cijfers === "object" ? r.cijfers : {});
+    setFormulier(r.formulier && typeof r.formulier === "object" ? r.formulier : {});
     setMelding({ type: "ok", tekst: "Eerder opgesteld stuk teruggehaald — opslaan werkt hetzelfde dossier bij." });
   }
 
@@ -962,8 +1047,16 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
                 <div style={{ marginTop: 4, fontSize: 11, color: KLEUR.mutedTekst }}>Leeg = zelfde datum als de ontbinding.</div>
               </div>
               <div style={{ flex: "1 1 140px" }}>
-                <div style={{ fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>KvK-nummer</div>
-                <input value={kvknummer} onChange={(e) => setKvknummer(e.target.value.replace(/\D/g, "").slice(0, 8))} style={input} placeholder="12345678" inputMode="numeric" />
+                <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, color: KLEUR.subtekst, marginBottom: 4 }}>
+                  KvK-nummer <Lock size={11} />
+                </div>
+                <input
+                  value={kvknummer}
+                  readOnly
+                  title="Komt van de klantkaart. Klopt het niet, pas het dan bij de cliënt aan — niet hier."
+                  style={{ ...input, background: "#F7F8F6", color: kvknummer ? KLEUR.tekst : KLEUR.mutedTekst, cursor: "default" }}
+                  placeholder={klant ? "niet ingevuld op de klantkaart" : "kies eerst een cliënt"}
+                />
               </div>
               <div style={{ flex: "1 1 220px" }}>
                 {/* Besluit III — hoeft geen relatie in Dynamics te zijn, dus gewoon een naam. */}
@@ -1165,15 +1258,27 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
           <div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 5, flexWrap: "wrap" }}>
               <span style={{ ...label, marginBottom: 0 }}>Balans en resultatenrekening</span>
-              {cijfersIngevuld && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {/* Bij een turboliquidatie is er niets meer: alles op nul in één klik. Let op het
+                    verschil met leegmaken — nul is een ingevuld bedrag en komt dus als "€ 0" in het
+                    rapport te staan, leeg betekent dat er helemaal geen cijferdeel komt. */}
                 <button
-                  onClick={() => setCijfers({})}
+                  onClick={() => setCijfers(Object.fromEntries(INVULSLEUTELS.map((k) => [k, "0"])))}
                   style={{ ...knopLicht, padding: "5px 9px", fontSize: 11.5 }}
-                  title="Alle bedragen leegmaken — het cijferdeel verdwijnt dan uit het stuk."
+                  title="Alle bedragen op nul — het cijferdeel komt met € 0 in het rapport."
                 >
-                  <RotateCcw size={13} /> Leegmaken
+                  Alles nihil
                 </button>
-              )}
+                {cijfersIngevuld && (
+                  <button
+                    onClick={() => setCijfers({})}
+                    style={{ ...knopLicht, padding: "5px 9px", fontSize: 11.5 }}
+                    title="Alle bedragen leegmaken — het cijferdeel verdwijnt dan uit het stuk."
+                  >
+                    <RotateCcw size={13} /> Leegmaken
+                  </button>
+                )}
+              </div>
             </div>
 
             {[
@@ -1212,11 +1317,11 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
             ))}
 
             {cijfersIngevuld && balansScheef !== 0 && (
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "9px 11px", background: "#FFFBEB", border: `1px solid ${KLEUR.goud}55`, borderRadius: 8, fontSize: 12, color: KLEUR.tekst }}>
-                <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1, color: KLEUR.goud }} />
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "9px 11px", background: "#FDF2F2", border: `1px solid ${KLEUR.rood}`, borderRadius: 8, fontSize: 12, color: KLEUR.rood, fontWeight: 600 }}>
+                <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
                 <span>
-                  De balans sluit niet: activa en passiva verschillen {cijferTekst(Math.abs(balansScheef))}.
-                  Je kunt gewoon doorwerken en opslaan — maar controleer dit voordat het stuk naar de cliënt gaat.
+                  De balans sluit niet: activa {cijferTekst(berekend.totaalactiva)} tegen passiva {cijferTekst(berekend.totaalpassiva)} —
+                  een verschil van {cijferTekst(Math.abs(balansScheef))}. Opslaan kan wel, maar zo hoort het stuk niet naar de cliënt.
                 </span>
               </div>
             )}
@@ -1228,6 +1333,104 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
             {!cijfersIngevuld && (
               <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>
                 Vul je hier niets in, dan bestaat het stuk alleen uit de notulen — zonder balans en resultatenrekening.
+              </div>
+            )}
+          </div>
+
+          {/* ── KvK-formulier 17a ───────────────────────────────────────────────────────────────
+              De melding van de ontbinding bij het Handelsregister. Wat we al weten is voorgevuld;
+              de rest vraagt de lijst hieronder, met dezelfde doorverwijzingen als op papier — kies
+              je "geen baten", dan verdwijnen de vereffenaarsvragen vanzelf. De handtekening blijft
+              handwerk: KvK eist een handtekening met pen, geen kopie of scan. */}
+          <div>
+            <button
+              onClick={() => setFormulierOpen((v) => !v)}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+                width: "100%", padding: "10px 12px", background: "#fff", border: `1px solid ${KLEUR.rand}`,
+                borderRadius: 8, cursor: "pointer", textAlign: "left",
+              }}
+              aria-expanded={formulierOpen}
+            >
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: KLEUR.tekst }}>
+                <FileText size={15} color={KLEUR.blauw} /> KvK-formulier 17a — ontbinding melden
+              </span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                {formulierMist.length > 0 && (
+                  <span style={{ fontSize: 11, fontWeight: 700, color: KLEUR.goud }}>{formulierMist.length} nog leeg</span>
+                )}
+                <ChevronDown size={15} style={{ transform: formulierOpen ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform .15s", color: KLEUR.mutedTekst }} />
+              </span>
+            </button>
+
+            {formulierOpen && (
+              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 14 }}>
+                {formulierVragen.map((sectie) => (
+                  <div key={sectie.sleutel}>
+                    <div style={{ fontSize: 11.5, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 6 }}>{sectie.titel}</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {sectie.vragen.map((v) => {
+                        const waarde = formulierAntwoorden[v.id];
+                        const leegVerplicht = v.verplicht && formulierMist.some((m) => m.id === v.id);
+                        return (
+                          <div key={v.id}>
+                            <div style={{ fontSize: 12, color: KLEUR.subtekst, marginBottom: 4 }}>
+                              {v.vraag}
+                              {v.verplicht && <span style={{ color: leegVerplicht ? KLEUR.goud : KLEUR.mutedTekst }}> *</span>}
+                            </div>
+
+                            {v.type === "keuze" ? (
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                {v.opties.map((optie, i) => (
+                                  <button
+                                    key={optie}
+                                    onClick={() => zetFormulier(v.id, Number(waarde) === i ? "" : i)}
+                                    style={{
+                                      padding: "6px 11px", borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                                      border: `1px solid ${Number(waarde) === i ? KLEUR.blauw : KLEUR.rand}`,
+                                      background: Number(waarde) === i ? KLEUR.blauw : "#fff",
+                                      color: Number(waarde) === i ? "#fff" : KLEUR.subtekst,
+                                    }}
+                                  >
+                                    {optie}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : v.type === "vink" ? (
+                              <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12.5, cursor: "pointer" }}>
+                                <input type="checkbox" checked={waarde === true} onChange={(e) => zetFormulier(v.id, e.target.checked)} style={{ width: 15, height: 15 }} />
+                                <span style={{ color: KLEUR.tekst }}>Aankruisen</span>
+                              </label>
+                            ) : v.type === "datum" ? (
+                              <input type="date" value={veiligeStr(waarde).slice(0, 10)} onChange={(e) => zetFormulier(v.id, e.target.value)} style={input} />
+                            ) : v.type === "memo" ? (
+                              <textarea value={veiligeStr(waarde)} onChange={(e) => zetFormulier(v.id, e.target.value)} rows={2} style={{ ...input, resize: "vertical", lineHeight: 1.4 }} />
+                            ) : (
+                              <input value={veiligeStr(waarde)} onChange={(e) => zetFormulier(v.id, e.target.value)} style={input} />
+                            )}
+
+                            {v.hulp && <div style={{ marginTop: 4, fontSize: 11, color: KLEUR.mutedTekst }}>{v.hulp}</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  <button onClick={() => maakFormulier(false)} disabled={formulierBezig || !klant} style={{ ...knop(KLEUR.groen, !(formulierBezig || !klant)) }}>
+                    {formulierBezig ? <Loader2 size={15} className="spin" /> : <Printer size={15} />} {formulierBezig ? "Bezig…" : "Formulier maken"}
+                  </button>
+                  <button onClick={() => maakFormulier(true)} disabled={formulierBezig || !klant} style={{ ...knopLicht, opacity: formulierBezig || !klant ? 0.6 : 1 }}>
+                    <Save size={15} /> Maken en in dossier opslaan
+                  </button>
+                </div>
+                <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst }}>
+                  Het formulier opent in een nieuw tabblad en blijft invulbaar, zodat je nog kunt bijstellen
+                  voordat je afdrukt. Ondertekenen moet met pen — KvK accepteert geen kopie of scan van een
+                  handtekening. Stuur het getekende ontbindingsbesluit (de notulen) mee, plus een kopie van
+                  een geldig identiteitsbewijs van wie tekent.
+                </div>
               </div>
             )}
           </div>

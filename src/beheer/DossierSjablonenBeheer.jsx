@@ -51,6 +51,23 @@ const NOTULEN_PLAATSHOUDERS = [
   { key: "naamnotulen", label: "Naam van de notulen (het gekozen model)" },
 ];
 
+/**
+ * Merge-velden die het liquidatiescherm zelf beheert en die dus niet als dossierveld in de catalogus
+ * staan (de bewaarder is in Dynamics een lookup, en die tonen we nooit als merge-veld). Zonder deze
+ * lijst zou je ze in Beheer niet kunnen aanklikken terwijl ze in het stuk wél werken.
+ */
+const LIQUIDATIE_PLAATSHOUDERS = [
+  { key: "bewaarder", label: "Bewaarder van de administratie" },
+  { key: "kvknummer", label: "KvK-nummer (van de klantkaart)" },
+  { key: "datumontbinding", label: "Datum van ontbinding" },
+  { key: "datumnotulen", label: "Datum van de notulen" },
+  { key: "aandeelhouders", label: "Aandeelhouders met hun percentage" },
+  { key: "vestigingsplaats", label: "Vestigingsplaats" },
+  { key: "voorzitter", label: "Voorzitter" },
+  { key: "notulist", label: "Notulist" },
+  { key: "naamnotulen", label: "Naam van het gekozen model" },
+];
+
 /** Sleutel uit een label: kleine letters, alleen a-z0-9 — zelfde regel als bij de standaardbrieven. */
 function slug(v) { return String(v || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, ""); }
 
@@ -273,7 +290,7 @@ export default function DossierSjablonenPerSoort({ soort }) {
   // in het dossier ingevuld, ze zijn alleen niet als sjabloonveld aan te klikken.
   const plaatshouders = [
     ...VASTE_PLAATSHOUDERS,
-    ...(isNotulen ? NOTULEN_PLAATSHOUDERS : []),
+    ...(isNotulen ? NOTULEN_PLAATSHOUDERS : soort === "liquidatie" ? LIQUIDATIE_PLAATSHOUDERS : []),
     ...(catalogus || [])
       .filter((v) => v && v.key && isMergeveld(v.key, mergevelden))
       .map((v) => ({ key: v.key, label: v.label || v.key })),
