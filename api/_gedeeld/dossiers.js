@@ -12,6 +12,7 @@ const {
   VPB_VELDEN, VPB_DYNAMISCHE_PICKLISTS,
   DIVIDEND_VELDEN, DIVIDEND_DYNAMISCHE_PICKLISTS,
   NOTULEN_VELDEN, NOTULEN_DYNAMISCHE_PICKLISTS,
+  LIQUIDATIE_VELDEN, LIQUIDATIE_DYNAMISCHE_PICKLISTS,
 } = require("./dossierVelden");
 
 const FV = "@OData.Community.Display.V1.FormattedValue";
@@ -66,6 +67,12 @@ const STATUS_OPTIES_DIVIDEND = [
 ];
 // Status-optieset cr283_statusnotulen (eigen kolom).
 const STATUS_OPTIES_NOTULEN = [
+  { waarde: 601280000, label: "In bewerking" },
+  { waarde: 601280001, label: "Ter akkoord naar client" },
+  { waarde: 601280002, label: "Getekend" },
+];
+// Status-optieset cr283_statusliquidatiestukken (eigen kolom). Live uitgelezen 20-08-2026.
+const STATUS_OPTIES_LIQUIDATIE = [
   { waarde: 601280000, label: "In bewerking" },
   { waarde: 601280001, label: "Ter akkoord naar client" },
   { waarde: 601280002, label: "Getekend" },
@@ -174,6 +181,26 @@ const SOORTEN = [
       groepsnaam: "_cr283_groepsnaam_value",
       urlDossier: "cr283_urlnotulen",
       ...Object.fromEntries(NOTULEN_VELDEN.map((v) => [v.key, v.veld])),
+    },
+  },
+  {
+    key: "liquidatie",
+    label: "Liquidatiestukken",
+    entiteit: "cr283_liquidatie",
+    idVeld: "cr283_liquidatieid",
+    statusVeld: "cr283_statusliquidatiestukken",
+    statusOpties: STATUS_OPTIES_LIQUIDATIE,
+    catalogus: LIQUIDATIE_VELDEN,
+    dynamischePicklists: LIQUIDATIE_DYNAMISCHE_PICKLISTS,
+    optioneel: {
+      // Geen jaar; de periode is de datum van ontbinding (cr283_datumliquidatie).
+      begindatum: "cr283_datumliquidatie",
+      accountant: "_cr283_accountant_value",
+      assistent: "_cr283_assistent_value",
+      manager: "_cr283_manager_value",
+      groepsnaam: "_cr283_groepsnaam_value",
+      urlDossier: "cr283_urlliquidatiestukken",
+      ...Object.fromEntries(LIQUIDATIE_VELDEN.map((v) => [v.key, v.veld])),
     },
   },
 ];

@@ -50,7 +50,7 @@
 const { haalDynamicsToken, haalEmailUitPrincipal, haalRollenUitPrincipal } = require("../_gedeeld/identiteit");
 const { SOORTEN, haalEenDossier, werkDossierBij, verwijderDossier, haalDynamischePicklistOpties, metAangepasteVelden } = require("../_gedeeld/dossiers");
 const { haalInstellingen, resolveBijlageConfig } = require("../_gedeeld/instellingen");
-const { standaardIndelingIB, standaardIndelingVPB, standaardIndelingDividend, standaardIndelingNotulen, standaardIndelingOverig, vasteVeldenVoorSoort, metLabels } = require("../_gedeeld/dossierVelden");
+const { standaardIndelingIB, standaardIndelingVPB, standaardIndelingDividend, standaardIndelingNotulen, standaardIndelingLiquidatie, standaardIndelingOverig, vasteVeldenVoorSoort, metLabels } = require("../_gedeeld/dossierVelden");
 const { haalVoorAccounts, haalLaatstGezien, verrijkVerzoek } = require("../_gedeeld/aanleververzoeken");
 const { haalOnderwerpen } = require("../_gedeeld/aanleveronderwerpen");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
@@ -80,6 +80,7 @@ async function haalIndeling(soort) {
     : soort.key === "vpb" ? standaardIndelingVPB()
     : soort.key === "dividend" ? standaardIndelingDividend()
     : soort.key === "notulen" ? standaardIndelingNotulen()
+    : soort.key === "liquidatie" ? standaardIndelingLiquidatie()
     : standaardIndelingOverig(soort);
   try {
     const { dossierIndeling } = await haalInstellingen();

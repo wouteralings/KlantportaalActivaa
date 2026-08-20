@@ -330,6 +330,83 @@ const NOTULEN_SECTIE_TITELS_STANDAARD = {
 };
 const NOTULEN_SECTIE_VOLGORDE_STANDAARD = ["algemeen", "aandeelhouders", "vergadering", "toelichting"];
 
+/**
+ * Liquidatiestukken — `cr283_liquidatie`. Zelfde opzet als Notulen (het stuk is immers een notulen
+ * van de AvA), plus de cijfers van het ontbindingsrapport: balans (activa/passiva) en
+ * resultatenrekening. Die kolommen bestonden al in Dataverse, dus de invulbare tabellen in het
+ * opstelscherm landen rechtstreeks in het dossier — zie het schemadocument van 20-08-2026.
+ * De lookups (client/voorzitter/notulist/aandeelhouder1..5/bewaarderbescheiden) staan hier bewust
+ * NIET in: lookups worden nooit door het portaal geschreven.
+ */
+const LIQUIDATIE_VELDEN = [
+  // Algemeen
+  { key: "soort", veld: "cr283_soort", type: "picklist", label: "Soort liquidatie", sectie: "algemeen" },
+  { key: "datumliquidatie", veld: "cr283_datumliquidatie", type: "datetime", label: "Datum liquidatie", sectie: "algemeen" },
+  { key: "datumnotulen", veld: "cr283_datumnotulen", type: "datetime", label: "Datum notulen", sectie: "algemeen" },
+  { key: "kvknummer", veld: "cr283_kvknummer", type: "integer", label: "KvK-nummer", sectie: "algemeen" },
+  { key: "slotnota", veld: "cr283_slotnota", type: "boolean", label: "Slotnota", sectie: "algemeen" },
+
+  // Aandeelhouders — zeven, net als bij dividend
+  { key: "aantalaandeelhouders", veld: "cr283_aantalaandeelhouders", type: "picklist", label: "Aantal aandeelhouders", sectie: "aandeelhouders" },
+  { key: "aantalaandeelhoudersgeenklant", veld: "cr283_aantalaandeelhoudersgeenklant", type: "picklist", label: "Aantal aandeelhouders (geen klant)", sectie: "aandeelhouders" },
+  { key: "aandeelhoudersgeenklant", veld: "cr283_aandeelhoudersgeenklant", type: "boolean", label: "Aandeelhouders geen klant", sectie: "aandeelhouders" },
+  { key: "aandeelhouder6", veld: "cr283_aandeelhouder6", type: "string", label: "Aandeelhouder 6", sectie: "aandeelhouders" },
+  { key: "aandeelhouder7", veld: "cr283_aandeelhouder7", type: "string", label: "Aandeelhouder 7", sectie: "aandeelhouders" },
+  { key: "aandeelhouders1", veld: "cr283_aandeelhouders1", type: "decimal", label: "Aandeelhouder 1 (%)", sectie: "aandeelhouders" },
+  { key: "aandeelhouders2", veld: "cr283_aandeelhouders2", type: "decimal", label: "Aandeelhouder 2 (%)", sectie: "aandeelhouders" },
+  { key: "aandeelhouders3", veld: "cr283_aandeelhouders3", type: "decimal", label: "Aandeelhouder 3 (%)", sectie: "aandeelhouders" },
+  { key: "aandeelhouders4", veld: "cr283_aandeelhouders4", type: "decimal", label: "Aandeelhouder 4 (%)", sectie: "aandeelhouders" },
+  { key: "aandeelhouders5", veld: "cr283_aandeelhouders5", type: "decimal", label: "Aandeelhouder 5 (%)", sectie: "aandeelhouders" },
+  { key: "aandeelhouders6", veld: "cr283_aandeelhouders6", type: "decimal", label: "Aandeelhouder 6 (%)", sectie: "aandeelhouders" },
+  { key: "aandeelhouders7", veld: "cr283_aandeelhouders7", type: "decimal", label: "Aandeelhouder 7 (%)", sectie: "aandeelhouders" },
+
+  // Vergadering (AvA)
+  { key: "emailvoorzitter", veld: "cr283_emailvoorzitter", type: "string", label: "E-mail voorzitter", sectie: "vergadering" },
+  { key: "emailnotulist", veld: "cr283_emailnotulist", type: "string", label: "E-mail notulist", sectie: "vergadering" },
+
+  // Balans — activa. De volgorde volgt het ontbindingsrapport, zodat de tabel in het opstelscherm
+  // en de dossierweergave dezelfde regels in dezelfde volgorde tonen.
+  { key: "imva", veld: "cr283_imva", type: "integer", label: "Immateriële vaste activa", sectie: "balansactiva" },
+  { key: "mva", veld: "cr283_mva", type: "integer", label: "Materiële vaste activa", sectie: "balansactiva" },
+  { key: "fva", veld: "cr283_fva", type: "integer", label: "Financiële vaste activa", sectie: "balansactiva" },
+  { key: "voorraden", veld: "cr283_voorraden", type: "integer", label: "Voorraden", sectie: "balansactiva" },
+  { key: "vorderingen", veld: "cr283_vorderingen", type: "integer", label: "Vorderingen", sectie: "balansactiva" },
+  { key: "liquidemiddelen", veld: "cr283_liquidemiddelen", type: "integer", label: "Liquide middelen", sectie: "balansactiva" },
+  { key: "totaalactiva", veld: "cr283_totaalactiva", type: "integer", label: "Totaal activa", sectie: "balansactiva" },
+
+  // Balans — passiva
+  { key: "aandelenkapitaal", veld: "cr283_aandelenkapitaal", type: "integer", label: "Aandelenkapitaal", sectie: "balanspassiva" },
+  { key: "overigereserve", veld: "cr283_overigereserve", type: "integer", label: "Overige reserves", sectie: "balanspassiva" },
+  { key: "langlopendeschulden", veld: "cr283_langlopendeschulden", type: "integer", label: "Langlopende schulden", sectie: "balanspassiva" },
+  { key: "kortlopendeschulden", veld: "cr283_kortlopendeschulden", type: "integer", label: "Kortlopende schulden", sectie: "balanspassiva" },
+  { key: "totaalpassiva", veld: "cr283_totaalpassiva", type: "integer", label: "Totaal passiva", sectie: "balanspassiva" },
+
+  // Resultatenrekening
+  { key: "omzet", veld: "cr283_omzet", type: "integer", label: "Omzet", sectie: "resultaat" },
+  { key: "kostprijsvandeomzet", veld: "cr283_kostprijsvandeomzet", type: "integer", label: "Kostprijs van de omzet", sectie: "resultaat" },
+  { key: "brutomarge", veld: "cr283_brutomarge", type: "integer", label: "Bruto marge", sectie: "resultaat" },
+  { key: "overigebedrijfskosten", veld: "cr283_overigebedrijfskosten", type: "integer", label: "Overige bedrijfskosten", sectie: "resultaat" },
+  { key: "bedrijfsresultaat", veld: "cr283_bedrijfsresultaat", type: "integer", label: "Bedrijfsresultaat", sectie: "resultaat" },
+  { key: "financielebatenenlasten", veld: "cr283_financielebatenenlasten", type: "integer", label: "Financiële baten en lasten", sectie: "resultaat" },
+  { key: "belastingen", veld: "cr283_belastingen", type: "integer", label: "Belastingen", sectie: "resultaat" },
+  { key: "resultaatnabelastingen", veld: "cr283_resultaatnabelastingen", type: "integer", label: "Resultaat na belastingen", sectie: "resultaat" },
+
+  // Toelichting
+  { key: "extratoelichting", veld: "cr283_extratoelichting", type: "boolean", label: "Extra toelichting van toepassing", sectie: "toelichting" },
+  { key: "toelichting", veld: "cr283_toelichting", type: "memo", label: "Toelichting", sectie: "toelichting" },
+];
+const LIQUIDATIE_DYNAMISCHE_PICKLISTS = LIQUIDATIE_VELDEN.filter((v) => v.type === "picklist").map((v) => v.veld);
+const LIQUIDATIE_SECTIE_TITELS_STANDAARD = {
+  algemeen: "Algemeen",
+  aandeelhouders: "Aandeelhouders",
+  vergadering: "Vergadering (AvA)",
+  balansactiva: "Balans — activa",
+  balanspassiva: "Balans — passiva",
+  resultaat: "Resultatenrekening",
+  toelichting: "Toelichting",
+};
+const LIQUIDATIE_SECTIE_VOLGORDE_STANDAARD = ["algemeen", "aandeelhouders", "vergadering", "balansactiva", "balanspassiva", "resultaat", "toelichting"];
+
 /** De drie "vaste" dossiervelden (Status van de aangifte / URL dossier / Documentlink) zijn GEEN
  * onderdeel van de vrije veldencatalogus hierboven — ze staan al vast in dossiers.js
  * (werkDossierBij/naarBuiten, elk met hun eigen Dynamics-kolom per soort) en blijven dat ook.
@@ -461,6 +538,27 @@ function standaardIndelingNotulen() {
   };
 }
 
+/** Standaardindeling voor Liquidatiestukken — Algemeen / Aandeelhouders / Vergadering / de twee
+ * balanshelften / Resultatenrekening / Toelichting. Zelfde structuur als de andere soorten. */
+function standaardIndelingLiquidatie() {
+  return {
+    secties: LIQUIDATIE_SECTIE_VOLGORDE_STANDAARD.map((sleutel, i) => ({
+      sleutel,
+      titel: LIQUIDATIE_SECTIE_TITELS_STANDAARD[sleutel],
+      velden: i === 0
+        ? ["__status", "__urlDossier", ...LIQUIDATIE_VELDEN.filter((v) => v.sectie === sleutel).map((v) => v.key)]
+        : LIQUIDATIE_VELDEN.filter((v) => v.sectie === sleutel).map((v) => v.key),
+      subsecties: [],
+    })),
+    verborgen: [],
+    voorwaarden: {},
+    alleenLezen: [],
+    labels: {},
+    aangepasteVelden: [],
+    onderwerpId: "",
+  };
+}
+
 /** Minimale standaardindeling voor soorten zonder eigen veldencatalogus — alleen de vaste velden
  * die voor die soort gelden, in één "Algemeen"-sectie. Zorgt dat Status/links gewoon blijven
  * verschijnen ook al heeft een soort (nog) geen eigen Beheer-indeling. */
@@ -489,7 +587,8 @@ function veldOpKey(key) {
   return IB_VELDEN.find((v) => v.key === key)
     || VPB_VELDEN.find((v) => v.key === key)
     || DIVIDEND_VELDEN.find((v) => v.key === key)
-    || NOTULEN_VELDEN.find((v) => v.key === key);
+    || NOTULEN_VELDEN.find((v) => v.key === key)
+    || LIQUIDATIE_VELDEN.find((v) => v.key === key);
 }
 
 module.exports = {
@@ -501,10 +600,13 @@ module.exports = {
   DIVIDEND_DYNAMISCHE_PICKLISTS,
   NOTULEN_VELDEN,
   NOTULEN_DYNAMISCHE_PICKLISTS,
+  LIQUIDATIE_VELDEN,
+  LIQUIDATIE_DYNAMISCHE_PICKLISTS,
   standaardIndelingIB,
   standaardIndelingVPB,
   standaardIndelingDividend,
   standaardIndelingNotulen,
+  standaardIndelingLiquidatie,
   standaardIndelingOverig,
   vasteVeldenVoorSoort,
   metLabels,

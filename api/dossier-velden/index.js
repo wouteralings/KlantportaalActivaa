@@ -21,7 +21,7 @@
  */
 const { haalRollenUitPrincipal, haalDynamicsToken } = require("../_gedeeld/identiteit");
 const { SOORTEN, haalDynamischePicklistOpties } = require("../_gedeeld/dossiers");
-const { vasteVeldenVoorSoort, metLabels, standaardIndelingIB, standaardIndelingVPB, standaardIndelingDividend, standaardIndelingNotulen, standaardIndelingOverig } = require("../_gedeeld/dossierVelden");
+const { vasteVeldenVoorSoort, metLabels, standaardIndelingIB, standaardIndelingVPB, standaardIndelingDividend, standaardIndelingNotulen, standaardIndelingLiquidatie, standaardIndelingOverig } = require("../_gedeeld/dossierVelden");
 const { haalInstellingen } = require("../_gedeeld/instellingen");
 
 // De standaardindeling van een soort — zodat Beheer → Dossiers een nog niet geconfigureerde soort
@@ -32,6 +32,7 @@ function standaardIndelingVoor(soort) {
   if (soort.key === "vpb") return standaardIndelingVPB();
   if (soort.key === "dividend") return standaardIndelingDividend();
   if (soort.key === "notulen") return standaardIndelingNotulen();
+  if (soort.key === "liquidatie") return standaardIndelingLiquidatie();
   return standaardIndelingOverig(soort);
 }
 
