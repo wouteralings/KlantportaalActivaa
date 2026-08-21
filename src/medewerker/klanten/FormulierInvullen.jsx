@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X, FileText, Loader2, AlertTriangle, CheckCircle2, ArrowLeft, Printer, Save, RotateCcw } from "lucide-react";
 import { veldLabel } from "../../beheer/FormulierenBeheer";
-import { zichtbareVeldnamen } from "../formulierVoorwaarden";
+import { zichtbareVeldnamen, lijktOpIban, ibanTekst } from "../formulierVoorwaarden";
 
 /**
  * Formulier invullen — medewerkersportaal → Klantoverzicht → Brieven → Formulieren.
@@ -96,18 +96,19 @@ function waardeUitBron(bron, klant, afzender) {
       case "kantooremail": return veiligeStr(a.email);
       case "kantoorkvk": return veiligeStr(a.kvk);
       case "kantoorbtw": return veiligeStr(a.btw);
+      case "kantooriban": return veiligeStr(a.iban);
       default: return "";
     }
   }
   if (!klant) return "";
+  // Een eigen kolom van het klantoverzicht (Beheer → Instellingen): zo komen bsn, IBAN en wat je
+  // verder aan Dynamics-velden toevoegt hier binnen zonder dat er code bij hoeft.
+  if (bron.startsWith("extra:")) return veiligeStr((klant.extra || {})[bron.slice(6)]);
   const adres = klant.adres || {};
   const contact = klant.contact || {};
   switch (bron) {
     case "klantnaam": return veiligeStr(klant.klantnaam);
     case "kvk": return veiligeStr(klant.kvk);
-    // Het bsn/fiscaal nummer komt uit een eigen Dynamics-kolom; is die niet ingesteld, dan blijft
-    // dit leeg. Bij een rechtspersoon is het RSIN doorgaans het deel van het btw-nummer vóór de B.
-    case "bsn": return veiligeStr(klant.bsn);
     case "btwnummer": return veiligeStr(klant.btwnummer);
     case "rsin": return nummerdeel(klant.btwnummer, "B", "hoofd");
     case "btwsubnummer": return nummerdeel(klant.btwnummer, "B", "sub");
@@ -216,6 +217,15 @@ export default function FormulierInvullen({ onTerug }) {
   }, [formulier, klant, afzender]);
 
   function zet(naam, waarde) { setAntwoorden((a) => ({ ...a, [naam]: waarde })); }
+
+  // Zodra je uit een veld klikt waar een rekeningnummer in staat, zetten we het netjes in groepjes
+  // van vier — zoals je een IBAN schrijft. Op papier haalt de vuller de spaties er weer uit als het
+  // veld uit losse hokjes bestaat; daar zou een spatie het nummer scheeftrekken.
+  function netjes(naam, waarde) {
+    if (!lijktOpIban(waarde)) return;
+    const mooi = ibanTekst(waarde, false);
+    if (mooi !== veiligeStr(waarde)) zet(naam, mooi);
+  }
 
   async function maak(opslaan) {
     if (!formulier) { setMelding({ type: "fout", tekst: "Kies eerst een formulier." }); return; }
@@ -375,7 +385,12 @@ export default function FormulierInvullen({ onTerug }) {
                       ) : v.soort === "memo" ? (
                         <textarea value={veiligeStr(waarde)} onChange={(e) => zet(v.naam, e.target.value)} rows={2} style={{ ...invoer, resize: "vertical", lineHeight: 1.4 }} />
                       ) : (
-                        <input value={veiligeStr(waarde)} onChange={(e) => zet(v.naam, e.target.value)} style={{ ...invoer, borderColor: teLang ? KLEUR.rood : KLEUR.rand }} />
+                        <input
+                          value={veiligeStr(waarde)}
+                          onChange={(e) => zet(v.naam, e.target.value)}
+                          onBlur={(e) => netjes(v.naam, e.target.value)}
+                          style={{ ...invoer, borderColor: teLang ? KLEUR.rood : KLEUR.rand }}
+                        />
                       )}
                       {teLang > 0 && (
                         <div style={{ fontSize: 11, color: KLEUR.rood, marginTop: 3 }}>

@@ -30,7 +30,6 @@ export const BRONGROEPEN = [
     items: [
       { key: "klantnaam", label: "Naam cliënt" },
       { key: "kvk", label: "KvK-nummer" },
-      { key: "bsn", label: "Bsn / fiscaal nummer" },
       { key: "btwnummer", label: "Btw-nummer (volledig)" },
       // Formulieren splitsen deze nummers vaak: het deel vóór de letter en het subnummer erna
       // krijgen elk hun eigen hokjes. De Belastingdienst noemt het deel vóór de B zelf "RSIN of
@@ -79,10 +78,23 @@ export const BRONGROEPEN = [
       { key: "kantooremail", label: "E-mail" },
       { key: "kantoorkvk", label: "KvK-nummer" },
       { key: "kantoorbtw", label: "Btw-nummer" },
+      { key: "kantooriban", label: "IBAN" },
     ],
   },
   { groep: "Overig", items: [{ key: "vandaag", label: "Datum van vandaag" }] },
 ];
+
+/**
+ * Alles wat níét standaard van de klantkaart komt — bsn, IBAN, een eigen kenmerk — voeg je toe als
+ * extra kolom bij Beheer → Instellingen → kolommen van het klantoverzicht. Die kolommen verschijnen
+ * hier vanzelf als bron, zodat er voor een volgend Dynamics-veld geen nieuwe regel code nodig is.
+ */
+export function extraKolomBronnen(extraKolommen) {
+  const items = (Array.isArray(extraKolommen) ? extraKolommen : [])
+    .filter((c) => c && c.veld)
+    .map((c) => ({ key: `extra:${c.veld}`, label: veiligeStr(c.label) || c.veld }));
+  return items.length ? [{ groep: "Extra kolommen van de klantkaart", items }] : [];
+}
 
 /** Platte lijst met de lege keuze vooraan — voor code die niet in groepen denkt. */
 export const BRONNEN = [{ key: "", label: "— niet automatisch —" }, ...BRONGROEPEN.flatMap((g) => g.items)];
@@ -163,6 +175,7 @@ export default function FormulierenBeheer() {
   const [open, setOpen] = useState("");           // welk formulier is uitgeklapt
   const [naam, setNaam] = useState("");
   const [omschrijving, setOmschrijving] = useState("");
+  const [extraKolommen, setExtraKolommen] = useState([]); // eigen kolommen van het klantoverzicht
   const bestandRef = useRef(null);
   const levend = useRef(true);
   useEffect(() => () => { levend.current = false; }, []);
@@ -179,6 +192,15 @@ export default function FormulierenBeheer() {
     }
   }
   useEffect(() => { laad(); }, []);
+
+  // De eigen kolommen die bij Beheer → Instellingen aan het klantoverzicht zijn toegevoegd; die
+  // bieden we hieronder als bron aan. Lukt het ophalen niet, dan blijft die groep gewoon leeg.
+  useEffect(() => {
+    fetch("/api/beheer-instellingen")
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((d) => { if (levend.current) setExtraKolommen((d.klantoverzicht && d.klantoverzicht.extraKolommen) || []); })
+      .catch(() => { if (levend.current) setExtraKolommen([]); });
+  }, []);
 
   /** Het gekozen bestand als data-URL versturen; de server leest de velden eruit. */
   async function upload(bestand) {
@@ -385,7 +407,7 @@ export default function FormulierenBeheer() {
                                 title="Waarmee dit veld automatisch gevuld wordt bij het invullen"
                               >
                                 <option value="">— niet automatisch —</option>
-                                {BRONGROEPEN.map((g) => (
+                                {[...BRONGROEPEN, ...extraKolomBronnen(extraKolommen)].map((g) => (
                                   <optgroup key={g.groep} label={g.groep}>
                                     {g.items.map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}
                                   </optgroup>

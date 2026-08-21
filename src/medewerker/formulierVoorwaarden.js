@@ -103,3 +103,31 @@ export function antwoordLabels(veld) {
   if (veld.soort === "vink") return ["Aangekruist"];
   return (veld.opties || []).map((o, i) => String(o || "").trim() || `Optie ${i + 1}`);
 }
+
+/**
+ * Ziet deze waarde eruit als een rekeningnummer? Twee letters (het land), twee controlecijfers en
+ * daarna nog tien tot dertig letters of cijfers — dat is de vorm van elk IBAN.
+ *
+ * We kijken naar de wáárde en niet naar de veldnaam of de tooltip. Dat scheelde een blunder: op het
+ * formulier Opgaaf rekeningnummer heet het veld eronder "Het nieuwe IBAN rekeningnummer staat op
+ * naam van", en op naam herkennen maakte van "Alings, W." dan "ALIN GSW".
+ */
+export function lijktOpIban(waarde) {
+  const strak = String(waarde == null ? "" : waarde).toUpperCase().replace(/[\s.-]/g, "");
+  return /^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/.test(strak);
+}
+
+/**
+ * Een rekeningnummer netjes op papier krijgen.
+ *
+ * Je tikt een IBAN in zoals je hem kent — "NL34 INGB 0100 9652 53". Staat het veld op papier als een
+ * rij losse hokjes, dan telt elke spatie als een hokje en schuift het hele nummer scheef; daar moeten
+ * de spaties dus juist uit, want de hokjes doen de groepering al. Is het een gewone schrijfregel, dan
+ * zetten we de spaties er per vier tekens juist in — dat leest zoals een rekeningnummer hoort.
+ */
+export function ibanTekst(waarde, inHokjes) {
+  const strak = String(waarde == null ? "" : waarde).toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (!strak) return "";
+  if (inHokjes) return strak;
+  return strak.replace(/(.{4})(?=.)/g, "$1 ");
+}

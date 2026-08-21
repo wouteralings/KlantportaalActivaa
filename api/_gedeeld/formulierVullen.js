@@ -9,7 +9,7 @@
  * bijstellen. Een handtekening zetten blijft handwerk; die kan een PDF-formulier niet voor je doen.
  */
 const { PDFDocument, PDFName, PDFNumber } = require("pdf-lib");
-const { zichtbareVeldnamen } = require("./formulierVoorwaarden");
+const { zichtbareVeldnamen, lijktOpIban, ibanTekst } = require("./formulierVoorwaarden");
 
 const VERBORGEN = 2; // /F bit 2 — zie _gedeeld/formulieren.js
 const AFDRUKKEN = 4; // /F bit 3
@@ -64,10 +64,17 @@ function pasInVeld(veld, tekst) {
 }
 
 function zetTekst(form, naam, waarde) {
-  const tekst = String(waarde == null ? "" : waarde);
+  let tekst = String(waarde == null ? "" : waarde);
   if (!tekst.trim()) return;
   const veld = form.getFieldMaybe(naam);
   if (!veld || typeof veld.setText !== "function") return;
+  if (lijktOpIban(tekst)) {
+    // Losse hokjes tellen een spatie als teken en dan schuift het hele nummer op; een gewone
+    // schrijfregel leest juist prettiger mét spaties. Zie ibanTekst in formulierVoorwaarden.
+    let hokjes = false;
+    try { hokjes = !!veld.isCombed(); } catch { /* niet elk veld meldt dit */ }
+    tekst = ibanTekst(tekst, hokjes);
+  }
   try { veld.setText(pasInVeld(veld, tekst)); } catch { /* een raar teken mag de PDF niet slopen */ }
   maakZichtbaar(veld);
 }
