@@ -249,6 +249,9 @@ module.exports = async function (context, req) {
         : (sharepoint && sharepoint.gedaan) ? "formulier-dossier"
         : "formulier",
       kenmerk,
+      formulierId: id,
+      antwoorden: body.antwoorden,
+      zbs: zbsWens ? { adresRegels: zbsWens.adresRegels, regel: zbsWens.regel } : null,
       naar: mail ? veiligeStr(body.naar) : "",
       cc: mail && body.cc ? (Array.isArray(body.cc) ? body.cc.join(", ") : String(body.cc)) : "",
       accountId: accountId || null,

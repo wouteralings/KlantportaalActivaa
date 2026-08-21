@@ -35,14 +35,19 @@ import { normaliseerSleutel, vulSjabloonIn, menselijkeVeldwaarde, bouwMergeWaard
  */
 function BrievenTab({ isBeheerder = false, magVerwijderen = null }) {
   const [briefView, setBriefView] = useState("logboek");
+  // Niet-null = een formulier uit het logboek dat opnieuw geopend wordt, mét de antwoorden van toen.
+  const [heropenen, setHerOpenen] = useState(null);
   if (briefView === "opstellen") return <BrievenOverzicht onTerug={() => setBriefView("logboek")} />;
   // Formulieren: invulbare PDF's die in Beheer zijn toegevoegd (Belastingdienst, KvK, …). Ze horen
   // bij Brieven omdat het net als een brief iets is wat je voor een cliënt opmaakt en meestuurt.
-  if (briefView === "formulieren") return <FormulierInvullen onTerug={() => setBriefView("logboek")} />;
+  if (briefView === "formulieren") {
+    return <FormulierInvullen start={heropenen} onTerug={() => { setHerOpenen(null); setBriefView("logboek"); }} />;
+  }
   return (
     <BrievenLogboek
       onNieuweBrief={() => setBriefView("opstellen")}
-      onFormulieren={() => setBriefView("formulieren")}
+      onFormulieren={() => { setHerOpenen(null); setBriefView("formulieren"); }}
+      onOpenFormulier={(regel) => { setHerOpenen(regel); setBriefView("formulieren"); }}
       isBeheerder={isBeheerder}
       magVerwijderen={magVerwijderen}
     />

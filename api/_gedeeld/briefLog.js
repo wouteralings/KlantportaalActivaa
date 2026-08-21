@@ -77,6 +77,13 @@ async function voegBriefToe(record) {
     medewerker: record.medewerker || "",
     pdfUrl: record.pdfUrl || "",
     bijlageNaam: record.bijlageNaam || "",
+    // Alleen bij een formulier: genoeg om hem later opnieuw te openen en er een kopie van te maken.
+    // De antwoorden zijn de ingetikte waarden, niet het document zelf — dat staat in SharePoint.
+    ...(record.soort === "formulier" ? {
+      formulierId: record.formulierId || "",
+      antwoorden: record.antwoorden && typeof record.antwoorden === "object" ? record.antwoorden : {},
+      zbs: record.zbs && typeof record.zbs === "object" ? record.zbs : null,
+    } : {}),
   };
   brieven.push(nieuw);
   await schrijfBrieven(brieven);

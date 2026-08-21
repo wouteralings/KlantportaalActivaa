@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Search, X, FileText, Loader2, AlertTriangle, CheckCircle2, ArrowLeft, Printer, Save, RotateCcw, FolderInput, Mail } from "lucide-react";
+import { Search, X, FileText, Loader2, AlertTriangle, CheckCircle2, ArrowLeft, Printer, Save, RotateCcw, FolderInput, Mail, Copy } from "lucide-react";
 import { veldLabel } from "../../beheer/FormulierenBeheer";
 import { zichtbareVeldnamen, lijktOpIban, ibanTekst } from "../formulierVoorwaarden";
 
@@ -150,7 +150,7 @@ function waardeUitBron(bron, klant, afzender, belastingkantoor, vast) {
   }
 }
 
-export default function FormulierInvullen({ onTerug }) {
+export default function FormulierInvullen({ onTerug, start = null }) {
   const [formulieren, setFormulieren] = useState(null);
   const [formulierId, setFormulierId] = useState("");
   const [formulier, setFormulier] = useState(null); // met velden en instellingen
@@ -170,6 +170,25 @@ export default function FormulierInvullen({ onTerug }) {
   const [mailModal, setMailModal] = useState(null); // { onderwerp, tekst, cc, bijlage }
   const levend = useRef(true);
   useEffect(() => () => { levend.current = false; }, []);
+
+  // Heropenen vanuit het logboek: hetzelfde formulier, dezelfde cliënt, dezelfde antwoorden. Wat je
+  // hier daarna maakt is een NIEUW exemplaar met een eigen kenmerk — het origineel in het dossier
+  // blijft ongemoeid. Zo maak je van een eerder formulier in twee tellen een variant.
+  const gestart = useRef(false);
+  useEffect(() => {
+    if (!start || gestart.current) return;
+    gestart.current = true;
+    if (start.formulierId) setFormulierId(start.formulierId);
+    if (start.antwoorden && typeof start.antwoorden === "object") setAntwoorden({ ...start.antwoorden });
+    if (start.zbs && Array.isArray(start.zbs.adresRegels)) setZbsEigenRegels(start.zbs.adresRegels);
+  }, [start]);
+
+  // Bij heropenen ook de cliënt terugzetten zodra de klantenlijst binnen is.
+  useEffect(() => {
+    if (!start || !start.accountId || klant || !klanten.length) return;
+    const gevonden = klanten.find((k) => String(k.accountId).toLowerCase() === String(start.accountId).toLowerCase());
+    if (gevonden) setKlant(gevonden);
+  }, [start, klanten, klant]);
 
   useEffect(() => {
     fetch("/api/medewerker-formulier")
@@ -212,10 +231,13 @@ export default function FormulierInvullen({ onTerug }) {
 
   // Het formulier bepaalt of het ZBS-voorblad standaard meegaat; per keer kun je het omzetten.
   useEffect(() => {
-    setZbsAan(!!(formulier && formulier.zbs && formulier.zbs.aan));
+    if (!formulier) return;
+    // Bij heropenen uit het logboek houden we het adres van toen aan; anders volgen we de instelling.
+    const uitLogboek = start && start.zbs && Array.isArray(start.zbs.adresRegels) ? start.zbs.adresRegels : null;
+    setZbsAan(uitLogboek ? true : !!(formulier.zbs && formulier.zbs.aan));
     setZbsBron("");
-    setZbsEigenRegels(null);
-  }, [formulier]);
+    setZbsEigenRegels(uitLogboek);
+  }, [formulier, start]);
 
   // Mailadres van de cliënt voorstellen zodra die gekozen is.
   useEffect(() => {
@@ -403,6 +425,16 @@ export default function FormulierInvullen({ onTerug }) {
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 20 }}>
         <div style={{ flex: "1 1 460px", minWidth: 340, display: "flex", flexDirection: "column", gap: 16 }}>
+          {start && (
+            <div style={{ display: "flex", gap: 8, padding: "9px 11px", borderRadius: 8, fontSize: 12, background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, color: KLEUR.subtekst }}>
+              <Copy size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+              <span>
+                Geopend vanuit het logboek{veiligeStr(start.kenmerk) ? ` (kenmerk ${start.kenmerk})` : ""}. Pas aan wat
+                anders moet; wat je hierna maakt is een nieuw exemplaar met een eigen kenmerk. Het origineel blijft staan.
+              </span>
+            </div>
+          )}
+
           {/* Cliënt */}
           <div>
             <span style={label}>Cliënt</span>
@@ -444,7 +476,7 @@ export default function FormulierInvullen({ onTerug }) {
                 Er zijn nog geen formulieren toegevoegd. Dat doe je bij <strong>Beheer → Formulieren</strong>.
               </div>
             ) : (
-              <select value={formulierId} onChange={(e) => { setFormulierId(e.target.value); setAntwoorden({}); }} style={invoer}>
+              <select value={formulierId} onChange={(e) => { setFormulierId(e.target.value); setAntwoorden({}); gestart.current = true; }} style={invoer}>
                 <option value="">— kies een formulier —</option>
                 {formulieren.map((f) => (
                   <option key={f.id} value={f.id}>{f.naam}{f.aantalVelden ? ` (${f.aantalVelden} velden)` : ""}</option>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Search, RefreshCw, Loader2, FileText, AlertTriangle, Plus, ChevronUp, ChevronDown, Star, Link2, Trash2, Check } from "lucide-react";
+import { Search, RefreshCw, Loader2, FileText, AlertTriangle, Plus, ChevronUp, ChevronDown, Star, Link2, Trash2, Check, Copy } from "lucide-react";
 import ScopeToggle, { useMijnNaam, isKlantVanMij } from "../MijnFilter";
 
 /**
@@ -46,7 +46,7 @@ const KOLOMMEN_STANDAARD_VERBORGEN = []; // alle kolommen standaard zichtbaar
 const kolomVan = (key) => KOLOMMEN.find((c) => c.key === key);
 const alleKeys = KOLOMMEN.map((c) => c.key);
 
-export default function BrievenLogboek({ onNieuweBrief, onFormulieren, isBeheerder = false, magVerwijderen = null }) {
+export default function BrievenLogboek({ onNieuweBrief, onFormulieren, onOpenFormulier, isBeheerder = false, magVerwijderen = null }) {
   // Wie mag verwijderen komt uit Beheer → Rollen & toegang (subtabblad "brieven"). Is dat recht
   // niet doorgegeven (oudere aanroep), dan valt hij terug op het oude gedrag: alleen beheerders.
   const magWeg = magVerwijderen === null ? isBeheerder : (magVerwijderen || isBeheerder);
@@ -444,6 +444,17 @@ export default function BrievenLogboek({ onNieuweBrief, onFormulieren, isBeheerd
                       <td key={kol.key} style={td}>{celInhoud(kol, b)}</td>
                     ))}
                     <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
+                      {/* Een formulier kun je opnieuw openen mét de antwoorden van toen: aanpassen en
+                          als nieuw exemplaar bewaren. Het origineel in het dossier blijft staan. */}
+                      {onOpenFormulier && b.soort === "formulier" && b.formulierId && (
+                        <button
+                          onClick={() => onOpenFormulier(b)}
+                          title="Opnieuw openen met de antwoorden van toen — aanpassen en als kopie bewaren"
+                          style={{ ...knopLicht, padding: "5px 9px", marginRight: 6 }}
+                        >
+                          <Copy size={13} /> Openen
+                        </button>
+                      )}
                       {veiligeStr(b.pdfUrl) ? (
                         <>
                           <a href={b.pdfUrl} target="_blank" rel="noopener noreferrer" style={{ ...knopLicht, padding: "5px 9px", textDecoration: "none" }}>
