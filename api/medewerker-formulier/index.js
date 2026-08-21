@@ -213,12 +213,25 @@ module.exports = async function (context, req) {
       const az = (cfg && cfg.afzender) || {};
       const onderwerp = veiligeStr(body.mailOnderwerp) || `${formulier.naam}${klantnaam ? ` — ${klantnaam}` : ""}`;
       try {
+        const bijlagen = [{ naam: bestandsnaam, contentType: PDF_TYPE, inhoud: pdfMetVoorblad }];
+        // Eén extra bestand dat de medewerker in het mailvenster heeft gekozen.
+        const extra = body.bijlage && typeof body.bijlage === "object" ? body.bijlage : null;
+        if (extra && veiligeStr(extra.dataUrl)) {
+          const m = /^data:([^;]*);base64,(.+)$/.exec(String(extra.dataUrl));
+          if (m) {
+            bijlagen.push({
+              naam: veiligeStr(extra.naam) || "bijlage",
+              contentType: veiligeStr(extra.contentType) || m[1] || "application/octet-stream",
+              inhoud: Buffer.from(m[2], "base64"),
+            });
+          }
+        }
         const uit = await verstuurMailMetBijlage({
           naar,
           cc: Array.isArray(body.cc) ? body.cc : (body.cc ? [body.cc] : []),
           onderwerp,
           html: mailHtml(veiligeStr(body.mailTekst), formulier.naam, az),
-          bijlagen: [{ naam: bestandsnaam, contentType: PDF_TYPE, inhoud: pdfMetVoorblad }],
+          bijlagen,
           afzender: az.mailAfzender || "",
         });
         mail = { verzonden: true, van: uit && uit.van };

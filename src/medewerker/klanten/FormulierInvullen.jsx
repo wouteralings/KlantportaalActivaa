@@ -167,6 +167,7 @@ export default function FormulierInvullen({ onTerug }) {
   const [zbsBron, setZbsBron] = useState("");   // "" = zoals in Beheer ingesteld
   const [zbsEigenRegels, setZbsEigenRegels] = useState(null); // niet-null = zelf aangepast
   const [naar, setNaar] = useState("");
+  const [mailModal, setMailModal] = useState(null); // { onderwerp, tekst, cc, bijlage }
   const levend = useRef(true);
   useEffect(() => () => { levend.current = false; }, []);
 
@@ -306,6 +307,26 @@ export default function FormulierInvullen({ onTerug }) {
     if (mooi !== veiligeStr(waarde)) zet(naam, mooi);
   }
 
+  /** Mailvenster openen met een voorstel voor onderwerp en tekst. */
+  function openMail() {
+    if (!formulier) return;
+    setMailModal({
+      onderwerp: `${formulier.naam}${klant ? ` — ${veiligeStr(klant.klantnaam)}` : ""}`,
+      tekst: `Bijgaand ontvangt u het formulier ${formulier.naam}.`,
+      cc: "",
+      bijlage: null,
+      voorblad: zbsAan,
+    });
+  }
+
+  /** Een extra bestand als bijlage meesturen. */
+  function kiesBijlage(bestand) {
+    if (!bestand) { setMailModal((m) => ({ ...m, bijlage: null })); return; }
+    const lezer = new FileReader();
+    lezer.onload = () => setMailModal((m) => ({ ...m, bijlage: { naam: bestand.name, contentType: bestand.type || "application/octet-stream", dataUrl: String(lezer.result) } }));
+    lezer.readAsDataURL(bestand);
+  }
+
   async function maak(actie) {
     if (!formulier) { setMelding({ type: "fout", tekst: "Kies eerst een formulier." }); return; }
     if (actie !== "maken" && !klant) { setMelding({ type: "fout", tekst: "Kies eerst een cliënt." }); return; }
@@ -320,8 +341,16 @@ export default function FormulierInvullen({ onTerug }) {
           klantnaam: klant ? veiligeStr(klant.klantnaam) : "",
           klantnummer: klant ? (klant.klantnummer ?? "") : "",
           actie,
-          ...(actie === "mail" ? { naar: veiligeStr(naar) } : {}),
-          ...(zbsAan ? { zbs: { adresRegels: zbsRegels, regel: (formulier.zbs && formulier.zbs.regel) || "" } } : {}),
+          ...(actie === "mail" && mailModal ? {
+            naar: veiligeStr(naar),
+            cc: veiligeStr(mailModal.cc).split(/[;,]/).map((x) => x.trim()).filter(Boolean),
+            mailOnderwerp: veiligeStr(mailModal.onderwerp),
+            mailTekst: mailModal.tekst,
+            ...(mailModal.bijlage ? { bijlage: mailModal.bijlage } : {}),
+          } : {}),
+          ...((actie === "mail" && mailModal ? mailModal.voorblad : zbsAan)
+            ? { zbs: { adresRegels: zbsRegels, regel: (formulier.zbs && formulier.zbs.regel) || "" } }
+            : {}),
         }),
       });
       const d = await res.json().catch(() => ({}));
@@ -347,7 +376,7 @@ export default function FormulierInvullen({ onTerug }) {
     } catch (e) {
       setMelding({ type: "fout", tekst: String((e && e.message) || e) });
     } finally {
-      if (levend.current) setBezig("");
+      if (levend.current) { setBezig(""); if (actie === "mail") setMailModal(null); }
     }
   }
 
@@ -568,7 +597,7 @@ export default function FormulierInvullen({ onTerug }) {
                 >
                   {bezig === "backoffice" ? <Loader2 size={15} className="spin" /> : <FolderInput size={15} />} Naar backoffice
                 </button>
-                <button onClick={() => maak("mail")} disabled={!!bezig || !klant || !veiligeStr(naar)} style={{ ...knopLicht, opacity: bezig || !klant || !veiligeStr(naar) ? 0.6 : 1 }}>
+                <button onClick={openMail} disabled={!!bezig || !klant || !veiligeStr(naar)} style={{ ...knopLicht, opacity: bezig || !klant || !veiligeStr(naar) ? 0.6 : 1 }}>
                   {bezig === "mail" ? <Loader2 size={15} className="spin" /> : <Mail size={15} />} Mailen naar klant
                 </button>
                 <button onClick={() => setAntwoorden({})} style={{ ...knopLicht }}>
@@ -602,6 +631,68 @@ export default function FormulierInvullen({ onTerug }) {
           )}
         </div>
       </div>
+      {/* Mailvenster: wie het krijgt, wat erin staat en wat er meegaat. */}
+      {mailModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 50 }}>
+          <div style={{ background: "#fff", borderRadius: 12, padding: 20, width: "min(620px, 100%)", maxHeight: "90vh", overflow: "auto", boxShadow: "0 12px 40px rgba(0,0,0,0.2)" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: KLEUR.tekst, marginBottom: 12 }}>Formulier mailen</div>
+
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
+              <div style={{ flex: "1 1 240px" }}>
+                <span style={label}>Aan</span>
+                <input value={naar} onChange={(e) => setNaar(e.target.value)} style={invoer} />
+              </div>
+              <div style={{ flex: "1 1 240px" }}>
+                <span style={label}>Cc (optioneel)</span>
+                <input value={mailModal.cc} onChange={(e) => setMailModal((m) => ({ ...m, cc: e.target.value }))} placeholder="meerdere adressen met een komma" style={invoer} />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 10 }}>
+              <span style={label}>Onderwerp</span>
+              <input value={mailModal.onderwerp} onChange={(e) => setMailModal((m) => ({ ...m, onderwerp: e.target.value }))} style={invoer} />
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <span style={label}>Bericht</span>
+              <textarea value={mailModal.tekst} onChange={(e) => setMailModal((m) => ({ ...m, tekst: e.target.value }))} rows={5} style={{ ...invoer, resize: "vertical", lineHeight: 1.5 }} />
+            </div>
+
+            <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "10px 12px", marginBottom: 14, background: "#FAFBF9" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 6 }}>Wat gaat er mee</div>
+              <div style={{ fontSize: 12.5, color: KLEUR.tekst, marginBottom: 6 }}>
+                <CheckCircle2 size={13} color={KLEUR.groen} style={{ verticalAlign: "-2px", marginRight: 6 }} />
+                Het ingevulde formulier als PDF
+              </div>
+              {formulier && formulier.zbs && (
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, cursor: "pointer", marginBottom: 6 }}>
+                  <input type="checkbox" checked={!!mailModal.voorblad} onChange={(e) => setMailModal((m) => ({ ...m, voorblad: e.target.checked }))} style={{ width: 15, height: 15 }} />
+                  Voorblad (ZBS) als eerste pagina
+                </label>
+              )}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <input type="file" onChange={(e) => kiesBijlage(e.target.files && e.target.files[0])} style={{ fontSize: 12 }} />
+                {mailModal.bijlage && (
+                  <button onClick={() => kiesBijlage(null)} style={{ ...knopLicht, padding: "4px 9px", fontSize: 11.5 }}><X size={13} /> Weghalen</button>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: KLEUR.mutedTekst, marginTop: 4 }}>Optioneel: nog een bestand meesturen.</div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button onClick={() => setMailModal(null)} disabled={bezig === "mail"} style={{ ...knopLicht, opacity: bezig === "mail" ? 0.6 : 1 }}>Annuleren</button>
+              <button
+                onClick={() => maak("mail")}
+                disabled={bezig === "mail" || !veiligeStr(naar)}
+                style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 14px", borderRadius: 8, border: "none", background: KLEUR.groen, color: "#fff", fontSize: 12.5, fontWeight: 600, cursor: "pointer", opacity: bezig === "mail" || !veiligeStr(naar) ? 0.6 : 1 }}
+              >
+                {bezig === "mail" ? <Loader2 size={15} className="spin" /> : <Mail size={15} />} Versturen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`@keyframes forminvulspin{to{transform:rotate(360deg)}} .spin{animation:forminvulspin 1s linear infinite}`}</style>
     </div>
   );

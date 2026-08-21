@@ -56,7 +56,7 @@ async function haalFormulieren() {
     if (!(await blob.exists())) return [];
     const tekst = (await streamNaarBuffer((await blob.download()).readableStreamBody)).toString("utf-8");
     const lijst = JSON.parse(tekst);
-    return Array.isArray(lijst) ? lijst : [];
+    return Array.isArray(lijst) ? lijst.map(metStandaarden) : [];
   } catch {
     return [];
   }
@@ -71,7 +71,19 @@ async function schrijfFormulieren(lijst) {
 
 async function haalFormulier(id) {
   const lijst = await haalFormulieren();
-  return lijst.find((f) => String(f.id) === String(id)) || null;
+  return lijst.find((f) => String(f.id) === String(id)) || null; // al aangevuld door haalFormulieren
+}
+
+/**
+ * Vult ontbrekende onderdelen aan met hun standaardwaarde.
+ *
+ * Formulieren die zijn toegevoegd vóórdat het ZBS-voorblad en de eigen opslagmap bestonden, hebben
+ * die velden niet in hun opgeslagen definitie. Zonder deze aanvulling laat het invulscherm het hele
+ * voorblad-blok weg en lijkt de instelling niets te doen — precies wat er in de praktijk gebeurde.
+ */
+function metStandaarden(formulier) {
+  if (!formulier) return formulier;
+  return { ...formulier, zbs: normaliseerZbs(formulier.zbs), map: String(formulier.map || "") };
 }
 
 /** De blanco PDF van een formulier. */
@@ -355,6 +367,7 @@ module.exports = {
   groepeerDatums,
   standaardZbs,
   normaliseerZbs,
+  metStandaarden,
   ALLEEN_LEZEN,
   VERBORGEN,
   AFDRUKKEN,
