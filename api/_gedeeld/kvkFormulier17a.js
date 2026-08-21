@@ -194,9 +194,36 @@ const GESPLITSTE_KEUZES = {
   ],
 };
 
+/**
+ * De secties met de aanpassingen uit Beheer → Liquidatiestukken erop.
+ *
+ * Per vraag kun je daar een eigen label geven, hem verbergen als je hem nooit invult, en een vast
+ * antwoord meegeven dat alvast klaarstaat. De vragenlijst zelf blijft in code staan — de sprongen
+ * ("bij turboliquidatie geen vereffenaar") zitten in de `toon`-functies en die zijn te eigen aan dit
+ * formulier om in te stellen.
+ *
+ * `cfg` is instellingen.kvk17a: { "<vraag-id>": { label, verborgen, standaard } }.
+ */
+function metInstellingen(cfg) {
+  const c = cfg && typeof cfg === "object" ? cfg : {};
+  if (!Object.keys(c).length) return SECTIES;
+  return SECTIES
+    .map((sectie) => ({
+      ...sectie,
+      vragen: sectie.vragen
+        .filter((v) => !(c[v.id] && c[v.id].verborgen === true))
+        .map((v) => {
+          const eigen = c[v.id] || {};
+          const label = String(eigen.label || "").trim();
+          return label ? { ...v, vraag: label } : v;
+        }),
+    }))
+    .filter((s) => s.vragen.length > 0);
+}
+
 /** Alle vragen achter elkaar, in formuliervolgorde. */
-function alleVragen() {
-  return SECTIES.flatMap((s) => s.vragen);
+function alleVragen(cfg) {
+  return metInstellingen(cfg).flatMap((s) => s.vragen);
 }
 
 /** Wordt deze vraag getoond bij deze antwoorden? Zonder `toon` is het antwoord altijd ja. */
@@ -210,8 +237,8 @@ function toonVraag(vraag, antwoorden) {
 }
 
 /** De vragen die nu zichtbaar zijn, per sectie (secties zonder zichtbare vragen vallen weg). */
-function zichtbareSecties(antwoorden) {
-  return SECTIES
+function zichtbareSecties(antwoorden, cfg) {
+  return metInstellingen(cfg)
     .map((s) => ({ ...s, vragen: s.vragen.filter((v) => toonVraag(v, antwoorden)) }))
     .filter((s) => s.vragen.length > 0);
 }
@@ -220,9 +247,9 @@ function zichtbareSecties(antwoorden) {
  * Welke zichtbare, verplichte vragen nog leeg zijn. Bewust géén blokkade: je mag het formulier
  * half ingevuld afdrukken en met pen afmaken. Het scherm laat alleen zien wat er nog mist.
  */
-function ontbrekend(antwoorden) {
+function ontbrekend(antwoorden, cfg) {
   const a = antwoorden || {};
-  return alleVragen()
+  return alleVragen(cfg)
     .filter((v) => v.verplicht && toonVraag(v, a))
     .filter((v) => {
       const w = a[v.id];
@@ -237,9 +264,10 @@ function ontbrekend(antwoorden) {
  * Vult de antwoorden aan met wat we al weten uit de klantkaart en het liquidatiedossier. Bestaande
  * antwoorden blijven staan — een ingevuld antwoord wordt nooit overschreven door een voorstel.
  */
-function vulVoor(antwoorden, context) {
+function vulVoor(antwoorden, context, cfg) {
   const a = { ...(antwoorden || {}) };
   const c = context || {};
+  const eigenCfg = cfg && typeof cfg === "object" ? cfg : {};
   const waarden = {
     [BRON.KLANTNAAM]: c.klantnaam,
     [BRON.VESTIGINGSPLAATS]: c.vestigingsplaats,
@@ -254,14 +282,19 @@ function vulVoor(antwoorden, context) {
     [BRON.TELEFOON]: c.telefoon,
     [BRON.VANDAAG]: c.vandaag,
   };
-  for (const v of alleVragen()) {
-    if (!v.bron) continue;
+  for (const v of alleVragen(eigenCfg)) {
     const huidig = a[v.id];
-    if (huidig !== undefined && huidig !== null && String(huidig).trim() !== "") continue;
+    const alBeantwoord = huidig !== undefined && huidig !== null && String(huidig).trim() !== "";
+    if (alBeantwoord) continue;
+    // Eerst het vaste antwoord uit Beheer; kruisjes die bijna altijd hetzelfde staan hoef je dan
+    // niet meer aan te klikken. Daarna pas wat we uit de klantkaart en het dossier weten.
+    const vast = (eigenCfg[v.id] || {}).standaard;
+    if (vast !== undefined && vast !== null && vast !== "") { a[v.id] = vast; continue; }
+    if (!v.bron) continue;
     const voorstel = waarden[v.bron];
     if (voorstel !== undefined && voorstel !== null && String(voorstel).trim() !== "") a[v.id] = String(voorstel);
   }
   return a;
 }
 
-module.exports = { SECTIES, GESPLITSTE_KEUZES, BRON, alleVragen, toonVraag, zichtbareSecties, ontbrekend, vulVoor };
+module.exports = { SECTIES, GESPLITSTE_KEUZES, BRON, alleVragen, toonVraag, zichtbareSecties, ontbrekend, vulVoor, metInstellingen };

@@ -1,5 +1,6 @@
 import { Info } from "lucide-react";
 import DossierSjablonenPerSoort, { DossierMailTaakPerSoort, DossierBijlagePerSoort, StukOpslagInstellingen } from "./DossierSjablonenBeheer";
+import KvkFormulierBeheer from "./KvkFormulierBeheer";
 
 /**
  * Beheer → Liquidatiestukken — zelfde opzet als Beheer → Notulen en Beheer → Dividend.
@@ -39,6 +40,9 @@ export default function LiquidatieBeheer() {
       </div>
 
       <DossierSjablonenPerSoort soort="liquidatie" />
+      {/* Het KvK-formulier hoort bij de liquidatiestukken en wordt daarom hier onderhouden, niet
+          onder Brieven → Formulieren. */}
+      <KvkFormulierBeheer />
       <DossierBijlagePerSoort soort="liquidatie" />
       <DossierMailTaakPerSoort soort="liquidatie" />
       {/* Onderaan, want het is de laatste stap: waar het stuk terechtkomt als je klaar bent. */}

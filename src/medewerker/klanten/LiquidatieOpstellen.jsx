@@ -267,6 +267,9 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
   const [formulierVoorbeeldFout, setFormulierVoorbeeldFout] = useState("");
   // Wel/niet meesturen bij mailen. Standaard aan: het formulier hoort bij de stukken.
   const [formulierMeesturen, setFormulierMeesturen] = useState(true);
+  // Aanpassingen aan het KvK-formulier uit Beheer → Liquidatiestukken: eigen labels, verborgen
+  // vragen en vaste antwoorden. Leeg = het formulier zoals het van de KvK komt.
+  const [formulierCfg, setFormulierCfg] = useState({});
   const [kvknummer, setKvknummer] = useState("");
   const [bewaarder, setBewaarder] = useState("");
   // Naam- en adresgegevens van de gekozen bewaarder, voor het KvK-formulier (dat vraagt achternaam,
@@ -331,6 +334,12 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
       .then((r) => (r.ok ? r.json() : Promise.reject(r)))
       .then((d) => { if (levend.current) setMailCfg((d && d.liquidatieMail) || {}); })
       .catch(() => { if (levend.current) setMailCfg({}); });
+    // Aanpassingen aan het KvK-formulier uit Beheer. Best-effort: zonder deze staat het formulier
+    // er precies zo bij als het van de Kamer van Koophandel komt.
+    fetch("/api/medewerker-liquidatie-formulier")
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((d) => { if (levend.current) setFormulierCfg((d && d.kvk17a) || {}); })
+      .catch(() => { if (levend.current) setFormulierCfg({}); });
     fetch("/api/beheer-medewerkers")
       .then((r) => (r.ok ? r.json() : Promise.reject(r)))
       .then((d) => { if (levend.current) setMedewerkers(d.medewerkers || []); })
@@ -722,9 +731,9 @@ export default function LiquidatieOpstellen({ onTerug, openStuk = null }) {
 
   // Voorvullen zonder ooit een ingetikt antwoord te overschrijven — vandaar vulVoor() en niet gewoon
   // een merge. Loopt live mee: pas je de datum van ontbinding aan, dan volgt het formulier.
-  const formulierAntwoorden = useMemo(() => formulierVulVoor(formulier, formulierContext), [formulier, formulierContext]);
-  const formulierVragen = useMemo(() => formulierSecties(formulierAntwoorden), [formulierAntwoorden]);
-  const formulierMist = useMemo(() => formulierOntbrekend(formulierAntwoorden), [formulierAntwoorden]);
+  const formulierAntwoorden = useMemo(() => formulierVulVoor(formulier, formulierContext, formulierCfg), [formulier, formulierContext, formulierCfg]);
+  const formulierVragen = useMemo(() => formulierSecties(formulierAntwoorden, formulierCfg), [formulierAntwoorden, formulierCfg]);
+  const formulierMist = useMemo(() => formulierOntbrekend(formulierAntwoorden, formulierCfg), [formulierAntwoorden, formulierCfg]);
 
   function zetFormulier(id, waarde) {
     setFormulier((f) => ({ ...f, [id]: waarde }));

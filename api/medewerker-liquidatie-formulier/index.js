@@ -71,7 +71,24 @@ async function naarSharepoint({ accountId, submap, bestandsnaam, buffer }) {
   }
 }
 
+/** De aanpassingen uit Beheer → Liquidatiestukken: eigen labels, verborgen vragen, vaste antwoorden. */
+async function haalKvkCfg() {
+  try {
+    const inst = await haalInstellingen();
+    return (inst && inst.kvk17a && typeof inst.kvk17a === "object") ? inst.kvk17a : {};
+  } catch {
+    return {};
+  }
+}
+
 module.exports = async function (context, req) {
+  // GET geeft alleen de instellingen terug, zodat het opstelscherm dezelfde labels en verborgen
+  // vragen kan tonen als waarmee straks gevuld wordt. Bewust hier en niet in /api/instellingen:
+  // dat endpoint is ook voor cliënten leesbaar en dit is intern.
+  if (req.method === "GET") {
+    context.res = json(200, { kvk17a: await haalKvkCfg() });
+    return;
+  }
   if (req.method !== "POST") {
     context.res = json(405, { error: "Methode niet ondersteund." });
     return;
@@ -84,9 +101,17 @@ module.exports = async function (context, req) {
   const datum = veiligeStr(body.datum) || veiligeStr(antwoorden["2.1.1"]);
 
   try {
-    const pdf = await vulFormulier17a(antwoorden);
+    const cfg = await haalKvkCfg();
+    // Een verborgen vraag komt ook niet op papier: wat je niet in beeld hebt gehad, hoort er niet
+    // te staan. Daarom eerst de antwoorden van verborgen vragen eruit.
+    const zichtbaar = {};
+    for (const [id, waarde] of Object.entries(antwoorden)) {
+      if (cfg[id] && cfg[id].verborgen === true) continue;
+      zichtbaar[id] = waarde;
+    }
+    const pdf = await vulFormulier17a(zichtbaar);
     const bestandsnaam = bestandsnaamVoor(klantnaam, datum);
-    const mist = ontbrekend(antwoorden);
+    const mist = ontbrekend(zichtbaar, cfg);
 
     let sharepoint;
     if (body.opslaan === true && accountId) {

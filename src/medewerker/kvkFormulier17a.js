@@ -9,8 +9,8 @@
  * er de PDF mee. Verandert KvK het formulier, dan pas je dit bestand aan (en het blanco formulier in
  * _gedeeld/formulieren/) — nergens anders.
  *
- * LET OP: `api/_gedeeld/kvkFormulier17a.js` is de spiegel hiervan voor de server (CommonJS i.p.v.
- * ESM). Wijzig je hier iets, wijzig het daar mee.
+ * LET OP: `src/medewerker/kvkFormulier17a.js` is de spiegel hiervan voor de browser (ESM i.p.v.
+ * CommonJS). Wijzig je hier iets, wijzig het daar mee.
  *
  * Veldsoorten:
  *   tekst   → één PDF-tekstveld (`pdf`)
@@ -194,9 +194,36 @@ export const GESPLITSTE_KEUZES = {
   ],
 };
 
+/**
+ * De secties met de aanpassingen uit Beheer → Liquidatiestukken erop.
+ *
+ * Per vraag kun je daar een eigen label geven, hem verbergen als je hem nooit invult, en een vast
+ * antwoord meegeven dat alvast klaarstaat. De vragenlijst zelf blijft in code staan — de sprongen
+ * ("bij turboliquidatie geen vereffenaar") zitten in de `toon`-functies en die zijn te eigen aan dit
+ * formulier om in te stellen.
+ *
+ * `cfg` is instellingen.kvk17a: { "<vraag-id>": { label, verborgen, standaard } }.
+ */
+export function metInstellingen(cfg) {
+  const c = cfg && typeof cfg === "object" ? cfg : {};
+  if (!Object.keys(c).length) return SECTIES;
+  return SECTIES
+    .map((sectie) => ({
+      ...sectie,
+      vragen: sectie.vragen
+        .filter((v) => !(c[v.id] && c[v.id].verborgen === true))
+        .map((v) => {
+          const eigen = c[v.id] || {};
+          const label = String(eigen.label || "").trim();
+          return label ? { ...v, vraag: label } : v;
+        }),
+    }))
+    .filter((s) => s.vragen.length > 0);
+}
+
 /** Alle vragen achter elkaar, in formuliervolgorde. */
-export function alleVragen() {
-  return SECTIES.flatMap((s) => s.vragen);
+export function alleVragen(cfg) {
+  return metInstellingen(cfg).flatMap((s) => s.vragen);
 }
 
 /** Wordt deze vraag getoond bij deze antwoorden? Zonder `toon` is het antwoord altijd ja. */
@@ -210,8 +237,8 @@ export function toonVraag(vraag, antwoorden) {
 }
 
 /** De vragen die nu zichtbaar zijn, per sectie (secties zonder zichtbare vragen vallen weg). */
-export function zichtbareSecties(antwoorden) {
-  return SECTIES
+export function zichtbareSecties(antwoorden, cfg) {
+  return metInstellingen(cfg)
     .map((s) => ({ ...s, vragen: s.vragen.filter((v) => toonVraag(v, antwoorden)) }))
     .filter((s) => s.vragen.length > 0);
 }
@@ -220,9 +247,9 @@ export function zichtbareSecties(antwoorden) {
  * Welke zichtbare, verplichte vragen nog leeg zijn. Bewust géén blokkade: je mag het formulier
  * half ingevuld afdrukken en met pen afmaken. Het scherm laat alleen zien wat er nog mist.
  */
-export function ontbrekend(antwoorden) {
+export function ontbrekend(antwoorden, cfg) {
   const a = antwoorden || {};
-  return alleVragen()
+  return alleVragen(cfg)
     .filter((v) => v.verplicht && toonVraag(v, a))
     .filter((v) => {
       const w = a[v.id];
@@ -237,9 +264,10 @@ export function ontbrekend(antwoorden) {
  * Vult de antwoorden aan met wat we al weten uit de klantkaart en het liquidatiedossier. Bestaande
  * antwoorden blijven staan — een ingevuld antwoord wordt nooit overschreven door een voorstel.
  */
-export function vulVoor(antwoorden, context) {
+export function vulVoor(antwoorden, context, cfg) {
   const a = { ...(antwoorden || {}) };
   const c = context || {};
+  const eigenCfg = cfg && typeof cfg === "object" ? cfg : {};
   const waarden = {
     [BRON.KLANTNAAM]: c.klantnaam,
     [BRON.VESTIGINGSPLAATS]: c.vestigingsplaats,
@@ -254,10 +282,15 @@ export function vulVoor(antwoorden, context) {
     [BRON.TELEFOON]: c.telefoon,
     [BRON.VANDAAG]: c.vandaag,
   };
-  for (const v of alleVragen()) {
-    if (!v.bron) continue;
+  for (const v of alleVragen(eigenCfg)) {
     const huidig = a[v.id];
-    if (huidig !== undefined && huidig !== null && String(huidig).trim() !== "") continue;
+    const alBeantwoord = huidig !== undefined && huidig !== null && String(huidig).trim() !== "";
+    if (alBeantwoord) continue;
+    // Eerst het vaste antwoord uit Beheer; kruisjes die bijna altijd hetzelfde staan hoef je dan
+    // niet meer aan te klikken. Daarna pas wat we uit de klantkaart en het dossier weten.
+    const vast = (eigenCfg[v.id] || {}).standaard;
+    if (vast !== undefined && vast !== null && vast !== "") { a[v.id] = vast; continue; }
+    if (!v.bron) continue;
     const voorstel = waarden[v.bron];
     if (voorstel !== undefined && voorstel !== null && String(voorstel).trim() !== "") a[v.id] = String(voorstel);
   }
