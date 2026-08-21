@@ -132,6 +132,71 @@ export function veldLabel(veld, eigen) {
 }
 
 /**
+ * Een antwoord dat al vast staat. Bij formulieren die je vaak op dezelfde manier invult scheelt dat
+ * per keer een handvol klikken: de kruisjes staan er al, je hoeft alleen nog de uitzonderingen om te
+ * zetten. Werkt op aankruisvakken, keuzes en keuzelijsten; tekstvelden gebruiken hiervoor de bron
+ * "Vaste tekst".
+ */
+function StandaardAntwoord({ veld, eigen, onZet }) {
+  const huidig = eigen ? eigen.standaard : undefined;
+
+  if (veld.soort === "vink") {
+    return (
+      <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 10.5, color: KLEUR.mutedTekst, marginTop: 4, cursor: "pointer" }}>
+        <input type="checkbox" checked={huidig === true} onChange={(e) => onZet(e.target.checked ? true : undefined)} style={{ width: 13, height: 13 }} />
+        Staat standaard aangekruist
+      </label>
+    );
+  }
+
+  if (veld.soort === "keuzelijst") {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 4, fontSize: 10.5, color: KLEUR.mutedTekst }}>
+        <span>Standaard</span>
+        <select
+          value={veiligeStr(huidig)}
+          onChange={(e) => onZet(e.target.value || undefined)}
+          style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "2px 5px", fontSize: 10.5, fontFamily: "inherit", maxWidth: 240, color: KLEUR.subtekst }}
+        >
+          <option value="">— niets vooraf —</option>
+          {(veld.opties || []).map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+      </div>
+    );
+  }
+
+  if (veld.soort !== "keuze") return null;
+  const labels = antwoordLabels(veld);
+  // Let op: 0 is een geldige optie-index. Vergelijken op === zodat "geen standaard" en "optie 0"
+  // uit elkaar blijven — precies de val waar dit formulier eerder al eens in trapte.
+  const gekozen = huidig === undefined || huidig === null || huidig === "" ? null : Number(huidig);
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 5, marginTop: 4, fontSize: 10.5, color: KLEUR.mutedTekst }}>
+      <span>Standaard</span>
+      {labels.map((label, i) => {
+        const aan = gekozen === i;
+        return (
+          <button
+            key={i}
+            onClick={() => onZet(aan ? undefined : i)}
+            title={label}
+            style={{
+              padding: "2px 8px", borderRadius: 999, fontSize: 10.5, fontWeight: 600, cursor: "pointer",
+              maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              border: `1px solid ${aan ? KLEUR.groen : KLEUR.rand}`,
+              background: aan ? KLEUR.groen : "#fff", color: aan ? "#fff" : KLEUR.subtekst,
+            }}
+          >
+            {label}
+          </button>
+        );
+      })}
+      {gekozen === null && <span>— niets vooraf —</span>}
+    </div>
+  );
+}
+
+/**
  * "Toon alleen als …" onder een veld. Papieren formulieren springen: "Nee. Ga verder met vraag 3e".
  * Hier koppel je het overgeslagen blok aan de vraag die erover beslist. Kies eerst de stuurvraag,
  * dan bij welke antwoorden dit veld gesteld moet worden.
@@ -512,6 +577,11 @@ export default function FormulierenBeheer() {
                               {v.max ? ` · ${v.max} tekens` : ""}
                               {(v.opties || []).length ? ` · ${v.opties.join(" / ")}` : ""}
                             </div>
+                            <StandaardAntwoord
+                              veld={v}
+                              eigen={eigen}
+                              onZet={(standaard) => bewaarInstellingen(f, { ...inst, [v.naam]: { ...eigen, standaard } })}
+                            />
                             <Voorwaarde
                               veld={v}
                               eigen={eigen}

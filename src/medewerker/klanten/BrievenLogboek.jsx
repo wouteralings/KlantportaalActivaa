@@ -364,7 +364,7 @@ export default function BrievenLogboek({ onNieuweBrief, onFormulieren, onOpenFor
             want het is hetzelfde soort werk — iets opmaken voor een cliënt en meesturen. */}
         {onFormulieren && (
           <button onClick={onFormulieren} style={{ ...knopLicht, marginLeft: "auto" }} title="Een PDF-formulier invullen voor een cliënt">
-            <FileText size={14} /> Formulieren
+            <FileText size={14} /> Formulier maken
           </button>
         )}
         {onNieuweBrief && (

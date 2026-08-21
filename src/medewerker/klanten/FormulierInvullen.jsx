@@ -300,6 +300,30 @@ export default function FormulierInvullen({ onTerug, start = null }) {
     return [...per.entries()].sort((a, b) => a[0] - b[0]).map(([nr, velden]) => ({ nr, velden }));
   }, [formulier, antwoorden]);
 
+  /** Leeg = nog niet beantwoord. Let op: false en 0 zijn wél antwoorden. */
+  const nogLeeg = (w) => w === undefined || w === null || w === "";
+
+  // Vaste antwoorden uit Beheer: kruisjes en keuzes die op dit formulier bijna altijd hetzelfde zijn.
+  // Gaat vóór de klantgegevens en hangt niet aan een cliënt — zodra het formulier er is, staan ze er.
+  // Alleen wat nog leeg is; kom je uit het logboek, dan blijven jouw antwoorden van toen staan.
+  useEffect(() => {
+    if (!formulier) return;
+    const inst = (formulier.instellingen && typeof formulier.instellingen === "object") ? formulier.instellingen : {};
+    setAntwoorden((huidig) => {
+      const nieuw = { ...huidig };
+      let veranderd = false;
+      for (const v of formulier.velden || []) {
+        if (v.automatisch) continue;
+        const standaard = (inst[v.naam] || {}).standaard;
+        if (standaard === undefined || standaard === null || standaard === "") continue;
+        if (!nogLeeg(nieuw[v.naam])) continue;
+        nieuw[v.naam] = standaard;
+        veranderd = true;
+      }
+      return veranderd ? nieuw : huidig;
+    });
+  }, [formulier]);
+
   // Voorvullen zodra cliënt én formulier bekend zijn. Alleen velden die nog leeg zijn — wat jij
   // intikt blijft altijd staan.
   useEffect(() => {
@@ -616,7 +640,7 @@ export default function FormulierInvullen({ onTerug, start = null }) {
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                 <button onClick={() => maak("maken")} disabled={!!bezig} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 13px", borderRadius: 8, border: "none", background: KLEUR.groen, color: "#fff", fontSize: 12.5, fontWeight: 600, cursor: bezig ? "default" : "pointer", opacity: bezig ? 0.6 : 1 }}>
-                  {bezig === "maken" ? <Loader2 size={15} className="spin" /> : <Printer size={15} />} PDF maken
+                  {bezig === "maken" ? <Loader2 size={15} className="spin" /> : <Printer size={15} />} Formulier maken
                 </button>
                 <button onClick={() => maak("dossier")} disabled={!!bezig || !klant} style={{ ...knopLicht, opacity: bezig || !klant ? 0.6 : 1 }}>
                   {bezig === "dossier" ? <Loader2 size={15} className="spin" /> : <Save size={15} />} In klantdossier

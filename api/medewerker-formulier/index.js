@@ -138,6 +138,17 @@ module.exports = async function (context, req) {
       antwoorden: body.antwoorden,
     });
 
+    const klantnaam = veiligeStr(body.klantnaam);
+    const accountId = veiligeStr(body.accountId);
+    const email = haalEmailUitPrincipal(req) || "";
+    const actie = veiligeStr(body.actie).toLowerCase() || (body.opslaan === true ? "dossier" : "maken");
+    const bewaren = actie === "dossier" || actie === "backoffice" || actie === "mail";
+
+    // Kenmerk uit dezelfde teller als de brieven, zodat brieven en formulieren samen doornummeren
+    // per cliënt per jaar. Best-effort: zonder kenmerk gaat het formulier gewoon door.
+    let kenmerk = "";
+    try { kenmerk = await genereerKenmerk(body.klantnummer); } catch { kenmerk = ""; }
+
     // ZBS-voorblad ervoor, als het scherm daarom vraagt. Best-effort: gaat het renderen mis, dan
     // krijg je het formulier zonder voorblad plus de reden — beter dan helemaal niets.
     let pdfMetVoorblad = pdf;
@@ -155,17 +166,6 @@ module.exports = async function (context, req) {
     } else if (zbsWens) {
       zbs = { gedaan: false, reden: "Er is geen adres voor het voorblad — kies een cliënt met een belastingkantoor, of vul een vast adres in bij Beheer." };
     }
-
-    const klantnaam = veiligeStr(body.klantnaam);
-    const accountId = veiligeStr(body.accountId);
-    const email = haalEmailUitPrincipal(req) || "";
-    const actie = veiligeStr(body.actie).toLowerCase() || (body.opslaan === true ? "dossier" : "maken");
-    const bewaren = actie === "dossier" || actie === "backoffice" || actie === "mail";
-
-    // Kenmerk uit dezelfde teller als de brieven, zodat brieven en formulieren samen doornummeren
-    // per cliënt per jaar. Best-effort: zonder kenmerk gaat het formulier gewoon door.
-    let kenmerk = "";
-    try { kenmerk = await genereerKenmerk(body.klantnummer); } catch { kenmerk = ""; }
 
     const datum = new Date().toISOString().slice(0, 10);
     // Kenmerk in de bestandsnaam, net als bij brieven: twee formulieren van dezelfde soort op
