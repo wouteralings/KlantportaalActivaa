@@ -260,6 +260,28 @@ function leesbaarHokje(ruw) {
   return gedecodeerd.replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Instellingen voor het ZBS-voorblad (zonder begeleidend schrijven) bij dit formulier.
+ *   aan       — standaard meesturen
+ *   adres     — "belastingkantoor" (van de cliënt) | "klant" | "vast"
+ *   vastAdres — het adresblok als vaste tekst, één regel per regel; alleen bij adres: "vast"
+ *   regel     — de ene zin onder het adres, bijvoorbeeld "Ter afwikkeling"
+ */
+function standaardZbs() {
+  return { aan: false, adres: "belastingkantoor", vastAdres: "", regel: "Ter afwikkeling" };
+}
+
+function normaliseerZbs(z) {
+  const bron = z && typeof z === "object" ? z : {};
+  const adres = ["belastingkantoor", "klant", "vast"].includes(bron.adres) ? bron.adres : "belastingkantoor";
+  return {
+    aan: bron.aan === true,
+    adres,
+    vastAdres: String(bron.vastAdres || "").slice(0, 500),
+    regel: String(bron.regel === undefined ? "Ter afwikkeling" : bron.regel).slice(0, 200),
+  };
+}
+
 /** Nieuw formulier opslaan (PDF + definitie). Geeft de definitie terug. */
 async function voegFormulierToe({ id, naam, omschrijving, pdfBuffer, velden, aantalPaginas }) {
   await bewaarFormulierPdf(id, pdfBuffer);
@@ -273,12 +295,18 @@ async function voegFormulierToe({ id, naam, omschrijving, pdfBuffer, velden, aan
     // erover instelt komt in `instellingen` te staan, zodat opnieuw uploaden die keuzes niet wist.
     velden: Array.isArray(velden) ? velden : [],
     instellingen: {},
+    // ZBS-voorblad: zie _gedeeld/zbsVoorblad.js. Standaard uit; je zet het per formulier aan.
+    zbs: standaardZbs(),
+    // Submap in de SharePoint-map van de cliënt; leeg = de map uit de algemene instellingen.
+    map: "",
     toegevoegdOp: new Date().toISOString(),
   };
   const zonderOude = lijst.filter((f) => String(f.id) !== String(id));
   // Bij opnieuw uploaden van hetzelfde formulier de bestaande instellingen meenemen.
   const oud = lijst.find((f) => String(f.id) === String(id));
   if (oud && oud.instellingen) nieuw.instellingen = oud.instellingen;
+  if (oud && oud.zbs) nieuw.zbs = normaliseerZbs(oud.zbs);
+  if (oud && oud.map) nieuw.map = oud.map;
   await schrijfFormulieren([...zonderOude, nieuw]);
   return nieuw;
 }
@@ -294,6 +322,8 @@ async function werkFormulierBij(id, wijziging) {
     naam: wijziging.naam !== undefined ? String(wijziging.naam || "").trim() || huidig.naam : huidig.naam,
     omschrijving: wijziging.omschrijving !== undefined ? String(wijziging.omschrijving || "") : huidig.omschrijving,
     instellingen: wijziging.instellingen && typeof wijziging.instellingen === "object" ? wijziging.instellingen : huidig.instellingen,
+    zbs: wijziging.zbs !== undefined ? normaliseerZbs(wijziging.zbs) : normaliseerZbs(huidig.zbs),
+    map: wijziging.map !== undefined ? String(wijziging.map || "").trim().slice(0, 200) : (huidig.map || ""),
   };
   await schrijfFormulieren(lijst);
   return lijst[index];
@@ -323,6 +353,8 @@ module.exports = {
   leesVelden,
   leesbaarHokje,
   groepeerDatums,
+  standaardZbs,
+  normaliseerZbs,
   ALLEEN_LEZEN,
   VERBORGEN,
   AFDRUKKEN,

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Search, X, FileText, Loader2, AlertTriangle, CheckCircle2, ArrowLeft, Printer, Save, RotateCcw } from "lucide-react";
+import { Search, X, FileText, Loader2, AlertTriangle, CheckCircle2, ArrowLeft, Printer, Save, RotateCcw, FolderInput, Mail } from "lucide-react";
 import { veldLabel } from "../../beheer/FormulierenBeheer";
 import { zichtbareVeldnamen, lijktOpIban, ibanTekst } from "../formulierVoorwaarden";
 
@@ -160,9 +160,13 @@ export default function FormulierInvullen({ onTerug }) {
   const [klant, setKlant] = useState(null);
   const [zoek, setZoek] = useState("");
   const [antwoorden, setAntwoorden] = useState({});
-  const [bezig, setBezig] = useState(false);
+  const [bezig, setBezig] = useState(""); // "" | welke actie er loopt
   const [melding, setMelding] = useState(null);
   const [voorbeeldUrl, setVoorbeeldUrl] = useState("");
+  const [zbsAan, setZbsAan] = useState(false); // voorblad zonder begeleidend schrijven
+  const [zbsBron, setZbsBron] = useState("");   // "" = zoals in Beheer ingesteld
+  const [zbsEigenRegels, setZbsEigenRegels] = useState(null); // niet-null = zelf aangepast
+  const [naar, setNaar] = useState("");
   const levend = useRef(true);
   useEffect(() => () => { levend.current = false; }, []);
 
@@ -204,6 +208,49 @@ export default function FormulierInvullen({ onTerug }) {
       .then((d) => { if (levend.current) setFormulier(d.formulier || null); })
       .catch(() => { if (levend.current) setMelding({ type: "fout", tekst: "Kon het formulier niet ophalen." }); });
   }, [formulierId]);
+
+  // Het formulier bepaalt of het ZBS-voorblad standaard meegaat; per keer kun je het omzetten.
+  useEffect(() => {
+    setZbsAan(!!(formulier && formulier.zbs && formulier.zbs.aan));
+    setZbsBron("");
+    setZbsEigenRegels(null);
+  }, [formulier]);
+
+  // Mailadres van de cliënt voorstellen zodra die gekozen is.
+  useEffect(() => {
+    if (!klant) { setNaar(""); return; }
+    setNaar(veiligeStr(klant.contact && klant.contact.email) || veiligeStr(klant.emailKlant));
+  }, [klant]);
+
+  // De adresregels voor het voorblad, uit de bron die bij dit formulier is ingesteld.
+  const zbsAdresRegels = useMemo(() => {
+    const z = (formulier && formulier.zbs) || {};
+    const bron = zbsBron || z.adres || "belastingkantoor";
+    if (bron === "vast") return String(z.vastAdres || "").split("\n").map(veiligeStr).filter(Boolean);
+    if (bron === "klant") {
+      if (!klant) return [];
+      const a = klant.adres || {};
+      return [
+        veiligeStr(klant.klantnaam),
+        [veiligeStr(a.straat), [veiligeStr(a.huisnummer), veiligeStr(a.toevoeging)].filter(Boolean).join("")].filter(Boolean).join(" "),
+        [veiligeStr(a.postcode), veiligeStr(a.plaats)].filter(Boolean).join(" "),
+      ].filter(Boolean);
+    }
+    if (!belastingkantoor) return [];
+    const a = belastingkantoor.adres || {};
+    if (veiligeStr(belastingkantoor.adresTekst)) {
+      return [veiligeStr(belastingkantoor.naam), ...String(belastingkantoor.adresTekst).split("\n").map(veiligeStr)].filter(Boolean);
+    }
+    return [
+      veiligeStr(belastingkantoor.naam),
+      [veiligeStr(a.straat), [veiligeStr(a.huisnummer), veiligeStr(a.toevoeging)].filter(Boolean).join("")].filter(Boolean).join(" "),
+      [veiligeStr(a.postcode), veiligeStr(a.plaats)].filter(Boolean).join(" "),
+    ].filter(Boolean);
+  }, [formulier, klant, belastingkantoor, zbsBron]);
+
+  // Wat er op het voorblad komt: de bron uit Beheer of je eigen keuze, tenzij je de regels zelf hebt
+  // aangepast — dan blijft jouw versie staan tot je op "Herstellen" klikt.
+  const zbsRegels = zbsEigenRegels === null ? zbsAdresRegels : zbsEigenRegels;
 
   const treffers = useMemo(() => {
     const t = zoek.trim().toLowerCase();
@@ -259,10 +306,11 @@ export default function FormulierInvullen({ onTerug }) {
     if (mooi !== veiligeStr(waarde)) zet(naam, mooi);
   }
 
-  async function maak(opslaan) {
+  async function maak(actie) {
     if (!formulier) { setMelding({ type: "fout", tekst: "Kies eerst een formulier." }); return; }
-    if (opslaan && !klant) { setMelding({ type: "fout", tekst: "Kies eerst een cliënt om het formulier bij op te slaan." }); return; }
-    setBezig(true); setMelding(null);
+    if (actie !== "maken" && !klant) { setMelding({ type: "fout", tekst: "Kies eerst een cliënt." }); return; }
+    if (actie === "mail" && !veiligeStr(naar)) { setMelding({ type: "fout", tekst: "Vul een e-mailadres in om het formulier naartoe te sturen." }); return; }
+    setBezig(actie); setMelding(null);
     try {
       const res = await fetch("/api/medewerker-formulier", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -271,7 +319,9 @@ export default function FormulierInvullen({ onTerug }) {
           accountId: klant ? klant.accountId : "",
           klantnaam: klant ? veiligeStr(klant.klantnaam) : "",
           klantnummer: klant ? (klant.klantnummer ?? "") : "",
-          opslaan: !!opslaan,
+          actie,
+          ...(actie === "mail" ? { naar: veiligeStr(naar) } : {}),
+          ...(zbsAan ? { zbs: { adresRegels: zbsRegels, regel: (formulier.zbs && formulier.zbs.regel) || "" } } : {}),
         }),
       });
       const d = await res.json().catch(() => ({}));
@@ -279,15 +329,25 @@ export default function FormulierInvullen({ onTerug }) {
       const bytes = Uint8Array.from(atob(d.pdf), (c) => c.charCodeAt(0));
       const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
       setVoorbeeldUrl((oud) => { if (oud) URL.revokeObjectURL(oud); return url; });
-      if (!opslaan && typeof window !== "undefined") window.open(url, "_blank");
+      if (actie === "maken" && typeof window !== "undefined") window.open(url, "_blank");
+      const zbsStaart = d.zbs && !d.zbs.gedaan ? ` Het ZBS-voorblad is niet meegekomen: ${d.zbs.reden || "onbekende reden"}.` : "";
       const staart = d.sharepoint
         ? (d.sharepoint.gedaan ? " Het staat in de SharePoint-map van de cliënt." : ` Let op: opslaan in SharePoint lukte niet (${d.sharepoint.reden || "onbekende reden"}).`)
         : "";
-      setMelding({ type: d.sharepoint && !d.sharepoint.gedaan ? "fout" : "ok", tekst: `${d.bestandsnaam} klaar.${staart}` });
+      const boStaart = d.backoffice
+        ? (d.backoffice.gedaan ? " De backoffice heeft een taak gekregen om te printen en te versturen." : ` Let op: de backoffice-taak is niet aangemaakt (${d.backoffice.reden || "onbekende reden"}).`)
+        : "";
+      const mailStaart = d.mail
+        ? (d.mail.verzonden ? ` Gemaild naar ${veiligeStr(naar)}.` : ` Mailen mislukt: ${d.mail.reden || "onbekende reden"}.`)
+        : "";
+      const kenmerkStaart = d.kenmerk ? ` Kenmerk ${d.kenmerk}.` : "";
+      const misgegaan = (d.sharepoint && !d.sharepoint.gedaan) || (d.zbs && !d.zbs.gedaan)
+        || (d.backoffice && !d.backoffice.gedaan) || (d.mail && !d.mail.verzonden);
+      setMelding({ type: misgegaan ? "fout" : "ok", tekst: `${d.bestandsnaam} klaar.${kenmerkStaart}${staart}${boStaart}${mailStaart}${zbsStaart}` });
     } catch (e) {
       setMelding({ type: "fout", tekst: String((e && e.message) || e) });
     } finally {
-      if (levend.current) setBezig(false);
+      if (levend.current) setBezig("");
     }
   }
 
@@ -437,17 +497,84 @@ export default function FormulierInvullen({ onTerug }) {
             </div>
           ))}
 
+          {formulier && formulier.zbs && (
+            <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "10px 12px", background: "#FAFBF9" }}>
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+                <input type="checkbox" checked={zbsAan} onChange={(e) => setZbsAan(e.target.checked)} style={{ width: 15, height: 15 }} />
+                Voorblad meesturen (zonder begeleidend schrijven)
+              </label>
+              {zbsAan && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                    <span style={{ fontSize: 11.5, color: KLEUR.subtekst }}>Adres</span>
+                    <select
+                      value={zbsBron || (formulier.zbs.adres || "belastingkantoor")}
+                      onChange={(e) => { setZbsBron(e.target.value); setZbsEigenRegels(null); }}
+                      style={{ ...invoer, width: "auto", padding: "5px 8px", fontSize: 12 }}
+                    >
+                      <option value="belastingkantoor">Belastingkantoor van de cliënt</option>
+                      <option value="klant">De cliënt zelf</option>
+                      <option value="vast">Vast adres uit Beheer</option>
+                    </select>
+                    {zbsEigenRegels !== null && (
+                      <button onClick={() => setZbsEigenRegels(null)} style={{ ...knopLicht, padding: "4px 9px", fontSize: 11.5 }}>
+                        <RotateCcw size={13} /> Herstellen
+                      </button>
+                    )}
+                  </div>
+                  {/* Het adres blijft aanpasbaar: soms moet een formulier naar een ander kantoor dan
+                      wat er in Dynamics staat, en dan wil je dat hier kunnen overtypen. */}
+                  <textarea
+                    value={zbsRegels.join("\n")}
+                    onChange={(e) => setZbsEigenRegels(e.target.value.split("\n"))}
+                    rows={4}
+                    placeholder={"Belastingdienst/Kantoor Almelo\nPostbus 8888\n7550 AB Almelo"}
+                    style={{ ...invoer, marginTop: 6, maxWidth: 380, resize: "vertical", lineHeight: 1.4 }}
+                  />
+                  {veiligeStr(formulier.zbs.regel) && (
+                    <div style={{ marginTop: 4, fontSize: 12, color: KLEUR.subtekst }}>
+                      Onder het adres komt: <strong>{formulier.zbs.regel}</strong>
+                    </div>
+                  )}
+                  {!zbsRegels.filter(Boolean).length && (
+                    <div style={{ marginTop: 4, fontSize: 11.5, color: KLEUR.rood }}>
+                      Nog geen adres — kies een andere bron of tik het hierboven zelf in.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Dezelfde rij als onder een brief: maken, in het dossier, naar de backoffice, mailen. */}
           {formulier && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, paddingTop: 4 }}>
-              <button onClick={() => maak(false)} disabled={bezig} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 13px", borderRadius: 8, border: "none", background: KLEUR.groen, color: "#fff", fontSize: 12.5, fontWeight: 600, cursor: bezig ? "default" : "pointer", opacity: bezig ? 0.6 : 1 }}>
-                {bezig ? <Loader2 size={15} className="spin" /> : <Printer size={15} />} {bezig ? "Bezig…" : "Formulier maken"}
-              </button>
-              <button onClick={() => maak(true)} disabled={bezig || !klant} style={{ ...knopLicht, opacity: bezig || !klant ? 0.6 : 1 }}>
-                <Save size={15} /> Maken en in dossier opslaan
-              </button>
-              <button onClick={() => setAntwoorden({})} style={{ ...knopLicht }}>
-                <RotateCcw size={15} /> Leegmaken
-              </button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingTop: 4 }}>
+              <div>
+                <span style={label}>E-mailadres voor "Mailen"</span>
+                <input value={naar} onChange={(e) => setNaar(e.target.value)} placeholder="naam@bedrijf.nl" style={{ ...invoer, maxWidth: 320 }} />
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                <button onClick={() => maak("maken")} disabled={!!bezig} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "9px 13px", borderRadius: 8, border: "none", background: KLEUR.groen, color: "#fff", fontSize: 12.5, fontWeight: 600, cursor: bezig ? "default" : "pointer", opacity: bezig ? 0.6 : 1 }}>
+                  {bezig === "maken" ? <Loader2 size={15} className="spin" /> : <Printer size={15} />} PDF maken
+                </button>
+                <button onClick={() => maak("dossier")} disabled={!!bezig || !klant} style={{ ...knopLicht, opacity: bezig || !klant ? 0.6 : 1 }}>
+                  {bezig === "dossier" ? <Loader2 size={15} className="spin" /> : <Save size={15} />} In klantdossier
+                </button>
+                <button
+                  onClick={() => maak("backoffice")}
+                  disabled={!!bezig || !klant}
+                  title="Zet het formulier in het klantdossier en maak een taak voor de backoffice om te printen en te versturen"
+                  style={{ ...knopLicht, opacity: bezig || !klant ? 0.6 : 1 }}
+                >
+                  {bezig === "backoffice" ? <Loader2 size={15} className="spin" /> : <FolderInput size={15} />} Naar backoffice
+                </button>
+                <button onClick={() => maak("mail")} disabled={!!bezig || !klant || !veiligeStr(naar)} style={{ ...knopLicht, opacity: bezig || !klant || !veiligeStr(naar) ? 0.6 : 1 }}>
+                  {bezig === "mail" ? <Loader2 size={15} className="spin" /> : <Mail size={15} />} Mailen naar klant
+                </button>
+                <button onClick={() => setAntwoorden({})} style={{ ...knopLicht }}>
+                  <RotateCcw size={15} /> Leegmaken
+                </button>
+              </div>
             </div>
           )}
 

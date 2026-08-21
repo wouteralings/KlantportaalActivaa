@@ -4,7 +4,17 @@
  *
  *   GET                        → { formulieren: [{ id, naam, omschrijving, aantalPaginas }] }
  *   GET  ?id=<id>              → { formulier }  met de velden en de instellingen, om het scherm te bouwen
- *   POST { id, antwoorden, accountId?, klantnaam?, klantnummer?, opslaan? }
+ *   POST { id, antwoorden, accountId?, klantnaam?, klantnummer?, actie?, zbs?, naar?, cc? }
+ *
+ * `actie` bepaalt wat er met het ingevulde formulier gebeurt — dezelfde vier als bij een brief:
+ *   "maken"      → alleen de PDF terug (standaard)
+ *   "dossier"    → ook in de SharePoint-map van de cliënt
+ *   "backoffice" → in het dossier én een interne taak om te printen en te posten
+ *   "mail"       → als bijlage naar de cliënt, en ook in het dossier
+ * (`opslaan: true` blijft werken als synoniem voor actie "dossier".)
+ *
+ * Met `zbs: { adresRegels, regel }` komt er een voorblad op ons briefpapier vóór het formulier:
+ * alleen het adres en één regel, zonder begeleidend schrijven. Zie _gedeeld/zbsVoorblad.js.
  *                              → { ok, bestandsnaam, pdf (base64), sharepoint? }
  *
  * Elk ingevuld formulier komt ook in het brievenlogboek (soort: "formulier"). Daar zie je terug wat
@@ -23,16 +33,40 @@ const { haalFormulieren, haalFormulier, haalFormulierPdf } = require("../_gedeel
 const { vulFormulier, bestandsnaamVoor } = require("../_gedeeld/formulierVullen");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
 const { voegBriefToe } = require("../_gedeeld/briefLog");
+const { maakZbsVoorblad, zetVoorbladVoor } = require("../_gedeeld/zbsVoorblad");
+const { genereerKenmerk } = require("../_gedeeld/briefKenmerk");
+const { verstuurMailMetBijlage } = require("../_gedeeld/mail");
+const { maakBackofficeTaak } = require("../_gedeeld/backofficeTaak");
+const { haalConfig } = require("../_gedeeld/briefSjablonen");
 
 const SHAREPOINT_VELD = process.env.DYNAMICS_KLANT_SHAREPOINT_VELD || "cr283_sharepoint";
 const SUBMAP_STANDAARD = "Correspondentie";
 const PDF_TYPE = "application/pdf";
 
 const json = (status, body) => ({ status, headers: { "Content-Type": "application/json" }, body });
+
+const escapeHtml = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+/** Begeleidende mailtekst. Zonder eigen tekst een korte standaardzin — de PDF zit in de bijlage. */
+function mailHtml(eigenTekst, formuliernaam, afzender) {
+  const body = eigenTekst
+    ? eigenTekst.replace(/\r\n/g, "\n").split(/\n[ \t]*\n/).filter((a) => a.trim())
+      .map((a) => `<p style="margin:0 0 12px">${escapeHtml(a).replace(/\n/g, "<br>")}</p>`).join("")
+    : `<p style="margin:0 0 12px">Bijgaand ontvangt u het formulier <strong>${escapeHtml(formuliernaam)}</strong>.</p>`;
+  const groet = [String((afzender && afzender.afsluiting) || "Met vriendelijke groet,"), String((afzender && afzender.bedrijfsnaam) || "Activaa")]
+    .map(escapeHtml).join("<br>");
+  return `<div style="font-family:Calibri,Arial,sans-serif;font-size:14px;color:#1C2321;line-height:1.5">${body}<p style="margin:16px 0 0">${groet}</p></div>`;
+}
 const veiligeStr = (v) => String(v == null ? "" : v).trim();
 
-/** Waar ingevulde formulieren landen — instelbaar via Beheer (instellingen.formulierenMap). */
-async function haalSubmap() {
+/**
+ * Waar het ingevulde formulier in de SharePoint-map van de cliënt landt. Per formulier in te stellen
+ * (Beheer → Formulieren); is dat leeg, dan de algemene map uit de instellingen, en anders
+ * "Correspondentie". Een pad met schuine strepen mag: dan worden de submappen aangemaakt.
+ */
+async function haalSubmap(formulier) {
+  const eigen = veiligeStr(formulier && formulier.map);
+  if (eigen) return eigen;
   try {
     const inst = await haalInstellingen();
     return veiligeStr(inst && inst.formulierenMap) || SUBMAP_STANDAARD;
@@ -104,36 +138,120 @@ module.exports = async function (context, req) {
       antwoorden: body.antwoorden,
     });
 
+    // ZBS-voorblad ervoor, als het scherm daarom vraagt. Best-effort: gaat het renderen mis, dan
+    // krijg je het formulier zonder voorblad plus de reden — beter dan helemaal niets.
+    let pdfMetVoorblad = pdf;
+    let zbs;
+    const zbsWens = body.zbs && typeof body.zbs === "object" ? body.zbs : null;
+    if (zbsWens && Array.isArray(zbsWens.adresRegels) && zbsWens.adresRegels.some((r) => veiligeStr(r))) {
+      try {
+        const voorblad = await maakZbsVoorblad({ adresRegels: zbsWens.adresRegels, regel: zbsWens.regel, kenmerk });
+        pdfMetVoorblad = await zetVoorbladVoor(pdf, voorblad);
+        zbs = { gedaan: true };
+      } catch (e) {
+        zbs = { gedaan: false, reden: String((e && e.message) || e) };
+        if (context.log) context.log.warn("ZBS-voorblad maken mislukt:", zbs.reden);
+      }
+    } else if (zbsWens) {
+      zbs = { gedaan: false, reden: "Er is geen adres voor het voorblad — kies een cliënt met een belastingkantoor, of vul een vast adres in bij Beheer." };
+    }
+
     const klantnaam = veiligeStr(body.klantnaam);
+    const accountId = veiligeStr(body.accountId);
+    const email = haalEmailUitPrincipal(req) || "";
+    const actie = veiligeStr(body.actie).toLowerCase() || (body.opslaan === true ? "dossier" : "maken");
+    const bewaren = actie === "dossier" || actie === "backoffice" || actie === "mail";
+
+    // Kenmerk uit dezelfde teller als de brieven, zodat brieven en formulieren samen doornummeren
+    // per cliënt per jaar. Best-effort: zonder kenmerk gaat het formulier gewoon door.
+    let kenmerk = "";
+    try { kenmerk = await genereerKenmerk(body.klantnummer); } catch { kenmerk = ""; }
+
     const datum = new Date().toISOString().slice(0, 10);
-    const bestandsnaam = bestandsnaamVoor(formulier.naam, klantnaam, datum);
+    // Kenmerk in de bestandsnaam, net als bij brieven: twee formulieren van dezelfde soort op
+    // dezelfde dag overschrijven elkaar dan niet in het dossier.
+    const bestandsnaam = bestandsnaamVoor(formulier.naam, klantnaam, [datum, kenmerk].filter(Boolean).join(" - "));
 
     let sharepoint;
-    const accountId = veiligeStr(body.accountId);
-    if (body.opslaan === true && accountId) {
-      sharepoint = await naarSharepoint({ accountId, submap: await haalSubmap(), bestandsnaam, buffer: pdf });
+    if (bewaren && accountId) {
+      sharepoint = await naarSharepoint({ accountId, submap: await haalSubmap(formulier), bestandsnaam, buffer: pdfMetVoorblad });
       await logGebeurtenis({
-        door: haalEmailUitPrincipal(req) || "onbekend",
+        door: email || "onbekend",
         actie: "brief", accountId, accountIds: [accountId], klantnaam,
         tekst: `Formulier "${formulier.naam}" ingevuld${sharepoint.gedaan ? " en in SharePoint gezet" : ` (opslaan mislukt: ${sharepoint.reden})`}.`,
       }).catch(() => {});
+    } else if (bewaren && !accountId) {
+      sharepoint = { gedaan: false, reden: "Kies eerst een cliënt om het formulier bij op te slaan." };
+    }
+
+    // Naar de backoffice: interne taak om te printen en per post te versturen.
+    let backoffice;
+    if (actie === "backoffice" && accountId) {
+      const cfg = await haalConfig().catch(() => ({ afzender: {} }));
+      const az = (cfg && cfg.afzender) || {};
+      backoffice = await maakBackofficeTaak({
+        context, accountId, klantnaam,
+        onderwerp: `Formulier printen en versturen — ${formulier.naam}`,
+        soortWaarde: Number(az.backofficeTaakSoort),
+        rubriekWaarde: Number(az.backofficeTaakRubriek),
+        dossierGelukt: !!(sharepoint && sharepoint.gedaan),
+        submap: await haalSubmap(formulier),
+        briefUrl: (sharepoint && sharepoint.url) || "",
+        stuknaam: "formulier",
+      });
+    }
+
+    // Mailen naar de cliënt, met het formulier als bijlage.
+    let mail;
+    if (actie === "mail") {
+      const naar = veiligeStr(body.naar);
+      if (!naar) {
+        context.res = json(400, { error: "Geen e-mailadres van de ontvanger meegegeven." });
+        return;
+      }
+      const cfg = await haalConfig().catch(() => ({ afzender: {} }));
+      const az = (cfg && cfg.afzender) || {};
+      const onderwerp = veiligeStr(body.mailOnderwerp) || `${formulier.naam}${klantnaam ? ` — ${klantnaam}` : ""}`;
+      try {
+        const uit = await verstuurMailMetBijlage({
+          naar,
+          cc: Array.isArray(body.cc) ? body.cc : (body.cc ? [body.cc] : []),
+          onderwerp,
+          html: mailHtml(veiligeStr(body.mailTekst), formulier.naam, az),
+          bijlagen: [{ naam: bestandsnaam, contentType: PDF_TYPE, inhoud: pdfMetVoorblad }],
+          afzender: az.mailAfzender || "",
+        });
+        mail = { verzonden: true, van: uit && uit.van };
+      } catch (e) {
+        mail = { verzonden: false, reden: String((e && e.message) || e) };
+      }
     }
 
     // In het brievenlogboek zetten. Best-effort: het formulier zelf is al klaar en mag niet
     // sneuvelen op een logboek dat even niet bereikbaar is.
     await voegBriefToe({
       soort: "formulier",
-      actie: sharepoint && sharepoint.gedaan ? "formulier-dossier" : "formulier",
+      actie: mail && mail.verzonden ? "formulier-mail"
+        : backoffice ? "formulier-backoffice"
+        : (sharepoint && sharepoint.gedaan) ? "formulier-dossier"
+        : "formulier",
+      kenmerk,
+      naar: mail ? veiligeStr(body.naar) : "",
+      cc: mail && body.cc ? (Array.isArray(body.cc) ? body.cc.join(", ") : String(body.cc)) : "",
       accountId: accountId || null,
       klantnummer: body.klantnummer ?? null,
       klantnaam,
       sjabloonnaam: formulier.naam,
       betreft: bestandsnaam,
-      medewerker: haalEmailUitPrincipal(req) || "",
+      medewerker: email,
       pdfUrl: (sharepoint && sharepoint.url) || "",
     }).catch((e) => { if (context.log) context.log.warn("Formulier niet in het logboek gezet:", String((e && e.message) || e)); });
 
-    context.res = json(200, { ok: true, bestandsnaam, pdf: pdf.toString("base64"), ...(sharepoint ? { sharepoint } : {}) });
+    context.res = json(200, {
+      ok: true, bestandsnaam, kenmerk, pdf: pdfMetVoorblad.toString("base64"),
+      ...(sharepoint ? { sharepoint } : {}), ...(zbs ? { zbs } : {}),
+      ...(backoffice ? { backoffice } : {}), ...(mail ? { mail } : {}),
+    });
   } catch (err) {
     if (err && err.message === "MISSING_CONFIG") { context.res = json(501, { error: "De opslag is nog niet geconfigureerd." }); return; }
     if (context.log) context.log.error("medewerker-formulier:", err);

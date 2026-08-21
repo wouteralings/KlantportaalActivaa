@@ -38,11 +38,11 @@ const SECUNDAIR_NAV = process.env.DYNAMICS_KLANT_SECUNDAIRCONTACT_NAV || "cr283_
 const MAX_KLANTEN = Number(process.env.BEHEER_MAX_KLANTEN || 3000);
 const FV = "@OData.Community.Display.V1.FormattedValue";
 
-// IBAN en bsn/fiscaal nummer van de cliënt. Optioneel: bestaat de kolom niet in Dynamics, dan laten
-// we hem weg (zie bestaandeAccountKolommen) en blijven die waarden gewoon leeg. Heten ze bij jou
-// anders, zet dan DYNAMICS_KLANT_IBAN_VELD / DYNAMICS_KLANT_BSN_VELD in de app-instellingen.
-const IBAN_VELD = process.env.DYNAMICS_KLANT_IBAN_VELD || "cr283_iban";
-const BSN_VELD = process.env.DYNAMICS_KLANT_BSN_VELD || "cr283_bsn";
+// IBAN en RSIN/bsn van de cliënt, zoals ze in de Dynamics van Activaa heten. Optioneel: bestaat de
+// kolom niet, dan laten we hem weg (zie bestaandeAccountKolommen) en blijven die waarden leeg —
+// nooit een klantoverzicht dat helemaal niet meer laadt. Overschrijfbaar via de app-instellingen.
+const IBAN_VELD = process.env.DYNAMICS_KLANT_IBAN_VELD || "sk_iban";
+const BSN_VELD = process.env.DYNAMICS_KLANT_BSN_VELD || "cr283_rsinnummerofbsnnummer";
 
 /**
  * De logische namen van alle kolommen op Account, één keer opgehaald en daarna onthouden.

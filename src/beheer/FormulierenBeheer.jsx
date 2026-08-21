@@ -190,6 +190,60 @@ function Voorwaarde({ veld, eigen, stuurVelden, instellingen, onZet }) {
   );
 }
 
+/**
+ * ZBS — zonder begeleidend schrijven. Een voorblad op ons briefpapier met alleen het adres van de
+ * ontvanger en één regel eronder. Handig bij formulieren die je in setjes opstuurt: de ontvanger ziet
+ * van wie het komt en waarvoor het is, en verder staat er niets.
+ */
+function ZbsInstelling({ zbs, onZet }) {
+  const z = zbs && typeof zbs === "object" ? zbs : {};
+  const aan = z.aan === true;
+  const adres = ["belastingkantoor", "klant", "vast"].includes(z.adres) ? z.adres : "belastingkantoor";
+  const zet = (wijziging) => onZet({ aan, adres, vastAdres: z.vastAdres || "", regel: z.regel === undefined ? "Ter afwikkeling" : z.regel, ...wijziging });
+  const invoerje = { width: "100%", boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`, borderRadius: 7, padding: "6px 9px", fontSize: 12.5, fontFamily: "inherit" };
+
+  return (
+    <div style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 8, padding: "10px 12px", marginBottom: 12, background: "#FAFBF9" }}>
+      <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12.5, fontWeight: 700, color: KLEUR.tekst, cursor: "pointer" }}>
+        <input type="checkbox" checked={aan} onChange={(e) => zet({ aan: e.target.checked })} style={{ width: 15, height: 15 }} />
+        ZBS-voorblad standaard meesturen
+      </label>
+      <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 4 }}>
+        Een vel op ons briefpapier met alleen het adres en één regel, vóór het formulier. Bij het
+        invullen kun je het per keer nog aan- of uitzetten.
+      </div>
+      {aan && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 10 }}>
+          <div style={{ flex: "1 1 220px" }}>
+            <span style={{ display: "block", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 3 }}>Adres</span>
+            <select value={adres} onChange={(e) => zet({ adres: e.target.value })} style={invoerje}>
+              <option value="belastingkantoor">Belastingkantoor van de cliënt</option>
+              <option value="klant">De cliënt zelf</option>
+              <option value="vast">Vast adres (hieronder)</option>
+            </select>
+          </div>
+          <div style={{ flex: "1 1 220px" }}>
+            <span style={{ display: "block", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 3 }}>Regel onder het adres</span>
+            <input value={z.regel === undefined ? "Ter afwikkeling" : z.regel} onChange={(e) => zet({ regel: e.target.value })} placeholder="Ter afwikkeling" style={invoerje} />
+          </div>
+          {adres === "vast" && (
+            <div style={{ flex: "1 1 100%" }}>
+              <span style={{ display: "block", fontSize: 11, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 3 }}>Vast adres — één regel per regel</span>
+              <textarea
+                value={z.vastAdres || ""}
+                onChange={(e) => zet({ vastAdres: e.target.value })}
+                rows={4}
+                placeholder={"Belastingdienst/Kantoor Almelo\nPostbus 8888\n7550 AB Almelo"}
+                style={{ ...invoerje, resize: "vertical", lineHeight: 1.4 }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function FormulierenBeheer() {
   const [formulieren, setFormulieren] = useState(null); // null = laden
   const [fout, setFout] = useState("");
@@ -265,6 +319,36 @@ export default function FormulierenBeheer() {
       const res = await fetch("/api/beheer-formulieren", {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: formulier.id, instellingen }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Opslaan mislukt.");
+    } catch (e) {
+      setMelding({ type: "fout", tekst: String((e && e.message) || e) });
+      laad();
+    }
+  }
+
+  /** ZBS-instellingen van een formulier opslaan (zelfde patroon als bewaarInstellingen). */
+  async function bewaarZbs(formulier, zbs) {
+    setFormulieren((lijst) => (lijst || []).map((f) => (f.id === formulier.id ? { ...f, zbs } : f)));
+    try {
+      const res = await fetch("/api/beheer-formulieren", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: formulier.id, zbs }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Opslaan mislukt.");
+    } catch (e) {
+      setMelding({ type: "fout", tekst: String((e && e.message) || e) });
+      laad();
+    }
+  }
+
+  /** De SharePoint-submap van dit formulier opslaan. */
+  async function bewaarMap(formulier, map) {
+    setFormulieren((lijst) => (lijst || []).map((f) => (f.id === formulier.id ? { ...f, map } : f)));
+    try {
+      const res = await fetch("/api/beheer-formulieren", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: formulier.id, map }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Opslaan mislukt.");
     } catch (e) {
@@ -392,6 +476,24 @@ export default function FormulierenBeheer() {
                       veld: op één formulier hoort “KvK-nummer” op de ene plek bij de cliënt en op de
                       andere bij een vereffenaar, en dat kan het portaal niet voor je raden.
                     </div>
+                    <div style={{ marginBottom: 12 }}>
+                      <span style={{ ...label, marginBottom: 3 }}>Opslaan in map</span>
+                      <input
+                        value={f.map !== undefined ? f.map : ""}
+                        onChange={(e) => bewaarMap(f, e.target.value)}
+                        placeholder="Correspondentie"
+                        style={{ ...invoer, maxWidth: 360 }}
+                      />
+                      <div style={{ fontSize: 11.5, color: KLEUR.mutedTekst, marginTop: 3 }}>
+                        Submap in de SharePoint-map van de cliënt. Leeg = de algemene formulierenmap.
+                        Een pad met schuine strepen mag ook (<em>Belastingdienst/Loonheffingen</em>);
+                        ontbrekende mappen worden aangemaakt.
+                      </div>
+                    </div>
+                    <ZbsInstelling
+                      zbs={f.zbs}
+                      onZet={(zbs) => bewaarZbs(f, zbs)}
+                    />
                     {(f.velden || []).filter((v) => !v.automatisch).map((v) => {
                       const eigen = inst[v.naam] || {};
                       const isVerborgen = eigen.verborgen === true;
