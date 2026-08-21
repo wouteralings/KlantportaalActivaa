@@ -77,10 +77,27 @@ function nummerdeel(nummer, letter, welk) {
  * `afzender` zijn onze eigen kantoorgegevens uit Beheer → Instellingen; formulieren vragen die als
  * gemachtigde of correspondentieadres.
  */
-function waardeUitBron(bron, klant, afzender) {
+function waardeUitBron(bron, klant, afzender, belastingkantoor, vast) {
   if (!bron) return "";
   const a = afzender || {};
   if (bron === "vandaag") return new Date().toISOString().slice(0, 10);
+  // Vaste tekst: wat de beheerder bij dit veld heeft ingetikt. Handig voor een adres dat op dit
+  // formulier altijd hetzelfde is, ongeacht welke cliënt het betreft.
+  if (bron === "vast") return veiligeStr(vast);
+  if (bron.startsWith("bk")) {
+    const bk = belastingkantoor || {};
+    const adres = bk.adres || {};
+    switch (bron) {
+      case "bknaam": return veiligeStr(bk.naam);
+      case "bkadres": return adresRegel(adres);
+      case "bkstraatnaam": return veiligeStr(adres.straat);
+      case "bkhuisnummer": return veiligeStr(adres.huisnummer);
+      case "bktoevoeging": return veiligeStr(adres.toevoeging);
+      case "bkpostcode": return veiligeStr(adres.postcode);
+      case "bkplaats": return veiligeStr(adres.plaats);
+      default: return "";
+    }
+  }
   if (bron.startsWith("kantoor") || bron === "beconnummer") {
     const eigen = splitsAdresregel(a.adres);
     switch (bron) {
@@ -109,6 +126,8 @@ function waardeUitBron(bron, klant, afzender) {
   switch (bron) {
     case "klantnaam": return veiligeStr(klant.klantnaam);
     case "kvk": return veiligeStr(klant.kvk);
+    case "bsn": return veiligeStr(klant.bsn);
+    case "iban": return veiligeStr(klant.iban);
     case "btwnummer": return veiligeStr(klant.btwnummer);
     case "rsin": return nummerdeel(klant.btwnummer, "B", "hoofd");
     case "btwsubnummer": return nummerdeel(klant.btwnummer, "B", "sub");
@@ -137,6 +156,7 @@ export default function FormulierInvullen({ onTerug }) {
   const [formulier, setFormulier] = useState(null); // met velden en instellingen
   const [klanten, setKlanten] = useState([]);
   const [afzender, setAfzender] = useState(null); // onze eigen kantoorgegevens
+  const [belastingkantoor, setBelastingkantoor] = useState(null); // van de gekozen cliënt
   const [klant, setKlant] = useState(null);
   const [zoek, setZoek] = useState("");
   const [antwoorden, setAntwoorden] = useState({});
@@ -163,6 +183,17 @@ export default function FormulierInvullen({ onTerug }) {
       .then((d) => { if (levend.current) setAfzender((d && d.afzender) || null); })
       .catch(() => { if (levend.current) setAfzender(null); });
   }, []);
+
+  // Het belastingkantoor dat aan deze cliënt hangt, met adres. Dezelfde bron als de Brieven-module
+  // gebruikt voor een brief aan de Belastingdienst. Best-effort: lukt het niet, dan blijven die
+  // bronnen leeg en tik je het adres zelf.
+  useEffect(() => {
+    if (!klant) { setBelastingkantoor(null); return; }
+    fetch(`/api/brief-geadresseerde?accountId=${encodeURIComponent(klant.accountId)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((d) => { if (levend.current) setBelastingkantoor(d && d.gekoppeld ? d : null); })
+      .catch(() => { if (levend.current) setBelastingkantoor(null); });
+  }, [klant]);
 
   // Het gekozen formulier ophalen mét zijn velden.
   useEffect(() => {
@@ -209,12 +240,13 @@ export default function FormulierInvullen({ onTerug }) {
       for (const v of formulier.velden || []) {
         if (v.automatisch) continue;
         if (veiligeStr(nieuw[v.naam])) continue;
-        const voorstel = waardeUitBron(inst[v.naam] && inst[v.naam].bron, klant, afzender);
+        const eigen = inst[v.naam] || {};
+        const voorstel = waardeUitBron(eigen.bron, klant, afzender, belastingkantoor, eigen.vast);
         if (voorstel) nieuw[v.naam] = voorstel;
       }
       return nieuw;
     });
-  }, [formulier, klant, afzender]);
+  }, [formulier, klant, afzender, belastingkantoor]);
 
   function zet(naam, waarde) { setAntwoorden((a) => ({ ...a, [naam]: waarde })); }
 

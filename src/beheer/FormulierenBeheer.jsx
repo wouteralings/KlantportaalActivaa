@@ -30,6 +30,8 @@ export const BRONGROEPEN = [
     items: [
       { key: "klantnaam", label: "Naam cliënt" },
       { key: "kvk", label: "KvK-nummer" },
+      { key: "bsn", label: "Bsn / fiscaal nummer" },
+      { key: "iban", label: "IBAN" },
       { key: "btwnummer", label: "Btw-nummer (volledig)" },
       // Formulieren splitsen deze nummers vaak: het deel vóór de letter en het subnummer erna
       // krijgen elk hun eigen hokjes. De Belastingdienst noemt het deel vóór de B zelf "RSIN of
@@ -81,7 +83,28 @@ export const BRONGROEPEN = [
       { key: "kantooriban", label: "IBAN" },
     ],
   },
-  { groep: "Overig", items: [{ key: "vandaag", label: "Datum van vandaag" }] },
+  {
+    // Het belastingkantoor dat in Dynamics aan de cliënt hangt, met het adres uit dat record —
+    // dezelfde bron die de Brieven-module gebruikt voor een brief aan de Belastingdienst.
+    groep: "Belastingkantoor van de cliënt",
+    items: [
+      { key: "bknaam", label: "Naam belastingkantoor" },
+      { key: "bkadres", label: "Adres (één regel)" },
+      { key: "bkstraatnaam", label: "Alleen straatnaam" },
+      { key: "bkhuisnummer", label: "Huisnummer" },
+      { key: "bktoevoeging", label: "Toevoeging huisnummer" },
+      { key: "bkpostcode", label: "Postcode" },
+      { key: "bkplaats", label: "Plaats" },
+    ],
+  },
+  {
+    groep: "Overig",
+    items: [
+      { key: "vandaag", label: "Datum van vandaag" },
+      // Een adres of tekst die op dit formulier altijd hetzelfde is — je tikt hem hiernaast in.
+      { key: "vast", label: "Vaste tekst (zelf invullen)" },
+    ],
+  },
 ];
 
 /**
@@ -415,6 +438,14 @@ export default function FormulierenBeheer() {
                               </select>
                             ) : (
                               <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>—</span>
+                            )}
+                            {veiligeStr(eigen.bron) === "vast" && (
+                              <input
+                                value={eigen.vast !== undefined ? eigen.vast : ""}
+                                onChange={(e) => bewaarInstellingen(f, { ...inst, [v.naam]: { ...eigen, vast: e.target.value } })}
+                                placeholder="Wat hier altijd moet staan"
+                                style={{ ...invoer, padding: "5px 7px", fontSize: 12, marginTop: 4 }}
+                              />
                             )}
                           </div>
                           <button

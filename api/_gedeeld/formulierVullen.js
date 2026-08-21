@@ -8,7 +8,7 @@
  * De velden blijven invulbaar (we maken de PDF niet plat), zodat je vlak voor het afdrukken nog kunt
  * bijstellen. Een handtekening zetten blijft handwerk; die kan een PDF-formulier niet voor je doen.
  */
-const { PDFDocument, PDFName, PDFNumber } = require("pdf-lib");
+const { PDFDocument, PDFName, PDFNumber, PDFBool } = require("pdf-lib");
 const { zichtbareVeldnamen, lijktOpIban, ibanTekst } = require("./formulierVoorwaarden");
 
 const VERBORGEN = 2; // /F bit 2 — zie _gedeeld/formulieren.js
@@ -183,7 +183,27 @@ async function vulFormulier(pdfBuffer, { velden, instellingen, antwoorden }) {
     zetTekst(form, veld.naam, waarde);
   }
 
+  vraagViewerOmOpnieuwTekenen(doc);
   return Buffer.from(await doc.save());
+}
+
+/**
+ * Zet /NeedAppearances, zodat de PDF-lezer de velden zelf opnieuw tekent bij het openen.
+ *
+ * Zonder dit zie je op een hokjesveld eerst de tekst aan elkaar geplakt staan, en pas als je er één
+ * keer in klikt springt hij netjes in de vakjes — de lezer tekent dan alsnog zelf, mét de
+ * hokjes-instelling van het veld. De opmaak die wij meegeven kan dat niet nabootsen: pdf-lib schrijft
+ * gewoon een regel tekst. We laten die opmaak wél staan als terugval voor lezers die deze vlag
+ * negeren; daar staat de waarde dan leesbaar maar iets minder strak.
+ */
+function vraagViewerOmOpnieuwTekenen(doc) {
+  try {
+    const ref = doc.catalog.get(PDFName.of("AcroForm"));
+    const acro = ref ? doc.context.lookup(ref) : null;
+    if (acro && typeof acro.set === "function") acro.set(PDFName.of("NeedAppearances"), PDFBool.True);
+  } catch {
+    /* geen AcroForm in een vorm die we herkennen: dan valt er ook niets te hertekenen */
+  }
 }
 
 /** Nette bestandsnaam: "<formulier> - <klant> - <datum>.pdf". */

@@ -12,7 +12,7 @@
  */
 const fs = require("fs");
 const path = require("path");
-const { PDFDocument, PDFName } = require("pdf-lib");
+const { PDFDocument, PDFName, PDFBool } = require("pdf-lib");
 const { alleVragen, toonVraag, GESPLITSTE_KEUZES } = require("./kvkFormulier17a");
 
 const BLANCO = path.join(__dirname, "formulieren", "kvk-formulier-17a.pdf");
@@ -119,6 +119,13 @@ async function vulFormulier17a(antwoorden) {
     zetTekst(form, vraag.pdf, waarde);
   }
 
+  // Laat de PDF-lezer de velden zelf opnieuw tekenen; zie de uitleg bij dezelfde ingreep in
+  // _gedeeld/formulierVullen.js. Zonder dit staan hokjesvelden aan elkaar geplakt tot je erin klikt.
+  try {
+    const acroRef = doc.catalog.get(PDFName.of("AcroForm"));
+    const acro = acroRef ? doc.context.lookup(acroRef) : null;
+    if (acro && typeof acro.set === "function") acro.set(PDFName.of("NeedAppearances"), PDFBool.True);
+  } catch { /* geen herkenbare AcroForm */ }
   return Buffer.from(await doc.save());
 }
 

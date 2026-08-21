@@ -38,6 +38,49 @@ const SECUNDAIR_NAV = process.env.DYNAMICS_KLANT_SECUNDAIRCONTACT_NAV || "cr283_
 const MAX_KLANTEN = Number(process.env.BEHEER_MAX_KLANTEN || 3000);
 const FV = "@OData.Community.Display.V1.FormattedValue";
 
+// IBAN en bsn/fiscaal nummer van de cliënt. Optioneel: bestaat de kolom niet in Dynamics, dan laten
+// we hem weg (zie bestaandeAccountKolommen) en blijven die waarden gewoon leeg. Heten ze bij jou
+// anders, zet dan DYNAMICS_KLANT_IBAN_VELD / DYNAMICS_KLANT_BSN_VELD in de app-instellingen.
+const IBAN_VELD = process.env.DYNAMICS_KLANT_IBAN_VELD || "cr283_iban";
+const BSN_VELD = process.env.DYNAMICS_KLANT_BSN_VELD || "cr283_bsn";
+
+/**
+ * De logische namen van alle kolommen op Account, één keer opgehaald en daarna onthouden.
+ *
+ * Dynamics laat een hele opvraag mislukken zodra er één onbekende kolom in de $select staat. Dat is
+ * link: een optioneel veld dat er niet is, of een tikfout in een zelf toegevoegde kolom van het
+ * klantoverzicht, en het hele klantoverzicht blijft leeg. Met deze lijst filteren we de $select
+ * vooraf, zodat een kolom die niet bestaat alleen zichzelf kost.
+ *
+ * Lukt het ophalen van de metadata niet, dan geven we null terug: dan filteren we niet en gedraagt
+ * alles zich als voorheen.
+ */
+let kolommenCache = null;
+async function bestaandeAccountKolommen(resource, token) {
+  if (kolommenCache) return kolommenCache;
+  try {
+    const url = `${resource}/api/data/v9.2/EntityDefinitions(LogicalName='account')/Attributes?$select=LogicalName`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const namen = new Set((data.value || []).map((a) => a.LogicalName).filter(Boolean));
+    if (!namen.size) return null;
+    kolommenCache = namen;
+    return kolommenCache;
+  } catch {
+    return null;
+  }
+}
+
+/** Houdt alleen de kolommen over die Dynamics kent. Lookups staan als `_veld_value` in de $select. */
+function alleenBestaande(velden, bekend) {
+  if (!bekend) return velden;
+  return velden.filter((v) => {
+    const lookup = /^_(.+)_value$/.exec(v);
+    return bekend.has(lookup ? lookup[1] : v);
+  });
+}
+
 async function haalAlleKlanten(resource, token, extraKolommen, inclusiefZonderContact) {
   const keuzeVelden = [CLIENTTYPE_VELD, STATUS_VELD, TEAM_VELD, KANTOOR_VELD].filter(Boolean);
   const lookupVelden = [ASSISTENT_VELD, FISCAALMEDEWERKER_VELD, LOONADMIN_VELD, BACKUP_VELD, BELASTINGKANTOOR_VELD].filter(Boolean);
@@ -51,12 +94,17 @@ async function haalAlleKlanten(resource, token, extraKolommen, inclusiefZonderCo
     "address1_line1", "cr283_huisnummer", "cr283_huisnummertoevoeging",
     "address1_postalcode", "address1_city", "address1_country",
     "emailaddress1", "telephone1",
-    LOONHEFFINGSNUMMER_VELD, BTWNUMMER_VELD,
+    LOONHEFFINGSNUMMER_VELD, BTWNUMMER_VELD, IBAN_VELD, BSN_VELD,
     ...keuzeVelden,
     ...lookupVelden.map((v) => `_${v}_value`),
     `_${RELATIEBEHEERDER_ATTR}_value`, `_${ACCOUNTANT_ATTR}_value`,
     ...extraSelect,
   ].filter(Boolean);
+
+  // Onbekende kolommen eruit vóór we het aan Dynamics vragen — anders sneuvelt de hele opvraag.
+  const bekend = await bestaandeAccountKolommen(resource, token);
+  const veiligeSelect = alleenBestaande([...new Set(selectVelden)], bekend);
+  const weggelaten = [...new Set(selectVelden)].filter((v) => !veiligeSelect.includes(v));
 
   const expand = [
     `primarycontactid($select=contactid,fullname,firstname,middlename,lastname,jobtitle,emailaddress1,mobilephone,telephone1,address1_line1,cr283_huisnummer,cr283_huisnummertoevoeging,address1_postalcode,address1_city,address1_country)`,
@@ -75,7 +123,7 @@ async function haalAlleKlanten(resource, token, extraKolommen, inclusiefZonderCo
 
   const startQuery =
     `${resource}/api/data/v9.2/accounts` +
-    `?$select=${selectVelden.join(",")}` +
+    `?$select=${veiligeSelect.join(",")}` +
     `&$filter=${filter}` +
     `&$expand=${expand}` +
     `&$orderby=name asc`;
@@ -97,7 +145,7 @@ async function haalAlleKlanten(resource, token, extraKolommen, inclusiefZonderCo
     alles.push(...(data.value || []));
     url = data["@odata.nextLink"] || null;
   }
-  return { rijen: alles.slice(0, MAX_KLANTEN), afgekapt: alles.length >= MAX_KLANTEN && !!url };
+  return { rijen: alles.slice(0, MAX_KLANTEN), afgekapt: alles.length >= MAX_KLANTEN && !!url, weggelaten };
 }
 
 // Keuzelijst-/tekstveld: voorkeur voor het leesbare label (FormattedValue).
@@ -153,7 +201,7 @@ module.exports = async function (context, req) {
     const instellingen = await haalInstellingen().catch(() => ({}));
     const extraKolommen = (instellingen.klantoverzicht && instellingen.klantoverzicht.extraKolommen) || [];
     const inclusiefZonderContact = !!(req.query && (req.query.alle === "1" || req.query.metZonderContact === "1"));
-    const [{ rijen, afgekapt }, reviews, uitnodigingen] = await Promise.all([
+    const [{ rijen, afgekapt, weggelaten }, reviews, uitnodigingen] = await Promise.all([
       haalAlleKlanten(resource, token, extraKolommen, inclusiefZonderContact),
       haalReviews().catch(() => []),
       haalUitnodigingen().catch(() => ({})),
@@ -225,6 +273,8 @@ module.exports = async function (context, req) {
         kvk: a[KVK_VELD] || "",
         loonheffingsnummer: a[LOONHEFFINGSNUMMER_VELD] || "",
         btwnummer: a[BTWNUMMER_VELD] || "",
+        iban: a[IBAN_VELD] || "",
+        bsn: a[BSN_VELD] || "",
         sharepointUrl: a[SHAREPOINT_VELD] || "",
         relatiebeheerder: rb ? rb.fullname || "" : "",
         accountant: acc ? acc.fullname || "" : "",
@@ -291,7 +341,8 @@ module.exports = async function (context, req) {
       headers: { "Content-Type": "application/json" },
       // extraKolommen gaat mee zodat schermen die de extra waarden gebruiken (o.a. Formulieren)
       // weten hoe ze heten, zonder de beheerder-only instellingen te hoeven opvragen.
-      body: { klanten, afgekapt, extraKolommen: extraDefs },
+      // weggelaten = kolommen die Dynamics niet kent; handig om te zien waarom een veld leeg blijft.
+      body: { klanten, afgekapt, extraKolommen: extraDefs, weggelatenKolommen: weggelaten || [] },
     };
   } catch (err) {
     context.log.error(err);
