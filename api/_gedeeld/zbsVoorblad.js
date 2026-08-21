@@ -40,7 +40,7 @@ function basisnaamUitMediaUrl(url) {
  * ene zin eronder. Beide komen uit het invulscherm; wat er verder op het vel staat (logo, voetband)
  * zit in het briefpapier uit Beheer → Instellingen.
  */
-async function maakZbsVoorblad({ adresRegels, regel, kenmerk }) {
+async function maakZbsVoorblad({ adresRegels, regel, kenmerk, extraRegels }) {
   const config = await haalConfig().catch(() => ({}));
   const a = (config && config.afzender) || {};
 
@@ -57,6 +57,9 @@ async function maakZbsVoorblad({ adresRegels, regel, kenmerk }) {
     ].filter(Boolean),
     afzenderMiniRegel: [veiligeStr(a.adres), [veiligeStr(a.postcode), veiligeStr(a.plaats)].filter(Boolean).join(" ")].filter(Boolean).join("  "),
     ontvangerRegels: (Array.isArray(adresRegels) ? adresRegels : []).map(veiligeStr).filter(Boolean),
+    // Twee witregels extra boven het adres: op een ZBS staat er geen brieftekst onder, en dan begint
+    // het blok anders wel erg hoog op het briefpapier.
+    extraRegelsBovenAdres: Number.isFinite(Number(extraRegels)) ? Number(extraRegels) : 2,
     plaatsDatum: plaatsDatumRegel(a.plaats),
     kenmerk: veiligeStr(kenmerk),
     beconnummer: veiligeStr(a.beconnummer),

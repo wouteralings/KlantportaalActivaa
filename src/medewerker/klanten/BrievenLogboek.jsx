@@ -363,8 +363,12 @@ export default function BrievenLogboek({ onNieuweBrief, onFormulieren, onOpenFor
         {/* Formulieren: invulbare PDF's die in Beheer zijn toegevoegd. Staat naast "Nieuwe brief",
             want het is hetzelfde soort werk — iets opmaken voor een cliënt en meesturen. */}
         {onFormulieren && (
-          <button onClick={onFormulieren} style={{ ...knopLicht, marginLeft: "auto" }} title="Een PDF-formulier invullen voor een cliënt">
-            <FileText size={14} /> Formulier maken
+          <button
+            onClick={onFormulieren}
+            title="Een PDF-formulier invullen voor een cliënt"
+            style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+          >
+            <Plus size={14} /> Nieuw formulier
           </button>
         )}
         {onNieuweBrief && (
