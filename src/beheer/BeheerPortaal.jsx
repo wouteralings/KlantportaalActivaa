@@ -14,6 +14,7 @@ import BrievenBeheer from "./BrievenBeheer";
 import NotulenBeheer from "./NotulenBeheer";
 import DividendBeheer from "./DividendBeheer";
 import LiquidatieBeheer from "./LiquidatieBeheer";
+import FormulierenBeheer from "./FormulierenBeheer";
 import BrievenAfzenderInstellingen from "./BrievenAfzenderInstellingen";
 import GastaccountsOverzicht from "./GastaccountsOverzicht";
 import RollenBeheer from "./RollenBeheer";
@@ -231,7 +232,7 @@ function StandaardartikelFormulierRij({ form, setForm, bezig, onOpslaan, onAnnul
 // Nieuwe tabs erven hun zichtbaarheid van het tabblad waar ze uit zijn losgetrokken: wie Dossiers of
 // Brieven mocht zien, ziet Notulen en Dividend dus ook — anders zou een bestaande rol na de splitsing
 // ineens iets kwijt zijn dat hij eerder wél kon.
-const BEHEER_TAB_ERFT_VAN = { notulen: ["dossiers", "brieven"], dividend: ["dossiers"], liquidatie: ["dossiers"] };
+const BEHEER_TAB_ERFT_VAN = { notulen: ["dossiers", "brieven"], dividend: ["dossiers"], liquidatie: ["dossiers"], formulieren: ["brieven"] };
 
 export default function BeheerPortaal() {
   const [status, setStatus] = useState("laden"); // laden | nietIngelogd | geenRol | klaar
@@ -1608,6 +1609,7 @@ export default function BeheerPortaal() {
           ["notulen", "Notulen"],
           ["dividend", "Dividend"],
           ["liquidatie", "Liquidatiestukken"],
+          ["formulieren", "Formulieren"],
           ["aanleveren", "Uitvraag"],
           ["uren", "Uren"],
           ["dossiers", "Dossiers"],
@@ -3598,6 +3600,7 @@ export default function BeheerPortaal() {
       {tab === "notulen" && <NotulenBeheer />}
       {tab === "dividend" && <DividendBeheer />}
       {tab === "liquidatie" && <LiquidatieBeheer />}
+      {tab === "formulieren" && <FormulierenBeheer />}
 
     </div>
   );

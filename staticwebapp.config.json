@@ -392,6 +392,19 @@
       ]
     },
     {
+      "route": "/api/medewerker-formulier",
+      "allowedRoles": [
+        "beheerder",
+        "medewerker"
+      ]
+    },
+    {
+      "route": "/api/beheer-formulieren",
+      "allowedRoles": [
+        "beheerder"
+      ]
+    },
+    {
       "route": "/api/medewerker-dividend-opslaan",
       "allowedRoles": [
         "beheerder",

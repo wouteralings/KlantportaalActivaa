@@ -38,7 +38,7 @@ const KOLOMMEN_STANDAARD_VERBORGEN = []; // alle kolommen standaard zichtbaar
 const kolomVan = (key) => KOLOMMEN.find((c) => c.key === key);
 const alleKeys = KOLOMMEN.map((c) => c.key);
 
-export default function BrievenLogboek({ onNieuweBrief, isBeheerder = false, magVerwijderen = null }) {
+export default function BrievenLogboek({ onNieuweBrief, onFormulieren, isBeheerder = false, magVerwijderen = null }) {
   // Wie mag verwijderen komt uit Beheer → Rollen & toegang (subtabblad "brieven"). Is dat recht
   // niet doorgegeven (oudere aanroep), dan valt hij terug op het oude gedrag: alleen beheerders.
   const magWeg = magVerwijderen === null ? isBeheerder : (magVerwijderen || isBeheerder);
@@ -352,10 +352,17 @@ export default function BrievenLogboek({ onNieuweBrief, isBeheerder = false, mag
           </button>
         )}
         <button onClick={laad} style={knopLicht} title="Vernieuwen">{bezig ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} Vernieuwen</button>
+        {/* Formulieren: invulbare PDF's die in Beheer zijn toegevoegd. Staat naast "Nieuwe brief",
+            want het is hetzelfde soort werk — iets opmaken voor een cliënt en meesturen. */}
+        {onFormulieren && (
+          <button onClick={onFormulieren} style={{ ...knopLicht, marginLeft: "auto" }} title="Een PDF-formulier invullen voor een cliënt">
+            <FileText size={14} /> Formulieren
+          </button>
+        )}
         {onNieuweBrief && (
           <button
             onClick={onNieuweBrief}
-            style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+            style={{ marginLeft: onFormulieren ? 0 : "auto", display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: KLEUR.groen, color: "#fff", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
           >
             <Plus size={14} /> Nieuwe brief
           </button>

@@ -24,6 +24,7 @@ import DividendOpstellen from "./klanten/DividendOpstellen";
 import DividendLogboek from "./klanten/DividendLogboek";
 import LiquidatieOpstellen from "./klanten/LiquidatieOpstellen";
 import LiquidatieLogboek from "./klanten/LiquidatieLogboek";
+import FormulierInvullen from "./klanten/FormulierInvullen";
 import ImpersonatieBanner from "../ImpersonatieBanner";
 import { VeldInvoer } from "./dossierVeldInvoer";
 import { normaliseerSleutel, vulSjabloonIn, menselijkeVeldwaarde, bouwMergeWaarden } from "./dossierMerge";
@@ -34,9 +35,18 @@ import { normaliseerSleutel, vulSjabloonIn, menselijkeVeldwaarde, bouwMergeWaard
  */
 function BrievenTab({ isBeheerder = false, magVerwijderen = null }) {
   const [briefView, setBriefView] = useState("logboek");
-  return briefView === "opstellen"
-    ? <BrievenOverzicht onTerug={() => setBriefView("logboek")} />
-    : <BrievenLogboek onNieuweBrief={() => setBriefView("opstellen")} isBeheerder={isBeheerder} magVerwijderen={magVerwijderen} />;
+  if (briefView === "opstellen") return <BrievenOverzicht onTerug={() => setBriefView("logboek")} />;
+  // Formulieren: invulbare PDF's die in Beheer zijn toegevoegd (Belastingdienst, KvK, …). Ze horen
+  // bij Brieven omdat het net als een brief iets is wat je voor een cliënt opmaakt en meestuurt.
+  if (briefView === "formulieren") return <FormulierInvullen onTerug={() => setBriefView("logboek")} />;
+  return (
+    <BrievenLogboek
+      onNieuweBrief={() => setBriefView("opstellen")}
+      onFormulieren={() => setBriefView("formulieren")}
+      isBeheerder={isBeheerder}
+      magVerwijderen={magVerwijderen}
+    />
+  );
 }
 import NogInTeRichten from "./klanten/NogInTeRichten";
 import Logboek from "./klanten/Logboek";
