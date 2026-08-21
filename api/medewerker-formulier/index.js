@@ -13,6 +13,10 @@
  *   "mail"       → als bijlage naar de cliënt, en ook in het dossier
  * (`opslaan: true` blijft werken als synoniem voor actie "dossier".)
  *
+ * Met `vervangtId` werk je een eerder gemaakt formulier BIJ in plaats van een nieuw exemplaar te
+ * maken: hetzelfde kenmerk, dezelfde bestandsnaam (dus hetzelfde bestand in SharePoint wordt
+ * overschreven) en dezelfde regel in het logboek. Zonder dat veld komt er gewoon een nieuwe bij.
+ *
  * Met `zbs: { adresRegels, regel }` komt er een voorblad op ons briefpapier vóór het formulier:
  * alleen het adres en één regel, zonder begeleidend schrijven. Zie _gedeeld/zbsVoorblad.js.
  *                              → { ok, bestandsnaam, pdf (base64), sharepoint? }
@@ -32,7 +36,7 @@ const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/
 const { haalFormulieren, haalFormulier, haalFormulierPdf } = require("../_gedeeld/formulieren");
 const { vulFormulier, bestandsnaamVoor } = require("../_gedeeld/formulierVullen");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
-const { voegBriefToe } = require("../_gedeeld/briefLog");
+const { voegBriefToe, werkBriefBij, haalBrief } = require("../_gedeeld/briefLog");
 const { maakZbsVoorblad, zetVoorbladVoor } = require("../_gedeeld/zbsVoorblad");
 const { genereerKenmerk } = require("../_gedeeld/briefKenmerk");
 const { verstuurMailMetBijlage } = require("../_gedeeld/mail");
@@ -144,10 +148,22 @@ module.exports = async function (context, req) {
     const actie = veiligeStr(body.actie).toLowerCase() || (body.opslaan === true ? "dossier" : "maken");
     const bewaren = actie === "dossier" || actie === "backoffice" || actie === "mail";
 
+    // Werk je een bestaand formulier bij, dan houden we het kenmerk van toen aan — anders zou de
+    // correctie een nieuw nummer krijgen en zou het bestand in SharePoint ernaast komen te staan in
+    // plaats van eroverheen.
+    const vervangtId = veiligeStr(body.vervangtId);
+    const teVervangen = vervangtId ? await haalBrief(vervangtId).catch(() => null) : null;
+
     // Kenmerk uit dezelfde teller als de brieven, zodat brieven en formulieren samen doornummeren
     // per cliënt per jaar. Best-effort: zonder kenmerk gaat het formulier gewoon door.
-    let kenmerk = "";
-    try { kenmerk = await genereerKenmerk(body.klantnummer); } catch { kenmerk = ""; }
+    //
+    // Alleen bij bewaren of versturen een nummer trekken. "Formulier maken" is een voorbeeld op het
+    // scherm; zou dat ook een nummer opsouperen, dan zaten er gaten in de reeks voor elke keer dat
+    // iemand even keek hoe het eruitzag.
+    let kenmerk = veiligeStr(teVervangen && teVervangen.kenmerk);
+    if (!kenmerk && bewaren) {
+      try { kenmerk = await genereerKenmerk(body.klantnummer); } catch { kenmerk = ""; }
+    }
 
     // ZBS-voorblad ervoor, als het scherm daarom vraagt. Best-effort: gaat het renderen mis, dan
     // krijg je het formulier zonder voorblad plus de reden — beter dan helemaal niets.
@@ -170,7 +186,12 @@ module.exports = async function (context, req) {
     const datum = new Date().toISOString().slice(0, 10);
     // Kenmerk in de bestandsnaam, net als bij brieven: twee formulieren van dezelfde soort op
     // dezelfde dag overschrijven elkaar dan niet in het dossier.
-    const bestandsnaam = bestandsnaamVoor(formulier.naam, klantnaam, [datum, kenmerk].filter(Boolean).join(" - "));
+    //
+    // Werk je een bestaand formulier bij, dan houden we de bestandsnaam van toen aan. De naam bevat
+    // de datum, en zonder dit zou een correctie van morgen naast het origineel belanden in plaats van
+    // eroverheen — en dan staan er twee versies van hetzelfde stuk in het dossier.
+    const bestandsnaam = veiligeStr(teVervangen && teVervangen.betreft)
+      || bestandsnaamVoor(formulier.naam, klantnaam, [datum, kenmerk].filter(Boolean).join(" - "));
 
     let sharepoint;
     if (bewaren && accountId) {
@@ -240,14 +261,18 @@ module.exports = async function (context, req) {
       }
     }
 
-    // In het brievenlogboek zetten. Best-effort: het formulier zelf is al klaar en mag niet
-    // sneuvelen op een logboek dat even niet bereikbaar is.
-    await voegBriefToe({
+    // In het brievenlogboek zetten — of de bestaande regel bijwerken als je een eerder formulier
+    // corrigeert. Best-effort: het formulier zelf is al klaar en mag niet sneuvelen op een logboek
+    // dat even niet bereikbaar is.
+    //
+    // Alleen als er echt iets bewaard of verstuurd is. "Formulier maken" is een voorbeeld op het
+    // scherm: dat hoort geen regel in het logboek op te leveren, en al helemaal geen tweede regel
+    // naast het stuk dat je aan het bijwerken was.
+    const logregel = !bewaren ? null : {
       soort: "formulier",
       actie: mail && mail.verzonden ? "formulier-mail"
         : backoffice ? "formulier-backoffice"
-        : (sharepoint && sharepoint.gedaan) ? "formulier-dossier"
-        : "formulier",
+        : "formulier-dossier",
       kenmerk,
       formulierId: id,
       antwoorden: body.antwoorden,
@@ -261,10 +286,16 @@ module.exports = async function (context, req) {
       betreft: bestandsnaam,
       medewerker: email,
       pdfUrl: (sharepoint && sharepoint.url) || "",
-    }).catch((e) => { if (context.log) context.log.warn("Formulier niet in het logboek gezet:", String((e && e.message) || e)); });
+    };
+    // Bij bijwerken de link niet leegmaken als er deze keer niets naar SharePoint ging.
+    if (logregel) {
+      if (teVervangen && !logregel.pdfUrl) delete logregel.pdfUrl;
+      await (teVervangen ? werkBriefBij(vervangtId, logregel) : voegBriefToe(logregel))
+        .catch((e) => { if (context.log) context.log.warn("Formulier niet in het logboek gezet:", String((e && e.message) || e)); });
+    }
 
     context.res = json(200, {
-      ok: true, bestandsnaam, kenmerk, pdf: pdfMetVoorblad.toString("base64"),
+      ok: true, bestandsnaam, kenmerk, bijgewerkt: !!teVervangen, pdf: pdfMetVoorblad.toString("base64"),
       ...(sharepoint ? { sharepoint } : {}), ...(zbs ? { zbs } : {}),
       ...(backoffice ? { backoffice } : {}), ...(mail ? { mail } : {}),
     });

@@ -167,6 +167,9 @@ export default function FormulierInvullen({ onTerug, start = null }) {
   const [zbsBron, setZbsBron] = useState("");   // "" = zoals in Beheer ingesteld
   const [zbsEigenRegels, setZbsEigenRegels] = useState(null); // niet-null = zelf aangepast
   const [naar, setNaar] = useState("");
+  // Kom je uit het logboek, dan kun je kiezen: het bestaande stuk bijwerken of er een nieuw
+  // exemplaar van maken. Bijwerken is de standaard — je opende het immers om iets te corrigeren.
+  const [bijwerken, setBijwerken] = useState(true);
   const [mailModal, setMailModal] = useState(null); // { onderwerp, tekst, cc, bijlage }
   const levend = useRef(true);
   useEffect(() => () => { levend.current = false; }, []);
@@ -387,6 +390,7 @@ export default function FormulierInvullen({ onTerug, start = null }) {
           klantnaam: klant ? veiligeStr(klant.klantnaam) : "",
           klantnummer: klant ? (klant.klantnummer ?? "") : "",
           actie,
+          ...(start && start.id && bijwerken ? { vervangtId: start.id } : {}),
           ...(actie === "mail" && mailModal ? {
             naar: veiligeStr(naar),
             cc: veiligeStr(mailModal.cc).split(/[;,]/).map((x) => x.trim()).filter(Boolean),
@@ -415,7 +419,7 @@ export default function FormulierInvullen({ onTerug, start = null }) {
       const mailStaart = d.mail
         ? (d.mail.verzonden ? ` Gemaild naar ${veiligeStr(naar)}.` : ` Mailen mislukt: ${d.mail.reden || "onbekende reden"}.`)
         : "";
-      const kenmerkStaart = d.kenmerk ? ` Kenmerk ${d.kenmerk}.` : "";
+      const kenmerkStaart = d.kenmerk ? ` Kenmerk ${d.kenmerk}${d.bijgewerkt ? " (bijgewerkt)" : ""}.` : "";
       const misgegaan = (d.sharepoint && !d.sharepoint.gedaan) || (d.zbs && !d.zbs.gedaan)
         || (d.backoffice && !d.backoffice.gedaan) || (d.mail && !d.mail.verzonden);
       setMelding({ type: misgegaan ? "fout" : "ok", tekst: `${d.bestandsnaam} klaar.${kenmerkStaart}${staart}${boStaart}${mailStaart}${zbsStaart}` });
@@ -450,12 +454,38 @@ export default function FormulierInvullen({ onTerug, start = null }) {
       <div style={{ display: "flex", flexWrap: "wrap", gap: 20 }}>
         <div style={{ flex: "1 1 460px", minWidth: 340, display: "flex", flexDirection: "column", gap: 16 }}>
           {start && (
-            <div style={{ display: "flex", gap: 8, padding: "9px 11px", borderRadius: 8, fontSize: 12, background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, color: KLEUR.subtekst }}>
-              <Copy size={14} style={{ flexShrink: 0, marginTop: 1 }} />
-              <span>
-                Geopend vanuit het logboek{veiligeStr(start.kenmerk) ? ` (kenmerk ${start.kenmerk})` : ""}. Pas aan wat
-                anders moet; wat je hierna maakt is een nieuw exemplaar met een eigen kenmerk. Het origineel blijft staan.
-              </span>
+            <div style={{ padding: "10px 12px", borderRadius: 8, fontSize: 12, background: KLEUR.lichtblauw, border: `1px solid ${KLEUR.rand}`, color: KLEUR.subtekst }}>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Copy size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                <span>
+                  Geopend vanuit het logboek{veiligeStr(start.kenmerk) ? ` (kenmerk ${start.kenmerk})` : ""}.
+                </span>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                {[
+                  [true, "Bijwerken", "Zelfde kenmerk, zelfde bestand in het dossier, één regel in het logboek"],
+                  [false, "Als nieuw exemplaar", "Nieuw kenmerk en een nieuwe regel; het origineel blijft staan"],
+                ].map(([waarde, tekst, uitleg]) => (
+                  <button
+                    key={tekst}
+                    onClick={() => setBijwerken(waarde)}
+                    title={uitleg}
+                    style={{
+                      padding: "5px 11px", borderRadius: 999, fontSize: 11.5, fontWeight: 600, cursor: "pointer",
+                      border: `1px solid ${bijwerken === waarde ? KLEUR.blauw : KLEUR.rand}`,
+                      background: bijwerken === waarde ? KLEUR.blauw : "#fff",
+                      color: bijwerken === waarde ? "#fff" : KLEUR.subtekst,
+                    }}
+                  >
+                    {tekst}
+                  </button>
+                ))}
+              </div>
+              <div style={{ marginTop: 5, fontSize: 11.5, color: KLEUR.mutedTekst }}>
+                {bijwerken
+                  ? "Het bestaande formulier wordt overschreven — zelfde kenmerk, zelfde bestand, dezelfde regel in het logboek."
+                  : "Er komt een nieuw formulier bij met een eigen kenmerk; het origineel blijft ongemoeid."}
+              </div>
             </div>
           )}
 

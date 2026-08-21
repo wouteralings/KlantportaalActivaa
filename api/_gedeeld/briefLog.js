@@ -90,6 +90,28 @@ async function voegBriefToe(record) {
   return nieuw;
 }
 
+/**
+ * Werkt een bestaande regel bij in plaats van er een toe te voegen. Gebruikt bij een formulier dat je
+ * uit het logboek opent en corrigeert: hetzelfde kenmerk, hetzelfde bestand, één regel in het
+ * logboek. Alleen de meegegeven velden veranderen; `verzondenOp` en `kenmerk` blijven wat ze waren.
+ * Geeft de bijgewerkte regel terug, of null als hij niet meer bestaat.
+ */
+async function werkBriefBij(id, wijziging) {
+  const brieven = await haalAlleBrieven();
+  const index = brieven.findIndex((b) => String(b.id) === String(id));
+  if (index === -1) return null;
+  const huidig = brieven[index];
+  const nieuw = { ...huidig };
+  for (const [sleutel, waarde] of Object.entries(wijziging || {})) {
+    if (["id", "verzondenOp", "kenmerk", "soort"].includes(sleutel)) continue;
+    if (waarde !== undefined) nieuw[sleutel] = waarde;
+  }
+  nieuw.gewijzigdOp = new Date().toISOString();
+  brieven[index] = nieuw;
+  await schrijfBrieven(brieven);
+  return nieuw;
+}
+
 /** Alle brieven van één klant (op accountId), nieuwste eerst. */
 async function haalBrievenVoorKlant(accountId) {
   const alle = await haalAlleBrieven();
@@ -123,4 +145,4 @@ async function verwijderBrief(id) {
   return true;
 }
 
-module.exports = { haalAlleBrieven, voegBriefToe, haalBrievenVoorKlant, haalBrief, verwijderBrief };
+module.exports = { haalAlleBrieven, voegBriefToe, werkBriefBij, haalBrievenVoorKlant, haalBrief, verwijderBrief };
