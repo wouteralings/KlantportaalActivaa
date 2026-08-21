@@ -15,7 +15,14 @@ const KLEUR = {
 };
 // Wat er met een brief gebeurd is. Zelfde drie toestanden als bij de stukken (notulen, dividend,
 // liquidatie): alleen opgemaakt, gemaild, of doorgezet naar de backoffice.
-const ACTIE_LABEL = { mail: "Gemaild", dossier: "Opgemaakt — in dossier", backoffice: "Naar backoffice" };
+const ACTIE_LABEL = {
+  mail: "Gemaild",
+  dossier: "Opgemaakt — in dossier",
+  backoffice: "Naar backoffice",
+  // Ingevulde PDF-formulieren staan in hetzelfde logboek; "formulier" = wel opgemaakt, niet opgeslagen.
+  formulier: "Opgemaakt",
+  "formulier-dossier": "Opgemaakt — in dossier",
+};
 const SCHERM = "brieven-log"; // eigen namespace voor opgeslagen weergaven (zie api/_gedeeld/weergaven.js)
 
 function veiligeStr(v) { return String(v == null ? "" : v).trim(); }
@@ -29,6 +36,7 @@ const KOLOMMEN = [
   { key: "kenmerk", label: "Kenmerk", cel: (b) => veiligeStr(b.kenmerk) },
   { key: "klantnaam", label: "Cliënt", cel: (b) => veiligeStr(b.klantnaam) },
   { key: "klantnummer", label: "Cliëntnr.", cel: (b) => veiligeStr(b.klantnummer) },
+  { key: "soort", label: "Soort", cel: (b) => (b.soort === "formulier" ? "Formulier" : "Brief") },
   { key: "onderwerp", label: "Onderwerp", cel: (b) => veiligeStr(b.betreft) || veiligeStr(b.sjabloonnaam) },
   { key: "ontvanger", label: "Ontvanger", cel: (b) => veiligeStr(b.ontvangerNaam) || veiligeStr(b.naar) },
   { key: "wijze", label: "Status", cel: (b) => ACTIE_LABEL[b.actie] || veiligeStr(b.actie) },
@@ -82,7 +90,7 @@ export default function BrievenLogboek({ onNieuweBrief, onFormulieren, isBeheerd
 
   /** De regel uit het logboek halen én de PDF uit de SharePoint-map van de cliënt verwijderen. */
   async function verwijderRegel(brief) {
-    const naam = veiligeStr(brief.betreft) || veiligeStr(brief.sjabloonnaam) || "deze brief";
+    const naam = veiligeStr(brief.betreft) || veiligeStr(brief.sjabloonnaam) || (brief.soort === "formulier" ? "dit formulier" : "deze brief");
     if (typeof window !== "undefined" && !window.confirm(`"${naam}" verwijderen?\n\nDe regel verdwijnt uit het logboek ÉN het bestand wordt uit de SharePoint-map van de cliënt verwijderd.\n\nDit kan niet ongedaan gemaakt worden.`)) return;
     setVerwijderBezig(brief.id); setVerwijderFout("");
     try {

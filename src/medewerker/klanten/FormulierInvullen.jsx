@@ -270,6 +270,7 @@ export default function FormulierInvullen({ onTerug }) {
           id: formulier.id, antwoorden,
           accountId: klant ? klant.accountId : "",
           klantnaam: klant ? veiligeStr(klant.klantnaam) : "",
+          klantnummer: klant ? (klant.klantnummer ?? "") : "",
           opslaan: !!opslaan,
         }),
       });

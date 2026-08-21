@@ -3,7 +3,8 @@
  * blob brieven-log.json). Spiegelt _gedeeld/taakakkoorden.js.
  *
  * Elke keer dat een brief via /api/brieven wordt gemaild, in het dossier gezet of naar backoffice
- * gestuurd, komt hier een record bij. Zo kan het medewerkersportaal per klant (en centraal,
+ * gestuurd, komt hier een record bij. Ingevulde PDF-formulieren (/api/medewerker-formulier) landen
+ * in hetzelfde logboek, herkenbaar aan soort: "formulier". Zo kan het medewerkersportaal per klant (en centraal,
  * filterbaar) terugzien welke brieven zijn verstuurd, met een link naar de PDF in SharePoint.
  */
 const { BlobServiceClient } = require("@azure/storage-blob");
@@ -60,6 +61,9 @@ async function voegBriefToe(record) {
     id: crypto.randomUUID(),
     verzondenOp: new Date().toISOString(),
     kenmerk: record.kenmerk || "",
+    // "brief" of "formulier" — een ingevuld PDF-formulier komt in hetzelfde logboek terecht, want
+    // het is hetzelfde soort werk: iets opmaken voor een cliënt en het in het dossier zetten.
+    soort: record.soort === "formulier" ? "formulier" : "brief",
     actie: record.actie || "",
     accountId: record.accountId || null,
     klantnummer: record.klantnummer ?? null,

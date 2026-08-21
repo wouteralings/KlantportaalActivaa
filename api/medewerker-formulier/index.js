@@ -4,8 +4,12 @@
  *
  *   GET                        → { formulieren: [{ id, naam, omschrijving, aantalPaginas }] }
  *   GET  ?id=<id>              → { formulier }  met de velden en de instellingen, om het scherm te bouwen
- *   POST { id, antwoorden, accountId?, klantnaam?, opslaan? }
+ *   POST { id, antwoorden, accountId?, klantnaam?, klantnummer?, opslaan? }
  *                              → { ok, bestandsnaam, pdf (base64), sharepoint? }
+ *
+ * Elk ingevuld formulier komt ook in het brievenlogboek (soort: "formulier"). Daar zie je terug wat
+ * er is gemaakt en wanneer, en daar verwijder je het ook weer — inclusief het bestand in SharePoint,
+ * met hetzelfde recht als voor brieven.
  *
  * Met `opslaan: true` gaat de ingevulde PDF ook naar de SharePoint-map van de cliënt, in dezelfde
  * submap als de brieven. De doelmap komt altijd server-side van het account (cr283_sharepoint) —
@@ -18,6 +22,7 @@ const { resolveFolder, ensureFolderPath, uploadBestand } = require("../_gedeeld/
 const { haalFormulieren, haalFormulier, haalFormulierPdf } = require("../_gedeeld/formulieren");
 const { vulFormulier, bestandsnaamVoor } = require("../_gedeeld/formulierVullen");
 const { logGebeurtenis } = require("../_gedeeld/klantlog");
+const { voegBriefToe } = require("../_gedeeld/briefLog");
 
 const SHAREPOINT_VELD = process.env.DYNAMICS_KLANT_SHAREPOINT_VELD || "cr283_sharepoint";
 const SUBMAP_STANDAARD = "Correspondentie";
@@ -113,6 +118,20 @@ module.exports = async function (context, req) {
         tekst: `Formulier "${formulier.naam}" ingevuld${sharepoint.gedaan ? " en in SharePoint gezet" : ` (opslaan mislukt: ${sharepoint.reden})`}.`,
       }).catch(() => {});
     }
+
+    // In het brievenlogboek zetten. Best-effort: het formulier zelf is al klaar en mag niet
+    // sneuvelen op een logboek dat even niet bereikbaar is.
+    await voegBriefToe({
+      soort: "formulier",
+      actie: sharepoint && sharepoint.gedaan ? "formulier-dossier" : "formulier",
+      accountId: accountId || null,
+      klantnummer: body.klantnummer ?? null,
+      klantnaam,
+      sjabloonnaam: formulier.naam,
+      betreft: bestandsnaam,
+      medewerker: haalEmailUitPrincipal(req) || "",
+      pdfUrl: (sharepoint && sharepoint.url) || "",
+    }).catch((e) => { if (context.log) context.log.warn("Formulier niet in het logboek gezet:", String((e && e.message) || e)); });
 
     context.res = json(200, { ok: true, bestandsnaam, pdf: pdf.toString("base64"), ...(sharepoint ? { sharepoint } : {}) });
   } catch (err) {
