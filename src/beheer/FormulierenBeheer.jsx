@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Info, Upload, Trash2, Loader2, AlertTriangle, CheckCircle2, FileText, ChevronDown, Eye, EyeOff } from "lucide-react";
 
 /**
- * Beheer → Brieven → Formulieren — PDF-formulieren toevoegen die je in het medewerkersportaal kunt
+ * Beheer → Formulieren — PDF-formulieren toevoegen die je in het medewerkersportaal kunt
  * invullen (Belastingdienst, KvK, wat je maar nodig hebt).
  *
  * Er wordt hier niets geprogrammeerd: een invulbaar PDF-formulier draagt zijn eigen velden mee, en

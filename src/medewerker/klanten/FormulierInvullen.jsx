@@ -7,7 +7,7 @@ import { veldLabel } from "../../beheer/FormulierenBeheer";
  *
  * Kies een cliënt en een formulier, vul de velden in, en je krijgt de ingevulde PDF om af te drukken
  * of in het dossier op te slaan. De velden komen uit de PDF zelf (uitgelezen bij het toevoegen in
- * Beheer → Brieven → Formulieren), gegroepeerd per pagina, in de volgorde van het papier.
+ * Beheer → Formulieren), gegroepeerd per pagina, in de volgorde van het papier.
  *
  * Wat er automatisch gevuld wordt bepaal je in Beheer, per veld. Er wordt niets geraden op basis van
  * veldnamen: op één formulier hoort "KvK-nummer" op de ene plek bij de cliënt en op de andere bij een
@@ -36,8 +36,8 @@ function adresRegel(adres) {
 }
 
 /**
- * De waarde die bij een bron hoort. Welke bron een veld gebruikt staat in Beheer → Brieven →
- * Formulieren, per veld ingesteld. Bewust geen raadwerk op veldnamen: op één formulier hoort
+ * De waarde die bij een bron hoort. Welke bron een veld gebruikt staat in Beheer → Formulieren,
+ * per veld ingesteld. Bewust geen raadwerk op veldnamen: op één formulier hoort
  * "KvK-nummer" op de ene plek bij de cliënt en op de andere bij een vereffenaar of een overnemer.
  */
 function waardeUitBron(bron, klant) {
@@ -229,7 +229,7 @@ export default function FormulierInvullen({ onTerug }) {
               <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>Formulieren ophalen…</div>
             ) : formulieren.length === 0 ? (
               <div style={{ fontSize: 12.5, color: KLEUR.mutedTekst }}>
-                Er zijn nog geen formulieren toegevoegd. Dat doe je bij <strong>Beheer → Brieven → Formulieren</strong>.
+                Er zijn nog geen formulieren toegevoegd. Dat doe je bij <strong>Beheer → Formulieren</strong>.
               </div>
             ) : (
               <select value={formulierId} onChange={(e) => { setFormulierId(e.target.value); setAntwoorden({}); }} style={invoer}>

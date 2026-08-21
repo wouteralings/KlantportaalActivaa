@@ -1,5 +1,5 @@
 /**
- * /api/beheer-formulieren — PDF-formulieren toevoegen en beheren (Beheer → Brieven → Formulieren).
+ * /api/beheer-formulieren — PDF-formulieren toevoegen en beheren (Beheer → Formulieren).
  * Beheerder-only (route in staticwebapp.config.json).
  *
  *   GET                      → { formulieren: [{ id, naam, omschrijving, aantalPaginas, velden, instellingen }] }
