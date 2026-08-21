@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X, FileText, Loader2, AlertTriangle, CheckCircle2, ArrowLeft, Printer, Save, RotateCcw } from "lucide-react";
 import { veldLabel } from "../../beheer/FormulierenBeheer";
+import { zichtbareVeldnamen } from "../formulierVoorwaarden";
 
 /**
  * Formulier invullen — medewerkersportaal → Klantoverzicht → Brieven → Formulieren.
@@ -36,27 +37,95 @@ function adresRegel(adres) {
 }
 
 /**
+ * Het adres van ons kantoor staat in Beheer → Instellingen als één regel ("Hengelosestraat 100 A").
+ * Formulieren hebben er vaak drie hokjes voor. We knippen op het laatste getal in de regel: alles
+ * ervoor is de straatnaam, het getal is het huisnummer, wat erachter staat de toevoeging. Zit er
+ * geen getal in, dan blijft de hele regel de straatnaam — liever niets dan iets verzonnens.
+ */
+function splitsAdresregel(regel) {
+  const t = veiligeStr(regel);
+  const m = /^(.*?)[\s,]+(\d+)\s*-?\s*([A-Za-z0-9-]*)$/.exec(t);
+  if (!m) return { straat: t, huisnummer: "", toevoeging: "" };
+  return { straat: m[1].trim(), huisnummer: m[2], toevoeging: m[3] };
+}
+
+/**
+ * Fiscale nummers bestaan uit een hoofdnummer en een subnummer, gescheiden door een letter:
+ * "NL8529.21.743.B01" en "123456789L02". Formulieren hebben er twee hokjes voor, met de letter al
+ * voorgedrukt. Deze functie geeft het deel vóór de letter (negen cijfers) of het subnummer erna.
+ *
+ * De Belastingdienst rekent zelf ook zo: vraag 1c van de Melding Loonheffingen zegt "u mag ook uw
+ * omzetbelastingnummer invullen, het deel van het nummer voor de letter B".
+ */
+function nummerdeel(nummer, letter, welk) {
+  const t = veiligeStr(nummer).toUpperCase();
+  const stukken = t.split(letter);
+  if (welk === "hoofd") {
+    const cijfers = stukken[0].replace(/\D/g, "");
+    return cijfers.length === 9 ? cijfers : "";
+  }
+  if (stukken.length < 2) return "";
+  const sub = stukken[1].replace(/\D/g, "");
+  return sub ? sub.slice(0, 2) : "";
+}
+
+/**
  * De waarde die bij een bron hoort. Welke bron een veld gebruikt staat in Beheer → Formulieren,
  * per veld ingesteld. Bewust geen raadwerk op veldnamen: op één formulier hoort
  * "KvK-nummer" op de ene plek bij de cliënt en op de andere bij een vereffenaar of een overnemer.
+ *
+ * `afzender` zijn onze eigen kantoorgegevens uit Beheer → Instellingen; formulieren vragen die als
+ * gemachtigde of correspondentieadres.
  */
-function waardeUitBron(bron, klant) {
-  if (!bron || !klant) return "";
+function waardeUitBron(bron, klant, afzender) {
+  if (!bron) return "";
+  const a = afzender || {};
+  if (bron === "vandaag") return new Date().toISOString().slice(0, 10);
+  if (bron.startsWith("kantoor") || bron === "beconnummer") {
+    const eigen = splitsAdresregel(a.adres);
+    switch (bron) {
+      case "kantoornaam": return veiligeStr(a.bedrijfsnaam);
+      case "beconnummer": return veiligeStr(a.beconnummer);
+      case "kantooradres": return veiligeStr(a.adres);
+      case "kantoorstraatnaam": return eigen.straat;
+      case "kantoorhuisnummer": return eigen.huisnummer;
+      case "kantoortoevoeging": return eigen.toevoeging;
+      case "kantoorpostcode": return veiligeStr(a.postcode);
+      case "kantoorplaats": return veiligeStr(a.plaats);
+      case "kantoortelefoon": return veiligeStr(a.telefoon);
+      case "kantooremail": return veiligeStr(a.email);
+      case "kantoorkvk": return veiligeStr(a.kvk);
+      case "kantoorbtw": return veiligeStr(a.btw);
+      default: return "";
+    }
+  }
+  if (!klant) return "";
   const adres = klant.adres || {};
   const contact = klant.contact || {};
   switch (bron) {
     case "klantnaam": return veiligeStr(klant.klantnaam);
     case "kvk": return veiligeStr(klant.kvk);
+    // Het bsn/fiscaal nummer komt uit een eigen Dynamics-kolom; is die niet ingesteld, dan blijft
+    // dit leeg. Bij een rechtspersoon is het RSIN doorgaans het deel van het btw-nummer vóór de B.
+    case "bsn": return veiligeStr(klant.bsn);
     case "btwnummer": return veiligeStr(klant.btwnummer);
+    case "rsin": return nummerdeel(klant.btwnummer, "B", "hoofd");
+    case "btwsubnummer": return nummerdeel(klant.btwnummer, "B", "sub");
     case "loonheffingsnummer": return veiligeStr(klant.loonheffingsnummer);
+    case "loonheffingsnummerdeel": return nummerdeel(klant.loonheffingsnummer, "L", "hoofd");
+    case "loonheffingssubnummer": return nummerdeel(klant.loonheffingsnummer, "L", "sub");
     case "adres": return adresRegel(adres);
     case "straat": return [veiligeStr(adres.straat), [veiligeStr(adres.huisnummer), veiligeStr(adres.toevoeging)].filter(Boolean).join("")].filter(Boolean).join(" ");
+    case "straatnaam": return veiligeStr(adres.straat);
+    case "huisnummer": return veiligeStr(adres.huisnummer);
+    case "toevoeging": return veiligeStr(adres.toevoeging);
+    case "huisnummertoevoeging": return [veiligeStr(adres.huisnummer), veiligeStr(adres.toevoeging)].filter(Boolean).join("");
     case "postcode": return veiligeStr(adres.postcode);
     case "plaats": return veiligeStr(adres.plaats);
+    case "land": return veiligeStr(adres.land);
     case "contactnaam": return veiligeStr(contact.naam);
     case "contactemail": return veiligeStr(contact.email) || veiligeStr(klant.emailKlant);
     case "contacttelefoon": return veiligeStr(contact.telefoon);
-    case "vandaag": return new Date().toISOString().slice(0, 10);
     default: return "";
   }
 }
@@ -66,6 +135,7 @@ export default function FormulierInvullen({ onTerug }) {
   const [formulierId, setFormulierId] = useState("");
   const [formulier, setFormulier] = useState(null); // met velden en instellingen
   const [klanten, setKlanten] = useState([]);
+  const [afzender, setAfzender] = useState(null); // onze eigen kantoorgegevens
   const [klant, setKlant] = useState(null);
   const [zoek, setZoek] = useState("");
   const [antwoorden, setAntwoorden] = useState({});
@@ -84,6 +154,13 @@ export default function FormulierInvullen({ onTerug }) {
       .then((r) => (r.ok ? r.json() : Promise.reject(r)))
       .then((d) => { if (levend.current) setKlanten(Array.isArray(d.klanten) ? d.klanten : []); })
       .catch(() => { if (levend.current) setKlanten([]); });
+    // Onze eigen kantoorgegevens (naam, adres, beconnummer) uit Beheer → Instellingen: formulieren
+    // vragen die als gemachtigde of correspondentieadres. Lukt het niet, dan blijven die bronnen
+    // gewoon leeg — het formulier zelf werkt er niet minder om.
+    fetch("/api/brief-sjablonen")
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((d) => { if (levend.current) setAfzender((d && d.afzender) || null); })
+      .catch(() => { if (levend.current) setAfzender(null); });
   }, []);
 
   // Het gekozen formulier ophalen mét zijn velden.
@@ -107,8 +184,11 @@ export default function FormulierInvullen({ onTerug }) {
     if (!formulier) return [];
     const inst = (formulier.instellingen && typeof formulier.instellingen === "object") ? formulier.instellingen : {};
     // Velden die het formulier zelf invult (alleen-lezen in de PDF) stellen we niet als vraag; die
-    // krijgen hun waarde van het veld dat er in Beheer aan gekoppeld is.
-    const zichtbaar = (formulier.velden || []).filter((v) => !v.automatisch && !(inst[v.naam] && inst[v.naam].verborgen));
+    // krijgen hun waarde van het veld dat er in Beheer aan gekoppeld is. En een veld met een
+    // voorwaarde ("toon alleen als vraag 1a op Nee staat") verschijnt pas als die klopt — vandaar dat
+    // dit meerekent met de antwoorden en niet alleen met het formulier.
+    const gevraagd = zichtbareVeldnamen(formulier.velden || [], inst, antwoorden);
+    const zichtbaar = (formulier.velden || []).filter((v) => gevraagd.has(v.naam));
     const per = new Map();
     for (const v of zichtbaar) {
       const nr = v.pagina || 0;
@@ -116,24 +196,24 @@ export default function FormulierInvullen({ onTerug }) {
       per.get(nr).push({ ...v, label: veldLabel(v, inst[v.naam]) });
     }
     return [...per.entries()].sort((a, b) => a[0] - b[0]).map(([nr, velden]) => ({ nr, velden }));
-  }, [formulier]);
+  }, [formulier, antwoorden]);
 
   // Voorvullen zodra cliënt én formulier bekend zijn. Alleen velden die nog leeg zijn — wat jij
   // intikt blijft altijd staan.
   useEffect(() => {
-    if (!formulier || !klant) return;
+    if (!formulier || (!klant && !afzender)) return;
     setAntwoorden((huidig) => {
       const nieuw = { ...huidig };
       const inst = (formulier.instellingen && typeof formulier.instellingen === "object") ? formulier.instellingen : {};
       for (const v of formulier.velden || []) {
         if (v.automatisch) continue;
         if (veiligeStr(nieuw[v.naam])) continue;
-        const voorstel = waardeUitBron(inst[v.naam] && inst[v.naam].bron, klant);
+        const voorstel = waardeUitBron(inst[v.naam] && inst[v.naam].bron, klant, afzender);
         if (voorstel) nieuw[v.naam] = voorstel;
       }
       return nieuw;
     });
-  }, [formulier, klant]);
+  }, [formulier, klant, afzender]);
 
   function zet(naam, waarde) { setAntwoorden((a) => ({ ...a, [naam]: waarde })); }
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Info, Upload, Trash2, Loader2, AlertTriangle, CheckCircle2, FileText, ChevronDown, Eye, EyeOff } from "lucide-react";
+import { stuurbareVelden, antwoordLabels } from "../medewerker/formulierVoorwaarden";
 
 /**
  * Beheer → Formulieren — PDF-formulieren toevoegen die je in het medewerkersportaal kunt
@@ -23,21 +24,68 @@ const KLEUR = {
  * van de cliënt en op de andere dat van een vereffenaar of een overnemer. Automatisch raden vult dan
  * het verkeerde nummer in, en dat merk je pas als de Belastingdienst erover begint.
  */
-export const BRONNEN = [
-  { key: "", label: "— niet automatisch —" },
-  { key: "klantnaam", label: "Naam cliënt" },
-  { key: "kvk", label: "KvK-nummer" },
-  { key: "btwnummer", label: "Btw-nummer" },
-  { key: "loonheffingsnummer", label: "Loonheffingennummer" },
-  { key: "adres", label: "Adres cliënt (één regel)" },
-  { key: "straat", label: "Straat en huisnummer" },
-  { key: "postcode", label: "Postcode" },
-  { key: "plaats", label: "Vestigingsplaats" },
-  { key: "contactnaam", label: "Naam contactpersoon" },
-  { key: "contactemail", label: "E-mail contactpersoon" },
-  { key: "contacttelefoon", label: "Telefoon contactpersoon" },
-  { key: "vandaag", label: "Datum van vandaag" },
+export const BRONGROEPEN = [
+  {
+    groep: "Cliënt",
+    items: [
+      { key: "klantnaam", label: "Naam cliënt" },
+      { key: "kvk", label: "KvK-nummer" },
+      { key: "bsn", label: "Bsn / fiscaal nummer" },
+      { key: "btwnummer", label: "Btw-nummer (volledig)" },
+      // Formulieren splitsen deze nummers vaak: het deel vóór de letter en het subnummer erna
+      // krijgen elk hun eigen hokjes. De Belastingdienst noemt het deel vóór de B zelf "RSIN of
+      // fiscaal nummer" — zie vraag 1c van de Melding Loonheffingen.
+      { key: "rsin", label: "RSIN (deel vóór de B)" },
+      { key: "btwsubnummer", label: "Btw-subnummer (na de B)" },
+      { key: "loonheffingsnummer", label: "Loonheffingennummer (volledig)" },
+      { key: "loonheffingsnummerdeel", label: "Loonheffingennummer (vóór de L)" },
+      { key: "loonheffingssubnummer", label: "Loonheffingen-subnummer (na de L)" },
+      { key: "adres", label: "Adres (één regel)" },
+      { key: "straat", label: "Straat en huisnummer" },
+      // Veel formulieren hebben een apart hokje voor het huisnummer en nog een klein hokje voor de
+      // toevoeging. Daarom staan de adresdelen hier ook los.
+      { key: "straatnaam", label: "Alleen straatnaam" },
+      { key: "huisnummer", label: "Huisnummer" },
+      { key: "toevoeging", label: "Toevoeging huisnummer" },
+      { key: "huisnummertoevoeging", label: "Huisnummer + toevoeging" },
+      { key: "postcode", label: "Postcode" },
+      { key: "plaats", label: "Vestigingsplaats" },
+      { key: "land", label: "Land" },
+    ],
+  },
+  {
+    groep: "Contactpersoon",
+    items: [
+      { key: "contactnaam", label: "Naam contactpersoon" },
+      { key: "contactemail", label: "E-mail contactpersoon" },
+      { key: "contacttelefoon", label: "Telefoon contactpersoon" },
+    ],
+  },
+  {
+    // Ons eigen kantoor. Formulieren vragen die vaak als gemachtigde of correspondentieadres — op de
+    // Melding Loonheffingen is dat een blok van acht vakjes. Deze waarden komen uit
+    // Beheer → Instellingen → afzendergegevens, dus je vult ze één keer in.
+    groep: "Ons kantoor",
+    items: [
+      { key: "kantoornaam", label: "Naam ons kantoor" },
+      { key: "beconnummer", label: "Beconnummer" },
+      { key: "kantooradres", label: "Adres (één regel)" },
+      { key: "kantoorstraatnaam", label: "Alleen straatnaam" },
+      { key: "kantoorhuisnummer", label: "Huisnummer" },
+      { key: "kantoortoevoeging", label: "Toevoeging huisnummer" },
+      { key: "kantoorpostcode", label: "Postcode" },
+      { key: "kantoorplaats", label: "Plaats" },
+      { key: "kantoortelefoon", label: "Telefoon" },
+      { key: "kantooremail", label: "E-mail" },
+      { key: "kantoorkvk", label: "KvK-nummer" },
+      { key: "kantoorbtw", label: "Btw-nummer" },
+    ],
+  },
+  { groep: "Overig", items: [{ key: "vandaag", label: "Datum van vandaag" }] },
 ];
+
+/** Platte lijst met de lege keuze vooraan — voor code die niet in groepen denkt. */
+export const BRONNEN = [{ key: "", label: "— niet automatisch —" }, ...BRONGROEPEN.flatMap((g) => g.items)];
 
 const SOORT_LABEL = { tekst: "Tekst", memo: "Tekst (lang)", datum: "Datum", keuze: "Keuze", vink: "Aankruisvak", keuzelijst: "Keuzelijst" };
 
@@ -46,6 +94,65 @@ function veiligeStr(v) { return String(v == null ? "" : v).trim(); }
 /** Een leesbaar label voor een veld: wat de beheerder instelde, anders de tooltip, anders de veldnaam. */
 export function veldLabel(veld, eigen) {
   return veiligeStr(eigen && eigen.label) || veiligeStr(veld.tip) || veiligeStr(veld.naam);
+}
+
+/**
+ * "Toon alleen als …" onder een veld. Papieren formulieren springen: "Nee. Ga verder met vraag 3e".
+ * Hier koppel je het overgeslagen blok aan de vraag die erover beslist. Kies eerst de stuurvraag,
+ * dan bij welke antwoorden dit veld gesteld moet worden.
+ *
+ * Zolang je nog geen antwoord hebt aangevinkt blijft het veld gewoon zichtbaar — een vraag die per
+ * ongeluk verdwijnt is vervelender dan een vraag die te veel gesteld wordt.
+ */
+function Voorwaarde({ veld, eigen, stuurVelden, instellingen, onZet }) {
+  const toonAls = (eigen && eigen.toonAls) || {};
+  const keuzes = stuurVelden.filter((s) => s.naam !== veld.naam);
+  if (!keuzes.length) return null;
+  const stuur = keuzes.find((s) => s.naam === toonAls.veld) || null;
+  const gekozen = Array.isArray(toonAls.opties) ? toonAls.opties.map(Number) : [];
+  const labels = antwoordLabels(stuur);
+
+  const wissel = (i) => {
+    const nieuw = gekozen.includes(i) ? gekozen.filter((n) => n !== i) : [...gekozen, i].sort((a, b) => a - b);
+    onZet({ veld: stuur.naam, opties: nieuw });
+  };
+
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 5, marginTop: 4, fontSize: 10.5, color: KLEUR.mutedTekst }}>
+      <span>Toon alleen als</span>
+      <select
+        value={stuur ? stuur.naam : ""}
+        onChange={(e) => onZet(e.target.value ? { veld: e.target.value, opties: [] } : null)}
+        style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 6, padding: "2px 5px", fontSize: 10.5, fontFamily: "inherit", maxWidth: 260, color: KLEUR.subtekst }}
+      >
+        <option value="">— altijd tonen —</option>
+        {keuzes.map((s) => (
+          <option key={s.naam} value={s.naam}>
+            {veldLabel(s, instellingen[s.naam]).slice(0, 70)}
+          </option>
+        ))}
+      </select>
+      {stuur && labels.map((label, i) => {
+        const aan = gekozen.includes(i);
+        return (
+          <button
+            key={i}
+            onClick={() => wissel(i)}
+            title={label}
+            style={{
+              padding: "2px 8px", borderRadius: 999, fontSize: 10.5, fontWeight: 600, cursor: "pointer",
+              maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              border: `1px solid ${aan ? KLEUR.blauw : KLEUR.rand}`,
+              background: aan ? KLEUR.blauw : "#fff", color: aan ? "#fff" : KLEUR.subtekst,
+            }}
+          >
+            {label}
+          </button>
+        );
+      })}
+      {stuur && !gekozen.length && <span style={{ color: KLEUR.goud }}>kies nog bij welk antwoord</span>}
+    </div>
+  );
 }
 
 export default function FormulierenBeheer() {
@@ -209,6 +316,7 @@ export default function FormulierenBeheer() {
             const uit = open === f.id;
             const inst = (f.instellingen && typeof f.instellingen === "object") ? f.instellingen : {};
             const teVragen = (f.velden || []).filter((v) => !v.automatisch);
+            const stuurVelden = stuurbareVelden(f.velden || []);
             const verborgen = teVragen.filter((v) => inst[v.naam] && inst[v.naam].verborgen).length;
             return (
               <div key={f.id} style={{ border: `1px solid ${KLEUR.rand}`, borderRadius: 10, background: "#fff", overflow: "hidden" }}>
@@ -257,6 +365,13 @@ export default function FormulierenBeheer() {
                               {v.max ? ` · ${v.max} tekens` : ""}
                               {(v.opties || []).length ? ` · ${v.opties.join(" / ")}` : ""}
                             </div>
+                            <Voorwaarde
+                              veld={v}
+                              eigen={eigen}
+                              stuurVelden={stuurVelden}
+                              instellingen={inst}
+                              onZet={(toonAls) => bewaarInstellingen(f, { ...inst, [v.naam]: { ...eigen, toonAls } })}
+                            />
                           </div>
                           <div style={{ width: 86, flexShrink: 0, fontSize: 11.5, color: KLEUR.subtekst }}>{SOORT_LABEL[v.soort] || v.soort}</div>
                           {/* Automatisch vullen kan alleen bij tekstvelden; bij een keuze of een
@@ -269,7 +384,12 @@ export default function FormulierenBeheer() {
                                 style={{ ...invoer, padding: "5px 7px", fontSize: 12 }}
                                 title="Waarmee dit veld automatisch gevuld wordt bij het invullen"
                               >
-                                {BRONNEN.map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}
+                                <option value="">— niet automatisch —</option>
+                                {BRONGROEPEN.map((g) => (
+                                  <optgroup key={g.groep} label={g.groep}>
+                                    {g.items.map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}
+                                  </optgroup>
+                                ))}
                               </select>
                             ) : (
                               <span style={{ fontSize: 11, color: KLEUR.mutedTekst }}>—</span>

@@ -32,6 +32,11 @@ const BELASTINGKANTOOR_VELD = process.env.DYNAMICS_KLANT_BELASTINGKANTOOR_VELD |
 // Loonheffingsnummer + BTW-nummer op de account — o.a. voor de brief-merge-velden (Beheer → Brieven).
 const LOONHEFFINGSNUMMER_VELD = process.env.DYNAMICS_KLANT_LOONHEFFINGSNUMMER_VELD || "cr283_loonheffingsnummer";
 const BTWNUMMER_VELD = process.env.DYNAMICS_KLANT_BTWNUMMER_VELD || "sk_btwnummer";
+// Bsn of fiscaal nummer op de account — voor formulieren die daar apart om vragen (Melding
+// Loonheffingen vraag 1c/1e). Bewust ZONDER standaardwaarde: Dynamics laat een $select op een
+// kolom die niet bestaat de hele opvraag mislukken, en dan zou het klantoverzicht leeg blijven.
+// Zet DYNAMICS_KLANT_BSN_VELD pas in de app-instellingen zodra de kolom er is.
+const BSN_VELD = process.env.DYNAMICS_KLANT_BSN_VELD || "";
 // Navigatie-eigenschap van de secundaire contactpersoon (lookup naar contact).
 const SECUNDAIR_NAV = process.env.DYNAMICS_KLANT_SECUNDAIRCONTACT_NAV || "cr283_Secundairecontactpersoon";
 
@@ -51,7 +56,7 @@ async function haalAlleKlanten(resource, token, extraKolommen, inclusiefZonderCo
     "address1_line1", "cr283_huisnummer", "cr283_huisnummertoevoeging",
     "address1_postalcode", "address1_city", "address1_country",
     "emailaddress1", "telephone1",
-    LOONHEFFINGSNUMMER_VELD, BTWNUMMER_VELD,
+    LOONHEFFINGSNUMMER_VELD, BTWNUMMER_VELD, BSN_VELD,
     ...keuzeVelden,
     ...lookupVelden.map((v) => `_${v}_value`),
     `_${RELATIEBEHEERDER_ATTR}_value`, `_${ACCOUNTANT_ATTR}_value`,
@@ -225,6 +230,7 @@ module.exports = async function (context, req) {
         kvk: a[KVK_VELD] || "",
         loonheffingsnummer: a[LOONHEFFINGSNUMMER_VELD] || "",
         btwnummer: a[BTWNUMMER_VELD] || "",
+        bsn: (BSN_VELD && a[BSN_VELD]) || "",
         sharepointUrl: a[SHAREPOINT_VELD] || "",
         relatiebeheerder: rb ? rb.fullname || "" : "",
         accountant: acc ? acc.fullname || "" : "",

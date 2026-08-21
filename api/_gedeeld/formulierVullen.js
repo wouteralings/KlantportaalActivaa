@@ -9,6 +9,7 @@
  * bijstellen. Een handtekening zetten blijft handwerk; die kan een PDF-formulier niet voor je doen.
  */
 const { PDFDocument, PDFName, PDFNumber } = require("pdf-lib");
+const { zichtbareVeldnamen } = require("./formulierVoorwaarden");
 
 const VERBORGEN = 2; // /F bit 2 — zie _gedeeld/formulieren.js
 const AFDRUKKEN = 4; // /F bit 3
@@ -115,8 +116,10 @@ function zetKeuzelijst(form, naam, waarde) {
  * Vult het formulier. `velden` is de uitgelezen lijst uit de definitie, `instellingen` wat de
  * beheerder per veld heeft ingesteld (label, verbergen, soort), en `antwoorden` is veldnaam → waarde.
  *
- * Een veld dat in Beheer op "verbergen" staat wordt NIET gevuld, ook niet als er een oude waarde in
- * de antwoorden staat: wat je niet in beeld hebt gehad, hoort niet op papier te komen.
+ * Een veld dat niet gevraagd is wordt NIET gevuld, ook niet als er een oude waarde in de antwoorden
+ * staat: wat je niet in beeld hebt gehad, hoort niet op papier te komen. Dat geldt voor velden die in
+ * Beheer op verbergen staan én voor velden achter een voorwaarde die nu niet klopt — zet je vraag 1a
+ * om van Nee naar Ja, dan blijft het blok dat aan "Nee" hing leeg.
  */
 async function vulFormulier(pdfBuffer, { velden, instellingen, antwoorden }) {
   const doc = await PDFDocument.load(pdfBuffer);
@@ -125,14 +128,20 @@ async function vulFormulier(pdfBuffer, { velden, instellingen, antwoorden }) {
   const a = antwoorden && typeof antwoorden === "object" ? antwoorden : {};
 
   const lijst = Array.isArray(velden) ? velden : [];
+  // Welke vragen op dit moment gesteld worden — verbergen én de voorwaarden ("toon alleen als vraag
+  // 1a op Nee staat") zitten hierin. Wat niet gevraagd is komt niet op papier, ook niet als er ooit
+  // een waarde is ingetikt en de stuurvraag daarna is omgezet.
+  const gevraagd = zichtbareVeldnamen(lijst, cfg, a);
   for (const veld of lijst) {
     const eigen = cfg[veld.naam] || {};
-    if (eigen.verborgen === true) continue;
+    if (!veld.automatisch && !gevraagd.has(veld.naam)) continue;
     // Een veld dat het formulier zelf zou invullen (alleen-lezen) krijgt zijn waarde van de vraag
     // die de beheerder eraan gekoppeld heeft — zo komt het bsn ook op de tweede pagina te staan.
     if (veld.automatisch) {
       const bronNaam = String(eigen.overnemenVan || "");
-      if (!bronNaam) continue;
+      // Is de vraag waarvan we overnemen zelf niet gesteld (verborgen of achter een voorwaarde die
+      // niet klopt), dan valt hier ook niets over te nemen.
+      if (!bronNaam || !gevraagd.has(bronNaam)) continue;
       const bronVeld = lijst.find((v) => v.naam === bronNaam);
       const overgenomen = a[bronNaam];
       zetTekst(form, veld.naam, bronVeld && bronVeld.soort === "datum" ? datumAlsTekst(overgenomen) : overgenomen);
