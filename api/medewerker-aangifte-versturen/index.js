@@ -67,12 +67,18 @@ function veiligeBestandsnaam(naam) {
   return n;
 }
 
-// Vult {klant}/{jaar} in een sjabloon (taak-onderwerp of pad-segment) en ruimt dubbele/rand-spaties
-// op — zodat een lege {jaar} niet "inkomstenbelasting  klaar" oplevert.
+// Vult de mergevelden in een sjabloon (bestandsnaam, mail-onderwerp/-tekst, taak-onderwerp of
+// pad-segment) en ruimt dubbele/rand-spaties op — zodat een leeg jaar niet
+// "inkomstenbelasting  klaar" oplevert.
+//
+// Schrijfwijze: {{klant}}/{{jaar}}, gelijk aan de brieven-, notulen-, dividend- en
+// contractsjablonen. De oude vorm met één accolade ({klant}/{jaar}) blijft werken, zodat
+// sjablonen die al in Beheer → Dossiers staan niet stilzwijgend stoppen met invullen.
 function vulSjabloonIn(sjabloon, { klant, jaar }) {
+  const waarden = { klant: klant || "", jaar: jaar != null ? String(jaar) : "" };
   return String(sjabloon || "")
-    .replaceAll("{klant}", klant || "")
-    .replaceAll("{jaar}", jaar != null ? String(jaar) : "")
+    .replace(/\{\{\s*(klant|jaar)\s*\}\}/g, (_, sleutel) => waarden[sleutel])
+    .replace(/\{(klant|jaar)\}/g, (_, sleutel) => waarden[sleutel])
     .replace(/\s{2,}/g, " ")
     .trim();
 }

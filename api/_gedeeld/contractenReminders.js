@@ -106,11 +106,22 @@ function formatteerDatum(waarde) {
   return d.toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" });
 }
 
-/** Vervangt {sleutel}-variabelen in een door de beheerder ingevoerde onderwerp-/tekst-sjabloon —
- *  zie de PLACEHOLDERS-lijst in ContractenMailInstellingen.jsx voor welke variabelen beschikbaar
- *  zijn. Een onbekende {sleutel} blijft ongewijzigd staan i.p.v. te verdwijnen. */
+/** Vervangt mergevelden in een door de beheerder ingevoerde onderwerp-/tekst-sjabloon — zie de
+ *  PLACEHOLDERS-lijst in ContractenMailInstellingen.jsx voor welke variabelen beschikbaar zijn.
+ *
+ *  Schrijfwijze: {{sleutel}}, gelijk aan de brieven-, notulen-, dividend- en liquidatie-sjablonen
+ *  (zie o.a. src/medewerker/dossierMerge.js). Contracten gebruikte hier als enige {sleutel} met
+ *  één accolade; die vorm blijft werken zodat sjablonen die al bij een klant staan niet stilletjes
+ *  kapotgaan — maar overal in de schermen staat nu de dubbele vorm.
+ *
+ *  Een onbekende sleutel blijft ongewijzigd staan i.p.v. te verdwijnen: dat is voor de beheerder
+ *  zichtbaar in de proefmail, terwijl een leeg gat pas bij de klant zou opvallen. */
 function vulPlaceholdersIn(tekst, waarden) {
-  return String(tekst || "").replace(/\{(\w+)\}/g, (heel, sleutel) => (waarden[sleutel] != null && waarden[sleutel] !== "" ? String(waarden[sleutel]) : heel));
+  const vervang = (heel, sleutel) =>
+    waarden[sleutel] != null && waarden[sleutel] !== "" ? String(waarden[sleutel]) : heel;
+  return String(tekst || "")
+    .replace(/\{\{\s*(\w+)\s*\}\}/g, vervang)
+    .replace(/\{(\w+)\}/g, vervang);
 }
 
 /**

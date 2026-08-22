@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import {
   Building2,
   Search,
@@ -425,29 +425,61 @@ function klantAdresRegels(klant) {
 // Claude), en valt anders automatisch terug op de eigen Azure Function
 // (/api/offertes-instellingen) — zo werkt hetzelfde bestand zowel hier als live op Azure.
 // ---------------------------------------------------------------------------
-async function opslagGet(sleutel) {
-  if (typeof window !== "undefined" && window.storage) {
-    try {
-      const resultaat = await window.storage.get(sleutel, false);
-      return resultaat?.value;
-    } catch (e) {
-      return undefined;
-    }
-  }
-  try {
-    const res = await fetch(`/api/offertes-instellingen/${encodeURIComponent(sleutel)}`);
-    if (!res.ok) return undefined;
-    const data = await res.json();
-    return data.value;
-  } catch (e) {
-    return undefined;
-  }
+// Sleutels waarvan het lézen mislukt is. Zolang een sleutel hierin staat is zijn "geladen"-
+// vlag bewust op false blijven staan, zodat de bijbehorende bewaar-useEffect niets wegschrijft.
+// Zie de waarschuwingsbalk bovenaan Instellingen (OpslagLeesfoutBalk).
+const opslagLeesfouten = new Set();
+let meldLeesfoutAanScherm = null;
+function meldOpslagLeesfout(sleutel, fout) {
+  opslagLeesfouten.add(sleutel);
+  console.error(`Instelling "${sleutel}" kon niet gelezen worden — er wordt nu bewust niets opgeslagen voor deze sleutel:`, fout);
+  if (meldLeesfoutAanScherm) meldLeesfoutAanScherm([...opslagLeesfouten]);
 }
 
+/**
+ * Leest één instelling. Belangrijk onderscheid, want hier ging het eerder mis:
+ *
+ *   - `undefined`  = er staat (nog) niets opgeslagen (HTTP 404). Veilig: de beginwaarde blijft
+ *                    staan en mag straks gewoon bewaard worden.
+ *   - een fout     = het lézen is mislukt (netwerkfout, 403 na een sessie-hik, 500). Dit is NIET
+ *                    hetzelfde als "leeg". Vroeger gaf deze functie ook dan `undefined` terug,
+ *                    waarna de aanroeper zijn "geladen"-vlag toch op true zette en de bewaar-
+ *                    useEffect de lege beginwaarde over de goede opslag heen schreef. Eén
+ *                    mislukte GET wiste zo definitief een instelling (zo verdwenen de
+ *                    standaardteksten). Daarom gooit dit nu, en slaan de aanroepers over.
+ */
+async function opslagGet(sleutel) {
+  if (typeof window !== "undefined" && window.storage) {
+    const resultaat = await window.storage.get(sleutel, false);
+    if (resultaat?.value !== undefined) opslagLaatstBekend[sleutel] = resultaat.value;
+    return resultaat?.value;
+  }
+  const res = await fetch(`/api/offertes-instellingen/${encodeURIComponent(sleutel)}`);
+  if (res.status === 404) return undefined; // nog nooit opgeslagen — geen fout
+  if (!res.ok) {
+    const foutdata = await res.json().catch(() => null);
+    throw new Error(foutdata?.error || `HTTP ${res.status}`);
+  }
+  const data = await res.json();
+  opslagLaatstBekend[sleutel] = data.value;
+  return data.value;
+}
+
+/**
+ * Laatst gelezen/geschreven waarde per sleutel. Hiermee slaan we een opslag-actie over die
+ * niets verandert. Dat scheelt niet alleen verkeer: direct ná het laden vuurt elke "bewaar
+ * zodra er iets wijzigt"-useEffect één keer met exact de waarde die er al stond, en juist die
+ * overbodige schrijfactie was het gereedschap waarmee een mislukte GET een instelling kon
+ * wissen. Wat niet geschreven wordt, kan niets kapotmaken.
+ */
+const opslagLaatstBekend = {};
+
 async function opslagSet(sleutel, waarde, { keepalive = false } = {}) {
+  if (opslagLaatstBekend[sleutel] === waarde) return;
   if (typeof window !== "undefined" && window.storage) {
     try {
       await window.storage.set(sleutel, waarde, false);
+      opslagLaatstBekend[sleutel] = waarde;
     } catch (e) {
       console.error("Opslaan mislukt:", e); // wijziging blijft wel zichtbaar voor deze sessie
     }
@@ -463,7 +495,9 @@ async function opslagSet(sleutel, waarde, { keepalive = false } = {}) {
     if (!res.ok) {
       const foutdata = await res.json().catch(() => null);
       console.error("Opslaan mislukt:", foutdata?.detail || foutdata?.error || `HTTP ${res.status}`);
+      return;
     }
+    opslagLaatstBekend[sleutel] = waarde;
   } catch (e) {
     console.error("Opslaan mislukt:", e); // wijziging blijft wel zichtbaar voor deze sessie
   }
@@ -814,6 +848,44 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
   // Medewerker opgeruimd. Beide modi gebruiken hetzelfde component en dus dezelfde state en
   // API-aanroepen — er is niets gedupliceerd.
   const beheerModus = modus === "beheer";
+
+  // Instellingen waarvan het lezen mislukte — die worden bewust niet meer bewaard (zie
+  // opslagGet/meldOpslagLeesfout hierboven). We tonen dat bovenaan Instellingen, want stil
+  // falen is precies hoe de standaardteksten ongemerkt leeg raakten.
+  // Welke hoofdstukken op het Instellingen-scherm openstaan. Standaard alles dicht, zodat je
+  // het overzicht ziet i.p.v. één lange rol. De keuze wordt per browser onthouden.
+  const [openHoofdstukken, setOpenHoofdstukken] = useState(() => {
+    try {
+      const bewaard = window.localStorage.getItem("ot-instellingen-open");
+      const lijst = bewaard ? JSON.parse(bewaard) : [];
+      return new Set(Array.isArray(lijst) ? lijst : []);
+    } catch (e) {
+      return new Set();
+    }
+  });
+  const wisselHoofdstuk = useCallback((sleutel) => {
+    setOpenHoofdstukken((huidig) => {
+      const nieuw = new Set(huidig);
+      if (nieuw.has(sleutel)) nieuw.delete(sleutel);
+      else nieuw.add(sleutel);
+      try {
+        window.localStorage.setItem("ot-instellingen-open", JSON.stringify([...nieuw]));
+      } catch (e) {
+        // localStorage kan geblokkeerd zijn (privémodus) — dan geldt de keuze alleen deze sessie
+      }
+      return nieuw;
+    });
+  }, []);
+
+  const [opslagLeesfoutSleutels, setOpslagLeesfoutSleutels] = useState([]);
+  useEffect(() => {
+    meldLeesfoutAanScherm = setOpslagLeesfoutSleutels;
+    if (opslagLeesfouten.size) setOpslagLeesfoutSleutels([...opslagLeesfouten]);
+    return () => {
+      meldLeesfoutAanScherm = null;
+    };
+  }, []);
+
   const [stap, setStap] = useState(beheerModus ? "instellingen" : "klant");
   const [terugNaarStap, setTerugNaarStap] = useState(beheerModus ? "instellingen" : "klant");
   const [ingelogd, setIngelogd] = useState(false);
@@ -922,7 +994,11 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
           setAfzender(JSON.parse(waarde));
         }
       } catch (e) {
-        // nog geen afzendergegevens opgeslagen, of opslag niet beschikbaar
+        // Lezen mislukt (netwerk, 403, kapotte JSON). NIET op 'geladen' zetten: de bewaar-
+        // useEffect hieronder zou anders de lege beginwaarde over de goede opslag heen
+        // schrijven — precies hoe de standaardteksten eerder verdwenen.
+        meldOpslagLeesfout("afzender", e);
+        return;
       }
       if (actief) setAfzenderGeladen(true);
     })();
@@ -999,10 +1075,13 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
           setOpdrachtbevestigingInleiding(waarde);
         }
       } catch (e) {
-        // nog niets opgeslagen, standaardtekst blijft staan
-      } finally {
-        if (actief) setOpdrachtbevestigingInleidingGeladen(true);
+        // Lezen mislukt (netwerk, 403, kapotte JSON). NIET op 'geladen' zetten: de bewaar-
+        // useEffect hieronder zou anders de lege beginwaarde over de goede opslag heen
+        // schrijven — precies hoe de standaardteksten eerder verdwenen.
+        meldOpslagLeesfout("inleiding-opdrachtbevestiging", e);
+        return;
       }
+      if (actief) setOpdrachtbevestigingInleidingGeladen(true);
     })();
     return () => {
       actief = false;
@@ -2121,7 +2200,11 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
         const algemeenWaarde = await opslagGet("bijlage-algemeen-opdrachtbevestiging");
         if (actief && algemeenWaarde) setAlgemeneToelichtingOpdrachtbevestiging(algemeenWaarde);
       } catch (e) {
-        // nog niets opgeslagen, of opslag niet beschikbaar
+        // Lezen mislukt (netwerk, 403, kapotte JSON). NIET op 'geladen' zetten: de bewaar-
+        // useEffect hieronder zou anders de lege beginwaarde over de goede opslag heen
+        // schrijven — precies hoe de standaardteksten eerder verdwenen.
+        meldOpslagLeesfout("bijlage-algemeen-opdrachtbevestiging", e);
+        return;
       }
       if (actief) setBijlageOpdrachtbevestigingGeladen(true);
     })();
@@ -2161,10 +2244,13 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
           setStandaardMailtekst(waarde);
         }
       } catch (e) {
-        // nog niets opgeslagen, standaardtekst blijft staan
-      } finally {
-        if (actief) setMailtekstGeladen(true);
+        // Lezen mislukt (netwerk, 403, kapotte JSON). NIET op 'geladen' zetten: de bewaar-
+        // useEffect hieronder zou anders de lege beginwaarde over de goede opslag heen
+        // schrijven — precies hoe de standaardteksten eerder verdwenen.
+        meldOpslagLeesfout("mailtekst", e);
+        return;
       }
+      if (actief) setMailtekstGeladen(true);
     })();
     return () => {
       actief = false;
@@ -2197,10 +2283,13 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
           setStandaardMailtekstOpdrachtbevestiging(waarde);
         }
       } catch (e) {
-        // nog niets opgeslagen, standaardtekst blijft staan
-      } finally {
-        if (actief) setMailtekstOpdrachtbevestigingGeladen(true);
+        // Lezen mislukt (netwerk, 403, kapotte JSON). NIET op 'geladen' zetten: de bewaar-
+        // useEffect hieronder zou anders de lege beginwaarde over de goede opslag heen
+        // schrijven — precies hoe de standaardteksten eerder verdwenen.
+        meldOpslagLeesfout("mailtekst-opdrachtbevestiging", e);
+        return;
       }
+      if (actief) setMailtekstOpdrachtbevestigingGeladen(true);
     })();
     return () => {
       actief = false;
@@ -2224,10 +2313,13 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
         const waarde = await opslagGet("webhook-acceptatie");
         if (actief && waarde) setWebhookAcceptatie(waarde);
       } catch (e) {
-        // nog geen webhook ingesteld
-      } finally {
-        if (actief) setWebhookGeladen(true);
+        // Lezen mislukt (netwerk, 403, kapotte JSON). NIET op 'geladen' zetten: de bewaar-
+        // useEffect hieronder zou anders de lege beginwaarde over de goede opslag heen
+        // schrijven — precies hoe de standaardteksten eerder verdwenen.
+        meldOpslagLeesfout("webhook-acceptatie", e);
+        return;
       }
+      if (actief) setWebhookGeladen(true);
     })();
     return () => {
       actief = false;
@@ -2261,7 +2353,11 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
           }));
         }
       } catch (e) {
-        // nog geen eigen voorwaarden opgeslagen — dan blijft de standaardtekst staan
+        // Lezen mislukt (netwerk, 403, kapotte JSON). NIET op 'geladen' zetten: de bewaar-
+        // useEffect hieronder zou anders de lege beginwaarde over de goede opslag heen
+        // schrijven — precies hoe de standaardteksten eerder verdwenen.
+        meldOpslagLeesfout("algemenevoorwaarden", e);
+        return;
       }
       if (actief) setVoorwaardenGeladen(true);
     })();
@@ -2290,7 +2386,11 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
           setRoadmap(JSON.parse(waarde));
         }
       } catch (e) {
-        // nog geen eigen roadmap opgeslagen — dan blijft de standaardroadmap staan
+        // Lezen mislukt (netwerk, 403, kapotte JSON). NIET op 'geladen' zetten: de bewaar-
+        // useEffect hieronder zou anders de lege beginwaarde over de goede opslag heen
+        // schrijven — precies hoe de standaardteksten eerder verdwenen.
+        meldOpslagLeesfout("roadmap", e);
+        return;
       }
       if (actief) setRoadmapGeladen(true);
     })();
@@ -2341,7 +2441,11 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
           setDienstenCatalogus(JSON.parse(waarde));
         }
       } catch (e) {
-        // nog niets opgeslagen, of opslag niet beschikbaar — dan blijft de standaardcatalogus staan
+        // Lezen mislukt (netwerk, 403, kapotte JSON). NIET op 'geladen' zetten: de bewaar-
+        // useEffect hieronder zou anders de lege beginwaarde over de goede opslag heen
+        // schrijven — precies hoe de standaardteksten eerder verdwenen.
+        meldOpslagLeesfout("dienstencatalogus", e);
+        return;
       }
       if (actief) setCatalogusGeladen(true);
     })();
@@ -2365,7 +2469,11 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
         const waarde = await opslagGet("diensten-categorieen");
         if (actief && waarde) setCategorieen(JSON.parse(waarde));
       } catch (e) {
-        // nog niets opgeslagen, of opslag niet beschikbaar — dan blijven de standaardcategorieën staan
+        // Lezen mislukt (netwerk, 403, kapotte JSON). NIET op 'geladen' zetten: de bewaar-
+        // useEffect hieronder zou anders de lege beginwaarde over de goede opslag heen
+        // schrijven — precies hoe de standaardteksten eerder verdwenen.
+        meldOpslagLeesfout("diensten-categorieen", e);
+        return;
       }
       if (actief) setCategorieenGeladen(true);
     })();
@@ -2390,7 +2498,11 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
           setStandaardTeksten(JSON.parse(waarde));
         }
       } catch (e) {
-        // nog geen standaardteksten opgeslagen, of opslag niet beschikbaar
+        // Lezen mislukt (netwerk, 403, kapotte JSON). NIET op 'geladen' zetten: de bewaar-
+        // useEffect hieronder zou anders de lege beginwaarde over de goede opslag heen
+        // schrijven — precies hoe de standaardteksten eerder verdwenen.
+        meldOpslagLeesfout("standaardteksten", e);
+        return;
       }
       if (actief) setTekstenGeladen(true);
     })();
@@ -2404,6 +2516,77 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
     if (!tekstenGeladen) return;
     opslagSetDebounced("standaardteksten", JSON.stringify(standaardTeksten));
   }, [standaardTeksten, tekstenGeladen]);
+
+  // Standaardteksten terughalen uit eerder gemaakte offertes. Bij het opstellen van een offerte
+  // worden de standaardteksten in díe offerte gekopieerd (algemeneToelichting +
+  // bijlageToelichtingen per dienst); die kopieën staan er dus nog, ook als de instelling zelf
+  // leeg is geraakt. We lopen de offertes van oud naar nieuw langs, zodat de nieuwste tekst per
+  // dienst wint, en vullen alleen wat nu leeg is — bestaande teksten worden nooit overschreven.
+  const [herstelBezig, setHerstelBezig] = useState(false);
+  const [herstelMelding, setHerstelMelding] = useState(null);
+  const standaardTekstenRef = useRef(standaardTeksten);
+  useEffect(() => {
+    standaardTekstenRef.current = standaardTeksten;
+  }, [standaardTeksten]);
+  const herstelStandaardTekstenUitOffertes = useCallback(async () => {
+    setHerstelBezig(true);
+    setHerstelMelding(null);
+    try {
+      const lijst = await offertesLijstOphalen();
+      const opVolgorde = [...lijst].sort((a, b) => new Date(a.aangemaaktOp || 0) - new Date(b.aangemaaktOp || 0));
+      let algemeenGevonden = "";
+      const perDienstGevonden = {};
+      let mislukt = 0;
+      for (const rij of opVolgorde) {
+        let record = null;
+        try {
+          record = await offerteOphalen(rij.id);
+        } catch (e) {
+          mislukt += 1;
+          continue;
+        }
+        const data = (record && record.data) || {};
+        if (typeof data.algemeneToelichting === "string" && data.algemeneToelichting.trim()) {
+          algemeenGevonden = data.algemeneToelichting;
+        }
+        for (const [dienstId, tekst] of Object.entries(data.bijlageToelichtingen || {})) {
+          if (typeof tekst === "string" && tekst.trim()) perDienstGevonden[dienstId] = tekst;
+        }
+      }
+
+      // Bewust buiten de state-updater samenvoegen: een updater draait pas later (en in
+      // StrictMode zelfs twee keer), dus tellen dáárin geeft een melding die niet klopt met
+      // wat er werkelijk is bijgevuld.
+      const huidig = standaardTekstenRef.current || { algemeen: "", perDienst: {} };
+      const perDienst = { ...(huidig.perDienst || {}) };
+      let bijgevuldDiensten = 0;
+      for (const [dienstId, tekst] of Object.entries(perDienstGevonden)) {
+        const bestaand = perDienst[dienstId];
+        if (typeof bestaand === "string" && bestaand.trim()) continue;
+        perDienst[dienstId] = tekst;
+        bijgevuldDiensten += 1;
+      }
+      const huidigAlgemeen = typeof huidig.algemeen === "string" ? huidig.algemeen : "";
+      const bijgevuldAlgemeen = !huidigAlgemeen.trim() && Boolean(algemeenGevonden);
+      const algemeen = huidigAlgemeen.trim() ? huidigAlgemeen : algemeenGevonden;
+      if (bijgevuldAlgemeen || bijgevuldDiensten) setStandaardTeksten({ ...huidig, algemeen, perDienst });
+
+      const delen = [];
+      if (bijgevuldAlgemeen) delen.push("de algemene toelichting");
+      if (bijgevuldDiensten) delen.push(`${bijgevuldDiensten} tekst${bijgevuldDiensten === 1 ? "" : "en"} per dienst`);
+      setHerstelMelding({
+        soort: delen.length ? "goed" : "leeg",
+        tekst: delen.length
+          ? `Teruggehaald uit ${opVolgorde.length} offerte${opVolgorde.length === 1 ? "" : "s"}: ${delen.join(" en ")}. Loop het hieronder na en pas aan waar nodig — het wordt automatisch bewaard.`
+          : `Niets bijgevuld. Er is in ${opVolgorde.length} offerte${opVolgorde.length === 1 ? "" : "s"} geen tekst gevonden die hier nog ontbreekt.` +
+            (mislukt ? ` (${mislukt} offerte${mislukt === 1 ? "" : "s"} kon niet gelezen worden.)` : ""),
+      });
+    } catch (e) {
+      setHerstelMelding({ soort: "fout", tekst: `Terughalen mislukt: ${e.message || e}` });
+    } finally {
+      setHerstelBezig(false);
+    }
+  }, []);
 
   // opdrachttypes: zelf te beheren lijst van NV COS-opdrachttypes, net als de dienstencatalogus.
   const [opdrachttypes, setOpdrachttypes] = useState(INITIAL_OPDRACHTTYPES);
@@ -2419,7 +2602,11 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
         const waarde = await opslagGet("opdrachttypes");
         if (actief && waarde) setOpdrachttypes(JSON.parse(waarde));
       } catch (e) {
-        // nog niets opgeslagen — dan blijft de standaardset staan
+        // Lezen mislukt (netwerk, 403, kapotte JSON). NIET op 'geladen' zetten: de bewaar-
+        // useEffect hieronder zou anders de lege beginwaarde over de goede opslag heen
+        // schrijven — precies hoe de standaardteksten eerder verdwenen.
+        meldOpslagLeesfout("opdrachttypes", e);
+        return;
       }
       if (actief) setOpdrachttypesGeladen(true);
     })();
@@ -2446,7 +2633,11 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
         const waarde = await opslagGet("opdrachtbevestiging-teksten");
         if (actief && waarde) setOpdrachtbevestigingTeksten(JSON.parse(waarde));
       } catch (e) {
-        // nog niets opgeslagen — dan blijft de standaardset staan
+        // Lezen mislukt (netwerk, 403, kapotte JSON). NIET op 'geladen' zetten: de bewaar-
+        // useEffect hieronder zou anders de lege beginwaarde over de goede opslag heen
+        // schrijven — precies hoe de standaardteksten eerder verdwenen.
+        meldOpslagLeesfout("opdrachtbevestiging-teksten", e);
+        return;
       }
       if (actief) setOpdrachtbevestigingTekstenGeladen(true);
     })();
@@ -2477,7 +2668,11 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
         const waarde = await opslagGet("opdrachtbevestiging-dienst-teksten");
         if (actief && waarde) setOpdrachtbevestigingDienstTeksten(JSON.parse(waarde));
       } catch (e) {
-        // nog niets opgeslagen
+        // Lezen mislukt (netwerk, 403, kapotte JSON). NIET op 'geladen' zetten: de bewaar-
+        // useEffect hieronder zou anders de lege beginwaarde over de goede opslag heen
+        // schrijven — precies hoe de standaardteksten eerder verdwenen.
+        meldOpslagLeesfout("opdrachtbevestiging-dienst-teksten", e);
+        return;
       }
       if (actief) setOpdrachtbevestigingDienstTekstenGeladen(true);
     })();
@@ -2508,7 +2703,11 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
         const waarde = await opslagGet("taak-instellingen-offerte");
         if (actief && waarde) setTaakInstellingenOfferte({ ...TAAK_INSTELLINGEN_OFFERTE_DEFAULT, ...JSON.parse(waarde) });
       } catch (e) {
-        // nog niets ingesteld — standaardwaarden blijven staan
+        // Lezen mislukt (netwerk, 403, kapotte JSON). NIET op 'geladen' zetten: de bewaar-
+        // useEffect hieronder zou anders de lege beginwaarde over de goede opslag heen
+        // schrijven — precies hoe de standaardteksten eerder verdwenen.
+        meldOpslagLeesfout("taak-instellingen-offerte", e);
+        return;
       }
       if (actief) setTaakInstellingenOfferteGeladen(true);
     })();
@@ -2536,7 +2735,11 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
           setTaakInstellingenOpdrachtbevestiging({ ...TAAK_INSTELLINGEN_OPDRACHTBEVESTIGING_DEFAULT, ...JSON.parse(waarde) });
         }
       } catch (e) {
-        // nog niets ingesteld — standaardwaarden (uit) blijven staan
+        // Lezen mislukt (netwerk, 403, kapotte JSON). NIET op 'geladen' zetten: de bewaar-
+        // useEffect hieronder zou anders de lege beginwaarde over de goede opslag heen
+        // schrijven — precies hoe de standaardteksten eerder verdwenen.
+        meldOpslagLeesfout("taak-instellingen-opdrachtbevestiging", e);
+        return;
       }
       if (actief) setTaakInstellingenOpdrachtbevestigingGeladen(true);
     })();
@@ -2567,7 +2770,11 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
           setTaakInstellingenVerlopenConcept({ ...TAAK_INSTELLINGEN_VERLOPEN_CONCEPT_DEFAULT, ...JSON.parse(waarde) });
         }
       } catch (e) {
-        // nog niets ingesteld — standaardwaarden (aan) blijven staan
+        // Lezen mislukt (netwerk, 403, kapotte JSON). NIET op 'geladen' zetten: de bewaar-
+        // useEffect hieronder zou anders de lege beginwaarde over de goede opslag heen
+        // schrijven — precies hoe de standaardteksten eerder verdwenen.
+        meldOpslagLeesfout("taak-instellingen-verlopen-concept", e);
+        return;
       }
       if (actief) setTaakInstellingenVerlopenConceptGeladen(true);
     })();
@@ -2595,7 +2802,11 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
         const waarde = await opslagGet("tarieven-instellingen-opdrachtbevestiging");
         if (actief && waarde) setTariefInstellingenOpdrachtbevestiging({ actief: false, ...JSON.parse(waarde) });
       } catch (e) {
-        // nog niets ingesteld — standaardwaarde (uit) blijft staan
+        // Lezen mislukt (netwerk, 403, kapotte JSON). NIET op 'geladen' zetten: de bewaar-
+        // useEffect hieronder zou anders de lege beginwaarde over de goede opslag heen
+        // schrijven — precies hoe de standaardteksten eerder verdwenen.
+        meldOpslagLeesfout("tarieven-instellingen-opdrachtbevestiging", e);
+        return;
       }
       if (actief) setTariefInstellingenOpdrachtbevestigingGeladen(true);
     })();
@@ -2644,7 +2855,11 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
           }
         }
       } catch (e) {
-        // nog niets ingesteld — lege mapping blijft staan (elke dienst valt terug op de standaardkolommen)
+        // Lezen mislukt (netwerk, 403, kapotte JSON). NIET op 'geladen' zetten: de bewaar-
+        // useEffect hieronder zou anders de lege beginwaarde over de goede opslag heen
+        // schrijven — precies hoe de standaardteksten eerder verdwenen.
+        meldOpslagLeesfout("tarieven-kolom-mapping", e);
+        return;
       }
       if (actief) setTariefKolomMappingGeladen(true);
     })();
@@ -2770,10 +2985,13 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
         const waarde = await opslagGet("webhook-opdrachtbevestiging-acceptatie");
         if (actief && waarde) setWebhookOpdrachtbevestiging(waarde);
       } catch (e) {
-        // nog geen webhook ingesteld
-      } finally {
-        if (actief) setWebhookOpdrachtbevestigingGeladen(true);
+        // Lezen mislukt (netwerk, 403, kapotte JSON). NIET op 'geladen' zetten: de bewaar-
+        // useEffect hieronder zou anders de lege beginwaarde over de goede opslag heen
+        // schrijven — precies hoe de standaardteksten eerder verdwenen.
+        meldOpslagLeesfout("webhook-opdrachtbevestiging-acceptatie", e);
+        return;
       }
+      if (actief) setWebhookOpdrachtbevestigingGeladen(true);
     })();
     return () => {
       actief = false;
@@ -3824,6 +4042,14 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
               </div>
             ) : (
               <>
+            <OpslagLeesfoutBalk sleutels={opslagLeesfoutSleutels} />
+
+            <InklapbaarHoofdstuk
+              titel="Algemeen"
+              samenvatting="Logo, bedrijfsgegevens en hoelang een offerte geldig is"
+              open={openHoofdstukken.has("algemeen")}
+              onWissel={() => wisselHoofdstuk("algemeen")}
+            >
             <label className="ot-label" style={{ marginBottom: 2, display: "block", fontSize: 15, fontWeight: 700 }}>
               Logo, favicon en bedrijfsgegevens
             </label>
@@ -3854,9 +4080,13 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
               </div>
             </div>
 
-            <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
-              <span>Webhooks</span>
-            </div>
+            </InklapbaarHoofdstuk>
+            <InklapbaarHoofdstuk
+              titel="Webhooks"
+              samenvatting="Power Automate aanroepen zodra een klant tekent"
+              open={openHoofdstukken.has("webhooks")}
+              onWissel={() => wisselHoofdstuk("webhooks")}
+            >
             <div className="ot-card" style={{ padding: 24 }}>
               <label className="ot-label" style={{ marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}>
                 <Zap size={14} />
@@ -3896,9 +4126,13 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
               />
             </div>
 
-            <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
-              <span>Offerte — taak bij ondertekening</span>
-            </div>
+            </InklapbaarHoofdstuk>
+            <InklapbaarHoofdstuk
+              titel="Offerte — taak bij ondertekening"
+              samenvatting="Welke taak er wordt aangemaakt als een offerte getekend wordt"
+              open={openHoofdstukken.has("taak-offerte")}
+              onWissel={() => wisselHoofdstuk("taak-offerte")}
+            >
             <div className="ot-card" style={{ padding: 24 }}>
               <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13.5, fontWeight: 600, marginBottom: 16, cursor: "pointer" }}>
                 <input
@@ -3943,9 +4177,13 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
               </p>
             </div>
 
-            <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
-              <span>Opdrachtbevestiging — taak bij ondertekening</span>
-            </div>
+            </InklapbaarHoofdstuk>
+            <InklapbaarHoofdstuk
+              titel="Opdrachtbevestiging — taak bij ondertekening"
+              samenvatting="Idem, maar voor een getekende opdrachtbevestiging"
+              open={openHoofdstukken.has("taak-opdrachtbevestiging")}
+              onWissel={() => wisselHoofdstuk("taak-opdrachtbevestiging")}
+            >
             <div className="ot-card" style={{ padding: 24 }}>
               <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13.5, fontWeight: 600, marginBottom: 16, cursor: "pointer" }}>
                 <input
@@ -3982,9 +4220,13 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
               </div>
             </div>
 
-            <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
-              <span>Automatisch concept — taak bij verlopen tarieven</span>
-            </div>
+            </InklapbaarHoofdstuk>
+            <InklapbaarHoofdstuk
+              titel="Automatisch concept — taak bij verlopen tarieven"
+              samenvatting="Taak bij het automatisch klaarzetten van een vervolg"
+              open={openHoofdstukken.has("taak-verlopen")}
+              onWissel={() => wisselHoofdstuk("taak-verlopen")}
+            >
             <div className="ot-card" style={{ padding: 24 }}>
               <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13.5, fontWeight: 600, marginBottom: 16, cursor: "pointer" }}>
                 <input
@@ -4027,9 +4269,13 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
               </div>
             </div>
 
-            <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
-              <span>SharePoint-opslag na ondertekening</span>
-            </div>
+            </InklapbaarHoofdstuk>
+            <InklapbaarHoofdstuk
+              titel="SharePoint-opslag na ondertekening"
+              samenvatting="Waar het getekende stuk terechtkomt"
+              open={openHoofdstukken.has("sharepoint")}
+              onWissel={() => wisselHoofdstuk("sharepoint")}
+            >
             <div className="ot-card" style={{ padding: 24, background: "#F5F6F4" }}>
               <p style={{ fontSize: 12.5, color: "#5B6259", margin: 0 }}>
                 Geen aparte instelling nodig: net als bij offerte wordt de getekende opdrachtbevestiging
@@ -4038,9 +4284,13 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
               </p>
             </div>
 
-            <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
-              <span>Opdrachtbevestiging — tarieven naar Dataverse</span>
-            </div>
+            </InklapbaarHoofdstuk>
+            <InklapbaarHoofdstuk
+              titel="Opdrachtbevestiging — tarieven naar Dataverse"
+              samenvatting="Tarieven wegschrijven bij ondertekening"
+              open={openHoofdstukken.has("tarieven-naar-dataverse")}
+              onWissel={() => wisselHoofdstuk("tarieven-naar-dataverse")}
+            >
             <div className="ot-card" style={{ padding: 24 }}>
               <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13.5, fontWeight: 600, marginBottom: 16, cursor: "pointer" }}>
                 <input
@@ -4060,9 +4310,13 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
               </p>
             </div>
 
-            <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
-              <span>Tarieven — kolom-koppeling in Dataverse</span>
-            </div>
+            </InklapbaarHoofdstuk>
+            <InklapbaarHoofdstuk
+              titel="Tarieven — kolom-koppeling in Dataverse"
+              samenvatting="Naar welke kolommen bedrag en omschrijving gaan"
+              open={openHoofdstukken.has("tarieven-kolommen")}
+              onWissel={() => wisselHoofdstuk("tarieven-kolommen")}
+            >
             <div className="ot-card" style={{ padding: 24 }}>
               <p style={{ fontSize: 12.5, color: "#5B6259", margin: "0 0 16px" }}>
                 Bepaalt per dienst naar welke kolom van de "Tarief"-tabel (cr283_tarief) het bedrag en de
@@ -4154,9 +4408,13 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
               </p>
             </div>
 
-            <div className="ot-cat-koptekst" style={{ marginTop: 34 }}>
-              <span>Tarieven — Dataverse inzien</span>
-            </div>
+            </InklapbaarHoofdstuk>
+            <InklapbaarHoofdstuk
+              titel="Tarieven — Dataverse inzien"
+              samenvatting="Weggeschreven tarieven opzoeken en controleren"
+              open={openHoofdstukken.has("tarieven-inzien")}
+              onWissel={() => wisselHoofdstuk("tarieven-inzien")}
+            >
             <div className="ot-card" style={{ padding: 24, marginBottom: 16 }}>
               <label className="ot-label">Verbinding testen</label>
               <p style={{ fontSize: 12.5, color: "#5B6259", margin: "0 0 12px" }}>
@@ -4269,6 +4527,7 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
                 </div>
               )}
             </div>
+            </InklapbaarHoofdstuk>
 
               </>
             )}
@@ -4636,6 +4895,38 @@ export default function OffertetoolApp({ modus = "medewerker" }) {
               onRoadmap={openRoadmap}
               onOpdrachtbevestigingTeksten={openOpdrachtbevestigingTeksten}
             />
+
+            <OpslagLeesfoutBalk sleutels={opslagLeesfoutSleutels} />
+
+            {/* Terughalen uit eerdere offertes: elke opgestelde offerte bevat een kopie van de
+                standaardteksten van dat moment. Handig als hier iets leeg staat dat er ooit
+                wel stond. Vult alleen lege velden — bestaande teksten blijven ongemoeid. */}
+            <div className="ot-card" style={{ padding: 18, marginBottom: 12, background: "#F5F6F4" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+                <div style={{ minWidth: 260, flex: 1 }}>
+                  <label className="ot-label" style={{ marginBottom: 2 }}>Teksten terughalen uit eerdere offertes</label>
+                  <p style={{ fontSize: 12.5, color: "#5B6259", margin: "4px 0 0" }}>
+                    In elke offerte die u ooit hebt opgesteld staat een kopie van de standaardteksten van dat
+                    moment. Hiermee vult u lege velden hierboven weer met de laatst gebruikte tekst. Wat u nu
+                    hebt ingevuld blijft staan — er wordt nooit iets overschreven.
+                  </p>
+                </div>
+                <button className="ot-btn-secondary" onClick={herstelStandaardTekstenUitOffertes} disabled={herstelBezig}>
+                  {herstelBezig ? "Bezig…" : "Lege velden bijvullen"}
+                </button>
+              </div>
+              {herstelMelding && (
+                <p
+                  style={{
+                    fontSize: 12.5,
+                    margin: "12px 0 0",
+                    color: herstelMelding.soort === "fout" ? "#B3261E" : herstelMelding.soort === "goed" ? "#2E6B3E" : "#5B6259",
+                  }}
+                >
+                  {herstelMelding.tekst}
+                </p>
+              )}
+            </div>
 
             <div style={{ display: "grid", gap: 12 }}>
               <div className="ot-card" style={{ padding: 18 }}>
@@ -8062,6 +8353,78 @@ function StapWrapper({ titel, toelichting, children }) {
 // naar "Voorwaarden beheren" kunt switchen zonder eerst terug te gaan naar
 // Instellingen. Het scherm waar je al op staat wordt gemarkeerd en is niet
 // aanklikbaar.
+/**
+ * Eén inklapbaar hoofdstuk op het Instellingen-scherm — dezelfde manier van doen als de rest
+ * van het beheerportaal: klik op de kop om open/dicht te klappen, chevron draait mee. De hele
+ * kop is de knop, dus ook toetsenbord-bedienbaar. Welke hoofdstukken open staan wordt door de
+ * aanroeper bijgehouden (en onthouden in localStorage), zodat de indeling per medewerker
+ * blijft staan.
+ */
+function InklapbaarHoofdstuk({ titel, samenvatting, open, onWissel, children }) {
+  return (
+    <div
+      className="ot-card"
+      style={{ padding: 0, marginTop: 12, overflow: "hidden" }}
+    >
+      <button
+        type="button"
+        onClick={onWissel}
+        aria-expanded={open}
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "14px 18px",
+          background: open ? "#F5F6F4" : "#fff",
+          border: "none",
+          borderBottom: open ? "1px solid #E2E4DF" : "none",
+          textAlign: "left",
+          cursor: "pointer",
+          font: "inherit",
+        }}
+      >
+        <ChevronDown
+          size={16}
+          style={{ flexShrink: 0, transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform .15s" }}
+        />
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ display: "block", fontSize: 14, fontWeight: 700, color: "#2C312B" }}>{titel}</span>
+          {samenvatting && (
+            <span style={{ display: "block", fontSize: 12, color: "#8A9089", marginTop: 2 }}>{samenvatting}</span>
+          )}
+        </span>
+      </button>
+      {open && <div style={{ padding: 18 }}>{children}</div>}
+    </div>
+  );
+}
+
+/**
+ * Waarschuwing als een instelling niet gelezen kon worden. Zolang dat zo is, wordt die
+ * instelling bewust ook niet bewaard (zie opslagGet): typen mag, maar het verdwijnt bij het
+ * verversen. Dat is met opzet — het alternatief was dat de lege beginwaarde de goede opslag
+ * overschreef, en dat is eerder gebeurd met de standaardteksten.
+ */
+function OpslagLeesfoutBalk({ sleutels }) {
+  if (!sleutels || sleutels.length === 0) return null;
+  return (
+    <div
+      className="ot-card"
+      style={{ padding: 18, marginBottom: 12, background: "#FDECEA", border: "1px solid #F2B8B5" }}
+    >
+      <label className="ot-label" style={{ marginBottom: 2, color: "#B3261E" }}>
+        Let op — instellingen konden niet geladen worden
+      </label>
+      <p style={{ fontSize: 12.5, color: "#5B6259", margin: "4px 0 0" }}>
+        Het ophalen van {sleutels.map((s) => `"${s}"`).join(", ")} is mislukt. Om te voorkomen dat een lege
+        pagina uw opgeslagen instelling overschrijft, wordt hier voorlopig <strong>niets bewaard</strong>.
+        Ververs de pagina; blijft dit staan, meld het dan even — wijzigingen die u nu maakt gaan verloren.
+      </p>
+    </div>
+  );
+}
+
 function OverigBeheerBalk({ actief, onCatalogus, onTeksten, onVoorwaarden, onRoadmap, onOpdrachtbevestigingTeksten }) {
   const items = [
     { key: "catalogus", label: "Diensten beheren", icon: Layers, onClick: onCatalogus },

@@ -8,14 +8,16 @@ const invoerStijl = { boxSizing: "border-box", border: `1px solid ${KLEUR.rand}`
 const veldLabelStijl = { fontSize: 11.5, fontWeight: 700, color: KLEUR.subtekst, marginBottom: 4, textTransform: "uppercase", letterSpacing: ".02em" };
 
 /** Welke variabelen in het onderwerp/de tekst hieronder vervangen worden — zie
- *  vulPlaceholdersIn()/maakOnderwerpEnTekst() in api/_gedeeld/contractenReminders.js. */
+ *  vulPlaceholdersIn()/maakOnderwerpEnTekst() in api/_gedeeld/contractenReminders.js.
+ *  Schrijfwijze {{sleutel}}, gelijk aan de brieven-/notulen-/dividendsjablonen. De oude vorm met
+ *  één accolade ({sleutel}) blijft aan de serverkant werken voor teksten die er al staan. */
 const PLACEHOLDERS = [
-  { sleutel: "{klant}", uitleg: "Voornaam van de contactpersoon" },
-  { sleutel: "{contract}", uitleg: "Naam van het contract" },
-  { sleutel: "{leverancier}", uitleg: "Leverancier (indien ingevuld)" },
-  { sleutel: "{einddatum}", uitleg: "Einddatum van het contract" },
-  { sleutel: "{dagen}", uitleg: "Aantal dagen tot de einddatum" },
-  { sleutel: "{opzegtermijn}", uitleg: "Opzegtermijn in dagen (indien ingevuld)" },
+  { sleutel: "{{klant}}", uitleg: "Voornaam van de contactpersoon" },
+  { sleutel: "{{contract}}", uitleg: "Naam van het contract" },
+  { sleutel: "{{leverancier}}", uitleg: "Leverancier (indien ingevuld)" },
+  { sleutel: "{{einddatum}}", uitleg: "Einddatum van het contract" },
+  { sleutel: "{{dagen}}", uitleg: "Aantal dagen tot de einddatum" },
+  { sleutel: "{{opzegtermijn}}", uitleg: "Opzegtermijn in dagen (indien ingevuld)" },
 ];
 
 /**
@@ -102,7 +104,7 @@ export default function ContractenMailInstellingen() {
         <input
           value={onderwerp}
           onChange={(e) => setOnderwerp(e.target.value)}
-          placeholder={'Uw contract "{contract}" verloopt op {einddatum}'}
+          placeholder={'Uw contract "{{contract}}" verloopt op {{einddatum}}'}
           style={{ ...invoerStijl, width: "100%" }}
         />
       </div>
@@ -113,7 +115,7 @@ export default function ContractenMailInstellingen() {
           value={tekst}
           onChange={(e) => setTekst(e.target.value)}
           rows={8}
-          placeholder={"Beste {klant},\n\nUw contract \"{contract}\" verloopt op {einddatum}…"}
+          placeholder={"Beste {{klant}},\n\nUw contract \"{{contract}}\" verloopt op {{einddatum}}…"}
           style={{ ...invoerStijl, width: "100%", resize: "vertical" }}
         />
       </div>
